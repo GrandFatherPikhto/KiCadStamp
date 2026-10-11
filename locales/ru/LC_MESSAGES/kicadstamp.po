@@ -3,7 +3,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version:  kicadstamp\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-11 12:58+0300\n"
+"POT-Creation-Date: 2026-10-11 14:10+0300\n"
 "PO-Revision-Date: 2026-07-27 12:00+0000\n"
 "Last-Translator: \n"
 "Language: ru\n"
@@ -17825,33 +17825,25 @@ msgstr "Материализация компонентов: дерево {tree!
 
 #: kicadstamp/placement/planner.py:61
 #, python-brace-format
-msgid "Planner initialised: layer={layer}, anchors in chains: {anchors}"
-msgstr "Планировщик инициализирован: layer={layer}, якорей в chains: {anchors}"
+msgid "Planner initialised: layer={layer}"
+msgstr ""
 
-#: kicadstamp/placement/planner.py:140
-msgid "chains is empty — no ManualSpoke components/vias/tracks planned"
-msgstr "chains пуст — компоненты/via/треки ManualSpoke не планируются"
-
-#: kicadstamp/placement/planner.py:142
-msgid "place_components=False – component moves are not planned"
-msgstr "place_components=False – перемещения компонентов не планируются"
-
-#: kicadstamp/placement/planner.py:150
+#: kicadstamp/placement/planner.py:131
 #, python-brace-format
 msgid "ClonePlacement: {count} components, {vias} vias, {tracks} tracks"
 msgstr "ClonePlacement: {count} компонентов, {vias} via, {tracks} треков"
 
-#: kicadstamp/placement/planner.py:158
+#: kicadstamp/placement/planner.py:138
 #, python-brace-format
 msgid "plan_moves completed: {count} moves"
 msgstr "plan_moves завершён: {count} перемещений"
 
-#: kicadstamp/placement/planner.py:195
+#: kicadstamp/placement/planner.py:175
 #, python-brace-format
 msgid "net_traces: {count} vias planned"
 msgstr "net_traces: спланировано переходных отверстий: {count}"
 
-#: kicadstamp/placement/planner.py:212
+#: kicadstamp/placement/planner.py:192
 #, python-brace-format
 msgid "net_traces: {count} tracks planned"
 msgstr "net_traces: спланировано дорожек: {count}"
@@ -19588,4 +19580,13 @@ msgstr "Всего спиц: {count}"
 
 #~ msgid "dependency cycle among chains/clone_placements"
 #~ msgstr "цикл зависимостей среди chains/clone_placements"
+
+#~ msgid "Planner initialised: layer={layer}, anchors in chains: {anchors}"
+#~ msgstr "Планировщик инициализирован: layer={layer}, якорей в chains: {anchors}"
+
+#~ msgid "chains is empty — no ManualSpoke components/vias/tracks planned"
+#~ msgstr "chains пуст — компоненты/via/треки ManualSpoke не планируются"
+
+#~ msgid "place_components=False – component moves are not planned"
+#~ msgstr "place_components=False – перемещения компонентов не планируются"
 

@@ -33,7 +33,7 @@ class PlacementPlanner:
         self.position_overrides = position_overrides or {}
         # Populated as Point items are planned (see plan_item's kind == 'point'
         # branch) — a name -> ResolvedPoint cache, consulted by anchor_point:
-        # on Rule/ClonePlacement/ThermalViaArrayConfig. Passed BY REFERENCE
+        # on ClonePlacement/ThermalViaArrayConfig. Passed BY REFERENCE
         # into the calculators below so they see it live-updated as the run
         # progresses, same freshness discipline as everything else here.
         self.resolved_points: dict[str, ResolvedPoint] = {}
@@ -41,7 +41,7 @@ class PlacementPlanner:
                                                        resolved_points=self.resolved_points)
         self.clone_calc = ClonePositionCalculator(adapter, config, sheet_names=_sn,
                                                    resolved_points=self.resolved_points)
-        # No global target_fp any more: anchors are per‑chain (Chain.anchor_ref / anchor_role)
+        # No global target_fp any more: anchors are per‑record (anchor_ref / anchor_role)
         # and per‑tva; resolved on the spot.
         self._target_layer = BoardLayer.BL_B_Cu if config.layer == 'B.Cu' else BoardLayer.BL_F_Cu
         self._tracker = PositionTracker(adapter, self._target_layer,
@@ -58,9 +58,7 @@ class PlacementPlanner:
         self._net_trace_tracks: list[TrackCommand] | None = None
         self.via_planner = ViaPlanner(adapter, config, sheet_names=_sn,
                                       resolved_points=self.resolved_points)
-        logger.info(_("Planner initialised: layer={layer}, anchors in chains: {anchors}")
-                    .format(layer=config.layer,
-                            anchors=len({c.anchor_ref or c.anchor_role for c in config.chains})))
+        logger.info(_("Planner initialised: layer={layer}").format(layer=config.layer))
 
     def begin_planning(self) -> None:
         """Resets the accumulated plan — call once before either plan_moves()
@@ -74,7 +72,7 @@ class PlacementPlanner:
 
     def plan_item(self, item) -> list[MoveCommand]:
         """
-        Plans ONE dependency_order.Item (rule or clone_placement) against the
+        Plans ONE dependency_order.Item (clone_placement) against the
         board as it is RIGHT NOW — the caller is responsible for calling
         adapter.refresh_board() beforehand if an earlier item in this same run
         may have changed it (see dependency_order.py / cmd_apply's per-item
@@ -94,17 +92,12 @@ class PlacementPlanner:
                                      sheet_names=self.sheet_names)
             self.resolved_points[item.obj.name] = resolved
             return []
-        if item.kind == 'chain':
-            # Bug #5 (2026-08-30): position_overrides MUST be forwarded to the
-            # ManualPositionCalculator too — a tree rigid-group redraw override
-            # replaces the chain's anchor entirely (same semantics as clones),
-            # so a tree-redrawn chain-node follows the tree position instead of
-            # its own anchor_role.
-            placed, vias, tracks = self.position_calc.compute_raw_positions(
-                [item.obj], position_overrides=self.position_overrides)
-        else:
-            placed, vias, tracks = self.clone_calc.compute_raw_positions(
-                [item.obj], position_overrides=self.position_overrides)
+        # position_overrides MUST be forwarded to the calculator too — a tree
+        # rigid-group redraw override replaces the record's anchor entirely, so
+        # a tree-redrawn node follows the tree position instead of its own
+        # anchor_role.
+        placed, vias, tracks = self.clone_calc.compute_raw_positions(
+            [item.obj], position_overrides=self.position_overrides)
         self._planned.extend(placed)
         self._planned_vias.extend(vias)
         self._planned_tracks.extend(tracks)
@@ -129,18 +122,6 @@ class PlacementPlanner:
     def plan_moves(self) -> list[MoveCommand]:
         self.begin_planning()
 
-        if self.cfg.place_components and self.cfg.chains:
-            placed, planned_vias, planned_tracks = self.position_calc.compute_raw_positions(
-                self.cfg.chains
-            )
-            self._planned.extend(placed)
-            self._planned_vias.extend(planned_vias)
-            self._planned_tracks.extend(planned_tracks)
-        elif not self.cfg.chains:
-            logger.debug(_("chains is empty — no ManualSpoke components/vias/tracks planned"))
-        else:
-            logger.info(_("place_components=False – component moves are not planned"))
-
         if self.cfg.clone_placements:
             clone_placed, clone_vias, clone_tracks = self.clone_calc.compute_raw_positions(
                 self.cfg.clone_placements, position_overrides=self.position_overrides)
@@ -150,9 +131,8 @@ class PlacementPlanner:
             logger.info(_("ClonePlacement: {count} components, {vias} vias, {tracks} tracks")
                         .format(count=len(clone_placed), vias=len(clone_vias), tracks=len(clone_tracks)))
 
-        # info.layer — per‑component (ClonePositionCalculator already accounted for
-        # cell.layer/slot.layer/mirror); None — only for ManualSpoke path
-        # (manual_position_calculator.py does not set it), then inherit the global
+        # info.layer — per‑component (ClonePositionCalculator already accounted
+        # for cell.layer/slot.layer/mirror); None entries inherit the global
         # target_layer from config.
         moves = self._tracker.moves_from_placed(self._planned)
         logger.info(_("plan_moves completed: {count} moves").format(count=len(moves)))
@@ -163,7 +143,7 @@ class PlacementPlanner:
         absolute ViaCommand/TrackCommand, anchors resolved LIVE from the
         current board (see net_trace_planner.py). Deliberately called from
         plan_vias/plan_tracks — i.e. AFTER Phase 1 moves + refresh in a real
-        apply, so a Rule/CoordinatePlacement that moved the anchor earlier in
+        apply, so a CoordinatePlacement that moved the anchor earlier in
         this run is followed. Cached: both plan_vias() and plan_tracks() see
         the same commands, and ApplyPipeline hands them to
         adopt_net_trace_copper before reconcile.
@@ -198,8 +178,8 @@ class PlacementPlanner:
 
     def plan_tracks(self) -> list[TrackCommand]:
         """
-        Tracks are planned for both ClonePlacement and ManualSpoke (net=None in
-        TemplateTrack inherits rule.net — see spoke_layout._resolve_track).
+        Tracks are planned for ClonePlacement (net=None in TemplateTrack
+        inherits the record's net — see spoke_layout._resolve_track).
         No keepout/thermal planning here, unlike plan_vias — tracks are not
         moved to avoid collisions; collision checking for long geometry is
         deliberately not done (see discussion), we rely on KiCad DRC after

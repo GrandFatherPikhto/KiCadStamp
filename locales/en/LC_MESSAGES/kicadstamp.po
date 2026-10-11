@@ -3,7 +3,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version:  kicadstamp\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-11 12:58+0300\n"
+"POT-Creation-Date: 2026-10-11 14:10+0300\n"
 "PO-Revision-Date: 2026-07-27 12:00+0000\n"
 "Last-Translator: \n"
 "Language: en\n"
@@ -16931,33 +16931,25 @@ msgstr "Component materialization: tree {tree!r} skipped — {error}"
 
 #: kicadstamp/placement/planner.py:61
 #, python-brace-format
-msgid "Planner initialised: layer={layer}, anchors in chains: {anchors}"
-msgstr "Planner initialised: layer={layer}, anchors in chains: {anchors}"
+msgid "Planner initialised: layer={layer}"
+msgstr ""
 
-#: kicadstamp/placement/planner.py:140
-msgid "chains is empty — no ManualSpoke components/vias/tracks planned"
-msgstr "chains is empty — no ManualSpoke components/vias/tracks planned"
-
-#: kicadstamp/placement/planner.py:142
-msgid "place_components=False – component moves are not planned"
-msgstr "place_components=False – component moves are not planned"
-
-#: kicadstamp/placement/planner.py:150
+#: kicadstamp/placement/planner.py:131
 #, python-brace-format
 msgid "ClonePlacement: {count} components, {vias} vias, {tracks} tracks"
 msgstr "ClonePlacement: {count} components, {vias} vias, {tracks} tracks"
 
-#: kicadstamp/placement/planner.py:158
+#: kicadstamp/placement/planner.py:138
 #, python-brace-format
 msgid "plan_moves completed: {count} moves"
 msgstr "plan_moves completed: {count} moves"
 
-#: kicadstamp/placement/planner.py:195
+#: kicadstamp/placement/planner.py:175
 #, python-brace-format
 msgid "net_traces: {count} vias planned"
 msgstr "net_traces: {count} vias planned"
 
-#: kicadstamp/placement/planner.py:212
+#: kicadstamp/placement/planner.py:192
 #, python-brace-format
 msgid "net_traces: {count} tracks planned"
 msgstr "net_traces: {count} tracks planned"
@@ -18589,4 +18581,13 @@ msgstr "Total spokes: {count}"
 
 #~ msgid "dependency cycle among chains/clone_placements"
 #~ msgstr "dependency cycle among chains/clone_placements"
+
+#~ msgid "Planner initialised: layer={layer}, anchors in chains: {anchors}"
+#~ msgstr "Planner initialised: layer={layer}, anchors in chains: {anchors}"
+
+#~ msgid "chains is empty — no ManualSpoke components/vias/tracks planned"
+#~ msgstr "chains is empty — no ManualSpoke components/vias/tracks planned"
+
+#~ msgid "place_components=False – component moves are not planned"
+#~ msgstr "place_components=False – component moves are not planned"
 
