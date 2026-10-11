@@ -3,7 +3,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version:  kicadstamp\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-11 12:19+0300\n"
+"POT-Creation-Date: 2026-10-11 12:56+0300\n"
 "PO-Revision-Date: 2026-07-27 12:00+0000\n"
 "Last-Translator: \n"
 "Language: ru\n"
@@ -8078,11 +8078,6 @@ msgstr "эти записи образуют цикл через свои анк
 
 #: kicadstamp/apply_pipeline.py:104
 #, python-brace-format
-msgid "Chain {name!r} (net {net!r}): retired=true, skipped entirely"
-msgstr "Цепь {name!r} (цепь {net!r}): retired=true, пропущено целиком"
-
-#: kicadstamp/apply_pipeline.py:128
-#, python-brace-format
 msgid ""
 "ClonePlacement {name!r}: skip=true, skipped this run (existing via/tracks"
 " stay protected)"
@@ -8090,30 +8085,7 @@ msgstr ""
 "ClonePlacement {name!r}: skip=true, пропущен в этом прогоне (существующие"
 " via/треки остаются защищёнными)"
 
-#: kicadstamp/apply_pipeline.py:134
-#, python-brace-format
-msgid ""
-"Chain {name!r}: skip=true, skipped this run (existing via/tracks stay "
-"protected)"
-msgstr ""
-"Цепь {name!r}: skip=true, пропущено в этом прогоне (существующие "
-"via/треки остаются защищёнными)"
-
-#: kicadstamp/apply_pipeline.py:140
-#, python-brace-format
-msgid "Chain {name!r}: spoke on pad {pad} skip=true, skipped this run"
-msgstr "Цепь {name!r}: спица на паде {pad} skip=true, пропущена в этом прогоне"
-
-#: kicadstamp/apply_pipeline.py:145
-#, python-brace-format
-msgid ""
-"Chain {name!r}: no non-skipped spokes left, skipped this run (existing "
-"via/tracks stay protected)"
-msgstr ""
-"Цепь {name!r}: не осталось непропущенных спиц, пропущено в этом прогоне "
-"(существующие via/треки остаются защищёнными)"
-
-#: kicadstamp/apply_pipeline.py:151
+#: kicadstamp/apply_pipeline.py:110
 #, python-brace-format
 msgid ""
 "thermal_via_arrays {name!r}: skip=true, skipped this run (existing vias "
@@ -8122,12 +8094,12 @@ msgstr ""
 "thermal_via_arrays {name!r}: skip=true, пропущен в этом прогоне "
 "(существующие via остаются защищёнными)"
 
-#: kicadstamp/apply_pipeline.py:165
+#: kicadstamp/apply_pipeline.py:124
 #, python-brace-format
 msgid "coordinate_placements {name!r}: retired/skip=true, skipped this run"
 msgstr ""
 
-#: kicadstamp/apply_pipeline.py:177
+#: kicadstamp/apply_pipeline.py:136
 #, python-brace-format
 msgid ""
 "net_traces entry (net {net!r}): skip=true, skipped this run (existing "
@@ -8136,17 +8108,17 @@ msgstr ""
 "запись net_traces (сеть {net!r}): skip=true, пропущена в этом прогоне "
 "(существующая медь остаётся защищённой)"
 
-#: kicadstamp/apply_pipeline.py:254
+#: kicadstamp/apply_pipeline.py:210
 #, python-brace-format
 msgid "--only {token!r}: resolved to the single record {full!r} by its short name"
 msgstr "--only {token!r}: найдена единственная запись {full!r} по короткому имени"
 
-#: kicadstamp/apply_pipeline.py:264
+#: kicadstamp/apply_pipeline.py:220
 #, python-brace-format
 msgid "  {token!r} matches {count} records by its short name: {full}"
 msgstr "  {token!r} совпадает с {count} записями по короткому имени: {full}"
 
-#: kicadstamp/apply_pipeline.py:267
+#: kicadstamp/apply_pipeline.py:223
 #, python-brace-format
 msgid ""
 "[error] --only: ambiguous short name(s):\n"
@@ -8157,21 +8129,21 @@ msgstr ""
 "{lines}\n"
 "Укажи полное имя (с путём папки)"
 
-#: kicadstamp/apply_pipeline.py:309
+#: kicadstamp/apply_pipeline.py:263
 #, python-brace-format
 msgid " (maybe you meant {suggestion!r}?)"
 msgstr " (возможно, вы имели в виду {suggestion!r}?)"
 
-#: kicadstamp/apply_pipeline.py:311
+#: kicadstamp/apply_pipeline.py:265
 #, python-brace-format
 msgid ""
-"  {name!r} — not found among chains, clone_placements, "
-"thermal_via_arrays, coordinate_placements, net_traces, or entities{hint}"
+"  {name!r} — not found among clone_placements, thermal_via_arrays, "
+"coordinate_placements, net_traces, or entities{hint}"
 msgstr ""
-"  {name!r} — не найдено среди chains, clone_placements, "
-"thermal_via_arrays, coordinate_placements или net_traces{hint}"
+"  {name!r} — не найдено среди clone_placements, thermal_via_arrays, "
+"coordinate_placements, net_traces или entities{hint}"
 
-#: kicadstamp/apply_pipeline.py:314
+#: kicadstamp/apply_pipeline.py:268
 #, python-brace-format
 msgid ""
 "[error] --only: names not found:\n"
@@ -8182,68 +8154,59 @@ msgstr ""
 "{lines}\n"
 "Доступны: {all}"
 
-#: kicadstamp/apply_pipeline.py:317
+#: kicadstamp/apply_pipeline.py:271
 #, python-brace-format
 msgid ""
-"--only {requested}: chains={chains}, clone_placements={clones}, "
+"--only {requested}: clone_placements={clones}, "
 "thermal_via_arrays={thermal}, coordinate_placements={coords}, "
 "net_traces={nets} (everything else is ignored in this run)"
 msgstr ""
-"--only {requested}: chains={chains}, clone_placements={clones}, "
+"--only {requested}: clone_placements={clones}, "
 "thermal_via_arrays={thermal}, coordinate_placements={coords}, "
 "net_traces={nets} (всё остальное в этом прогоне игнорируется)"
 
-#: kicadstamp/apply_pipeline.py:373
-#, python-brace-format
-msgid "Chain {name!r}: no spokes match --cluster {paths}, chain dropped"
-msgstr ""
-"Цепь {name!r}: ни одна спица не подошла под --cluster {paths}, цепейо "
-"отброшено"
-
-#: kicadstamp/apply_pipeline.py:378
+#: kicadstamp/apply_pipeline.py:321
 #, python-brace-format
 msgid ""
-"[error] --cluster {paths}: matched nothing among chains' spokes, "
-"clone_placements, thermal_via_arrays, coordinate_placements, net_traces, "
-"or entities"
+"[error] --cluster {paths}: matched nothing among clone_placements, "
+"thermal_via_arrays, coordinate_placements, net_traces, or entities"
 msgstr ""
-"[ошибка] --cluster {paths}: ничего не найдено среди спиц chains, "
-"clone_placements, thermal_via_arrays, coordinate_placements или "
-"net_traces"
+"[ошибка] --cluster {paths}: ничего не найдено среди clone_placements, "
+"thermal_via_arrays, coordinate_placements, net_traces или entities"
 
-#: kicadstamp/apply_pipeline.py:383
+#: kicadstamp/apply_pipeline.py:326
 #, python-brace-format
 msgid ""
-"--cluster {paths}: chains={chains} (spokes narrowed), "
-"clone_placements={clones}, thermal_via_arrays={thermal}, "
-"coordinate_placements={coords}, net_traces={nets}"
+"--cluster {paths}: clone_placements={clones}, "
+"thermal_via_arrays={thermal}, coordinate_placements={coords}, "
+"net_traces={nets}"
 msgstr ""
-"--cluster {paths}: chains={chains} (спицы сужены), "
-"clone_placements={clones}, thermal_via_arrays={thermal}, "
-"coordinate_placements={coords}, net_traces={nets}"
+"--cluster {paths}: clone_placements={clones}, "
+"thermal_via_arrays={thermal}, coordinate_placements={coords}, "
+"net_traces={nets}"
 
-#: kicadstamp/apply_pipeline.py:610
+#: kicadstamp/apply_pipeline.py:539
 #, python-brace-format
 msgid "Loading config: {config}"
 msgstr "Загрузка конфига: {config}"
 
-#: kicadstamp/apply_pipeline.py:638
+#: kicadstamp/apply_pipeline.py:567
 #, python-brace-format
 msgid "Connecting to KiCad (timeout {timeout} ms)"
 msgstr "Подключение к KiCad (таймаут {timeout} мс)"
 
-#: kicadstamp/apply_pipeline.py:645
+#: kicadstamp/apply_pipeline.py:574
 msgid "--no-selection: current PCB editor selection will be ignored for this run"
 msgstr ""
 "--no-selection: текущее выделение в редакторе PCB будет игнорироваться в "
 "этом прогоне"
 
-#: kicadstamp/apply_pipeline.py:681
+#: kicadstamp/apply_pipeline.py:610
 #, python-brace-format
 msgid "Materialized {count} entity placement(s) from trees into the apply plan"
 msgstr ""
 
-#: kicadstamp/apply_pipeline.py:704
+#: kicadstamp/apply_pipeline.py:633
 #, python-brace-format
 msgid ""
 "Materialized {count} component node placement(s) from trees into the "
@@ -8252,12 +8215,12 @@ msgstr ""
 "Материализовано размещений узлов-компонентов из деревьев в план "
 "применения: {count}"
 
-#: kicadstamp/apply_pipeline.py:722
+#: kicadstamp/apply_pipeline.py:651
 #, python-brace-format
 msgid "Planned {count} imprint placement(s) from trees into the apply plan"
 msgstr "Запланировано imprint-размещений из деревьев: {count}"
 
-#: kicadstamp/apply_pipeline.py:724
+#: kicadstamp/apply_pipeline.py:653
 msgid ""
 "Resolving item execution order (dependency chain — see "
 "dependency_order.py)..."
@@ -8265,52 +8228,52 @@ msgstr ""
 "Разрешение порядка выполнения элементов (цепочка зависимостей — см. "
 "dependency_order.py)..."
 
-#: kicadstamp/apply_pipeline.py:728
+#: kicadstamp/apply_pipeline.py:656
 #, python-brace-format
 msgid "Execution order: {order}"
 msgstr "Порядок выполнения: {order}"
 
-#: kicadstamp/apply_pipeline.py:784
+#: kicadstamp/apply_pipeline.py:711
 #, python-brace-format
 msgid "Order: {order}"
 msgstr "Порядок: {order}"
 
-#: kicadstamp/apply_pipeline.py:787
+#: kicadstamp/apply_pipeline.py:714
 msgid "Coordinate placements (Phase 0, before the order above):"
 msgstr ""
 
-#: kicadstamp/apply_pipeline.py:789 kicadstamp/apply_pipeline.py:798
-#: kicadstamp/apply_pipeline.py:827 kicadstamp/channel_copy.py:923
+#: kicadstamp/apply_pipeline.py:716 kicadstamp/apply_pipeline.py:725
+#: kicadstamp/apply_pipeline.py:754 kicadstamp/channel_copy.py:923
 #, python-brace-format
 msgid "  {ref}: ({x:.3f}, {y:.3f}) mm, angle={angle:.1f}°"
 msgstr "  {ref}: ({x:.3f}, {y:.3f}) мм, угол={angle:.1f}°"
 
-#: kicadstamp/apply_pipeline.py:792
+#: kicadstamp/apply_pipeline.py:719
 msgid ""
-"(Phase 0 moves are NOT applied in a dry run — the Chain/ClonePlacement "
-"moves below are still planned from their CURRENT positions, not from the "
-"post-Phase-0 board a real apply would produce)"
+"(Phase 0 moves are NOT applied in a dry run — the ClonePlacement moves "
+"below are still planned from their CURRENT positions, not from the post-"
+"Phase-0 board a real apply would produce)"
 msgstr ""
 
-#: kicadstamp/apply_pipeline.py:796
+#: kicadstamp/apply_pipeline.py:723
 msgid "Moves:"
 msgstr "Перемещения:"
 
-#: kicadstamp/apply_pipeline.py:801
+#: kicadstamp/apply_pipeline.py:728
 msgid "Vias:"
 msgstr "Виа:"
 
-#: kicadstamp/apply_pipeline.py:803 kicadstamp/apply_pipeline.py:831
+#: kicadstamp/apply_pipeline.py:730 kicadstamp/apply_pipeline.py:758
 #: kicadstamp/channel_copy.py:928
 #, python-brace-format
 msgid "  via for {owner}: ({x:.3f}, {y:.3f}) mm, net={net}"
 msgstr "  via для {owner}: ({x:.3f}, {y:.3f}) мм, цепь={net}"
 
-#: kicadstamp/apply_pipeline.py:806
+#: kicadstamp/apply_pipeline.py:733
 msgid "Tracks:"
 msgstr "Треки:"
 
-#: kicadstamp/apply_pipeline.py:808 kicadstamp/apply_pipeline.py:835
+#: kicadstamp/apply_pipeline.py:735 kicadstamp/apply_pipeline.py:762
 #: kicadstamp/channel_copy.py:933
 #, python-brace-format
 msgid ""
@@ -8320,17 +8283,17 @@ msgstr ""
 "  трек для {owner}: ({sx:.3f}, {sy:.3f}) -> ({ex:.3f}, {ey:.3f}) мм, "
 "цепь={net}, ширина={w} мм"
 
-#: kicadstamp/apply_pipeline.py:813
+#: kicadstamp/apply_pipeline.py:740
 msgid ""
 "(net_traces entries are included in the vias/tracks sections above; their"
 " anchors are resolved from CURRENT component positions, so a real apply "
-"after a Chain/CoordinatePlacement moves the anchor will follow it)"
+"after a CoordinatePlacement moves the anchor will follow it)"
 msgstr ""
 "(записи net_traces включены в разделы vias/tracks выше; их якоря "
 "резолвятся из ТЕКУЩИХ позиций компонентов, поэтому реальный apply после "
-"перемещения якоря Chain/CoordinatePlacement последует за ним)"
+"перемещения якоря CoordinatePlacement последует за ним)"
 
-#: kicadstamp/apply_pipeline.py:816
+#: kicadstamp/apply_pipeline.py:743
 msgid ""
 "(thermal via keepout is computed based on CURRENT component positions, "
 "not the target ones — may slightly differ from the real run)"
@@ -8338,7 +8301,7 @@ msgstr ""
 "(keepout термовиа посчитан по ТЕКУЩИМ позициям компонентов, не по целевым"
 " — может слегка отличаться от боевого прогона)"
 
-#: kicadstamp/apply_pipeline.py:818
+#: kicadstamp/apply_pipeline.py:745
 msgid ""
 "(track collisions with other copper/components are NOT checked by this "
 "tool — rely on KiCad DRC after placement)"
@@ -8346,7 +8309,7 @@ msgstr ""
 "(коллизии треков с чужой медью/компонентами НЕ проверяются этим "
 "инструментом — полагаемся на DRC самого KiCad после расстановки)"
 
-#: kicadstamp/apply_pipeline.py:820
+#: kicadstamp/apply_pipeline.py:747
 msgid ""
 "(items later in the dependency chain above are ALSO planned from the "
 "CURRENT board, not the post-move board of their prerequisite — a real "
@@ -8358,24 +8321,24 @@ msgstr ""
 "может разместить их иначе; для истинного результата с учётом цепочки "
 "запустите без --dry-run)"
 
-#: kicadstamp/apply_pipeline.py:824
+#: kicadstamp/apply_pipeline.py:751
 #, python-brace-format
 msgid "Imprint {entity} ({mode}):"
 msgstr "Imprint {entity} ({mode}):"
 
 # Added 2026-08-13 — was a pre-existing missing translation from the
 # 2026-08-12 coordinate_placements work (same menu block as the others).
-#: kicadstamp/apply_pipeline.py:949
+#: kicadstamp/apply_pipeline.py:876
 #, python-brace-format
 msgid "Coordinate placements: {count} moves"
 msgstr "Координатные размещения: {count} перемещений"
 
-#: kicadstamp/apply_pipeline.py:956
+#: kicadstamp/apply_pipeline.py:883
 #, python-brace-format
 msgid "Failed to move (coordinate_placements): {refs}"
 msgstr ""
 
-#: kicadstamp/apply_pipeline.py:984
+#: kicadstamp/apply_pipeline.py:911
 #, python-brace-format
 msgid ""
 "{label}: anchor {ref!r} failed to move earlier in this run — this item's "
@@ -8384,21 +8347,21 @@ msgstr ""
 "{label}: якорь {ref!r} не удалось переместить ранее в этом прогоне — "
 "размещение этого элемента основано на его СТАРОЙ позиции"
 
-#: kicadstamp/apply_pipeline.py:988
+#: kicadstamp/apply_pipeline.py:915
 #, python-brace-format
 msgid "  {label}: {count} moves"
 msgstr "  {label}: перемещений: {count}"
 
-#: kicadstamp/apply_pipeline.py:1007 kicadstamp/channel_copy.py:783
+#: kicadstamp/apply_pipeline.py:934 kicadstamp/channel_copy.py:783
 #, python-brace-format
 msgid "Failed to move: {refs}"
 msgstr "Не удалось переместить: {refs}"
 
-#: kicadstamp/apply_pipeline.py:1010
+#: kicadstamp/apply_pipeline.py:937
 msgid "Reloading board data before planning vias..."
 msgstr "Обновление данных платы перед планированием виа..."
 
-#: kicadstamp/apply_pipeline.py:1062
+#: kicadstamp/apply_pipeline.py:988
 #, python-brace-format
 msgid ""
 "Planned vias: {total}, actually to create (registry filtered already "
@@ -8407,16 +8370,16 @@ msgstr ""
 "Запланировано виа: {total}, реально к созданию (реестр отсеял уже стоящие"
 " правильно): {to_create}"
 
-#: kicadstamp/apply_pipeline.py:1065
+#: kicadstamp/apply_pipeline.py:991
 msgid "Applying vias..."
 msgstr "Применение виа..."
 
-#: kicadstamp/apply_pipeline.py:1068 kicadstamp/channel_copy.py:785
+#: kicadstamp/apply_pipeline.py:994 kicadstamp/channel_copy.py:785
 #, python-brace-format
 msgid "Failed to create vias near: {refs}"
 msgstr "Не удалось создать виа рядом с: {refs}"
 
-#: kicadstamp/apply_pipeline.py:1111
+#: kicadstamp/apply_pipeline.py:1037
 #, python-brace-format
 msgid ""
 "Planned tracks: {total}, actually to create (registry filtered already "
@@ -8425,24 +8388,24 @@ msgstr ""
 "Запланировано треков: {total}, реально к созданию (реестр отсеял уже "
 "стоящие правильно): {to_create}"
 
-#: kicadstamp/apply_pipeline.py:1114
+#: kicadstamp/apply_pipeline.py:1040
 msgid "Applying tracks..."
 msgstr "Применение треков..."
 
-#: kicadstamp/apply_pipeline.py:1117 kicadstamp/channel_copy.py:787
+#: kicadstamp/apply_pipeline.py:1043 kicadstamp/channel_copy.py:787
 #, python-brace-format
 msgid "Failed to create tracks near: {refs}"
 msgstr "Не удалось создать треки рядом с: {refs}"
 
-#: kicadstamp/apply_pipeline.py:1123
+#: kicadstamp/apply_pipeline.py:1049
 msgid "Applying imprint placements..."
 msgstr "Применяю imprint-размещения..."
 
-#: kicadstamp/apply_pipeline.py:1134
+#: kicadstamp/apply_pipeline.py:1060
 msgid "✅ All operations completed successfully"
 msgstr "✅ Все операции выполнены успешно"
 
-#: kicadstamp/apply_pipeline.py:1136
+#: kicadstamp/apply_pipeline.py:1062
 msgid "⚠️ Some operations failed – check the log."
 msgstr "⚠️ Некоторые операции завершились с ошибками – проверьте лог."
 
@@ -14086,7 +14049,7 @@ msgstr ""
 "IC1 или anchor_role: SOME_ROLE"
 
 #: kicadstamp/config/entries.py:1221 kicadstamp/config/loader.py:522
-#: kicadstamp/placement/dependency_order.py:196
+#: kicadstamp/placement/dependency_order.py:193
 #, python-brace-format
 msgid "clone_placement {name!r}"
 msgstr "clone_placement {name!r}"
@@ -15185,7 +15148,7 @@ msgstr ""
 "координаты недостаточно. Используйте эту точку с clone_placement, либо "
 "задайте shift_x_mm=0/shift_y_mm=0 и уберите xy"
 
-#: kicadstamp/config/loader.py:519 kicadstamp/placement/dependency_order.py:169
+#: kicadstamp/config/loader.py:519 kicadstamp/placement/dependency_order.py:168
 #: kicadstamp/placement/services/point_resolver.py:68
 #: kicadstamp/placement/services/point_resolver.py:97
 #: kicadstamp/placement/services/point_resolver.py:101
@@ -17660,23 +17623,23 @@ msgstr "  {ref}: bounding box недоступен, используется з�
 msgid "{name}: cell {cell!r} not found in cells, skipping"
 msgstr "{name}: шаблон {cell!r} не найден в cells, пропуск"
 
-#: kicadstamp/placement/dependency_order.py:180
+#: kicadstamp/placement/dependency_order.py:177
 #: kicadstamp/placement/services/manual_position_calculator.py:46
-#: kicadstamp/placement/services/manual_position_calculator.py:245
+#: kicadstamp/placement/services/manual_position_calculator.py:225
 #, python-brace-format
 msgid "chain (net {net!r})"
 msgstr "цепь (net {net!r})"
 
-#: kicadstamp/placement/dependency_order.py:238
+#: kicadstamp/placement/dependency_order.py:234
 msgid "dependency cycle among chains/clone_placements"
 msgstr "цикл зависимостей среди chains/clone_placements"
 
-#: kicadstamp/placement/dependency_order.py:239
+#: kicadstamp/placement/dependency_order.py:235
 #, python-brace-format
 msgid "{count} item(s) form a cycle through their anchors: {items}"
 msgstr "элементов: {count} образуют цикл через свои якоря: {items}"
 
-#: kicadstamp/placement/dependency_order.py:241
+#: kicadstamp/placement/dependency_order.py:237
 msgid ""
 "break the cycle: at least one of these must anchor on something outside "
 "this set (a fixed, pre-existing component, or an absolute coordinate)"
@@ -17867,35 +17830,35 @@ msgstr "Материализация entity: дерево {tree!r} пропущ�
 msgid "Component materialization: tree {tree!r} skipped — {error}"
 msgstr "Материализация компонентов: дерево {tree!r} пропущено — {error}"
 
-#: kicadstamp/placement/planner.py:65
+#: kicadstamp/placement/planner.py:61
 #, python-brace-format
 msgid "Planner initialised: layer={layer}, anchors in chains: {anchors}"
 msgstr "Планировщик инициализирован: layer={layer}, якорей в chains: {anchors}"
 
-#: kicadstamp/placement/planner.py:145
+#: kicadstamp/placement/planner.py:140
 msgid "chains is empty — no ManualSpoke components/vias/tracks planned"
 msgstr "chains пуст — компоненты/via/треки ManualSpoke не планируются"
 
-#: kicadstamp/placement/planner.py:147
+#: kicadstamp/placement/planner.py:142
 msgid "place_components=False – component moves are not planned"
 msgstr "place_components=False – перемещения компонентов не планируются"
 
-#: kicadstamp/placement/planner.py:155
+#: kicadstamp/placement/planner.py:150
 #, python-brace-format
 msgid "ClonePlacement: {count} components, {vias} vias, {tracks} tracks"
 msgstr "ClonePlacement: {count} компонентов, {vias} via, {tracks} треков"
 
-#: kicadstamp/placement/planner.py:163
+#: kicadstamp/placement/planner.py:158
 #, python-brace-format
 msgid "plan_moves completed: {count} moves"
 msgstr "plan_moves завершён: {count} перемещений"
 
-#: kicadstamp/placement/planner.py:200
+#: kicadstamp/placement/planner.py:195
 #, python-brace-format
 msgid "net_traces: {count} vias planned"
 msgstr "net_traces: спланировано переходных отверстий: {count}"
 
-#: kicadstamp/placement/planner.py:217
+#: kicadstamp/placement/planner.py:212
 #, python-brace-format
 msgid "net_traces: {count} tracks planned"
 msgstr "net_traces: спланировано дорожек: {count}"
@@ -18447,12 +18410,12 @@ msgstr ""
 msgid "[{label}] {ref} -> ({x:.3f}, {y:.3f}) mm, {angle}°"
 msgstr "[{label}] {ref} -> ({x:.3f}, {y:.3f}) мм, {angle}°"
 
-#: kicadstamp/placement/services/manual_position_calculator.py:235
+#: kicadstamp/placement/services/manual_position_calculator.py:215
 #, python-brace-format
 msgid "chain (net {net!r}): anchor_point {point!r} has no footprint"
 msgstr "цепейо (цепь {net!r}): у anchor_point {point!r} нет футпринта"
 
-#: kicadstamp/placement/services/manual_position_calculator.py:237
+#: kicadstamp/placement/services/manual_position_calculator.py:217
 msgid ""
 "this should have been caught at load time (config/loader.py) — please "
 "report"
@@ -18460,27 +18423,27 @@ msgstr ""
 "это должно было быть поймано при загрузке (config/loader.py) — "
 "пожалуйста, сообщите"
 
-#: kicadstamp/placement/services/manual_position_calculator.py:276
+#: kicadstamp/placement/services/manual_position_calculator.py:256
 #, python-brace-format
 msgid "Spoke on pad {pad}: cell {cell!r} not found in cells, spoke skipped"
 msgstr "Спица на паде {pad}: шаблон {cell!r} не найден в cells, спица пропущена"
 
-#: kicadstamp/placement/services/manual_position_calculator.py:287
+#: kicadstamp/placement/services/manual_position_calculator.py:267
 #, python-brace-format
 msgid "{anchor} has no pad {pad}, spoke skipped"
 msgstr "{anchor}: нет пада {pad}, спица пропущена"
 
-#: kicadstamp/placement/services/manual_position_calculator.py:330
+#: kicadstamp/placement/services/manual_position_calculator.py:303
 #, python-brace-format
 msgid "spoke on pad {pad}"
 msgstr "спица на паде {pad}"
 
-#: kicadstamp/placement/services/manual_position_calculator.py:345
+#: kicadstamp/placement/services/manual_position_calculator.py:318
 #, python-brace-format
 msgid "  spoke‑level via (pad {pad}): ({x:.3f}, {y:.3f}) mm, net={net}"
 msgstr "  via уровня спицы (пад {pad}): ({x:.3f}, {y:.3f}) мм, цепь={net}"
 
-#: kicadstamp/placement/services/manual_position_calculator.py:364
+#: kicadstamp/placement/services/manual_position_calculator.py:337
 #, python-brace-format
 msgid ""
 "  spoke‑level track (pad {pad}): ({sx:.3f}, {sy:.3f}) -> ({ex:.3f}, "
@@ -18489,7 +18452,7 @@ msgstr ""
 "  трек уровня спицы (пад {pad}): ({sx:.3f}, {sy:.3f}) -> ({ex:.3f}, "
 "{ey:.3f}) мм, цепь={net}, слой={layer}"
 
-#: kicadstamp/placement/services/manual_position_calculator.py:387
+#: kicadstamp/placement/services/manual_position_calculator.py:360
 #, python-brace-format
 msgid ""
 "  {ref} (role {role}, pad {pad}): position ({x:.3f}, {y:.3f}) mm, angle "
@@ -18498,7 +18461,7 @@ msgstr ""
 "  {ref} (роль {role}, пад {pad}): позиция ({x:.3f}, {y:.3f}) мм, угол "
 "{angle:.1f}°"
 
-#: kicadstamp/placement/services/manual_position_calculator.py:399
+#: kicadstamp/placement/services/manual_position_calculator.py:372
 #, python-brace-format
 msgid "    via {ref}: ({x:.3f}, {y:.3f}) mm, net={net}"
 msgstr "    via {ref}: ({x:.3f}, {y:.3f}) мм, цепь={net}"
@@ -19585,4 +19548,42 @@ msgstr "Всего спиц: {count}"
 #~ "из них, чтобы различить (например, name:"
 #~ " {name}_a) – иначе --only не сможет"
 #~ " их отличить"
+
+#~ msgid "Chain {name!r} (net {net!r}): retired=true, skipped entirely"
+#~ msgstr "Цепь {name!r} (цепь {net!r}): retired=true, пропущено целиком"
+
+#~ msgid ""
+#~ "Chain {name!r}: skip=true, skipped this "
+#~ "run (existing via/tracks stay protected)"
+#~ msgstr ""
+#~ "Цепь {name!r}: skip=true, пропущено в "
+#~ "этом прогоне (существующие via/треки остаются"
+#~ " защищёнными)"
+
+#~ msgid "Chain {name!r}: spoke on pad {pad} skip=true, skipped this run"
+#~ msgstr "Цепь {name!r}: спица на паде {pad} skip=true, пропущена в этом прогоне"
+
+#~ msgid ""
+#~ "Chain {name!r}: no non-skipped spokes"
+#~ " left, skipped this run (existing "
+#~ "via/tracks stay protected)"
+#~ msgstr ""
+#~ "Цепь {name!r}: не осталось непропущенных "
+#~ "спиц, пропущено в этом прогоне "
+#~ "(существующие via/треки остаются защищёнными)"
+
+#~ msgid "Chain {name!r}: no spokes match --cluster {paths}, chain dropped"
+#~ msgstr ""
+#~ "Цепь {name!r}: ни одна спица не "
+#~ "подошла под --cluster {paths}, цепейо "
+#~ "отброшено"
+
+#~ msgid ""
+#~ "(Phase 0 moves are NOT applied in"
+#~ " a dry run — the Chain/ClonePlacement"
+#~ " moves below are still planned from"
+#~ " their CURRENT positions, not from "
+#~ "the post-Phase-0 board a real "
+#~ "apply would produce)"
+#~ msgstr ""
 

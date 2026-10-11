@@ -12,12 +12,12 @@ set contains, and `reconcile` then prunes the nested cell's copper.
 У5.3 (Р-У5.1/Р-У5.2) re-spells the record-identifying PART of every key:
 `name:<uuid>`, `point:<uuid>:…`, `thermal:<uuid>`, `net:<uuid>`, and the
 `template_name` (the cell / net-trace identity) — while the physics stays
-untouched (`anchor:`/`role:`/`pad:`, offsets, index, the `thermal_via_array`
+untouched (`anchor:`/`role:`, offsets, index, the `thermal_via_array`
 literal). This file pins BOTH: the protection linkage AND the record part.
 
 Here one config carries EVERY key form the У5.0 inventory lists — `name:` for an
 Entity and for an absolute ClonePlacement, `point:`, `role:`, `anchor:`,
-`thermal:`, `net:`, `pad:`, and a nested placement depth 2 — and the REAL
+`thermal:`, `net:`, and a nested placement depth 2 — and the REAL
 planners run on `FakeLiveBoardAdapter` (a local subclass only supplies the one
 footprint the fake takes as a fixture, plus `get_bounding_boxes`, exactly like
 the redraw harnesses). For each emitted `registry_key`:
@@ -37,7 +37,7 @@ import pytest
 
 from kicadstamp.apply_pipeline import _compute_all_anchor_ids
 from kicadstamp.config import (
-    Cell, CellPlacement, Chain, ClonePlacement, Config, Entity, ManualSpoke,
+    Cell, CellPlacement, ClonePlacement, Config, Entity,
     NetTrace, TemplateTrack, TemplateVia, ThermalViaArrayConfig,
 )
 from kicadstamp.config import Point
@@ -48,9 +48,6 @@ from kicadstamp.net_trace_planner import plan_net_traces
 from kicadstamp.placement.entity_placement import materialize_entity_placements
 from kicadstamp.placement.services.clone_position_calculator import (
     ClonePositionCalculator,
-)
-from kicadstamp.placement.services.manual_position_calculator import (
-    ManualPositionCalculator,
 )
 from kicadstamp.placement.services.via_planner import ViaPlanner
 from kicadstamp.registry import PROTECTED_ANCHOR_PREFIXES, record_key_part
@@ -67,14 +64,13 @@ _UUID = {
     "cabs": "uuid-cabs", "cref": "uuid-cref", "crole": "uuid-crole",
     "cpoint": "uuid-cpoint", "cnest": "uuid-cnest",
     "E": "uuid-E",
-    "ch1": "uuid-ch1",
     "tva1": "uuid-tva1",
     "nt1": "uuid-nt1",
 }
 
 # Per form: the EXACT anchor_id and template_name under each gate. Format 2 is
 # the record NAME, format 3 its UUID (Р-У5.1/Р-У5.2); the physics parts (anchor
-# ref/pad/offsets, role triple, pad number) and the thermal literal are
+# ref/offsets, role triple) and the thermal literal are
 # byte-identical in both gates — that is the point of the table.
 _EXPECTED = {
     "name":    {"anchor2": "name:cabs", "anchor3": "name:uuid-cabs",
@@ -95,8 +91,6 @@ _EXPECTED = {
                 "tpl2": "leaf", "tpl3": "uuid-leaf"},
     "thermal": {"anchor2": "thermal:tva1", "anchor3": "thermal:uuid-tva1",
                 "tpl2": "thermal_via_array", "tpl3": "thermal_via_array"},
-    "pad":     {"anchor2": "pad:1", "anchor3": "pad:1",
-                "tpl2": "leaf", "tpl3": "uuid-leaf"},
     "net":     {"anchor2": "net:nt1", "anchor3": "net:uuid-nt1",
                 "tpl2": "nt1", "tpl3": "uuid-nt1"},
 }
@@ -190,8 +184,6 @@ def _cfg():
                     nodes=[TreeNode(ref="E", kind="placement", xy=(0.0, 0.0),
                                     polar=None, rotation=0.0, name=None,
                                     group=None)])],
-        chains=[Chain(net="GND", name="ch1", anchor_ref="U1", uuid=_UUID["ch1"],
-                      spokes=[ManualSpoke(pad="1", cell="leaf")])],
         thermal_via_arrays=[ThermalViaArrayConfig(
             name="tva1", uuid=_UUID["tva1"], anchor_ref="U1", pad="1", net="GND",
             rows=1, cols=1, margin_mm=0.0, pattern="grid", drill_mm=0.3,
@@ -252,12 +244,6 @@ def _p_thermal(cfg, adapter):
     return ViaPlanner(adapter, cfg).plan_vias([], [])
 
 
-def _p_pad(cfg, adapter):
-    _p, vias, tracks = ManualPositionCalculator(adapter, cfg).compute_raw_positions(
-        list(cfg.chains))
-    return vias + tracks
-
-
 def _p_net(cfg, adapter):
     vias, tracks = plan_net_traces(adapter, list(cfg.net_traces))
     return vias + tracks
@@ -271,7 +257,6 @@ _PRODUCERS = {
     "nested": _p_nested,
     "entity": _p_entity,
     "thermal": _p_thermal,
-    "pad": _p_pad,
     "net": _p_net,
 }
 

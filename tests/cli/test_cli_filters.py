@@ -1,20 +1,19 @@
 #!/usr/bin/env python3
-"""Tests for the pure (no KiCad adapter) apply filters: retired/--only/--cluster —
-kicadstamp/apply_pipeline.py:drop_disabled_rules/apply_only_filter/apply_cluster_filter.
+"""Tests for the pure (no KiCad adapter) apply filters: skip/--only/--cluster —
+kicadstamp/apply_pipeline.py:drop_inactive_items/apply_only_filter/
+apply_cluster_filter.
 CONTRACT: every filter returns a DERIVED Config (copy-on-write via
 dataclasses.replace) and never mutates the input object — a preloaded cfg (e.g.
-the GUI's shared object) is never the config applied/modified by a run.
-Order matters: retired wins UNCONDITIONALLY, before --only/--cluster (see the
-Rule docstring in config/models.py) — --only cannot resurrect a retired rule."""
+the GUI's shared object) is never the config applied/modified by a run."""
 import logging
 
 import pytest
-from kicadstamp.config import (Config, Rule, ManualSpoke, ClonePlacement, ThermalViaArrayConfig,
+from kicadstamp.config import (Config, ClonePlacement, ThermalViaArrayConfig,
                               CoordinatePlacement)
 from kicadstamp.config.sexp_format import dict_to_sexp
 from kicadstamp.apply_pipeline import (
     _split_comma_values, _matches_any_cluster, _compute_all_anchor_ids,
-    drop_disabled_rules, drop_inactive_items, apply_only_filter, apply_cluster_filter,
+    drop_inactive_items, apply_only_filter, apply_cluster_filter,
 )
 from kicadstamp.cli_extract import load_profile, EXTRACT_PROFILE_KNOWN_KEYS, CLONE_EXTRACT_PROFILE_KNOWN_KEYS
 from kicadstamp.exceptions import PlacerError, ValidationError
@@ -23,10 +22,10 @@ from tests.fakes.format3 import det_uuid, identity_value, stamp_config
 logger = logging.getLogger("test_cli_filters")
 
 
-def _cfg(rules=None, clone_placements=None, thermal_via_arrays=None, coordinate_placements=None):
+def _cfg(clone_placements=None, thermal_via_arrays=None, coordinate_placements=None):
     # §0 record identity (Р-У5.7): the registry-key builder refuses a record
     # without a uuid under the format-3 gate; the stamp is inert under format 2.
-    return stamp_config(Config(chains=rules or [], clone_placements=clone_placements or [],
+    return stamp_config(Config(clone_placements=clone_placements or [],
                                thermal_via_arrays=thermal_via_arrays or [],
                                coordinate_placements=coordinate_placements or []))
 
@@ -72,28 +71,6 @@ class TestMatchesAnyCluster:
         assert _matches_any_cluster("Channel_2/X", ["Channel_0", "Channel_2"]) is True
 
 
-class TestDropDisabledRules:
-    def test_retired_rule_dropped(self):
-        cfg = _cfg(rules=[
-            Rule(net="GND", spokes=[], anchor_role="FPGA", retired=True),
-            Rule(net="+3V3_VCCIO", spokes=[], anchor_role="FPGA", retired=False),
-        ])
-        cfg = drop_disabled_rules(cfg, logger)
-        assert [r.net for r in cfg.rules] == ["+3V3_VCCIO"]
-
-    def test_only_cannot_resurrect_retired_rule(self):
-        """retired:true wins unconditionally — --only naming the very same
-        rule must NOT bring it back (it's not even "not found", it plain
-        doesn't exist for this run, same as if deleted from the YAML)."""
-        cfg = _cfg(rules=[
-            Rule(net="GND", spokes=[], anchor_role="FPGA", retired=True),
-        ])
-        cfg = drop_disabled_rules(cfg, logger)
-        with pytest.raises(PlacerError):
-            apply_only_filter(cfg, ["GND"], logger)
-        assert cfg.rules == []
-
-
 class TestComputeAllAnchorIds:
     """_compute_all_anchor_ids feeds registry.reconcile()'s known_anchor_ids
     protection — each thermal_via_arrays entry must contribute its OWN id
@@ -121,42 +98,7 @@ class TestComputeAllAnchorIds:
 class TestDropInactiveItems:
     """skip: true — the inline counterpart of --only/--cluster (skip this
     run, but do NOT prune from the registry, unlike retired: true). See
-    Rule/ClonePlacement/ThermalViaArrayConfig.skip in config/models.py."""
-
-    def test_skipped_rule_dropped_non_skipped_rule_kept(self):
-        cfg = _cfg(rules=[
-            Rule(net="GND", spokes=[ManualSpoke(pad="1", cell="t")],
-                 anchor_role="FPGA", skip=True),
-            Rule(net="+3V3_VCCIO", spokes=[ManualSpoke(pad="2", cell="t")],
-                 anchor_role="FPGA", skip=False),
-        ])
-        cfg = drop_inactive_items(cfg, logger)
-        assert [r.net for r in cfg.rules] == ["+3V3_VCCIO"]
-
-    def test_skipped_spoke_narrows_rule_without_dropping_it(self):
-        cfg = _cfg(rules=[Rule(net="GND", spokes=[
-            ManualSpoke(pad="1", cell="t", skip=False),
-            ManualSpoke(pad="2", cell="t", skip=True),
-        ], anchor_role="FPGA")])
-        cfg = drop_inactive_items(cfg, logger)
-        assert len(cfg.rules) == 1
-        assert [s.pad for s in cfg.rules[0].spokes] == ["1"]
-
-    def test_rule_dropped_entirely_if_all_spokes_skipped(self):
-        cfg = _cfg(rules=[Rule(net="GND", spokes=[
-            ManualSpoke(pad="1", cell="t", skip=True),
-        ], anchor_role="FPGA")])
-        cfg = drop_inactive_items(cfg, logger)
-        assert cfg.rules == []
-
-    def test_original_rule_object_not_mutated(self):
-        original = Rule(net="GND", spokes=[
-            ManualSpoke(pad="1", cell="t", skip=False),
-            ManualSpoke(pad="2", cell="t", skip=True),
-        ], anchor_role="FPGA")
-        cfg = _cfg(rules=[original])
-        cfg = drop_inactive_items(cfg, logger)
-        assert len(original.spokes) == 2
+    ClonePlacement/ThermalViaArrayConfig.skip in config/models.py."""
 
     def test_skipped_clone_placement_removed(self):
         cfg = _cfg(clone_placements=[
@@ -188,12 +130,10 @@ class TestDropInactiveItems:
 
     def test_skip_false_everywhere_is_noop(self):
         cfg = _cfg(
-            rules=[Rule(net="GND", spokes=[ManualSpoke(pad="1", cell="t")], anchor_role="FPGA")],
             clone_placements=[ClonePlacement(cluster="a", xy=(0.0, 0.0), cell="t")],
             thermal_via_arrays=[ThermalViaArrayConfig(retired=False, anchor_role="FPGA", pad="145", name="th")],
         )
         cfg = drop_inactive_items(cfg, logger)
-        assert len(cfg.rules) == 1
         assert len(cfg.clone_placements) == 1
         assert len(cfg.thermal_via_arrays) == 1
         assert cfg.thermal_via_arrays[0].retired is False
@@ -206,10 +146,9 @@ class TestDropInactiveItems:
         assert cfg.coordinate_placements == []
 
     def test_retired_coordinate_placement_dropped_for_this_run(self):
-        """Unlike Rule (retired handled by drop_disabled_rules, a separate
-        step run BEFORE this one), CoordinatePlacement has no registry to
-        protect — retired and skip both just mean "not this run", handled
-        together right here (see drop_inactive_items' own comment)."""
+        """CoordinatePlacement has no registry to protect — retired and skip
+        both just mean "not this run", handled together right here (see
+        drop_inactive_items' own comment)."""
         cfg = _cfg(coordinate_placements=[
             CoordinatePlacement(cluster="X", role="R1", x_mm=0.0, y_mm=0.0, rotation_deg=0.0,
                                 retired=True),
@@ -225,42 +164,11 @@ class TestDropInactiveItems:
         cfg = drop_inactive_items(cfg, logger)
         assert [cp.role for cp in cfg.coordinate_placements] == ["R2"]
 
-    def test_skip_true_does_not_affect_known_anchor_ids_computation_order(self):
-        """drop_inactive_items only mutates cfg — it must NOT be confused with
-        drop_disabled_rules: a rule with retired=False, skip=True still
-        contributes to rule_anchor_ids's input set (cfg.rules) at the point
-        known_anchor_ids is computed in cmd_apply, i.e. BEFORE this function
-        runs. This test just documents that drop_inactive_items itself makes
-        no such distinction — it purely filters on .skip."""
-        cfg = _cfg(rules=[
-            Rule(net="GND", spokes=[ManualSpoke(pad="1", cell="t")],
-                 anchor_role="FPGA", retired=False, skip=True),
-        ])
-        assert cfg.rules[0].retired is False
-        cfg = drop_inactive_items(cfg, logger)
-        assert cfg.rules == []
-
-
 class TestApplyOnlyFilter:
     def test_no_only_names_is_noop(self):
-        cfg = _cfg(rules=[Rule(net="GND", spokes=[], anchor_role="FPGA")])
+        cfg = _cfg(clone_placements=[ClonePlacement(cluster="a", xy=(0.0, 0.0), cell="t")])
         cfg = apply_only_filter(cfg, [], logger)
-        assert len(cfg.rules) == 1
-
-    def test_matches_by_net_when_name_unset(self):
-        cfg = _cfg(rules=[
-            Rule(net="GND", spokes=[], anchor_role="FPGA"),
-            Rule(net="+3V3_VCCIO", spokes=[], anchor_role="FPGA"),
-        ])
-        cfg = apply_only_filter(cfg, ["GND"], logger)
-        assert [r.net for r in cfg.rules] == ["GND"]
-
-    def test_matches_by_explicit_name(self):
-        cfg = _cfg(rules=[
-            Rule(net="GND", spokes=[], anchor_role="FPGA", name="fpga_gnd"),
-        ])
-        cfg = apply_only_filter(cfg, ["fpga_gnd"], logger)
-        assert len(cfg.rules) == 1
+        assert len(cfg.clone_placements) == 1
 
     def test_only_selects_one_of_several_thermal_via_arrays_by_name(self):
         cfg = _cfg(thermal_via_arrays=[
@@ -279,7 +187,7 @@ class TestApplyOnlyFilter:
         assert [c.cluster for c in cfg.clone_placements] == ["p5v_pi_filter"]
 
     def test_unknown_name_exits_fatal(self):
-        cfg = _cfg(rules=[Rule(net="GND", spokes=[], anchor_role="FPGA")])
+        cfg = _cfg(clone_placements=[ClonePlacement(cluster="a", xy=(0.0, 0.0), cell="t")])
         with pytest.raises(PlacerError):
             apply_only_filter(cfg, ["typo_name"], logger)
 
@@ -353,21 +261,23 @@ class TestApplyOnlyShortNames:
         out = apply_only_filter(cfg, ["ldo"], logger)
         assert [cp.name for cp in out.coordinate_placements] == ["ldo"]
 
-    def test_a_hierarchical_net_is_not_shortened(self):
-        """К2: an unnamed chain's identity IS its net, and a hierarchical net's
-        `/` separates schematic SHEETS, not folders. `--only +2V5_OA` must NOT
-        select `/Channel_0/OpAmp/+2V5_OA`; only the full net selects it."""
-        cfg = _cfg(rules=[
-            Rule(net="/Channel_0/OpAmp/+2V5_OA", spokes=[], anchor_role="FPGA"),
+    def test_a_slash_bearing_identity_is_not_shortened(self):
+        """К2: short spellings come ONLY from an explicit `name:` — an unnamed
+        record's identity (here a clone_placement's Cluster tag, whose `/`
+        separates schematic SHEETS, not folders) must match EXACTLY. `--only
+        +2V5_OA` must NOT select `/Channel_0/OpAmp/+2V5_OA`; only the full
+        identity selects it."""
+        cfg = _cfg(clone_placements=[
+            ClonePlacement(cluster="/Channel_0/OpAmp/+2V5_OA", xy=(0.0, 0.0), cell="t"),
         ])
         with pytest.raises(PlacerError):
             apply_only_filter(cfg, ["+2V5_OA"], logger)
         exact = apply_only_filter(cfg, ["/Channel_0/OpAmp/+2V5_OA"], logger)
-        assert [r.net for r in exact.rules] == ["/Channel_0/OpAmp/+2V5_OA"]
+        assert [c.cluster for c in exact.clone_placements] == ["/Channel_0/OpAmp/+2V5_OA"]
 
-    def test_a_hierarchical_net_tail_is_not_shortened(self):
-        cfg = _cfg(rules=[
-            Rule(net="/Power/VCC", spokes=[], anchor_role="FPGA"),
+    def test_a_slash_bearing_identity_tail_is_not_shortened(self):
+        cfg = _cfg(clone_placements=[
+            ClonePlacement(cluster="/Power/VCC", xy=(0.0, 0.0), cell="t"),
         ])
         with pytest.raises(PlacerError):
             apply_only_filter(cfg, ["VCC"], logger)
@@ -382,44 +292,11 @@ class TestApplyOnlyShortNames:
 
 class TestApplyClusterFilter:
     def test_no_cluster_paths_is_noop(self):
-        cfg = _cfg(rules=[Rule(net="GND", spokes=[
-            ManualSpoke(pad="1", cell="t", cluster="Channel_0"),
-        ], anchor_role="FPGA")])
+        cfg = _cfg(clone_placements=[
+            ClonePlacement(cluster="ch0", xy=(0.0, 0.0), cell="t",
+                          anchor_cluster="Channel_0")])
         cfg = apply_cluster_filter(cfg, [], logger)
-        assert len(cfg.rules[0].spokes) == 1
-
-    def test_narrows_spokes_within_rule(self):
-        cfg = _cfg(rules=[Rule(net="GND", spokes=[
-            ManualSpoke(pad="1", cell="t", cluster="Channel_0"),
-            ManualSpoke(pad="2", cell="t", cluster="Channel_1"),
-        ], anchor_role="FPGA")])
-        cfg = apply_cluster_filter(cfg, ["Channel_0"], logger)
-        assert len(cfg.rules) == 1
-        assert [s.pad for s in cfg.rules[0].spokes] == ["1"]
-
-    def test_rule_dropped_entirely_if_no_spoke_matches(self):
-        # A matching clone_placement keeps the overall filter from fataling
-        # on "matched nothing anywhere" — isolates just the rule-dropping behaviour.
-        cfg = _cfg(
-            rules=[Rule(net="GND", spokes=[
-                ManualSpoke(pad="1", cell="t", cluster="Channel_1"),
-            ], anchor_role="FPGA")],
-            clone_placements=[ClonePlacement(cluster="ch0", xy=(0.0, 0.0),
-                                             cell="t", anchor_cluster="Channel_0")],
-        )
-        cfg = apply_cluster_filter(cfg, ["Channel_0"], logger)
-        assert cfg.rules == []
-
-    def test_original_rule_object_not_mutated(self):
-        """dataclasses.replace makes a copy — the caller's original Rule.spokes
-        list must stay untouched (relevant if the same cfg is reused/logged)."""
-        original = Rule(net="GND", spokes=[
-            ManualSpoke(pad="1", cell="t", cluster="Channel_0"),
-            ManualSpoke(pad="2", cell="t", cluster="Channel_1"),
-        ], anchor_role="FPGA")
-        cfg = _cfg(rules=[original])
-        cfg = apply_cluster_filter(cfg, ["Channel_0"], logger)
-        assert len(original.spokes) == 2
+        assert len(cfg.clone_placements) == 1
 
     def test_clone_placement_narrowed_by_anchor_cluster(self):
         cfg = _cfg(clone_placements=[
@@ -456,9 +333,9 @@ class TestApplyClusterFilter:
         assert [t.name for t in cfg.thermal_via_arrays] == ["ad9707_ch1_thermal"]
 
     def test_no_match_anywhere_exits_fatal(self):
-        cfg = _cfg(rules=[Rule(net="GND", spokes=[
-            ManualSpoke(pad="1", cell="t", cluster="Channel_1"),
-        ], anchor_role="FPGA")])
+        cfg = _cfg(clone_placements=[
+            ClonePlacement(cluster="ch0", xy=(0.0, 0.0), cell="t",
+                          anchor_cluster="Channel_1")])
         with pytest.raises(PlacerError):
             apply_cluster_filter(cfg, ["Channel_9"], logger)
 
@@ -489,19 +366,15 @@ class TestApplyClusterFilter:
             apply_cluster_filter(cfg, ["Channel_0"], logger)
 
     def test_only_and_cluster_compose_as_and(self):
-        cfg = _cfg(rules=[
-            Rule(net="GND", spokes=[
-                ManualSpoke(pad="1", cell="t", cluster="Channel_0"),
-                ManualSpoke(pad="2", cell="t", cluster="Channel_1"),
-            ], anchor_role="FPGA", name="fpga_gnd"),
-            Rule(net="+3V3_VCCIO", spokes=[
-                ManualSpoke(pad="3", cell="t", cluster="Channel_0"),
-            ], anchor_role="FPGA"),
+        cfg = _cfg(clone_placements=[
+            ClonePlacement(cluster="ch0", xy=(0.0, 0.0), cell="t",
+                          name="fpga_gnd", anchor_cluster="Channel_0"),
+            ClonePlacement(cluster="ch1", xy=(0.0, 0.0), cell="t",
+                          name="other", anchor_cluster="Channel_1"),
         ])
         cfg = apply_only_filter(cfg, ["fpga_gnd"], logger)
         cfg = apply_cluster_filter(cfg, ["Channel_0"], logger)
-        assert len(cfg.rules) == 1
-        assert [s.pad for s in cfg.rules[0].spokes] == ["1"]
+        assert [c.cluster for c in cfg.clone_placements] == ["ch0"]
 
 
 class TestFiltersDeriveNewConfig:
@@ -515,20 +388,11 @@ class TestFiltersDeriveNewConfig:
     @staticmethod
     def _full_cfg():
         return _cfg(
-            rules=[
-                Rule(net="GND", spokes=[
-                    ManualSpoke(pad="1", cell="t", cluster="Channel_0"),
-                    ManualSpoke(pad="2", cell="t", cluster="Channel_1"),
-                ], anchor_role="FPGA", name="fpga_gnd"),
-                Rule(net="+3V3_VCCIO", spokes=[
-                    ManualSpoke(pad="3", cell="t", cluster="Channel_0"),
-                ], anchor_role="FPGA"),
-            ],
             clone_placements=[
                 ClonePlacement(cluster="ch0", xy=(0.0, 0.0), cell="t",
-                              anchor_cluster="Channel_0"),
+                              name="fpga_gnd", anchor_cluster="Channel_0"),
                 ClonePlacement(cluster="ch1", xy=(0.0, 0.0), cell="t",
-                              anchor_cluster="Channel_1"),
+                              name="other", anchor_cluster="Channel_1"),
             ],
             thermal_via_arrays=[
                 ThermalViaArrayConfig(anchor_role="AD9707", pad="7",
@@ -546,52 +410,37 @@ class TestFiltersDeriveNewConfig:
 
     def test_dropping_filters_always_return_a_new_config_object(self):
         base = self._full_cfg()
-        assert drop_disabled_rules(base) is not base
         assert drop_inactive_items(base) is not base
 
-    def test_drop_disabled_rules_always_derives_fresh_object_even_when_noop(self):
-        """drop_disabled_rules ALWAYS returns a fresh derived Config (even when
-        nothing is retired), so the pipeline's self.cfg can never be the caller's
-        (e.g. GUI's) original object."""
-        cfg = _cfg(rules=[Rule(net="GND", spokes=[], anchor_role="FPGA", retired=False)])
-        result = drop_disabled_rules(cfg, logger)
-        assert result is not cfg
-        assert [r.net for r in result.rules] == ["GND"]
-
     def test_pipeline_chain_leaves_original_config_untouched(self):
-        """The exact _filter_config chain — drop_disabled_rules →
-        drop_inactive_items → apply_only_filter → apply_cluster_filter — must
-        leave the ORIGINAL input cfg object and its lists exactly as they were;
-        the applied config is the final derived object, never the input."""
+        """The exact _filter_config chain — drop_inactive_items →
+        apply_only_filter → apply_cluster_filter — must leave the ORIGINAL
+        input cfg object and its lists exactly as they were; the applied
+        config is the final derived object, never the input."""
         cfg = self._full_cfg()
-        original_rules = list(cfg.rules)
         original_clones = list(cfg.clone_placements)
         original_tvas = list(cfg.thermal_via_arrays)
         original_coords = list(cfg.coordinate_placements)
 
-        derived = drop_disabled_rules(cfg)
-        derived = drop_inactive_items(derived)
+        derived = drop_inactive_items(cfg)
         derived = apply_only_filter(derived, ["fpga_gnd"])
         derived = apply_cluster_filter(derived, ["Channel_0"])
 
         # The config that would be applied is a DIFFERENT object...
         assert derived is not cfg
         # ...and the input cfg still holds its original content untouched.
-        assert cfg.rules == original_rules
         assert cfg.clone_placements == original_clones
         assert cfg.thermal_via_arrays == original_tvas
         assert cfg.coordinate_placements == original_coords
-        assert len(cfg.rules) == 2
-        assert len(cfg.rules[0].spokes) == 2
+        assert len(cfg.clone_placements) == 2
 
-        # The derived config reflects the chain: only fpga_gnd / Channel_0 survive.
-        assert [r.net for r in derived.rules] == ["GND"]
-        assert [s.pad for s in derived.rules[0].spokes] == ["1"]
+        # The derived config reflects the chain: only ch0 / Channel_0 survive.
+        assert [c.cluster for c in derived.clone_placements] == ["ch0"]
 
     def test_noop_filters_return_input_object_unchanged(self):
         """The two no-op filters (no --only / no --cluster) return their input
         UNCHANGED (same object) — safe because by then the pipeline's cfg is
-        already a fresh derived object from drop_disabled_rules."""
+        already a fresh derived object from drop_inactive_items."""
         cfg = self._full_cfg()
         assert apply_only_filter(cfg, []) is cfg
         assert apply_cluster_filter(cfg, []) is cfg
