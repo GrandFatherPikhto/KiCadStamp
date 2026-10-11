@@ -3,7 +3,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version:  kicadstamp\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-11 12:56+0300\n"
+"POT-Creation-Date: 2026-10-11 12:58+0300\n"
 "PO-Revision-Date: 2026-07-27 12:00+0000\n"
 "Last-Translator: \n"
 "Language: ru\n"
@@ -14049,7 +14049,7 @@ msgstr ""
 "IC1 или anchor_role: SOME_ROLE"
 
 #: kicadstamp/config/entries.py:1221 kicadstamp/config/loader.py:522
-#: kicadstamp/placement/dependency_order.py:193
+#: kicadstamp/placement/dependency_order.py:134
 #, python-brace-format
 msgid "clone_placement {name!r}"
 msgstr "clone_placement {name!r}"
@@ -15148,7 +15148,7 @@ msgstr ""
 "координаты недостаточно. Используйте эту точку с clone_placement, либо "
 "задайте shift_x_mm=0/shift_y_mm=0 и уберите xy"
 
-#: kicadstamp/config/loader.py:519 kicadstamp/placement/dependency_order.py:168
+#: kicadstamp/config/loader.py:519 kicadstamp/placement/dependency_order.py:117
 #: kicadstamp/placement/services/point_resolver.py:68
 #: kicadstamp/placement/services/point_resolver.py:97
 #: kicadstamp/placement/services/point_resolver.py:101
@@ -17617,29 +17617,22 @@ msgstr ""
 msgid "  {ref}: bounding box unavailable, using fallback radius {radius}mm"
 msgstr "  {ref}: bounding box недоступен, используется запасной радиус {radius}мм"
 
-#: kicadstamp/placement/dependency_order.py:133
+#: kicadstamp/placement/dependency_order.py:82
 #: kicadstamp/placement/services/clone_position_calculator.py:439
 #, python-brace-format
 msgid "{name}: cell {cell!r} not found in cells, skipping"
 msgstr "{name}: шаблон {cell!r} не найден в cells, пропуск"
 
-#: kicadstamp/placement/dependency_order.py:177
-#: kicadstamp/placement/services/manual_position_calculator.py:46
-#: kicadstamp/placement/services/manual_position_calculator.py:225
-#, python-brace-format
-msgid "chain (net {net!r})"
-msgstr "цепь (net {net!r})"
+#: kicadstamp/placement/dependency_order.py:174
+msgid "dependency cycle among clone_placements"
+msgstr ""
 
-#: kicadstamp/placement/dependency_order.py:234
-msgid "dependency cycle among chains/clone_placements"
-msgstr "цикл зависимостей среди chains/clone_placements"
-
-#: kicadstamp/placement/dependency_order.py:235
+#: kicadstamp/placement/dependency_order.py:175
 #, python-brace-format
 msgid "{count} item(s) form a cycle through their anchors: {items}"
 msgstr "элементов: {count} образуют цикл через свои якоря: {items}"
 
-#: kicadstamp/placement/dependency_order.py:237
+#: kicadstamp/placement/dependency_order.py:177
 msgid ""
 "break the cycle: at least one of these must anchor on something outside "
 "this set (a fixed, pre-existing component, or an absolute coordinate)"
@@ -18409,6 +18402,12 @@ msgstr ""
 #, python-brace-format
 msgid "[{label}] {ref} -> ({x:.3f}, {y:.3f}) mm, {angle}°"
 msgstr "[{label}] {ref} -> ({x:.3f}, {y:.3f}) мм, {angle}°"
+
+#: kicadstamp/placement/services/manual_position_calculator.py:46
+#: kicadstamp/placement/services/manual_position_calculator.py:225
+#, python-brace-format
+msgid "chain (net {net!r})"
+msgstr "цепь (net {net!r})"
 
 #: kicadstamp/placement/services/manual_position_calculator.py:215
 #, python-brace-format
@@ -19586,4 +19585,7 @@ msgstr "Всего спиц: {count}"
 #~ "the post-Phase-0 board a real "
 #~ "apply would produce)"
 #~ msgstr ""
+
+#~ msgid "dependency cycle among chains/clone_placements"
+#~ msgstr "цикл зависимостей среди chains/clone_placements"
 

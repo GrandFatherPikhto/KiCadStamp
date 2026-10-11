@@ -1,15 +1,15 @@
 # kicadstamp/placement/dependency_order.py
 """
-dependency_order.py — determines the order in which rules/clone_placements
+dependency_order.py — determines the order in which clone_placements
 must be planned+executed within one apply run, so that an item anchored on a
 component another item in the SAME run is about to move always sees that
 component's real, post-move position — not a stale snapshot from before the
 run started.
 
-Found 2026-07-27: p5v_led_spoke was anchored on C9, a role slot inside
-p5v_pi_filter's own cell — it landed wherever C9 last happened to sit
-manually, not where p5v_pi_filter was about to move it to, because the whole
-run used to plan from a single board snapshot taken before any moves happened.
+Found 2026-07-27: an item anchored on a role slot inside another item's own
+cell landed wherever that slot last happened to sit manually, not where the
+owning item was about to move it to, because the whole run used to plan from a
+single board snapshot taken before any moves happened.
 
 Level-by-level (Kahn's algorithm — this is exactly the "build the chain first,
 then move and fix" picture): level 0 = items with no anchor at all (absolute
@@ -33,18 +33,14 @@ import logging
 from dataclasses import dataclass
 
 
-from ..config import (Config, Chain, ClonePlacement, Point,
+from ..config import (Config, ClonePlacement, Point,
                       clone_placement_effective_name)
 from ..kicad.adapter import KiCadBoardAdapter
 from ..exceptions import ValidationError, format_fatal_error
-from .services.manual_position_calculator import (resolve_chain_anchor_ref,
-                                                  chain_roles_needed, chain_clusters_needed,
-                                                  consume_role_to_ref)
 from .services.clone_position_calculator import resolve_clone_anchor_ref
 from .services.point_resolver import resolve_point_anchor_ref
 from .services.clone_role_resolver import (resolve_roles_by_selection, resolve_roles_by_nets,
                                            clone_uses_selection_mode)
-from .services.component_resolver import ComponentResolver
 from ..i18n import _
 
 logger = logging.getLogger(__name__)
@@ -52,61 +48,14 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class Item:
-    kind: str  # 'chain' | 'clone' | 'point'
-    obj: Chain | ClonePlacement | Point
+    kind: str  # 'clone' | 'point'
+    obj: ClonePlacement | Point
     label: str
     # For 'point' items this is possibly a "point:<name>" token, not a bare
     # ref — see resolve_point_anchor_ref. producer_of/the Kahn loop below are
     # fully generic over the token string, no special-casing needed.
     anchor_ref: str | None
     produces: set[str]
-
-
-def _resolve_chain_produces(adapter: KiCadBoardAdapter, cfg: Config, chain: Chain,
-                            active_pads: set[str] | None = None) -> set[str]:
-    """
-    Lightweight equivalent of ManualPositionCalculator.compute_raw_positions()
-    that returns ONLY the set of refs this chain will produce — without resolving
-    the anchor, looking up pads, computing spoke geometry, or creating
-    ViaCommand/TrackCommand objects.
-
-    ComponentPools ARE built and consumed here (in the same order as the real
-    geometry pass in planner.py/plan_item), so the 'produces' set matches what
-    the real placement will produce. This is the expensive part that cannot be
-    avoided — the pool must be scanned to know which refs match the role+net
-    criteria. What we skip is all the geometry computation (apply_spoke_geometry,
-    pad lookups, via/track command creation).
-
-    The roles/clusters/pool-building/pool-consumption steps are shared with
-    ManualPositionCalculator (chain_roles_needed / chain_clusters_needed /
-    consume_role_to_ref + ComponentResolver.build_pools, 2026-08-25), so the
-    produced set can never drift from what the real pass produces.
-    """
-    produces: set[str] = set()
-
-    roles_needed = chain_roles_needed(cfg, chain)
-    clusters_needed = chain_clusters_needed(chain)
-
-    # --- Build ComponentPools per cluster (same as ManualPositionCalculator) ---
-    pools_by_cluster = ComponentResolver.build_pools(adapter, chain.net, roles_needed, clusters_needed)
-
-    # --- Consume pools in spoke order (same as ManualPositionCalculator) ---
-    for spoke in chain.spokes:
-        if spoke.retired:
-            continue
-        cell = cfg.cells.get(spoke.cell)
-        if cell is None:
-            continue
-
-        # Full-chain consumption reserves pool components for EVERY spoke; only
-        # the ACTIVE (isolated, GUI "Redraw spoke") ones actually PRODUCE refs
-        # for the dependency graph — a reserved sibling is not moved this run.
-        role_to_ref = consume_role_to_ref(pools_by_cluster[spoke.cluster], cell, spoke.pad)
-        if active_pads is not None and spoke.pad not in active_pads:
-            continue
-        produces.update(role_to_ref.values())
-
-    return produces
 
 
 def _resolve_clone_produces(adapter: KiCadBoardAdapter, cfg: Config, clone: ClonePlacement,
@@ -155,10 +104,10 @@ def _resolve_clone_produces(adapter: KiCadBoardAdapter, cfg: Config, clone: Clon
 
 
 def _build_items(adapter: KiCadBoardAdapter, cfg: Config, sheet_names=None) -> list[Item]:
-    """Read-only: resolves every non-retired chain/clone_placement's anchor ref and
+    """Read-only: resolves every non-retired clone_placement's anchor ref and
     produced refs against the board as it is RIGHT NOW. No board mutation —
     lightweight ref-resolution only, no geometry computation (see
-    _resolve_chain_produces / _resolve_clone_produces for what is skipped)."""
+    _resolve_clone_produces for what is skipped)."""
     _sn = sheet_names or {}
     items: list[Item] = []
 
@@ -168,14 +117,6 @@ def _build_items(adapter: KiCadBoardAdapter, cfg: Config, sheet_names=None) -> l
             kind='point', obj=point, label=_("point {name!r}").format(name=point.name),
             # Namespaced token — see resolve_point_anchor_ref/Item.anchor_ref.
             anchor_ref=anchor_ref, produces={f"point:{point.name}"},
-        ))
-
-    for chain in cfg.chains:
-        anchor_ref = resolve_chain_anchor_ref(adapter, cfg, chain, sheet_names=_sn)
-        produces = _resolve_chain_produces(adapter, cfg, chain)
-        items.append(Item(
-            kind='chain', obj=chain, label=_("chain (net {net!r})").format(net=chain.net),
-            anchor_ref=anchor_ref, produces=produces,
         ))
 
     for clone in cfg.clone_placements:
@@ -199,11 +140,11 @@ def _build_items(adapter: KiCadBoardAdapter, cfg: Config, sheet_names=None) -> l
 
 def resolve_execution_order(adapter: KiCadBoardAdapter, cfg: Config, sheet_names=None) -> list[Item]:
     """
-    Read-only: resolves cfg.chains + cfg.clone_placements (already filtered by
-    drop_disabled_chains/apply_only_filter/apply_cluster_filter) into
-    level-ordered execution order. Raises ValidationError on a dependency
-    cycle — a config where two or more items anchor on each other's output has
-    no valid order and must be fixed in the YAML.
+    Read-only: resolves cfg.clone_placements (already filtered by
+    apply_only_filter/apply_cluster_filter) into level-ordered execution order.
+    Raises ValidationError on a dependency cycle — a config where two or more
+    items anchor on each other's output has no valid order and must be fixed in
+    the YAML.
     """
     items = _build_items(adapter, cfg, sheet_names=sheet_names)
 
@@ -222,16 +163,15 @@ def resolve_execution_order(adapter: KiCadBoardAdapter, cfg: Config, sheet_names
             if it.anchor_ref is None
             or producer_of.get(it.anchor_ref) is None
             # An item anchored on its OWN pad (e.g. a cell whose origin
-            # component is also one of its own role slots — seen live with
-            # p5v_led_spoke: anchored on R1.pad2, and R1/R_LED is also a role
-            # in its own cell) is not a real cross-item dependency — there
-            # is no other item to sequence against, so treat it as satisfied.
+            # component is also one of its own role slots) is not a real
+            # cross-item dependency — there is no other item to sequence
+            # against, so treat it as satisfied.
             or producer_of[it.anchor_ref] is it
             or id(producer_of[it.anchor_ref]) in placed_ids
         ]
         if not level:
             raise ValidationError(format_fatal_error(
-                _("dependency cycle among chains/clone_placements"),
+                _("dependency cycle among clone_placements"),
                 [_("{count} item(s) form a cycle through their anchors: {items}")
                  .format(count=len(remaining), items=", ".join(it.label for it in remaining)),
                  _("break the cycle: at least one of these must anchor on something "
