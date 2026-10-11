@@ -1,23 +1,26 @@
 #!/usr/bin/env python3
 """Anchor-as-mount-point geometry (design_2026_09_05 v2): a cell whose stored
 offsets live in the bbox frame and carry an anchor A=(2,1) (mount on the
-MOUNT component). apply_clone_geometry / apply_spoke_geometry must place
-content so A coincides with the placement origin:
+MOUNT component). apply_clone_geometry must place content so A coincides with
+the placement origin:
     element_world = origin + rotate(element_offset - A, rotation)
 including vias, tracks, rotation and the mirrored case (mirror stays about the
-MOUNT/origin — per-element subtraction, NOT an origin shift)."""
+MOUNT/origin — per-element subtraction, NOT an origin shift).
+
+The spoke twin of these cells (apply_spoke_geometry, same property on the
+pad-anchored spoke path) was removed with the spoke mechanism
+(plan_2026_10_08_remove_spokes); the clone cells below carry the property."""
 import math
 
 from kicadstamp.domain.geometry import Vector2
 
 from kicadstamp.config import (
-    ClonePlacement, ManualSpoke, Cell, TemplateVia, TemplateComponentSlot, TemplateTrack,
+    ClonePlacement, Cell, TemplateVia, TemplateComponentSlot, TemplateTrack,
 )
 from kicadstamp.geometry.cell_anchor import cell_mount_offset
 from kicadstamp.geometry.clone_geometry import (
     apply_clone_geometry, clone_layout_origin, clone_origin_from_component,
 )
-from kicadstamp.geometry.spoke_layout import apply_spoke_geometry
 
 MM = 1_000_000
 
@@ -29,10 +32,6 @@ def _real_rotate(x_mm, y_mm, angle_deg):
     theta = math.radians(angle_deg)
     return (y_mm * math.sin(theta) + x_mm * math.cos(theta),
             y_mm * math.cos(theta) - x_mm * math.sin(theta))
-
-
-def _p(x_mm, y_mm):
-    return Vector2.from_xy(int(round(x_mm * MM)), int(round(y_mm * MM)))
 
 
 def _near(v, x_mm, y_mm, tol=1e-6):
@@ -131,20 +130,6 @@ class TestApplyCloneGeometryAnchor:
         clone = ClonePlacement(cluster="x", cell="c", xy=(10.0, 20.0))
         layout = apply_clone_geometry(clone, cell, {"MOUNT": "U1", "OTHER": "R2"})
         assert clone_layout_origin(clone, None) == layout.origin
-
-
-class TestApplySpokeGeometryAnchor:
-    def test_spoke_mounts_the_cell_anchor_on_the_spoke_origin(self):
-        cell = _anchored_cell()
-        spoke = ManualSpoke(pad="1", cell="c", shift_x_mm=1.0, shift_y_mm=2.0)
-        pad = _p(100.0, 200.0)
-        layout = apply_spoke_geometry(
-            pad, spoke, cell, "GND", {"MOUNT": "U1", "OTHER": "R2"})
-        _near(layout.origin, 101.0, 202.0)
-        by_role = {c.role: c for c in layout.components}
-        _near(by_role["MOUNT"].position, 101.0, 202.0)
-        _near(by_role["OTHER"].position, 103.0, 203.0)
-        _near(layout.vias[0].position, 102.0, 202.0)
 
 
 class TestCloneOriginInverseAnchor:

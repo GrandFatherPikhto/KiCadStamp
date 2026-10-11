@@ -1,24 +1,20 @@
 #!/usr/bin/env python3
 """
-Тесты на geometry/spoke_layout.py — развёртка шаблона спицы (локальные
-along/across) в абсолютные координаты платы через (сдвиг, поворот).
+Тесты на geometry/spoke_layout.py — локальные примитивы развёртки
+(along/across -> абсолютные координаты платы) через (сдвиг, поворот).
 
-KiCadStamp, обобщённые via: TemplateVia используется и на уровне спицы
-(была power_via), и на уровне компонента (была GND via) — ОБА случая
-чистая геометрия от нуля спицы, никакой зависимости от реального пада
-компонента.
+Спицевая apply_spoke_geometry снята вместе с механизмом спиц
+(plan_2026_10_08_remove_spokes). Свойства, которые она стерегла (развёртка
+ячейки из нуля, via обоих уровней от нуля, полярный origin, resolved_mount,
+net_from_role, зеркало), не потеряны — их несут клоны:
+tests/geometry/test_clone_geometry.py и tests/geometry/test_cell_anchor_geometry.py.
+Здесь остаются примитивы — общий язык развёртки для клонов и деревьев.
 """
 import math
-import pytest
 
 from kicadstamp.domain.geometry import Vector2
 
-from kicadstamp.config import (
-    ManualSpoke, Cell, TemplateVia, TemplateComponentSlot, TemplateTrack
-)
-from kicadstamp.geometry.spoke_layout import (
-    apply_spoke_geometry, rotate_local_offset, local_to_absolute,
-)
+from kicadstamp.geometry.spoke_layout import rotate_local_offset, local_to_absolute
 
 MM = 1_000_000
 
@@ -45,401 +41,30 @@ class TestRotateLocalOffset:
             assert abs(v.y / MM - ey) < 1e-3, f"angle={angle}: y не сходится"
 
 
-class TestApplySpokeGeometry:
-    def _template(self):
-        return Cell(
-            name="t",
-            vias=[TemplateVia(offset_along_mm=0.0, offset_across_mm=-1.5)],  # была power_via
-            components=[
-                TemplateComponentSlot(
-                    role="HEAVY", offset_along_mm=1.0, offset_across_mm=-1.0, angle_deg=90.0,
-                    vias=[TemplateVia(offset_along_mm=0.0, offset_across_mm=-1.0, net="GND")],
-                ),
-                TemplateComponentSlot(
-                    role="LIGHT", offset_along_mm=1.0, offset_across_mm=2.0, angle_deg=270.0,
-                    vias=[TemplateVia(offset_along_mm=0.0, offset_across_mm=1.3, net="GND")],
-                ),
-            ],
-        )
+class TestLocalToAbsolute:
+    """local_to_absolute = origin + rotate(along, across, rotation_deg) — the ONE
+    local->world primitive the clone/tree expansion paths share. Carried over
+    from the removed apply_spoke_geometry polar cells (a polar origin was just
+    this primitive with along=radius, across=0)."""
 
-    def test_zero_rotation_local_equals_absolute_offset(self):
-        pad_pos = Vector2.from_xy(50 * MM, 50 * MM)
-        spoke = ManualSpoke(pad="1", cell="t", rotation_deg=0.0)
-        role_to_ref = {"HEAVY": "C5", "LIGHT": "C30"}
-        layout = apply_spoke_geometry(pad_pos, spoke, self._template(), rule_net="GND", role_to_ref=role_to_ref)
+    def test_zero_rotation_is_plain_translation(self):
+        origin = Vector2.from_xy(50 * MM, 50 * MM)
+        p = local_to_absolute(origin, 1.0, -1.5, 0.0)
+        assert abs((p.x - origin.x) / MM - 1.0) < 1e-6
+        assert abs((p.y - origin.y) / MM - (-1.5)) < 1e-6
 
-        heavy = next(c for c in layout.components if c.role == "HEAVY")
-        assert heavy.ref == "C5"
-        assert abs((heavy.position.x - pad_pos.x) / MM - 1.0) < 1e-6
-        assert abs((heavy.position.y - pad_pos.y) / MM - (-1.0)) < 1e-6
-        assert heavy.angle_deg == 90.0
+    def test_rotation_matches_real_kipy_formula(self):
+        origin = Vector2.from_xy(10 * MM, 20 * MM)
+        for angle in (30.0, 90.0, 137.0, 270.0):
+            p = local_to_absolute(origin, 1.5, -0.7, angle)
+            ex, ey = _real_rotate(1.5, -0.7, angle)
+            assert abs(p.x / MM - (10.0 + ex)) < 1e-3, f"angle={angle}: x не сходится"
+            assert abs(p.y / MM - (20.0 + ey)) < 1e-3, f"angle={angle}: y не сходится"
 
-    def test_spoke_level_via_present(self):
-        """Via уровня спицы (была power_via) -- одна на весь список layout.vias."""
-        pad_pos = Vector2.from_xy(50 * MM, 50 * MM)
-        spoke = ManualSpoke(pad="1", cell="t", rotation_deg=0.0)
-        layout = apply_spoke_geometry(pad_pos, spoke, self._template(), rule_net="+3V3",
-                                      role_to_ref={"HEAVY": "C5", "LIGHT": "C30"})
-        assert len(layout.vias) == 1
-        via = layout.vias[0]
-        assert abs((via.position.x - pad_pos.x) / MM - 0.0) < 1e-6
-        assert abs((via.position.y - pad_pos.y) / MM - (-1.5)) < 1e-6
-        assert via.net == "+3V3"  # net=None в шаблоне -> взят rule_net
-
-    def test_component_level_via_computed_from_spoke_origin_not_component_position(self):
-        """
-        КЛЮЧЕВОЕ: via компонента (была GND via) считается от НУЛЯ СПИЦЫ,
-        а НЕ от позиции самого компонента -- геометрически другая точка
-        отсчёта, хоть числа и заданы в шаблоне "около" компонента.
-        """
-        pad_pos = Vector2.from_xy(50 * MM, 50 * MM)
-        spoke = ManualSpoke(pad="1", cell="t", rotation_deg=0.0)
-        layout = apply_spoke_geometry(pad_pos, spoke, self._template(), rule_net="GND",
-                                      role_to_ref={"HEAVY": "C5", "LIGHT": "C30"})
-        heavy = next(c for c in layout.components if c.role == "HEAVY")
-        assert len(heavy.vias) == 1
-        via = heavy.vias[0]
-        # via.offset (0.0, -1.0) от НУЛЯ СПИЦЫ (pad_pos), а НЕ от heavy.position (1.0,-1.0)
-        expected_x = pad_pos.x + int(0.0 * MM)
-        expected_y = pad_pos.y + int(-1.0 * MM)
-        assert via.position.x == expected_x
-        assert via.position.y == expected_y
-        assert via.net == "GND"
-        # Явно НЕ должна совпадать с позицией компонента + тот же оффсет
-        # относительно component.position -- разные точки отсчёта.
-        assert (via.position.x, via.position.y) != (heavy.position.x, heavy.position.y)
-
-    def test_same_template_different_rotation_gives_consistent_math(self):
-        """Один шаблон, два разных поворота — оба должны совпасть с
-        независимым ручным расчётом, включая via обоих уровней."""
-        pad_pos = Vector2.from_xy(50 * MM, 50 * MM)
-        tpl = self._template()
-        role_to_ref = {"HEAVY": "C5", "LIGHT": "C30"}
-
-        for rotation_deg, shift_x, shift_y in [(90.0, 0.0, 0.0), (270.0, 0.4, 0.0)]:
-            spoke = ManualSpoke(pad="1", cell="t", rotation_deg=rotation_deg,
-                               shift_x_mm=shift_x, shift_y_mm=shift_y)
-            layout = apply_spoke_geometry(pad_pos, spoke, tpl, rule_net="GND", role_to_ref=role_to_ref)
-
-            origin_x_mm = 50.0 + shift_x
-            origin_y_mm = 50.0 + shift_y
-
-            ex, ey = _real_rotate(0.0, -1.5, rotation_deg)  # via уровня спицы
-            assert abs(layout.vias[0].position.x / MM - (origin_x_mm + ex)) < 1e-3
-            assert abs(layout.vias[0].position.y / MM - (origin_y_mm + ey)) < 1e-3
-
-            heavy = next(c for c in layout.components if c.role == "HEAVY")
-            light = next(c for c in layout.components if c.role == "LIGHT")
-            assert heavy.angle_deg == 90.0 + rotation_deg
-            assert light.angle_deg == 270.0 + rotation_deg
-
-    def test_missing_vias_gives_empty_list(self):
-        pad_pos = Vector2.from_xy(0, 0)
-        tpl = Cell(name="minimal", components=[
-            TemplateComponentSlot(role="SOLO", offset_along_mm=1.0)
-        ])
-        spoke = ManualSpoke(pad="1", cell="minimal")
-        layout = apply_spoke_geometry(pad_pos, spoke, tpl, rule_net="GND", role_to_ref={"SOLO": "C1"})
-
-        assert layout.vias == []
-        assert len(layout.components) == 1
-        assert layout.components[0].vias == []
-
-    def test_role_without_resolved_ref_is_skipped(self):
-        pad_pos = Vector2.from_xy(0, 0)
-        tpl = self._template()
-        layout = apply_spoke_geometry(pad_pos, spoke=ManualSpoke(pad="1", cell="t"),
-                                      cell=tpl, rule_net="GND", role_to_ref={"HEAVY": "C5"})
-        assert len(layout.components) == 1
-        assert layout.components[0].role == "HEAVY"
-
-    def test_multiple_vias_per_component_slot(self):
-        """Генерализация: несколько via на одном компоненте -- не ограничено одной GND via."""
-        pad_pos = Vector2.from_xy(0, 0)
-        tpl = Cell(name="t2", components=[
-            TemplateComponentSlot(role="SOLO", offset_along_mm=1.0, vias=[
-                TemplateVia(offset_along_mm=0.0, offset_across_mm=-1.0, net="GND"),
-                TemplateVia(offset_along_mm=0.0, offset_across_mm=1.0, net="GND"),
-                TemplateVia(offset_along_mm=0.5, offset_across_mm=0.0, net="+3V3"),
-            ]),
-        ])
-        layout = apply_spoke_geometry(pad_pos, ManualSpoke(pad="1", cell="t2"),
-                                      tpl, rule_net="GND", role_to_ref={"SOLO": "C1"})
-        assert len(layout.components[0].vias) == 3
-        nets = [v.net for v in layout.components[0].vias]
-        assert nets == ["GND", "GND", "+3V3"]
-
-    def test_arbitrary_number_of_roles_not_limited_to_two(self):
-        """Шаблон на 3 роли (имитация кристалла: XTAL + 2 конденсатора нагрузки)."""
-        pad_pos = Vector2.from_xy(0, 0)
-        tpl = Cell(name="crystal", components=[
-            TemplateComponentSlot(role="XTAL", offset_along_mm=0.0, offset_across_mm=0.0),
-            TemplateComponentSlot(role="LOAD_CAP_1", offset_along_mm=-1.0, offset_across_mm=1.0),
-            TemplateComponentSlot(role="LOAD_CAP_2", offset_along_mm=1.0, offset_across_mm=1.0),
-        ])
-        role_to_ref = {"XTAL": "Y1", "LOAD_CAP_1": "C15", "LOAD_CAP_2": "C16"}
-        layout = apply_spoke_geometry(pad_pos, ManualSpoke(pad="1", cell="crystal"),
-                                      tpl, rule_net="GND", role_to_ref=role_to_ref)
-        assert len(layout.components) == 3
-        refs = {c.ref for c in layout.components}
-        assert refs == {"Y1", "C15", "C16"}
-
-    def test_polar_mode_origin_matches_local_to_absolute(self):
-        """Polar radius/angle must define the spoke origin via the SAME
-        local_to_absolute primitive as CoordinatePlacement — "radius along X,
-        rotated by angle_deg" around the pad centre."""
-        pad_pos = Vector2.from_xy(50 * MM, 50 * MM)
-        spoke = ManualSpoke(pad="1", cell="t", radius_mm=5.0, angle_deg=37.0)
-        layout = apply_spoke_geometry(pad_pos, spoke, self._template(), rule_net="GND",
-                                      role_to_ref={"HEAVY": "C5", "LIGHT": "C30"})
-        expected = local_to_absolute(pad_pos, 5.0, 0.0, 37.0)
-        assert layout.origin.x == expected.x
-        assert layout.origin.y == expected.y
-
-    def test_polar_90_degrees_places_spoke_at_radius(self):
-        """Concrete geometric case: radius 5 at angle 90 must land the spoke
-        origin at pad + rotate((5,0), 90), and cell contents follow from it."""
-        pad_pos = Vector2.from_xy(0, 0)
-        spoke = ManualSpoke(pad="1", cell="t", radius_mm=5.0, angle_deg=90.0)
-        layout = apply_spoke_geometry(pad_pos, spoke, self._template(), rule_net="GND",
-                                      role_to_ref={"HEAVY": "C5", "LIGHT": "C30"})
-        ox, oy = _real_rotate(5.0, 0.0, 90.0)
-        assert abs(layout.origin.x / MM - ox) < 1e-3
-        assert abs(layout.origin.y / MM - oy) < 1e-3
-        heavy = next(c for c in layout.components if c.role == "HEAVY")
-        hx, hy = _real_rotate(1.0, -1.0, 0.0)
-        assert abs(heavy.position.x / MM - (ox + hx)) < 1e-3
-        assert abs(heavy.position.y / MM - (oy + hy)) < 1e-3
-
-    def test_polar_angle_does_not_become_component_rotation(self):
-        """Unlike CoordinatePlacement, a spoke's polar angle_deg must NOT leak
-        into rotation_deg — it only positions the origin; the cell keeps its
-        own rotation_deg (default 0 here, so slot angles pass through)."""
-        pad_pos = Vector2.from_xy(0, 0)
-        spoke = ManualSpoke(pad="1", cell="t", radius_mm=3.0, angle_deg=120.0, rotation_deg=0.0)
-        layout = apply_spoke_geometry(pad_pos, spoke, self._template(), rule_net="GND",
-                                      role_to_ref={"HEAVY": "C5", "LIGHT": "C30"})
-        heavy = next(c for c in layout.components if c.role == "HEAVY")
-        light = next(c for c in layout.components if c.role == "LIGHT")
-        assert heavy.angle_deg == 90.0
-        assert light.angle_deg == 270.0
-
-    def test_polar_mode_combines_with_rotation_deg(self):
-        """radius/angle positions the origin; rotation_deg still rotates the
-        cell contents as before — the two compose, they don't interfere."""
-        pad_pos = Vector2.from_xy(50 * MM, 50 * MM)
-        spoke = ManualSpoke(pad="1", cell="t", radius_mm=4.0, angle_deg=30.0, rotation_deg=90.0)
-        layout = apply_spoke_geometry(pad_pos, spoke, self._template(), rule_net="GND",
-                                      role_to_ref={"HEAVY": "C5", "LIGHT": "C30"})
-        ox, oy = _real_rotate(4.0, 0.0, 30.0)
-        assert abs(layout.origin.x / MM - (50.0 + ox)) < 1e-3
-        assert abs(layout.origin.y / MM - (50.0 + oy)) < 1e-3
-        heavy = next(c for c in layout.components if c.role == "HEAVY")
-        assert heavy.angle_deg == 90.0 + 90.0
-
-
-class TestSpokeLevelTracks:
-    """ManualSpoke теперь расставляет и tracks: (не только via/components) --
-    net=None в TemplateTrack наследует rule_net, той же конвенцией, что и
-    у TemplateVia (см. TestApplySpokeGeometry.test_spoke_level_via_present).
-    Это критично: один и тот же шаблон (cap_pair_standard) переиспользуется
-    несколькими Rule с РАЗНЫМ net -- литерал сломал бы 3 из 4 правил."""
-
-    def _template_with_tracks(self):
-        return Cell(
-            name="t",
-            layer="B.Cu",
-            tracks=[
-                TemplateTrack(start_along_mm=-1.0, start_across_mm=1.5,
-                              end_along_mm=-1.0, end_across_mm=2.7,
-                              width_mm=0.65, net="GND"),
-                TemplateTrack(start_along_mm=-1.0, start_across_mm=-1.1,
-                              end_along_mm=-2.0, end_across_mm=-2.1,
-                              width_mm=0.65, net=None),
-            ],
-        )
-
-    def test_track_net_none_inherits_rule_net(self):
-        pad_pos = Vector2.from_xy(50 * MM, 50 * MM)
-        spoke = ManualSpoke(pad="1", cell="t", rotation_deg=0.0)
-        layout = apply_spoke_geometry(pad_pos, spoke, self._template_with_tracks(),
-                                      rule_net="+1V2_VCCINT", role_to_ref={})
-        assert len(layout.tracks) == 2
-        gnd_track = next(t for t in layout.tracks if t.width_mm == 0.65 and t.net == "GND")
-        power_track = next(t for t in layout.tracks if t.net != "GND")
-        assert gnd_track.net == "GND"  # литерал не тронут
-        assert power_track.net == "+1V2_VCCINT"  # None -> rule_net этого конкретного правила
-
-    def test_same_template_different_rule_net_gives_different_track_net(self):
-        """Тот же шаблон, два разных Rule -- силовой трек следует за rule_net каждого."""
-        pad_pos = Vector2.from_xy(0, 0)
-        tpl = self._template_with_tracks()
-        for net in ("+3V3_VCCIO", "+2V5_VCCA"):
-            layout = apply_spoke_geometry(pad_pos, ManualSpoke(pad="1", cell="t"),
-                                          tpl, rule_net=net, role_to_ref={})
-            power_track = next(t for t in layout.tracks if t.net != "GND")
-            assert power_track.net == net
-
-    def test_track_geometry_matches_local_to_absolute(self):
-        pad_pos = Vector2.from_xy(50 * MM, 50 * MM)
-        spoke = ManualSpoke(pad="1", cell="t", rotation_deg=90.0)
-        layout = apply_spoke_geometry(pad_pos, spoke, self._template_with_tracks(),
-                                      rule_net="GND", role_to_ref={})
-        gnd_track = next(t for t in layout.tracks if t.net == "GND")
-        ex_start, ey_start = _real_rotate(-1.0, 1.5, 90.0)
-        ex_end, ey_end = _real_rotate(-1.0, 2.7, 90.0)
-        assert abs((gnd_track.start.x - pad_pos.x) / MM - ex_start) < 1e-3
-        assert abs((gnd_track.start.y - pad_pos.y) / MM - ey_start) < 1e-3
-        assert abs((gnd_track.end.x - pad_pos.x) / MM - ex_end) < 1e-3
-        assert abs((gnd_track.end.y - pad_pos.y) / MM - ey_end) < 1e-3
-
-    def test_track_layer_inherits_template_layer_when_unset(self):
-        pad_pos = Vector2.from_xy(0, 0)
-        layout = apply_spoke_geometry(pad_pos, ManualSpoke(pad="1", cell="t"),
-                                      self._template_with_tracks(), rule_net="GND", role_to_ref={})
-        assert all(t.layer == "B.Cu" for t in layout.tracks)
-
-    def test_missing_tracks_gives_empty_list(self):
-        """Шаблон без tracks: вообще -- не должен падать, просто пустой список."""
-        pad_pos = Vector2.from_xy(0, 0)
-        tpl = Cell(name="no_tracks", vias=[TemplateVia(offset_along_mm=0.0)])
-        layout = apply_spoke_geometry(pad_pos, ManualSpoke(pad="1", cell="no_tracks"),
-                                      tpl, rule_net="GND", role_to_ref={})
-        assert layout.tracks == []
-
-
-class TestApplySpokeGeometryRoleNets:
-    """Bug 3 spoke-path fix (2026-09-05): net_from_role / net_from_role_pad on
-    a ManualSpoke cell is honoured from a pre-resolved {(role, pad): net} dict —
-    a pad-2 (GND) via of a bypass role is planned as GND, NOT as the chain rail.
-    Before the fix every via/track was planned as `via.net or rule_net`, the
-    registry stored the rail net, the live copper was GND (KiCad assigns it by
-    connectivity), adopt/pre-check honestly refused and a second GND copy was
-    created on a first/empty-registry redraw."""
-
-    def _bypass_cell(self):
-        """Bypass-cap spoke cell: rail via (pad 1), GND via (pad 2), a GND
-        track and a GND slot via — the exact fpga_pwr_bank-style topology."""
-        return Cell(
-            name="bypass_cell",
-            vias=[
-                TemplateVia(offset_along_mm=0.0, offset_across_mm=-1.5,
-                            net_from_role="BYPASS", net_from_role_pad="1"),
-                TemplateVia(offset_along_mm=0.0, offset_across_mm=-2.0,
-                            net_from_role="BYPASS", net_from_role_pad="2"),
-            ],
-            tracks=[
-                TemplateTrack(start_along_mm=0.0, start_across_mm=-2.0,
-                              end_along_mm=1.0, end_across_mm=-2.0,
-                              net_from_role="BYPASS", net_from_role_pad="2"),
-            ],
-            components=[
-                TemplateComponentSlot(
-                    role="BYPASS", offset_along_mm=1.0, offset_across_mm=-1.0, angle_deg=0.0,
-                    vias=[TemplateVia(offset_along_mm=0.0, offset_across_mm=-0.5,
-                                      net_from_role="BYPASS", net_from_role_pad="2")],
-                ),
-            ],
-        )
-
-    def test_role_nets_taken_from_pre_resolved_map(self):
-        """With a provided dict, net_from_role-bearing vias/tracks take the
-        resolved net: pad 1 -> rail, pad 2 -> GND (not the chain rail)."""
-        pad_pos = Vector2.from_xy(50 * MM, 50 * MM)
-        spoke = ManualSpoke(pad="1", cell="bypass_cell", rotation_deg=0.0)
-        resolved = {("BYPASS", "1"): "+2V5_VCCA", ("BYPASS", "2"): "GND"}
-        layout = apply_spoke_geometry(pad_pos, spoke, self._bypass_cell(),
-                                      rule_net="+2V5_VCCA",
-                                      role_to_ref={"BYPASS": "C1"},
-                                      resolved_role_nets=resolved)
-        assert [v.net for v in layout.vias] == ["+2V5_VCCA", "GND"]
-        assert layout.tracks[0].net == "GND"
-        comp = layout.components[0]
-        assert comp.ref == "C1"
-        assert comp.vias[0].net == "GND"
-
-    def test_resolved_role_nets_none_keeps_legacy_rule_net_fallback(self):
-        """resolved_role_nets=None (pure-geometry legacy call, no live role
-        resolution) keeps the historical behaviour — net_from_role is ignored
-        and every via/track falls back to `via.net or rule_net`. Guards
-        backward compatibility for callers that never resolve roles."""
-        pad_pos = Vector2.from_xy(0, 0)
-        spoke = ManualSpoke(pad="1", cell="bypass_cell")
-        layout = apply_spoke_geometry(pad_pos, spoke, self._bypass_cell(),
-                                      rule_net="+2V5_VCCA", role_to_ref={"BYPASS": "C1"})
-        # Historical (buggy) behaviour: every via/track planned as the chain rail.
-        assert [v.net for v in layout.vias] == ["+2V5_VCCA", "+2V5_VCCA"]
-        assert layout.tracks[0].net == "+2V5_VCCA"
-        assert layout.components[0].vias[0].net == "+2V5_VCCA"
-
-    def test_missing_role_net_in_provided_dict_is_fatal(self):
-        """A PROVIDED dict makes the lookup STRICT — a net_from_role item
-        missing from it is an internal-consistency error, not a silent fallback
-        to the rail (which is exactly the Bug 3 GND-duplication)."""
-        from kicadstamp.exceptions import ValidationError
-        pad_pos = Vector2.from_xy(0, 0)
-        spoke = ManualSpoke(pad="1", cell="bypass_cell")
-        with pytest.raises(ValidationError):
-            apply_spoke_geometry(pad_pos, spoke, self._bypass_cell(),
-                                 rule_net="+2V5_VCCA", role_to_ref={"BYPASS": "C1"},
-                                 resolved_role_nets={("BYPASS", "1"): "+2V5_VCCA"})
-
-    def test_plain_static_nets_still_win_over_rule_net_with_dict(self):
-        """A static net (net='GND') on a via is untouched even when a dict IS
-        provided — net_from_role only applies to items that declare it."""
-        pad_pos = Vector2.from_xy(0, 0)
-        tpl = Cell(
-            name="t",
-            vias=[TemplateVia(offset_along_mm=0.0, offset_across_mm=-1.0, net="GND")],
-        )
-        layout = apply_spoke_geometry(pad_pos, ManualSpoke(pad="1", cell="t"), tpl,
-                                      rule_net="+3V3", role_to_ref={},
-                                      resolved_role_nets={})
-        assert layout.vias[0].net == "GND"
-
-
-class TestApplySpokeGeometryResolvedMount:
-    """plan_2026_09_09_cell_anchor_v2 §A.3: resolved_mount replaces
-    cell_mount_offset — the spoke path's twin of the clone-path behaviour. A
-    pad-anchor cell has NO derivable stored A (its legacy mount IS (0,0)), so
-    the caller resolves A against the live board and hands it in. None
-    (default) = 100% the historical behaviour."""
-
-    def _clone_like_cell(self, **cell_kw):
-        return Cell(name="a", components=[
-            TemplateComponentSlot(role="R1", offset_along_mm=1.0,
-                                  offset_across_mm=2.0, angle_deg=0.0),
-        ], **cell_kw)
-
-    def _comp_pos_mm(self, cell, resolved_mount=None):
-        pad_pos = Vector2.from_xy(50 * MM, 50 * MM)
-        spoke = ManualSpoke(pad="1", cell="a", rotation_deg=0.0)
-        layout = apply_spoke_geometry(pad_pos, spoke, cell, rule_net="GND",
-                                      role_to_ref={"R1": "C1"},
-                                      resolved_mount=resolved_mount)
-        comp = next(c for c in layout.components if c.role == "R1")
-        return (comp.position.x / MM - 50.0, comp.position.y / MM - 50.0)
-
-    def test_none_uses_stored_anchor_xy(self):
-        """resolved_mount=None keeps cell_mount_offset: anchor_xy=(2,3) ->
-        comp at spoke origin + (1-2, 2-3) = (-1, -1)."""
-        x, y = self._comp_pos_mm(self._clone_like_cell(anchor_xy=(2.0, 3.0)))
-        assert x == pytest.approx(-1.0, abs=1e-6)
-        assert y == pytest.approx(-1.0, abs=1e-6)
-
-    def test_resolved_mount_replaces_stored_anchor(self):
-        """A passed resolved_mount wins over the stored anchor_xy: A=(0.5,1.5)
-        -> comp at (1-0.5, 2-1.5) = (0.5, 0.5)."""
-        cell = self._clone_like_cell(anchor_xy=(2.0, 3.0))
-        x, y = self._comp_pos_mm(cell, resolved_mount=(0.5, 1.5))
-        assert x == pytest.approx(0.5, abs=1e-6)
-        assert y == pytest.approx(0.5, abs=1e-6)
-
-    def test_pad_anchor_without_xy_defaults_to_legacy_zero(self):
-        """anchor_role+anchor_pad, no anchor_xy, resolved_mount NOT given:
-        cell_mount_offset -> legacy (0,0), so the component stays at its stored
-        (1, 2) — the historical behaviour a migrated legacy cell keeps."""
-        cell = self._clone_like_cell(anchor_role="R1", anchor_pad="1")
-        x, y = self._comp_pos_mm(cell)
-        assert x == pytest.approx(1.0, abs=1e-6)
-        assert y == pytest.approx(2.0, abs=1e-6)
+    def test_polar_radius_along_x_rotated(self):
+        """The polar origin convention: 'radius along +X, rotated by angle_deg'."""
+        origin = Vector2.from_xy(0, 0)
+        p = local_to_absolute(origin, 5.0, 0.0, 90.0)
+        ex, ey = _real_rotate(5.0, 0.0, 90.0)
+        assert abs(p.x / MM - ex) < 1e-3
+        assert abs(p.y / MM - ey) < 1e-3

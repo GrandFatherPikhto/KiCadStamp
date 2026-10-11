@@ -1,6 +1,10 @@
 # kicadstamp/geometry/spoke_layout.py
 """
-spoke_layout.py — expands a spoke cell into absolute board coordinates.
+spoke_layout.py — local-frame geometry primitives (along/across -> absolute)
+shared by the clone/tree expansion paths. The spoke-specific
+apply_spoke_geometry was removed with the spoke mechanism
+(plan_2026_10_08_remove_spokes); the legacy spoke via/track resolvers below
+still back its helpers and are cleaned up with the rule_net mechanism.
 
 Order of application (established in discussion with the user):
   1. Shift (shift_x_mm, shift_y_mm) from the FPGA pad centre to the spoke origin —
@@ -30,11 +34,10 @@ from dataclasses import dataclass, field
 
 from ..domain.geometry import Vector2, Angle
 
-from ..config import ManualSpoke, Cell, TemplateVia, TemplateTrack
+from ..config import Cell, TemplateVia, TemplateTrack
 from ..exceptions import ValidationError, format_fatal_error
 from ..i18n import _
 from ..utils.units import MM
-from .cell_anchor import cell_mount_offset
 
 _ORIGIN = Vector2.from_xy(0, 0)
 
@@ -171,86 +174,3 @@ class SpokeLayout:
     components: list[ComponentLayout] = field(default_factory=list)
     tracks: list[ResolvedTrack] = field(default_factory=list)  # filled by both ClonePlacement (clone_geometry.py) and ManualSpoke (below)
 
-
-def apply_spoke_geometry(
-    pad_position: Vector2,
-    spoke: ManualSpoke,
-    cell: Cell,
-    rule_net: str,
-    role_to_ref: dict[str, str],
-    resolved_role_nets: dict | None = None,
-    resolved_mount: tuple[float, float] | None = None,
-) -> SpokeLayout:
-    """
-    Computes absolute positions of EVERYTHING in the cell for this spoke,
-    including vias at both levels — pure geometry, no access to the live board.
-    role_to_ref is already resolved EXTERNALLY (see component_pool.py) — this
-    function does not decide which ref to assign to which role, only geometry.
-    resolved_role_nets — {(role, pad): net} pre-resolved EXTERNALLY for every
-    net_from_role-bearing via/track in the cell (Bug 3 spoke-path fix,
-    2026-09-05: the caller resolves these live BEFORE geometry — see
-    ManualPositionCalculator._resolve_role_nets — preserving the boundary
-    above). None/empty = the historical behaviour: net_from_role is ignored
-    and every via/track falls back to `net or rule_net`.
-
-    resolved_mount (plan_2026_09_09_cell_anchor_v2 §A.3) — the cell's mount A
-    (ax_mm/ay_mm) as ALREADY RESOLVED by the caller (a pad-anchor cell's A
-    derived from a LIVE instance of its anchor_role's pad). Default None =
-    100% the historical behaviour: A falls back to cell_mount_offset(cell).
-    A pad-anchor cell (anchor_role+anchor_pad, no anchor_xy) has NO derivable
-    stored A (its legacy mount IS (0,0)), so the caller resolves A against the
-    live board and hands it in here — keeping geometry free of live-board
-    access.
-    """
-    if spoke.radius_mm is not None:
-        # Polar mode (config/entries.py guarantees radius_mm AND angle_deg are
-        # both set together): origin = pad centre + "radius_mm along the X axis,
-        # rotated by angle_deg" — the SAME local_to_absolute primitive every
-        # other subsystem uses (see CoordinatePlacement's polar mode), and,
-        # like the Cartesian shift, a plain translation from the pad with NO
-        # parent_rotation (spokes have no parent frame).
-        origin = local_to_absolute(pad_position, spoke.radius_mm, 0.0, spoke.angle_deg)
-    else:
-        # Cartesian shift (default): a raw translation from the pad centre,
-        # without rotation (see module docstring, order of application).
-        origin = Vector2.from_xy(
-            pad_position.x + int(spoke.shift_x_mm * MM),
-            pad_position.y + int(spoke.shift_y_mm * MM),
-        )
-
-    # The cell's mount point A (bbox-anchored frame, design_2026_09_05 v2): the
-    # stored offsets are ALWAYS in the cell's bbox frame and A is subtracted at
-    # placement so A coincides with the spoke origin. Absent anchor -> (0,0).
-    # resolved_mount (not None) replaces cell_mount_offset entirely — the
-    # caller pre-resolved A for a pad-anchor cell against the live board (the
-    # anchor_xy WINS rule — GUARD 1 — is the caller's job: resolve_pad_mount
-    # returns None whenever anchor_xy is set, so cell_mount_offset keeps
-    # winning for those cells).
-    ax_mm, ay_mm = resolved_mount if resolved_mount is not None else cell_mount_offset(cell)
-    layout = SpokeLayout(origin=origin)
-
-    layout.vias = [_resolve_via(origin, v, spoke.rotation_deg, rule_net, ax_mm, ay_mm,
-                                resolved_role_nets=resolved_role_nets, cell_name=cell.name)
-                   for v in cell.vias]
-    layout.tracks = [_resolve_track(origin, t, spoke.rotation_deg, rule_net, cell.layer,
-                                    ax_mm, ay_mm,
-                                    resolved_role_nets=resolved_role_nets, cell_name=cell.name)
-                     for t in cell.tracks]
-
-    for slot in cell.components:
-        ref = role_to_ref.get(slot.role)
-        if ref is None:
-            continue
-        layout.components.append(ComponentLayout(
-            ref=ref,
-            role=slot.role,
-            position=local_to_absolute(origin, slot.offset_along_mm - ax_mm,
-                                       slot.offset_across_mm - ay_mm, spoke.rotation_deg),
-            angle_deg=slot.angle_deg + spoke.rotation_deg,
-            vias=[_resolve_via(origin, v, spoke.rotation_deg, rule_net, ax_mm, ay_mm,
-                               resolved_role_nets=resolved_role_nets, cell_name=cell.name)
-                  for v in slot.vias],
-            slot_layer=slot.layer,
-        ))
-
-    return layout

@@ -18,8 +18,9 @@ Geometry places cell content as
 
     element_world = origin + rotate(element_offset - A, rotation_deg)
 
-i.e. ALWAYS subtracts A (see clone_geometry.apply_clone_geometry and
-spoke_layout.apply_spoke_geometry). This module is the SINGLE source of truth
+i.e. ALWAYS subtracts A (see clone_geometry.apply_clone_geometry; the spoke
+twin apply_spoke_geometry was removed with the spoke mechanism,
+plan_2026_10_08_remove_spokes). This module is the SINGLE source of truth
 for resolving A from a Cell:
 
   - cell.anchor_xy (x, y)                 -> that exact point;
