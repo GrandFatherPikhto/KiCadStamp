@@ -46,7 +46,6 @@ from .config import (
     coordinate_placement_effective_name,
     entity_effective_name,
     net_trace_effective_name,
-    chain_effective_name,
     thermal_via_array_effective_name,
 )
 from .exceptions import ValidationError, format_fatal_error
@@ -129,13 +128,13 @@ def _record(kind: str, obj: Any, name: str, sheet: str | None,
 
 def build_records(cfg: Config) -> list[Record]:
     """Normalize every config record into a list of Records, in a stable order
-    (clone_placements, chains, coordinate_placements, net_traces,
+    (clone_placements, coordinate_placements, net_traces,
     thermal_via_arrays, points — mirroring the Config's own section order).
 
     retired: true records are dropped entirely — they "do not exist on the
-    board right now" (same convention as apply_pipeline.drop_disabled_chains),
-    so they neither produce nor anchor nor appear. skip: true records are kept:
-    skip only excludes them from THIS run, the board entity still exists.
+    board right now", so they neither produce nor anchor nor appear. skip: true
+    records are kept: skip only excludes them from THIS run, the board entity
+    still exists.
     """
     records: list[Record] = []
     for c in cfg.clone_placements:
@@ -152,13 +151,6 @@ def build_records(cfg: Config) -> list[Record]:
             continue
         records.append(_record(
             "placement", e, entity_effective_name(e), e.sheet, e.params))
-    for c in cfg.chains:
-        if c.retired:
-            continue
-        # Chain has no own-identity sheet field yet (plan §1.0 adds it) —
-        # getattr keeps this forward-compatible; None until then.
-        records.append(_record(
-            "chain", c, chain_effective_name(c), getattr(c, "sheet", None)))
     for cp in cfg.coordinate_placements:
         if cp.retired:
             continue
@@ -183,15 +175,13 @@ def build_records(cfg: Config) -> list[Record]:
 
 def _record_produces(cfg: Config, rec: Record) -> list[tuple[str | None, str, str | None]]:
     """The (cluster, role, sheet) identities this record PRODUCES on the board
-    (the inverse of anchoring). Only clone_placements, chains and
-    coordinate_placements produce components; net_traces/thermal_via_arrays/
-    points produce no component (copper/vias only, or a bare coordinate), so
-    they can never be a parent in the graph.
+    (the inverse of anchoring). Only clone_placements and coordinate_placements
+    produce components; net_traces/thermal_via_arrays/points produce no
+    component (copper/vias only, or a bare coordinate), so they can never be a
+    parent in the graph.
 
     Cluster tag conventions (mirroring role_narrowing.py's live cascade):
       - clone_placement -> its own `cluster` (the Cluster TAG, not `name`)
-      - rule -> each spoke's own `cluster` (a rule can produce the same role
-        under several clusters, one entry per spoke)
       - coordinate_placement -> its own cluster/role/sheet fields
     """
     if rec.kind in ("clone", "placement"):
@@ -204,19 +194,6 @@ def _record_produces(cfg: Config, rec: Record) -> list[tuple[str | None, str, st
                            "produces nothing").format(name=rec.name, cell=rec.obj.cell))
             return []
         return [(rec.obj.cluster, slot.role, rec.sheet) for slot in cell.components]
-
-    if rec.kind == "chain":
-        out: list[tuple[str | None, str, str | None]] = []
-        for spoke in rec.obj.spokes:
-            if spoke.retired:
-                continue
-            cell = cfg.cells.get(spoke.cell)
-            if cell is None:
-                logger.debug(_("rule {name!r}: spoke cell {cell!r} not found, produces nothing")
-                             .format(name=rec.name, cell=spoke.cell))
-                continue
-            out.extend((spoke.cluster, slot.role, rec.sheet) for slot in cell.components)
-        return out
 
     if rec.kind == "coordinate":
         return [(rec.obj.cluster, rec.obj.role, rec.sheet)]
@@ -272,7 +249,7 @@ def _resolve_role_edge(rec: Record, cfg: Config,
         raise ValidationError(format_fatal_error(
             _("anchor_role {role!r} of {name!r} is not produced by any config record")
             .format(role=role, name=rec.name),
-            [_("no clone_placements:/chains:/coordinate_placements: entry produces a "
+            [_("no clone_placements:/coordinate_placements: entry produces a "
                "component with role {role!r} — this anchor points outside the config. "
                "For an external (non-kicadstamp-managed) component use anchor_ref: "
                "instead of anchor_role:").format(role=role)]
@@ -293,7 +270,7 @@ def _resolve_role_edge(rec: Record, cfg: Config,
             entries = by_sheet
 
     # Cluster narrowing — exact reuse of cluster_prefix_match on the produced
-    # cluster (clone.cluster / spoke.cluster / coordinate.cluster).
+    # cluster (clone.cluster / coordinate.cluster).
     if rec.anchor_cluster:
         by_cluster = [(c, s, p) for (c, s, p) in entries
                       if c is not None and cluster_prefix_match(c, rec.anchor_cluster)]

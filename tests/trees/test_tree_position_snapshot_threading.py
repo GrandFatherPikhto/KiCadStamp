@@ -202,51 +202,6 @@ def test_branch_2a_the_tree_anchors_ROLE_mode_resolves_from_the_snapshot():
     assert swept.sweeps == 1, "the historical path must still sweep"
 
 
-def test_branch_2b_the_tree_anchors_REF_mode_resolves_from_the_snapshot():
-    """Cell 2b — `parent_node is None` with a REF anchor (Т2-7 of plan_2026_09_22_
-    door_t2_7_imprint_place).
-
-    A ref anchor dispatches by the RECORD's kind, and this record is a CHAIN — a
-    kind whose branch owns a `snapshot` parameter. Before Т2-7 it was never handed
-    one, so the anchor swept the board TWICE per base — the position call and the
-    rotation call each build their own resolver, 332 field scans apiece — while the
-    caller held the snapshot. The row it belonged to declared that free.
-
-    Mutation check: drop `snapshot=snapshot` from EITHER call in
-    `_anchor_base_live_position`'s ref branch and this fails on the sweep — the
-    second call is the rotation twin, and it is the one Т2-4а left out."""
-    from kicadstamp.anchor_graph import chain_effective_name
-
-    chain = SimpleNamespace(name="probe_chain", sheet=None, params={}, retired=False,
-                            skip=False, anchor_ref=None, anchor_role=ANCHOR_ROLE,
-                            anchor_sheet=None, anchor_cluster=ANCHOR_CLUSTER,
-                            anchor_point=None, anchor_pad=None)
-    tree = td_mod.Tree(name="ref_tree",
-                       anchor=td_mod.TreeAnchor(ref=chain_effective_name(chain)),
-                       nodes=[])
-    # A ref anchor goes through `build_records`, which walks EVERY config section —
-    # so this rig carries them all (empty), not just the one under test.
-    cfg = SimpleNamespace(trees=[tree], chains=[chain], clone_placements=[],
-                          entities=[], coordinate_placements=[], net_traces=[],
-                          thermal_via_arrays=[], points={})
-
-    adapter = _CountingAdapter()
-    _assert_resolved_anchor(td_mod._resolve_node_base_pose(
-        cfg, adapter, {}, tree, None, None, snapshot=_snapshot(adapter)))
-    assert adapter.sweeps == 0 and adapter.field_scans == 0, (
-        "the ref sub-branch of the tree anchor swept the board even though a "
-        f"snapshot was given (sweeps={adapter.sweeps}, "
-        f"field_scans={adapter.field_scans})")
-
-    swept = _CountingAdapter()
-    _assert_resolved_anchor(td_mod._resolve_node_base_pose(
-        cfg, swept, {}, tree, None, None))
-    assert swept.sweeps == 2 and swept.field_scans == 2 * FOOTPRINTS, (
-        "the historical ref path must still sweep BOTH calls — position and "
-        "rotation, one resolver each — or this cell would pass with no threading "
-        f"at all (sweeps={swept.sweeps}, field_scans={swept.field_scans})")
-
-
 def test_branch_3_a_mount_parent_resolves_from_the_snapshot():
     """Cell 3 — a MOUNT parent: `tree_layout_base`'s anchor half AND the mount's
     own live resolver, i.e. the two sweeps the first pass left behind."""
@@ -265,39 +220,6 @@ def test_branch_3_a_mount_parent_resolves_from_the_snapshot():
     td_mod._resolve_node_base_pose(cfg, swept, {}, tree, mount, None)
     assert swept.sweeps == 2, \
         "the historical mount path sweeps twice (tree base + the mount's own)"
-
-
-def test_branch_4_a_record_parent_resolves_from_the_snapshot(monkeypatch):
-    """Cell 4 — any other parent node, i.e. the branch that reaches
-    `read_record_live_pose` (the record dispatcher: position AND rotation, two
-    resolves per base).
-
-    `_resolve_probe_ref` is stubbed here (it resolves the config's own records — a
-    different mechanism than the cost this cell pins). The FIRST version of this
-    cell drove `read_record_live_pose` directly — the seam, not the branch — and
-    mutation m14 proved it: removing the dock's `snapshot=` left it green. Same
-    trap as the probe of Т2-4, one level down; the cell drives the BRANCH now."""
-    adapter, tree = _CountingAdapter(), _tree()
-    cfg = _cfg(tree)
-    record = SimpleNamespace(kind="chain", name="probe_chain", anchor_ref=None,
-                             anchor_role=ANCHOR_ROLE, anchor_sheet=None,
-                             anchor_cluster=ANCHOR_CLUSTER,
-                             obj=SimpleNamespace())
-    parent_node = td_mod.TreeNode(ref="probe_chain", kind="chain", xy=None,
-                                  polar=None, rotation=0.0, name=None, group=None,
-                                  children=[])
-    monkeypatch.setattr(td_mod, "_resolve_probe_ref",
-                        lambda _cfg, _ref, _kind: (record, False))
-
-    pose = td_mod._resolve_node_base_pose(cfg, adapter, {}, tree, parent_node,
-                                          None, snapshot=_snapshot(adapter))
-    _assert_resolved_anchor(pose)
-    assert adapter.sweeps == 0, "a record parent still swept the board"
-
-    swept = _CountingAdapter()
-    td_mod._resolve_node_base_pose(cfg, swept, {}, tree, parent_node, None)
-    assert swept.sweeps == 2, \
-        "the historical record path sweeps twice (position + rotation)"
 
 
 def _entity_rig(tree):

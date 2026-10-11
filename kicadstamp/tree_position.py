@@ -587,8 +587,6 @@ def resolve_record_live_position(adapter, cfg, rec: Record, resolved_points,
         Entity + its recursive anchor base + the node-path offset
         (plan_2026_08_31_read_position_entity_parent_live_resolve.md)
       - "point": resolve_point_chain()
-      - "chain": ComponentResolver.resolve_anchor_fp() -> fp.position (or
-        resolve_anchor_pad_position() if anchor_pad set)
       - "coordinate": resolve_target_position() (absolute) or
         _resolve_external_anchor() + _anchor_offset_mm() (anchor-relative)
     ("external" never reaches here — resolve_base_live_position handles it
@@ -625,16 +623,6 @@ def resolve_record_live_position(adapter, cfg, rec: Record, resolved_points,
     if kind == "point":
         resolved = resolve_point_chain(adapter, cfg.points, rec.name, sheet_names)
         return resolved.position
-
-    if kind == "chain":
-        resolver = ComponentResolver(adapter, cfg, sheet_names, snapshot=snapshot)
-        fp = resolver.resolve_anchor_fp(
-            rec.anchor_ref, rec.anchor_role, rec.anchor_sheet, rec.anchor_cluster,
-            label=rec.name)
-        anchor_pad = getattr(rec.obj, "anchor_pad", None)
-        if anchor_pad is None:
-            return fp.position
-        return resolve_anchor_pad_position(adapter, fp, anchor_pad, rec.name)
 
     if kind == "coordinate":
         cp = rec.obj
@@ -683,9 +671,9 @@ def resolve_record_rotation_deg(adapter, cfg, rec: Record, sheet_names, *,
     live footprint reading for clone/coordinate (they already store it
     explicitly in config, with well-established "relative to what" semantics
     per their own docstrings — see config/models.py ClonePlacement/
-    CoordinatePlacement). rule/external and placement genuinely need a LIVE
-    read: rule/external's own record has no rotation field at all; a
-    placement (Entity) has no rotation of its own either — its rotation
+    CoordinatePlacement). external and placement genuinely need a LIVE read:
+    an external ref has no rotation field at all; a placement (Entity) has no
+    rotation of its own either — its rotation
     lives in the tree node, so it is resolved from the placing tree's
     node-path accumulation (resolve_entity_live_position, symmetric with the
     position twin). point -> None (no rotation concept by design,
@@ -721,12 +709,6 @@ def resolve_record_rotation_deg(adapter, cfg, rec: Record, sheet_names, *,
         # for both Cartesian and fixed-centre polar.
         _, rotation_deg = resolve_target_position(cp)
         return rotation_deg
-    if kind == "chain":
-        resolver = ComponentResolver(adapter, cfg, sheet_names, snapshot=snapshot)
-        fp = resolver.resolve_anchor_fp(
-            rec.anchor_ref, rec.anchor_role, rec.anchor_sheet, rec.anchor_cluster,
-            label=rec.name)
-        return fp.angle_deg
     if kind == "point":
         return None
     if kind == "net_trace":

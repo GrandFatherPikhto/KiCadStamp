@@ -9,7 +9,7 @@ tests/test_anchor_graph.py, per design_2026_08_26_link_trees.md's test plan.
 import pytest
 
 from kicadstamp.config import (
-    Config, ClonePlacement, CoordinatePlacement, Entity, NetTrace, Point, Rule,
+    Config, ClonePlacement, CoordinatePlacement, Entity, NetTrace, Point,
 )
 from kicadstamp.exceptions import ValidationError
 from kicadstamp.link_trees import inline_anchor_field, link_trees
@@ -25,16 +25,13 @@ def _tree(text, name="trees.trees", tmp_path=None):
     return load_trees(str(path))
 
 
-# A minimal clone_placements/rules/coordinate_placements/points cfg with
+# A minimal clone_placements/coordinate_placements/points cfg with
 # distinct, unambiguous names.
 def _cfg(**overrides):
     cfg = Config(
         clone_placements=[
             ClonePlacement(cluster="CL_A", cell="c", xy=(0.0, 0.0)),
             ClonePlacement(cluster="CL_B", cell="c", xy=(1.0, 1.0)),
-        ],
-        chains=[
-            Rule(net="GND", spokes=[]),
         ],
         coordinate_placements=[
             CoordinatePlacement(cluster="CP_C", role="CP_R"),
@@ -148,8 +145,8 @@ def test_node_auto_search_zero_matches_is_fatal(tmp_path):
 
 def test_node_auto_search_ambiguous_is_fatal(tmp_path):
     # Same name in two different sections -> ambiguity -> fatal with a hint.
-    cfg = _cfg(rules=[
-        Rule(net="AMB", spokes=[]),
+    cfg = _cfg(coordinate_placements=[
+        CoordinatePlacement(cluster="CP_C", role="CP_R", name="AMB"),
     ], clone_placements=[
         ClonePlacement(cluster="AMB", cell="c", xy=(0.0, 0.0)),
     ])
@@ -219,8 +216,8 @@ def test_anchor_zero_matches_is_silently_external(tmp_path):
 
 
 def test_anchor_ambiguous_is_fatal(tmp_path):
-    cfg = _cfg(rules=[
-        Rule(net="AMB", spokes=[]),
+    cfg = _cfg(coordinate_placements=[
+        CoordinatePlacement(cluster="CP_C", role="CP_R", name="AMB"),
     ], clone_placements=[
         ClonePlacement(cluster="AMB", cell="c", xy=(0.0, 0.0)),
     ])
@@ -750,8 +747,8 @@ def test_kindless_miss_suggests_a_name_from_any_section(tmp_path):
 def test_ambiguous_anchor_fatal_names_the_tree(tmp_path):
     """С6: the anchor ambiguity fatal names its tree too (no "did you mean" —
     the conflicting sections ARE the hint)."""
-    cfg = _cfg(rules=[
-        Rule(net="AMB", spokes=[]),
+    cfg = _cfg(coordinate_placements=[
+        CoordinatePlacement(cluster="CP_C", role="CP_R", name="AMB"),
     ], clone_placements=[
         ClonePlacement(cluster="AMB", cell="c", xy=(0.0, 0.0)),
     ])

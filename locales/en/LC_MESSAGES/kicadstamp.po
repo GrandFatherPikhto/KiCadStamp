@@ -3,7 +3,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version:  kicadstamp\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-11 14:10+0300\n"
+"POT-Creation-Date: 2026-10-11 14:13+0300\n"
 "PO-Revision-Date: 2026-07-27 12:00+0000\n"
 "Last-Translator: \n"
 "Language: en\n"
@@ -7475,50 +7475,41 @@ msgid ""
 "the registry)"
 msgstr ""
 
-#: kicadstamp/anchor_graph.py:203
+#: kicadstamp/anchor_graph.py:193
 #, python-brace-format
 msgid "clone_placement/entity {name!r}: cell {cell!r} not found, produces nothing"
 msgstr "clone_placement/entity {name!r}: cell {cell!r} not found, produces nothing"
 
-#: kicadstamp/anchor_graph.py:215
-#, python-brace-format
-msgid "rule {name!r}: spoke cell {cell!r} not found, produces nothing"
-msgstr "rule {name!r}: spoke cell {cell!r} not found, produces nothing"
-
-#: kicadstamp/anchor_graph.py:273
+#: kicadstamp/anchor_graph.py:250
 #, python-brace-format
 msgid "anchor_role {role!r} of {name!r} is not produced by any config record"
 msgstr "anchor_role {role!r} of {name!r} is not produced by any config record"
 
-#: kicadstamp/anchor_graph.py:275
+#: kicadstamp/anchor_graph.py:252
 #, python-brace-format
 msgid ""
-"no clone_placements:/chains:/coordinate_placements: entry produces a "
-"component with role {role!r} — this anchor points outside the config. For"
-" an external (non-kicadstamp-managed) component use anchor_ref: instead "
-"of anchor_role:"
+"no clone_placements:/coordinate_placements: entry produces a component "
+"with role {role!r} — this anchor points outside the config. For an "
+"external (non-kicadstamp-managed) component use anchor_ref: instead of "
+"anchor_role:"
 msgstr ""
-"no clone_placements:/chains:/coordinate_placements: entry produces a "
-"component with role {role!r} — this anchor points outside the config. For"
-" an external (non-kicadstamp-managed) component use anchor_ref: instead "
-"of anchor_role:"
 
-#: kicadstamp/anchor_graph.py:345
+#: kicadstamp/anchor_graph.py:322
 #, python-brace-format
 msgid "anchor_point {point!r} of {name!r} not found in points:"
 msgstr "anchor_point {point!r} of {name!r} not found in points:"
 
-#: kicadstamp/anchor_graph.py:347
+#: kicadstamp/anchor_graph.py:324
 #: kicadstamp/placement/services/point_resolver.py:158
 #, python-brace-format
 msgid "known points: {names}"
 msgstr "known points: {names}"
 
-#: kicadstamp/anchor_graph.py:414 kicadstamp/anchor_graph.py:483
+#: kicadstamp/anchor_graph.py:391 kicadstamp/anchor_graph.py:460
 msgid "dependency cycle in anchor graph"
 msgstr "dependency cycle in anchor graph"
 
-#: kicadstamp/anchor_graph.py:415
+#: kicadstamp/anchor_graph.py:392
 #, python-brace-format
 msgid ""
 "these records form a cycle through their anchors (no root reaches them): "
@@ -7527,7 +7518,7 @@ msgstr ""
 "these records form a cycle through their anchors (no root reaches them): "
 "{items}"
 
-#: kicadstamp/anchor_graph.py:484
+#: kicadstamp/anchor_graph.py:461
 #, python-brace-format
 msgid "these records form a cycle through their anchors: {items}"
 msgstr "these records form a cycle through their anchors: {items}"
@@ -9639,7 +9630,7 @@ msgstr "  FATAL ERROR: {title}"
 msgid "Placement stopped, board not modified. Fix the config and run again."
 msgstr "Placement stopped, board not modified. Fix the config and run again."
 
-#: kicadstamp/exceptions.py:232 kicadstamp/link_trees.py:148
+#: kicadstamp/exceptions.py:232 kicadstamp/link_trees.py:144
 #: kicadstamp/validation.py:331 kicadstamp/validation.py:358
 #, python-brace-format
 msgid " — did you mean {suggestion!r}?"
@@ -10205,22 +10196,22 @@ msgstr ""
 "inter-node copper: one unit of copper (pads {pads}) carries several nets "
 "at once: {nets} — the unit is defined by geometry; check the routing"
 
-#: kicadstamp/link_trees.py:123
+#: kicadstamp/link_trees.py:119
 #, python-brace-format
 msgid "tree {name!r}"
 msgstr "tree {name!r}"
 
-#: kicadstamp/link_trees.py:130
+#: kicadstamp/link_trees.py:126
 #, python-brace-format
 msgid "{where} > node {ref!r}"
 msgstr "{where} > node {ref!r}"
 
-#: kicadstamp/link_trees.py:138
+#: kicadstamp/link_trees.py:134
 #, python-brace-format
 msgid "{where}: "
 msgstr "{where}: "
 
-#: kicadstamp/link_trees.py:170
+#: kicadstamp/link_trees.py:166
 #, python-brace-format
 msgid ""
 "config has multiple records with key {key!r} ({a!r} and {b!r}) — names "
@@ -10229,35 +10220,35 @@ msgstr ""
 "config has multiple records with key {key!r} ({a!r} and {b!r}) — names "
 "must be unique"
 
-#: kicadstamp/link_trees.py:242
+#: kicadstamp/link_trees.py:238
 #, python-brace-format
 msgid "{location}node {ref!r} (kind {kind!r}) not found in config{suggestion}"
 msgstr "{location}node {ref!r} (kind {kind!r}) not found in config{suggestion}"
 
-#: kicadstamp/link_trees.py:253
+#: kicadstamp/link_trees.py:249
 #, python-brace-format
 msgid "{location}node {ref!r} not found in config{suggestion}"
 msgstr "{location}node {ref!r} not found in config{suggestion}"
 
-#: kicadstamp/link_trees.py:256
+#: kicadstamp/link_trees.py:252
 msgid "If this is an external (live-board-only) refdes, add (kind external)"
 msgstr "If this is an external (live-board-only) refdes, add (kind external)"
 
-#: kicadstamp/link_trees.py:260
+#: kicadstamp/link_trees.py:256
 #, python-brace-format
 msgid "{location}node {ref!r} is ambiguous across sections: {kinds}"
 msgstr "{location}node {ref!r} is ambiguous across sections: {kinds}"
 
-#: kicadstamp/link_trees.py:262
+#: kicadstamp/link_trees.py:258
 msgid "Add an explicit (kind ...) to disambiguate"
 msgstr "Add an explicit (kind ...) to disambiguate"
 
-#: kicadstamp/link_trees.py:296
+#: kicadstamp/link_trees.py:292
 #, python-brace-format
 msgid "{location}anchor {ref!r} is ambiguous across sections: {kinds}"
 msgstr "{location}anchor {ref!r} is ambiguous across sections: {kinds}"
 
-#: kicadstamp/link_trees.py:345
+#: kicadstamp/link_trees.py:341
 #, python-brace-format
 msgid ""
 "tree {name!r} has a module node referencing itself — a tree cannot embed "
@@ -10265,31 +10256,31 @@ msgid ""
 msgstr ""
 "tree {name!r} has a module node referencing itself — a tree cannot embed "
 "itself"
+
+#: kicadstamp/link_trees.py:344
+#, python-brace-format
+msgid ""
+"tree {name!r}: module node references unknown tree {ref!r} (no tree with "
+"that name exists)"
+msgstr ""
+"tree {name!r}: module node references unknown tree {ref!r} (no tree with "
+"that name exists)"
 
 #: kicadstamp/link_trees.py:348
 #, python-brace-format
 msgid ""
-"tree {name!r}: module node references unknown tree {ref!r} (no tree with "
-"that name exists)"
-msgstr ""
-"tree {name!r}: module node references unknown tree {ref!r} (no tree with "
-"that name exists)"
-
-#: kicadstamp/link_trees.py:352
-#, python-brace-format
-msgid ""
 "tree {name!r} embeds tree {ref!r} more than once — a parent may embed a "
 "tree by module only once"
 msgstr ""
 "tree {name!r} embeds tree {ref!r} more than once — a parent may embed a "
 "tree by module only once"
 
-#: kicadstamp/link_trees.py:381
+#: kicadstamp/link_trees.py:377
 #, python-brace-format
 msgid "tree module cycle: {chain}"
 msgstr "tree module cycle: {chain}"
 
-#: kicadstamp/link_trees.py:451
+#: kicadstamp/link_trees.py:447
 #, python-brace-format
 msgid ""
 "{location}module {ref!r} references a tree that is not in this set of "
@@ -11243,7 +11234,7 @@ msgstr ""
 msgid "tree {tree_name!r}: pivot-ref {pivot_ref!r} not found in its own layout"
 msgstr ""
 
-#: kicadstamp/tree_position.py:888
+#: kicadstamp/tree_position.py:870
 #, python-brace-format
 msgid ""
 "self-anchor needs EXACTLY ONE top-level placement node on an Entity "
@@ -11251,18 +11242,18 @@ msgid ""
 "add an explicit (anchor ...) to this tree instead"
 msgstr ""
 
-#: kicadstamp/placement/entity_placement.py:172 kicadstamp/tree_position.py:897
+#: kicadstamp/placement/entity_placement.py:172 kicadstamp/tree_position.py:879
 #, python-brace-format
 msgid "tree {name!r} self-anchor"
 msgstr ""
 
-#: kicadstamp/tree_position.py:1047
+#: kicadstamp/tree_position.py:1029
 msgid ""
 "a tree anchor's live base needs the plain configuration tree (cfg.trees) "
 "— the rigid redraw cannot read it"
 msgstr ""
 
-#: kicadstamp/tree_position.py:1109
+#: kicadstamp/tree_position.py:1091
 #, python-brace-format
 msgid ""
 "base {ref!r}: no rotation concept — assumed 0.0 for rigid-group "
@@ -11271,7 +11262,7 @@ msgstr ""
 "base {ref!r}: no rotation concept — assumed 0.0 for rigid-group "
 "composition"
 
-#: kicadstamp/tree_position.py:1192
+#: kicadstamp/tree_position.py:1174
 #, python-brace-format
 msgid ""
 "tree redraw: node {name!r} has no resolvable live position ({error}) — "
@@ -11280,7 +11271,7 @@ msgstr ""
 "tree redraw: node {name!r} has no resolvable live position ({error}) — "
 "redrawn from its own record fields, not rigidly"
 
-#: kicadstamp/tree_position.py:1315 kicadstamp/tree_position.py:1636
+#: kicadstamp/tree_position.py:1297 kicadstamp/tree_position.py:1618
 #, python-brace-format
 msgid ""
 "Node {ref!r} will be redrawn from the current position of {parent!r} (not"
@@ -11289,7 +11280,7 @@ msgstr ""
 "Node {ref!r} will be redrawn from the current position of {parent!r} (not"
 " in selection); if {parent!r} moved, {ref!r} will land from the old point"
 
-#: kicadstamp/tree_position.py:1326
+#: kicadstamp/tree_position.py:1308
 #, python-brace-format
 msgid ""
 "Node {ref!r} also has its own {field} — the regular (non-tree) "
@@ -11300,7 +11291,7 @@ msgstr ""
 "Apply/Redraw keeps using it; this tree redraw moves it TEMPORARILY, "
 "without touching the record"
 
-#: kicadstamp/tree_position.py:1533
+#: kicadstamp/tree_position.py:1515
 #, python-brace-format
 msgid ""
 "redraw conflict: tree {child!r} is embedded by active modules in several "
@@ -11309,7 +11300,7 @@ msgstr ""
 "redraw conflict: tree {child!r} is embedded by active modules in several "
 "trees ({parents}) — uncheck one of the module markers for this redraw"
 
-#: kicadstamp/tree_position.py:1553
+#: kicadstamp/tree_position.py:1535
 #, python-brace-format
 msgid ""
 "Tree {name!r} is placed through a module in this redraw — nodes checked "
@@ -11318,7 +11309,7 @@ msgstr ""
 "Tree {name!r} is placed through a module in this redraw — nodes checked "
 "in the tree itself are applied once via the module"
 
-#: kicadstamp/tree_position.py:1614
+#: kicadstamp/tree_position.py:1596
 msgid "cross-tree anchor cycle in curated redraw forest"
 msgstr "cross-tree anchor cycle in curated redraw forest"
 
@@ -18590,4 +18581,22 @@ msgstr "Total spokes: {count}"
 
 #~ msgid "place_components=False – component moves are not planned"
 #~ msgstr "place_components=False – component moves are not planned"
+
+#~ msgid "rule {name!r}: spoke cell {cell!r} not found, produces nothing"
+#~ msgstr "rule {name!r}: spoke cell {cell!r} not found, produces nothing"
+
+#~ msgid ""
+#~ "no clone_placements:/chains:/coordinate_placements: entry"
+#~ " produces a component with role "
+#~ "{role!r} — this anchor points outside"
+#~ " the config. For an external (non-"
+#~ "kicadstamp-managed) component use anchor_ref:"
+#~ " instead of anchor_role:"
+#~ msgstr ""
+#~ "no clone_placements:/chains:/coordinate_placements: entry"
+#~ " produces a component with role "
+#~ "{role!r} — this anchor points outside"
+#~ " the config. For an external (non-"
+#~ "kicadstamp-managed) component use anchor_ref:"
+#~ " instead of anchor_role:"
 

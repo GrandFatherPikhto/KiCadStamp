@@ -67,12 +67,8 @@ from .trees import KINDS, Tree, TreeAnchor, TreeNode
 # place a component, but owns no config record either: its ref is a local NAME
 # and the component it places is named by its own nested (anchor ...) address,
 # resolved against the live board later — never by a config record lookup here.
-# "chain" is kept here even though its node KIND is gone (config/retired_sections,
-# 2026-10-10): the chains: RECORD still exists (removed with the record in Ч3/Б5),
-# so a kind-less node may still auto-resolve to one. A node that names a chain
-# EXPLICITLY is refused earlier, by sexp_to_dict.
-_PLACEABLE_KINDS = (set(KINDS) | {"chain"}) - {"external", "net_trace", "module",
-                                               "mount", "copper", "component"}
+_PLACEABLE_KINDS = set(KINDS) - {"external", "net_trace", "module",
+                                 "mount", "copper", "component"}
 
 # inline position-source fields FORK-1 checks on the resolved record's obj —
 # a tree-placed record must not ALSO carry its own anchor (two sources of truth).

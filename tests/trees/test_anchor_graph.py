@@ -9,7 +9,7 @@ anchor_point leaf) and whole-graph structure — all without any live board.
 import pytest
 
 from kicadstamp.config import (
-    Config, Cell, TemplateComponentSlot, ManualSpoke, Chain,
+    Config, Cell, TemplateComponentSlot,
     ClonePlacement, CoordinatePlacement, Point,
 )
 from kicadstamp.exceptions import ValidationError
@@ -29,19 +29,16 @@ def _cell(name, *roles):
     ])
 
 
-def test_build_producer_index_clone_rule_coordinate():
+def test_build_producer_index_clone_coordinate():
     """§0.2: the index maps (cluster, role, sheet) -> producer records for
-    clone_placements (cluster = name), rules (cluster = spoke.cluster) and
-    coordinate_placements (its own cluster/role/sheet)."""
+    clone_placements (cluster = name) and coordinate_placements (its own
+    cluster/role/sheet)."""
     buf_cell = _cell("buf_cell", "DAC_BUF", "AVDD")
     cfg = Config(
         cells={"buf_cell": buf_cell},
         clone_placements=[
             ClonePlacement(cluster="CH0", cell="buf_cell", xy=(0.0, 0.0), sheet="Channel_0"),
             ClonePlacement(cluster="CH1", cell="buf_cell", xy=(0.0, 0.0), sheet="Channel_1"),
-        ],
-        chains=[
-            Chain(net="GND", spokes=[ManualSpoke(pad="1", cell="buf_cell", cluster="R_CL")]),
         ],
         coordinate_placements=[
             CoordinatePlacement(cluster="CP_C", role="CP_R", sheet="CP_S"),
@@ -53,26 +50,7 @@ def test_build_producer_index_clone_rule_coordinate():
     assert index[("CH0", "DAC_BUF", "Channel_0")] == [records[0]]
     assert index[("CH0", "AVDD", "Channel_0")] == [records[0]]
     assert index[("CH1", "DAC_BUF", "Channel_1")] == [records[1]]
-    assert index[("R_CL", "DAC_BUF", None)] == [records[2]]
-    assert index[("R_CL", "AVDD", None)] == [records[2]]
-    assert index[("CP_C", "CP_R", "CP_S")] == [records[3]]
-
-
-def test_producer_index_rule_two_clusters_same_role():
-    """A rule producing the same role under two clusters appears under two
-    index keys — each spoke is a separate production entry."""
-    cell = _cell("c", "R")
-    cfg = Config(
-        cells={"c": cell},
-        chains=[Chain(net="GND", spokes=[
-            ManualSpoke(pad="1", cell="c", cluster="CL_A"),
-            ManualSpoke(pad="2", cell="c", cluster="CL_B"),
-        ])],
-    )
-    records = build_records(cfg)
-    index = build_producer_index(cfg, records)
-    assert index[("CL_A", "R", None)] == [records[0]]
-    assert index[("CL_B", "R", None)] == [records[0]]
+    assert index[("CP_C", "CP_R", "CP_S")] == [records[2]]
 
 
 def test_resolve_anchor_edge_single_candidate():
@@ -146,14 +124,14 @@ def test_resolve_anchor_edge_sheet_narrows_to_one():
 
 
 def test_resolve_anchor_edge_cluster_narrows_to_one():
-    """anchor_cluster prefix-narrows a rule's two same-role clusters down to one."""
+    """anchor_cluster prefix-narrows two same-role producers down to one."""
     cell = _cell("c", "R")
     cfg = Config(
         cells={"c": cell},
-        chains=[Chain(net="GND", spokes=[
-            ManualSpoke(pad="1", cell="c", cluster="CL_A"),
-            ManualSpoke(pad="2", cell="c", cluster="CL_B"),
-        ])],
+        clone_placements=[
+            ClonePlacement(cluster="CL_A", cell="c", xy=(0.0, 0.0)),
+            ClonePlacement(cluster="CL_B", cell="c", xy=(0.0, 0.0)),
+        ],
         coordinate_placements=[
             CoordinatePlacement(cluster="C", role="R",
                                 anchor_role="R", anchor_cluster="CL_A"),
@@ -162,9 +140,9 @@ def test_resolve_anchor_edge_cluster_narrows_to_one():
     records = build_records(cfg)
     index = build_producer_index(cfg, records)
     parents = resolve_anchor_edge(records[-1], cfg, index, {})
-    # Both entries collapse to the SAME rule record after cluster narrowing.
+    # The CL_B producer is filtered out; exactly one parent survives.
     assert len(parents) == 1
-    assert parents[0].kind == "chain"
+    assert parents[0].kind == "clone" and parents[0].name == "CL_A"
 
 
 def test_resolve_anchor_edge_anchor_ref_external():

@@ -605,7 +605,9 @@ def test_dispatch_point_uses_resolve_point_chain(monkeypatch):
     assert calls == [("adapter", {"pnt": _Cfg.points["pnt"]}, "pnt", "sheets_arg")]
 
 
-def test_dispatch_rule_no_anchor_pad_uses_footprint_centre(monkeypatch):
+def test_dispatch_net_trace_no_anchor_pad_uses_footprint_centre(monkeypatch):
+    """A net_trace record has no position of its own: its live position IS its
+    anchor footprint's centre (the ComponentResolver-backed branch)."""
     import kicadstamp.tree_position as tp
 
     class _FakeFp:
@@ -619,15 +621,22 @@ def test_dispatch_rule_no_anchor_pad_uses_footprint_centre(monkeypatch):
 
     monkeypatch.setattr(tp, "ComponentResolver", _FakeResolver)
 
-    obj = object()
-    rec = Record(kind="chain", obj=obj, name="R1", sheet=None, anchor_ref="U1",
+    class _NT:
+        anchor_role = None
+        anchor_sheet = None
+        anchor_cluster = None
+        anchor_pad = None
+
+    rec = Record(kind="net_trace", obj=_NT(), name="NT1", sheet=None, anchor_ref=None,
                 anchor_role=None, anchor_sheet=None, anchor_cluster=None,
                 anchor_point=None, params={})
     pos = tp.resolve_record_live_position("adapter", "cfg", rec, "points", "sheets")
     assert pos.x == 50 * MM and pos.y == 60 * MM
 
 
-def test_dispatch_rule_with_anchor_pad_narrows_to_pad(monkeypatch):
+def test_dispatch_net_trace_with_anchor_pad_narrows_to_pad(monkeypatch):
+    """A net_trace whose record carries an `anchor_pad` narrows to that pad's
+    position instead of the footprint centre (the ComponentResolver branch)."""
     import kicadstamp.tree_position as tp
 
     class _FakeFp:
@@ -646,14 +655,17 @@ def test_dispatch_rule_with_anchor_pad_narrows_to_pad(monkeypatch):
     monkeypatch.setattr(tp, "resolve_anchor_pad_position", _fake_pad_pos)
 
     class _Obj:
+        anchor_role = None
+        anchor_sheet = None
+        anchor_cluster = None
         anchor_pad = "1"
 
-    rec = Record(kind="chain", obj=_Obj(), name="R1", sheet=None, anchor_ref="U1",
+    rec = Record(kind="net_trace", obj=_Obj(), name="NT1", sheet=None, anchor_ref=None,
                 anchor_role=None, anchor_sheet=None, anchor_cluster=None,
                 anchor_point=None, params={})
     pos = tp.resolve_record_live_position("adapter", "cfg", rec, "points", "sheets")
     assert pos.x == 51 * MM and pos.y == 61 * MM
-    assert calls[0][1] == "1" and calls[0][2] == "R1"
+    assert calls[0][1] == "1" and calls[0][2] == "NT1"
 
 
 def test_dispatch_coordinate_absolute_mode(monkeypatch):
@@ -964,35 +976,6 @@ def test_rotation_coordinate_via_resolve_target_position(monkeypatch):
     cp = CoordinatePlacement(cluster="CP1", role="R", x_mm=1.0, y_mm=1.0)
     rec = _record("coordinate", "CP1", obj=cp)
     assert tp.resolve_record_rotation_deg(None, "cfg", rec, "sheets") == 90.0
-
-
-def test_rotation_rule_via_live_footprint_angle(monkeypatch):
-    """rule has no rotation field of its own — read the anchor footprint's
-    LIVE angle_deg (the genuinely-live branch)."""
-    import kicadstamp.tree_position as tp
-
-    class _FakeFp:
-        angle_deg = 33.0
-
-    class _FakeResolver(FakeComponentResolver):
-        """Ф1.4d-2: the anchor ASSERTION stays here — it is this cell's point. The
-        `self.args` tuple went with the merge: nothing ever read it."""
-        RESOLVED_FP_FACTORY = _FakeFp
-
-        def resolve_anchor_fp(self, anchor_ref, anchor_role, anchor_sheet,
-                              anchor_cluster, label=""):
-            assert (anchor_ref, anchor_role, anchor_sheet, anchor_cluster) == \
-                ("U1", None, None, None)
-            assert label == "R1"
-            return super().resolve_anchor_fp(anchor_ref, anchor_role, anchor_sheet,
-                                             anchor_cluster, label)
-
-    monkeypatch.setattr(tp, "ComponentResolver", _FakeResolver)
-
-    rec = Record(kind="chain", obj=object(), name="R1", sheet=None,
-                 anchor_ref="U1", anchor_role=None, anchor_sheet=None,
-                 anchor_cluster=None, anchor_point=None, params={})
-    assert tp.resolve_record_rotation_deg("adapter", "cfg", rec, "sheets") == 33.0
 
 
 def test_rotation_point_returns_none():
