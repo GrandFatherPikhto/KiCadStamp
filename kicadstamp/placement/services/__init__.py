@@ -9,6 +9,6 @@ from .via_planner import ViaPlanner
 # PowerPinOrienter / SpacingRelaxer are leftovers from the old monolithic
 # services module and have no importable implementation — leaving them in
 # __all__ made `from kicadstamp.placement.services import PositionCalculator`
-# an ImportError. The real calculators are ManualPositionCalculator /
-# ClonePositionCalculator in their own modules.
+# an ImportError. The real calculator today is ClonePositionCalculator in its
+# own module.
 __all__ = ["ViaPlanner"]

@@ -1,9 +1,9 @@
 # kicadstamp/placement/services/clone_position_calculator.py
 """
-clone_position_calculator.py — counterpart to manual_position_calculator.py, but
-for ClonePlacement (TemplatePlacer). The two calculators share no base class
-because they work fundamentally differently (pad‑anchored spokes vs cell‑
-based section cloning), so they have independent signatures.
+clone_position_calculator.py — the position calculator for ClonePlacement
+(TemplatePlacer). The former pad-anchored-spoke counterpart
+(manual_position_calculator.py) was removed with the spoke mechanism
+(plan_2026_10_08_remove_spokes); what remains is cell-based section cloning.
 
 anchor_id for the registry (see registry.py) is built from PHYSICAL binding
 (anchor_ref/anchor_pad, PLUS the xy offset — see

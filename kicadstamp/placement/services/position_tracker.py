@@ -19,8 +19,7 @@ class PositionTracker:
     converts ``PlacedComponentInfo`` lists into ``MoveCommand`` lists,
     skipping components that are already in place.
 
-    Both :class:`ManualPositionCalculator` and
-    :class:`ClonePositionCalculator` produce ``PlacedComponentInfo``
+    :class:`ClonePositionCalculator` produces ``PlacedComponentInfo``
     results; this class provides the shared "is it already there?" logic
     that was previously inlined in ``planner.py`` (``_already_in_place`` /
     ``moves_from_placed``).

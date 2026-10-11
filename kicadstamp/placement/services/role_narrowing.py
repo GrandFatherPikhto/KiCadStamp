@@ -19,9 +19,8 @@ the Source tab, see gui/docks/placer.py) — NOT by `anchor_cluster`, which
 narrows only the EXTERNAL anchor (resolve_footprint_by_role in
 clone_role_resolver.py). The two were conflated into one field before
 (Denis: "We print the placed cell's cluster twice. Why?!"),
-split per his own (Sheet, Cluster, Role) addressing convention, already
-correctly separate for Rule/ManualSpoke (rule.anchor_cluster vs
-spoke.cluster — see manual_position_calculator.py).
+split per his own (Sheet, Cluster, Role) addressing convention (the removed
+Rule/ManualSpoke pair kept rule.anchor_cluster separate from spoke.cluster).
 
 The "Sheet" step got the same split (2026-08-15, the second half of the
 08-14 one): the by-nets/by-selection paths narrow roles INSIDE the cell
@@ -187,9 +186,8 @@ def _narrow_ambiguous_candidates(candidates, clone: ClonePlacement, adapter, sel
     # that field narrows only the EXTERNAL anchor (see resolve_footprint_by_role
     # below) — the two were conflated into one field before 2026-08-14 (Denis:
     # "We print the placed cell's cluster twice. Why?!"), split per
-    # his own (Sheet, Cluster, Role) addressing convention, already correctly
-    # separate for Rule/ManualSpoke (rule.anchor_cluster vs spoke.cluster — see
-    # manual_position_calculator.py).
+    # his own (Sheet, Cluster, Role) addressing convention (the removed
+    # Rule/ManualSpoke pair kept rule.anchor_cluster separate from spoke.cluster).
     placement_cluster = getattr(clone, "cluster", None)
     # Internal-role narrowing ALSO uses the placement's OWN sheet — the
     # 2026-08-15 second half of the 08-14 anchor_cluster split, the (Sheet,

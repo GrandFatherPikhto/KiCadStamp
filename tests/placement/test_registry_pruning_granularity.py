@@ -16,11 +16,11 @@ anchor_id that WAS seen (genuinely orphaned, must be pruned).
 from unittest.mock import MagicMock
 from kicadstamp.domain.geometry import Vector2
 
-# Import order matters here: kicadstamp.registry imports .placement.commands
-# at module level, which (via the placement package __init__) pulls in
-# manual_position_calculator.py, which imports back from kicadstamp.registry —
-# importing something under kicadstamp.placement FIRST (as every other test
-# file touching the registry already does) avoids that circular-import trap.
+# Import order: kicadstamp.placement.commands before kicadstamp.registry. A
+# former registry -> placement.commands -> placement/__init__ ->
+# manual_position_calculator -> registry cycle made this load-bearing; U5.5
+# broke that cycle and the spoke calculator is now removed, so today this is
+# just the order this file (and its registry-touching neighbours) has always used.
 from kicadstamp.placement.commands import ViaCommand
 from kicadstamp.registry import PlacementRegistry, RegistryEntry
 

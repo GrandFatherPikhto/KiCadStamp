@@ -8,7 +8,6 @@ from ..domain.geometry import BoardLayer
 from ..config import Config
 from ..kicad.adapter import KiCadBoardAdapter
 from .services.via_planner import ViaPlanner
-from .services.manual_position_calculator import ManualPositionCalculator
 from .services.clone_position_calculator import ClonePositionCalculator
 from .services.point_resolver import resolve_point, ResolvedPoint
 from .services.position_tracker import PositionTracker
@@ -37,8 +36,6 @@ class PlacementPlanner:
         # into the calculators below so they see it live-updated as the run
         # progresses, same freshness discipline as everything else here.
         self.resolved_points: dict[str, ResolvedPoint] = {}
-        self.position_calc = ManualPositionCalculator(adapter, config, sheet_names=_sn,
-                                                       resolved_points=self.resolved_points)
         self.clone_calc = ClonePositionCalculator(adapter, config, sheet_names=_sn,
                                                    resolved_points=self.resolved_points)
         # No global target_fp any more: anchors are per‑record (anchor_ref / anchor_role)

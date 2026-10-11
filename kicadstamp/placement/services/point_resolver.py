@@ -3,8 +3,8 @@
 point_resolver.py — resolves a Point (see config/points.py) to an absolute
 board position, and, when eligible, the live footprint it resolved through.
 
-Two grades, same split as Rule (manual_position_calculator.py) and
-ClonePlacement (clone_position_calculator.py):
+Two grades, same split the removed Rule (manual_position_calculator.py) and
+ClonePlacement (clone_position_calculator.py) had:
   - resolve_point_anchor_ref — lightweight, identity-only, used by
     dependency_order.py to build the dependency graph before any real
     planning happens.
@@ -54,8 +54,8 @@ class ResolvedPoint:
 
 def resolve_point_anchor_ref(adapter: KiCadBoardAdapter, point: Point, sheet_names=None) -> str | None:
     """Lightweight, identity-only anchor resolution for a Point — mirrors
-    resolve_rule_anchor_ref (manual_position_calculator.py) /
-    resolve_clone_anchor_ref (clone_position_calculator.py). Used ONLY to
+    resolve_clone_anchor_ref (clone_position_calculator.py); the removed
+    resolve_rule_anchor_ref had the same shape. Used ONLY to
     build dependency_order.py's dependency graph, not to compute a real
     position — see resolve_point below for that."""
     # xy-literal (no anchor at all) correctly falls through

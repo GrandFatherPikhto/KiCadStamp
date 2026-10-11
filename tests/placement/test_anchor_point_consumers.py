@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
-"""Tests for anchor_point: actually resolving on the three consumers
-(ClonePositionCalculator, ManualPositionCalculator, ViaPlanner) — Phase 3
-step 3, see handoff_2026_07_31_consolidated.md. resolved_points is
+"""Tests for anchor_point: actually resolving on the two consumers
+(ClonePositionCalculator, ViaPlanner) — Phase 3 step 3, see
+handoff_2026_07_31_consolidated.md. resolved_points is
 pre-populated directly here (as if an earlier dependency_order.py level had
 already resolved it), the same contract plan_item()'s point branch produces
 — see test_point_resolver.py for resolve_point() itself, and
-test_planner_point_item.py for the plan_item() wiring."""
+test_planner_point_item.py for the plan_item() wiring.
+
+The former third consumer, ManualPositionCalculator (Rule/spoke paths), was
+removed with the spoke mechanism (plan_2026_10_08_remove_spokes)."""
 
 import pytest
 from unittest.mock import MagicMock
@@ -13,12 +16,11 @@ from kicadstamp.domain.geometry import Vector2
 from kipy.board_types import Pad, FootprintInstance
 
 from kicadstamp.config import (
-    Config, ClonePlacement, Rule, ManualSpoke, Cell, TemplateComponentSlot,
+    Config, ClonePlacement, Cell, TemplateComponentSlot,
     ThermalViaArrayConfig,
 )
 from kicadstamp.exceptions import ValidationError
 from kicadstamp.placement.services.clone_position_calculator import ClonePositionCalculator
-from kicadstamp.placement.services.manual_position_calculator import ManualPositionCalculator
 from kicadstamp.placement.services.via_planner import ViaPlanner
 from kicadstamp.placement.services.point_resolver import ResolvedPoint
 from tests.fakes.format3 import stamp_config
@@ -40,7 +42,7 @@ def _stamp_configs(monkeypatch):
 
         monkeypatch.setattr(cls, "__init__", _init)
 
-    for cls in (ClonePositionCalculator, ManualPositionCalculator, ViaPlanner):
+    for cls in (ClonePositionCalculator, ViaPlanner):
         _wrap(cls)
 
 
@@ -124,55 +126,6 @@ class TestClonePlacementAnchorPoint:
         calc = ClonePositionCalculator(MagicMock(), cfg, resolved_points={})
         with pytest.raises(ValidationError, match="not found"):
             calc._resolve_anchor(clone)
-
-
-class TestRuleAnchorPoint:
-    def test_uses_points_footprint_to_look_up_spoke_pad(self):
-        pad1 = _make_pad("1", x_mm=5.0, y_mm=5.0)
-        anchor_fp = _make_fp("FPGA", pads=[pad1])
-        resolved_points = {
-            "fpga_center": ResolvedPoint(position=anchor_fp_position(), footprint=anchor_fp)
-        }
-        cell = Cell(name="tpl", components=[
-            TemplateComponentSlot(role="R1", offset_along_mm=0.0, offset_across_mm=0.0, angle_deg=0.0)
-        ])
-        rule = Rule(net="NET1", anchor_point="fpga_center",
-                   spokes=[ManualSpoke(pad="1", cell="tpl")])
-        cfg = Config(layer="F.Cu", cells={"tpl": cell}, chains=[rule])
-
-        c1 = _make_fp("C1", role="R1", pads=[_make_pad("1", 0, 0, "NET1")])
-        adapter = MagicMock()
-        adapter.get_footprints.return_value = [c1]
-        adapter.get_footprint_pads.side_effect = lambda fp: list(getattr(fp, "_pads", []))
-        adapter.get_field_value.side_effect = lambda fp, name: getattr(fp, "_role", None) if name == "Role" else None
-        adapter.get_pad_by_number.side_effect = lambda fp, num: next(
-            (p for p in getattr(fp, "_pads", []) if p.number == num), None)
-        adapter.get_selected_items.return_value = []
-
-        calc = ManualPositionCalculator(adapter, cfg, resolved_points=resolved_points)
-        placed, _vias, _tracks = calc.compute_raw_positions([rule])
-
-        assert len(placed) == 1
-        assert placed[0].ref == "C1"
-        # spoke origin = anchor_fp's pad "1" position (5, 5) mm
-        assert placed[0].dest.x == int(5.0 * MM)
-        assert placed[0].dest.y == int(5.0 * MM)
-        # Never resolved anchor_ref/anchor_role — no such fields were set.
-        adapter.get_footprint.assert_not_called()
-
-    def test_point_with_no_footprint_is_a_defensive_fatal(self):
-        """Unreachable via normal loading (config/loader.py rejects this at
-        load time) — but if resolved_points ever gets here without a
-        footprint some other way, this must fail loudly, not with an
-        AttributeError deep in spoke geometry."""
-        resolved_points = {"shifted": ResolvedPoint(position=Vector2.from_xy(0, 0), footprint=None)}
-        rule = Rule(net="NET1", anchor_point="shifted", spokes=[])
-        cfg = Config(layer="F.Cu", cells={}, chains=[rule])
-        adapter = MagicMock()
-
-        calc = ManualPositionCalculator(adapter, cfg, resolved_points=resolved_points)
-        with pytest.raises(ValidationError, match="has no footprint"):
-            calc.compute_raw_positions([rule])
 
 
 def anchor_fp_position():

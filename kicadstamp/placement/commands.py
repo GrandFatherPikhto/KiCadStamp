@@ -46,7 +46,7 @@ class TrackCommand:
 class PlacedComponentInfo:
     """
     Information about one placed component — carried over from planner.py
-    (via ManualPositionCalculator) to via_planner.py (for keepout and
+    (via the position calculator) to via_planner.py (for keepout and
     skip_existing_components idempotency). Vias are no longer here —
     all vias (spoke-level and component-level) are now pure geometry,
     computed directly as ViaCommand in the same pass as the position

@@ -23,10 +23,10 @@ The rules mirror ``upgrade_on_disk.py`` (its points 3-6), pinned by cells in
 6. Nothing is written while the GUI working set holds unsaved changes.
 
 Д2 (plan_2026_10_08_remove_spokes): the SPOKE copper keys (``pad:<pad>|…``) are
-DETACHED — dropped from the registry, never mapped. ``pad:`` is the anchor_id
-built ONLY by ``manual_position_calculator.compute_raw_positions`` (``anchor_id =
-f"pad:{spoke.pad}"``), so the predicate is the code that BUILDS the key, not a
-guess. Dropping the entry leaves the board copper unowned (it stays on the board,
+DETACHED — dropped from the registry, never mapped. ``pad:`` was the anchor_id
+built ONLY by the removed ``manual_position_calculator.compute_raw_positions``
+(``anchor_id = f"pad:{spoke.pad}"``), so the predicate is the code that BUILT the
+key, not a guess. Dropping the entry leaves the board copper unowned (it stays on the board,
 adoptable by the cell that now describes it) where a KEPT entry would be pruned
 by reconcile on the next apply — deleting the copper. Schema 2 (uuid keys, spokes
 still attached) is lifted too, by the detach alone.
@@ -114,8 +114,8 @@ def _debug_listed(path, what: str, items: list[str]) -> None:
 # the Д2 detach — reconcile would prune those keys and delete their copper.
 _UUID_KEY_SCHEMA_VERSION = 2
 
-# The anchor_id prefix of a SPOKE copper key (Д2). ``pad:<pad>`` is built ONLY by
-# ``manual_position_calculator.compute_raw_positions`` (``anchor_id =
+# The anchor_id prefix of a SPOKE copper key (Д2). ``pad:<pad>`` was built ONLY by
+# the removed ``manual_position_calculator.compute_raw_positions`` (``anchor_id =
 # f"pad:{spoke.pad}"``), so every four-part key whose anchor_id starts with this
 # prefix is spoke copper — decided by the code that BUILDS the keys, not by a
 # guess (plan Ч1.1, Ч0 inventory).

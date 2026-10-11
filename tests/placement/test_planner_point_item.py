@@ -56,7 +56,6 @@ def test_resolved_points_shared_with_calculators():
 
     planner.resolved_points["x"] = object()
 
-    assert planner.position_calc.resolved_points is planner.resolved_points
     assert planner.clone_calc.resolved_points is planner.resolved_points
     assert planner.via_planner.resolved_points is planner.resolved_points
-    assert "x" in planner.position_calc.resolved_points
+    assert "x" in planner.clone_calc.resolved_points

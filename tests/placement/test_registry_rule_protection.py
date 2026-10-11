@@ -3,11 +3,17 @@
 Regression tests for the 'pad:' anchor_id protection gap (found 2026-07-29):
 registry.reconcile()'s known_anchor_ids protection only recognised the
 'anchor:'/'role:'/'name:'/'thermal:' prefixes (ClonePlacement/thermal_via_array)
-— never 'pad:' (Rule/ManualSpoke's own registry_key prefix, see
-manual_position_calculator.compute_raw_positions: anchor_id = f"pad:{spoke.pad}").
-A rule excluded from a run (retired: true, --only, --cluster) had its via/
-track registry entries pruned unconditionally — --only/--cluster protection
-never actually worked for rule-based geometry, only for clone_placements.
+— never 'pad:' (the Rule/ManualSpoke spoke registry_key prefix, built by the
+removed manual_position_calculator.compute_raw_positions: anchor_id =
+f"pad:{spoke.pad}"). A rule excluded from a run (retired: true, --only, --cluster)
+had its via/track registry entries pruned unconditionally — --only/--cluster
+protection never actually worked for rule-based geometry, only for
+clone_placements.
+
+The 'pad:' prefix STAYS in PROTECTED_ANCHOR_PREFIXES (legacy registries still
+carry those keys); the two cells below fence the registry's own handling of it,
+not the removed builder. The builder-minus-family cells (rule_anchor_ids) were
+removed with the spokes.
 """
 
 from unittest.mock import MagicMock
@@ -17,8 +23,6 @@ from kicadstamp.domain.geometry import Vector2
 # (circular-import trap via kicadstamp.placement package __init__).
 from kicadstamp.placement.commands import ViaCommand
 from kicadstamp.registry import PlacementRegistry, RegistryEntry
-from kicadstamp.config import Rule, ManualSpoke
-from kicadstamp.placement.services.manual_position_calculator import rule_anchor_ids
 
 MM = 1_000_000
 
@@ -88,17 +92,3 @@ def test_pad_prefixed_anchor_pruned_without_protection():
     assert to_create == []
     assert to_delete == ["uuid-pad17"]
     assert f"{anchor_id}|fpga_cap_pair_spoke|__spoke__|0" not in registry.entries
-
-
-def test_rule_anchor_ids_one_per_non_retired_spoke():
-    rule = Rule(net="+3V3_VCCIO", anchor_role="FPGA", spokes=[
-        ManualSpoke(pad="17", cell="fpga_cap_pair_spoke"),
-        ManualSpoke(pad="26", cell="fpga_cap_pair_spoke"),
-        ManualSpoke(pad="40", cell="fpga_cap_pair_spoke", retired=True),
-    ])
-    assert rule_anchor_ids(rule) == {"pad:17", "pad:26"}
-
-
-def test_rule_anchor_ids_empty_for_all_retired_spokes():
-    rule = Rule(net="+3V3_VCCIO", anchor_role="FPGA", spokes=[])
-    assert rule_anchor_ids(rule) == set()

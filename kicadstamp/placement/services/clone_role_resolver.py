@@ -901,9 +901,9 @@ def resolve_footprint_by_role(adapter, anchor_role: str, anchor_sheet: str | Non
     Resolves ANY anchor component by anchor_role (Role field on the board,
     NOT a cell role — this is different: here we search for the anchor itself
     among ALL footprints on the board, not roles inside the cloned cell).
-    Not tied to ClonePlacement — used both by it (resolve_anchor_by_role below,
-    thin wrapper) and by Rule (see manual_position_calculator.py) for anchor_role
-    in spoke paths. The same ambiguity narrowing cascade:
+    Not tied to ClonePlacement — used by it (resolve_anchor_by_role below, thin
+    wrapper) and by every other anchor_role consumer. The same ambiguity
+    narrowing cascade:
 
       1. candidates = all footprints with Role == anchor_role.
       2. several — narrow by anchor_sheet (if set): the human‑readable path of fp
@@ -966,9 +966,8 @@ def resolve_anchor_by_role(adapter, clone: ClonePlacement, sheet_names: dict[str
     compatibility for calling code (clone_position_calculator.py).
 
     anchor_sheet supports {placeholder} substitution from clone.params (same
-    mechanism as nets/net_template, via resolve_placeholder) — unlike Rule
-    (manual_position_calculator.py), which has no params field and always
-    uses anchor_sheet literally."""
+    mechanism as nets/net_template, via resolve_placeholder) — the removed Rule
+    had no params field and always used anchor_sheet literally."""
     anchor_sheet = clone.anchor_sheet
     if anchor_sheet is not None:
         anchor_sheet = resolve_placeholder(anchor_sheet, clone.params, what="anchor_sheet")

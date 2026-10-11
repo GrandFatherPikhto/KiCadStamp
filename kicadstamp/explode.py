@@ -403,8 +403,8 @@ def _length_mm(item) -> float:
 def cell_identity(cell_name: str, cell) -> str:
     """THE cell's registry identity (a registry key's TEMPLATE part) — the SAME
     value the redraw writes: ``record_key_part(cell_name, cell.uuid)``
-    (clone_position_calculator / manual_position_calculator build every cell key
-    with it). ONE builder, so the plan and the redraw can never disagree."""
+    (clone_position_calculator builds every cell key with it). ONE builder, so
+    the plan and the redraw can never disagree."""
     return record_key_part(cell_name, getattr(cell, "uuid", None))
 
 

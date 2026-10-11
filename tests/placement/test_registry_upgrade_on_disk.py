@@ -22,7 +22,7 @@ Three axes, one table each (rule 35):
   (no write, no parse — one os.stat); a NEWER schema refuses before the first
   write; the working set stands the sweep down; both registry files are lifted;
   without the format-3 gate nothing is written at all;
-- Д2 — the spoke keys (the ONLY ``pad:`` anchor_id builder in the product is
+- Д2 — the spoke keys (the ONLY ``pad:`` anchor_id builder in the product WAS
   ``manual_position_calculator.compute_raw_positions``: ``anchor_id =
   f"pad:{spoke.pad}"``) are DROPPED, never mapped; and the read gate now refuses
   a schema-2 registry too, because it still carries those keys.
@@ -644,7 +644,7 @@ def test_a_registry_backup_that_cannot_be_taken_refuses_the_lift(
 #
 # The spoke keys (``pad:<pad>|…``) are dropped from the registry on the lift, so
 # the board copper they named is left UNOWNED instead of being pruned away on the
-# next apply. The predicate is the anchor PREFIX, decided by the code that BUILDS
+# next apply. The predicate is the anchor PREFIX, decided by the code that BUILT
 # the keys (``manual_position_calculator.compute_raw_positions``: ``anchor_id =
 # f"pad:{spoke.pad}"`` — the only ``pad:`` anchor_id builder in the product), not
 # by a guess about the role part or the chain.
