@@ -354,7 +354,7 @@ def mismatch_log_line(prev_mismatches: int, mismatches: int) -> Optional[str]:
     back only after the condition cleared and reappeared."""
     if prev_mismatches > 0 or mismatches <= 0:
         return None
-    return _("{count} refdes mean a DIFFERENT symbol on the board than in the schematic (Refdes/symbol mismatch) — Apply skips them, so their Role/Cluster will not reach the schematic; check the annotation of these parts").format(count=mismatches)
+    return _("{count} refdes mean a DIFFERENT symbol on the board than in the schematic (Refdes/symbol mismatch) — Apply skips them, so their Role/Cluster will not reach the schematic; check the annotation of these parts — or, if the schematic has just changed, save it in Eeschema: fieldstool re-reads it by itself").format(count=mismatches)
 
 
 try:

@@ -698,16 +698,20 @@ msgstr ""
 msgid "Nothing to apply"
 msgstr "Nothing to apply"
 
-#: gui/fieldstool_window.py:1141
+#: gui/fieldstool_window.py:1160
 #, python-brace-format
 msgid ""
 "{count} ref(s) are refdes/symbol mismatches: the schematic and the board "
 "disagree on what that refdes is (different symbol UUIDs). Re-annotate the"
-" schematic / Update PCB from Schematic to re-sync, then Apply again."
+" schematic / Update PCB from Schematic to re-sync, then Apply again — or, "
+"if the schematic has just changed, save it in Eeschema: fieldstool re-reads"
+" it by itself."
 msgstr ""
 "{count} ref(s) are refdes/symbol mismatches: the schematic and the board "
 "disagree on what that refdes is (different symbol UUIDs). Re-annotate the"
-" schematic / Update PCB from Schematic to re-sync, then Apply again."
+" schematic / Update PCB from Schematic to re-sync, then Apply again — or, "
+"if the schematic has just changed, save it in Eeschema: fieldstool re-reads"
+" it by itself."
 
 #: gui/fieldstool_window.py:1148
 msgid "Skipped mismatches"
@@ -5075,11 +5079,25 @@ msgstr ""
 msgid ""
 "{count} refdes mean a DIFFERENT symbol on the board than in the schematic"
 " (Refdes/symbol mismatch) — Apply skips them, so their Role/Cluster will "
-"not reach the schematic; check the annotation of these parts"
+"not reach the schematic; check the annotation of these parts — or, if the "
+"schematic has just changed, save it in Eeschema: fieldstool re-reads it by "
+"itself"
 msgstr ""
 "{count} refdes mean a DIFFERENT symbol on the board than in the schematic"
 " (Refdes/symbol mismatch) — Apply skips them, so their Role/Cluster will "
-"not reach the schematic; check the annotation of these parts"
+"not reach the schematic; check the annotation of these parts — or, if the "
+"schematic has just changed, save it in Eeschema: fieldstool re-reads it by "
+"itself"
+
+#: gui/schematic_freshness.py:70
+msgid ""
+"The schematic changed on disk but could not be re-read — keeping the "
+"previous read; it will be retried. If this persists, use Rescan once the "
+"file is readable."
+msgstr ""
+"The schematic changed on disk but could not be re-read — keeping the "
+"previous read; it will be retried. If this persists, use Rescan once the "
+"file is readable."
 
 #: gui/docks/pending.py:444
 msgid "Field"

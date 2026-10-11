@@ -1,5 +1,11 @@
 # tests/gui/test_schema_model.py
-from gui.schema_model import load_schematic_components, load_schematic_instances
+import os
+
+import pytest
+
+from gui.schema_model import (hierarchy_signature, load_schematic_components,
+                              load_schematic_instances, load_schematic_view,
+                              signature_is_stale)
 from tests.fakes.schematic_text import sch_file, symbol_block
 
 
@@ -167,3 +173,91 @@ def test_load_schematic_instances_power_symbols_excluded(tmp_path):
         encoding="utf-8")
 
     assert load_schematic_instances(str(root)) == {}
+
+
+# ── load_schematic_view: the ONE walk behind both legacy loaders ────────────
+
+def test_load_schematic_view_equals_the_pair_of_legacy_loaders(tmp_path):
+    """plan_2026_10_11_fieldstool_stale_schematic: load_schematic_view() is the
+    single hierarchy walk; its first two elements ARE exactly what
+    load_schematic_components()/load_schematic_instances() return (they are now
+    one-line delegates to it), and its third is the list of .kicad_sch files the
+    walk covered — root first, then the child sheet it references."""
+    from tests.fakes.schematic_text import sheet_block
+    child = tmp_path / "child.kicad_sch"
+    child.write_text(sch_file(symbol_block(
+        ["C1"], role="C_A", symbol_uuid="C1-U",
+        instance_paths=[("C1", "/root-uuid/inst-A/SHEET-1")])), encoding="utf-8")
+    root = tmp_path / "root.kicad_sch"
+    root.write_text(sch_file(symbol_block(["R1"], role="R_A", symbol_uuid="R1-U"),
+                             sheet_block("child.kicad_sch")), encoding="utf-8")
+
+    comps, instances, files = load_schematic_view(str(root))
+
+    assert comps == load_schematic_components(str(root))
+    assert instances == load_schematic_instances(str(root))
+    assert {c.ref for c in comps} == {"R1", "C1"}
+    assert files == [str(root.resolve()), str(child.resolve())]
+
+
+# ── hierarchy_signature / signature_is_stale: the cheap freshness probe ──────
+
+def _write(path, text="(kicad_sch)"):
+    path.write_text(text, encoding="utf-8")
+    return path
+
+
+def _newer_mtime(path):
+    st = os.stat(path)
+    os.utime(path, ns=(st.st_atime_ns, st.st_mtime_ns + 1_000_000))
+
+
+def _size_only(path):
+    """Rewrite to a DIFFERENT length, then restore mtime_ns — the 'size only'
+    cell: same mtime, different byte count."""
+    st = os.stat(path)
+    path.write_text("(kicad_sch padded)", encoding="utf-8")
+    os.utime(path, ns=(st.st_atime_ns, st.st_mtime_ns))
+
+
+def _remove(path):
+    os.remove(path)
+
+
+def _untouched(path):
+    pass
+
+
+@pytest.mark.parametrize("mutate, expected", [
+    (_untouched, False),
+    (_newer_mtime, True),
+    (_size_only, True),
+    (_remove, True),
+], ids=["unchanged", "newer-mtime", "size-only", "removed"])
+def test_signature_is_stale_tracks_each_way_a_sheet_can_change(tmp_path, mutate, expected):
+    """plan_2026_10_11_fieldstool_stale_schematic: the whole question the cheap
+    probe asks — did anything behind the recorded signature change? One row per
+    way a sheet can: nothing, a newer mtime_ns, a same-mtime size change (the
+    case a coarse clock could hide), and a vanished file (counts as changed)."""
+    p = _write(tmp_path / "a.kicad_sch")
+    sig = hierarchy_signature([str(p)])
+
+    mutate(p)
+
+    assert signature_is_stale(sig) is expected
+
+
+@pytest.mark.parametrize("appears, expected", [
+    (True, True),
+    (False, False),
+], ids=["appears", "still-missing"])
+def test_signature_is_stale_for_a_path_recorded_as_missing(tmp_path, appears, expected):
+    """A path unreadable at signature time is recorded as the sentinel
+    (path, None, None) rather than raising: it reads as CHANGED the moment it
+    appears, and stays 'unchanged' while it is still gone."""
+    p = tmp_path / "later.kicad_sch"
+    sig = hierarchy_signature([str(p)])       # recorded as (path, None, None)
+    if appears:
+        _write(p)
+
+    assert signature_is_stale(sig) is expected

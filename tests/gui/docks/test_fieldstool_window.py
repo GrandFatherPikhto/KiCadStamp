@@ -21,6 +21,7 @@ from kicadstamp.constants import CLUSTER_FIELD_NAME, ROLE_FIELD_NAME
 from kicadstamp.explore import Selected
 from kicadstamp.schematic_editing import EditReport
 from tests.fakes.schematic_text import sch_file, symbol_block
+from tests.fakes.write_later import write_later
 from tests.gui.conftest import _FakeConnection, _pump
 
 
@@ -576,17 +577,30 @@ def test_apply_blocked_when_kicad_running(fieldstool_window, tmp_path, monkeypat
     assert len(fieldstool_window._pending_edits) == 1  # still pending, nothing consumed
 
 
-def test_apply_with_nothing_pending_shows_message(fieldstool_window, tmp_path, monkeypatch):
+def test_apply_with_nothing_pending_reports_in_the_log_not_a_window(
+        fieldstool_window, tmp_path, monkeypatch, caplog, records_from):
+    """plan_2026_10_11_fieldstool_stale_schematic: the benign "already matches"
+    answer of Apply is a Log line, never a window (rule 43; the plan's C5
+    covers all three Apply-path messages). REWRITTEN from
+    test_apply_with_nothing_pending_shows_message — the DESIGN changed by the
+    plan (QMessageBox.information -> show_message), so this test's SUBJECT
+    changed with it; its strength is unchanged, and it is now stronger: the
+    window is forbidden outright instead of merely captured."""
     root = _write_root(tmp_path, symbol_block(["R1"], role="OLD"))
     fieldstool_window._set_root_sheet(root)
 
     monkeypatch.setattr(fieldstool_window_mod, "check_kicad_not_running", lambda force: None)
-    shown = []
     monkeypatch.setattr(fieldstool_window_mod.QMessageBox, "information",
-                        staticmethod(lambda *a, **k: shown.append("info")))
+                        staticmethod(lambda *a, **k: (_ for _ in ()).throw(
+                            AssertionError("this path must be a Log line"))))
+    caplog.clear()
 
     fieldstool_window._on_apply()
-    assert shown == ["info"]
+
+    infos = [r for r in records_from("gui.fieldstool_window")
+             if r.levelno == logging.INFO]
+    assert any("Every pending value already matches the schematic." in r.message
+               for r in infos)
 
 
 def test_apply_succeeds_writes_file_and_clears_pending(fieldstool_window, tmp_path, monkeypatch):
@@ -1250,3 +1264,233 @@ def test_rescan_passes_the_window_as_the_retry_owner(
     assert args[1] == ()                             # no guard widgets here
     assert kwargs["owner"] is fieldstool_window      # the only liveness guard
     assert "on_cached" in kwargs                     # the fallback is reported
+
+
+# ── freshness: the schematic re-reads itself when its files change ──────────
+# plan_2026_10_11_fieldstool_stale_schematic. The live defect: fieldstool read
+# the schematic once, so Pending/Apply/Sync judged a read taken BEFORE the last
+# Eeschema save. These cells pin the self-re-read and its cheapness.
+
+def _rewrite_root(root, *blocks):
+    """Simulate the user's Eeschema save: rewrite the sheet file on disk with
+    write_later (NOT a bare write_text) so the stamp really ADVANCES even under
+    `--coarse-mtime`, where the probe freezes a same-tick write. A bare write
+    that did not advance mtime would leave the cheap stat probe (correctly)
+    seeing no change, and the cell would measure this rig instead of the code."""
+    write_later(root, sch_file(*blocks))
+
+
+def test_c1_a_sheet_saved_after_the_window_opened_is_re_read_on_the_next_tick(
+        fieldstool_window, tmp_path):
+    """С1 (plan_2026_10_11_fieldstool_stale_schematic): the schematic is saved in
+    Eeschema AFTER the window read it — the next poll tick (set_live_snapshot)
+    must re-read it, so a stale refdes/symbol mismatch disappears and Sync
+    becomes available. Before the fix the mismatch stuck until a manual Rescan."""
+    root = _write_root(tmp_path, symbol_block(["R1"], role="OLD", symbol_uuid="STALE"))
+    fieldstool_window._set_root_sheet(root)          # the window reads STALE
+    # Board carries a DIFFERENT symbol uuid for R1 -> a refdes/symbol mismatch,
+    # nothing to sync.
+    fieldstool_window.set_live_snapshot(
+        [_selected("R1", "NEW", None, symbol_uuid="FRESH")])
+    assert [e.mismatched for e in fieldstool_window._pending_edits] == [True]
+    assert not fieldstool_window.pending_dock.sync_button.isEnabled()
+
+    # The user saves in Eeschema: same ref, now the uuid the board has.
+    _rewrite_root(root, symbol_block(["R1"], role="OLD", symbol_uuid="FRESH"))
+    fieldstool_window.set_live_snapshot(
+        [_selected("R1", "NEW", None, symbol_uuid="FRESH")])
+
+    assert all(not e.mismatched for e in fieldstool_window._pending_edits)
+    assert fieldstool_window.pending_dock.sync_button.isEnabled()
+
+
+def test_c2_an_unchanged_schematic_is_not_re_read_on_a_poll_tick(
+        fieldstool_window, tmp_path, monkeypatch):
+    """С2: with the sheet files unchanged a poll tick must NOT re-read the
+    schematic — the probe is a cheap os.stat, the read stays behind a change.
+    Spy on load_schematic_view: zero calls across repeated ticks. The mutation
+    that re-reads every tick dies here."""
+    from gui import schematic_freshness as freshness_mod
+    root = _write_root(tmp_path, symbol_block(["R1"], role="OLD"))
+    fieldstool_window._set_root_sheet(root)
+    real = freshness_mod.load_schematic_view
+    calls = []
+    monkeypatch.setattr(freshness_mod, "load_schematic_view",
+                        lambda p: calls.append(p) or real(p))
+
+    fieldstool_window.set_live_snapshot([_selected("R1", "NEW", None)])
+    fieldstool_window.set_live_snapshot([_selected("R1", "NEW", None)])
+
+    assert calls == []
+
+
+def test_c3_a_new_sheet_in_the_hierarchy_is_re_read(fieldstool_window, tmp_path):
+    """С3: a new leaf added to the hierarchy (its parent rewritten to reference
+    it) counts as 'changed' — the next tick picks up the child's components."""
+    from tests.fakes.schematic_text import sheet_block
+    child = tmp_path / "child.kicad_sch"
+    child.write_text(sch_file(symbol_block(["C1"], role="C_A")), encoding="utf-8")
+    root = _write_root(tmp_path, symbol_block(["R1"], role="R_A"))
+    fieldstool_window._set_root_sheet(root)
+    assert {c.ref for c in fieldstool_window._components} == {"R1"}
+
+    _rewrite_root(root, symbol_block(["R1"], role="R_A"),
+                  sheet_block("child.kicad_sch"))
+    fieldstool_window.set_live_snapshot([])
+
+    assert {c.ref for c in fieldstool_window._components} == {"R1", "C1"}
+
+
+def test_c4_apply_decides_on_a_fresh_read_without_a_manual_refresh(
+        fieldstool_window, tmp_path, monkeypatch, caplog, records_from):
+    """С4: Apply after an Eeschema save, with NO Refresh, must judge the FRESH
+    read — not the stale one that still showed a refdes/symbol mismatch (which
+    is what made Apply wrongly answer the live "Nothing to apply")."""
+    root = _write_root(tmp_path, symbol_block(["R1"], role="OLD", symbol_uuid="STALE"))
+    fieldstool_window._set_root_sheet(root)
+    fieldstool_window.set_live_snapshot(
+        [_selected("R1", "NEW", None, symbol_uuid="FRESH")])
+    monkeypatch.setattr(fieldstool_window_mod, "check_kicad_not_running",
+                        lambda force: None)
+    # The user saves in Eeschema: the uuid now matches the board's.
+    _rewrite_root(root, symbol_block(["R1"], role="OLD", symbol_uuid="FRESH"))
+    monkeypatch.setattr(fieldstool_window, "_confirm_apply", lambda report: True)
+    _silence_information(monkeypatch)
+    caplog.clear()
+
+    fieldstool_window._on_apply()
+
+    assert '"Role" "NEW"' in root.read_text(encoding="utf-8")
+    errors = [r for r in records_from("gui.fieldstool_window")
+              if r.levelno == logging.ERROR]
+    assert not any("refdes/symbol mismatches" in r.message for r in errors)
+
+
+def test_c4_sync_decides_on_a_fresh_read_without_a_manual_refresh(
+        fieldstool_window, tmp_path, monkeypatch):
+    """The Sync twin of С4: after an Eeschema save with NO Refresh, Sync judges
+    the fresh read and writes the live board — the stale mismatch must not
+    swallow the whole action."""
+    root = _write_root(tmp_path, symbol_block(["R1"], role="OLD", symbol_uuid="STALE"))
+    fieldstool_window._set_root_sheet(root)
+    board = _connect_board(fieldstool_window, monkeypatch)
+    fieldstool_window.set_live_snapshot(
+        [_selected("R1", "NEW", None, symbol_uuid="FRESH")])
+    monkeypatch.setattr(fieldstool_window, "_confirm_sync",
+                        lambda edits, stored=0: True)
+
+    _rewrite_root(root, symbol_block(["R1"], role="OLD", symbol_uuid="FRESH"))
+    fieldstool_window._on_sync_from_schematic()
+
+    assert board.adapter.calls                     # the fresh read had a sync-able edit
+
+
+def _forbid_windows(monkeypatch, *names):
+    """Make the named QMessageBox entry points fail the test if called. Default:
+    all three — but a path that legitimately reaches an UNTOUCHED window later
+    (e.g. the "Applied" information box) names only the ones it forbids."""
+    if not names:
+        names = ("warning", "critical", "information")
+    def _boom(*a, **k):
+        raise AssertionError("this Apply path must be a Log line, not a QMessageBox")
+    for name in names:
+        monkeypatch.setattr(fieldstool_window_mod.QMessageBox, name,
+                            staticmethod(_boom))
+
+
+def _silence_information(monkeypatch):
+    """Neutralize the UNTOUCHED "Applied"/"Fields added" information window, so a
+    successful write does not open a real modal under the test (rule 43 leaves
+    that one a window; the plan converts only the three mismatch/pending ones)."""
+    monkeypatch.setattr(fieldstool_window_mod.QMessageBox, "information",
+                        staticmethod(lambda *a, **k: None))
+
+
+def test_c5_all_mismatches_apply_is_a_log_line_not_a_window(
+        fieldstool_window, tmp_path, monkeypatch, caplog, records_from):
+    """С5 (rule 43): the refusal for an all-mismatch pending set is ONE ERROR Log
+    line — no window — and it carries the save-in-Eeschema hint (the fix for the
+    live 2026-10-11 finding)."""
+    root = _write_root(tmp_path, symbol_block(["R1"], role="OLD", symbol_uuid="STALE"))
+    fieldstool_window._set_root_sheet(root)
+    fieldstool_window.set_live_snapshot(
+        [_selected("R1", "NEW", None, symbol_uuid="FRESH")])
+    monkeypatch.setattr(fieldstool_window_mod, "check_kicad_not_running",
+                        lambda force: None)
+    _forbid_windows(monkeypatch)
+    caplog.clear()
+
+    fieldstool_window._on_apply()
+
+    errors = [r for r in records_from("gui.fieldstool_window")
+              if r.levelno == logging.ERROR]
+    assert len(errors) == 1
+    assert "refdes/symbol mismatches" in errors[0].message
+    assert "save it in Eeschema" in errors[0].message
+
+
+def test_c5_skipped_mismatches_is_a_log_line_not_a_window(
+        fieldstool_window, tmp_path, monkeypatch, caplog, records_from):
+    """С5: when only SOME pending edits are mismatched, the skip notice is a WARN
+    Log line and the verified ones are still applied — no window."""
+    root = _write_root(tmp_path,
+                       symbol_block(["R1"], role="OLD", symbol_uuid="STALE"),
+                       symbol_block(["R2"], role="OLD", symbol_uuid="R2U"))
+    fieldstool_window._set_root_sheet(root)
+    fieldstool_window.set_live_snapshot([
+        _selected("R1", "NEW", None, symbol_uuid="FRESH"),   # mismatch
+        _selected("R2", "NEW", None, symbol_uuid="R2U"),      # applicable
+    ])
+    monkeypatch.setattr(fieldstool_window_mod, "check_kicad_not_running",
+                        lambda force: None)
+    monkeypatch.setattr(fieldstool_window, "_confirm_apply", lambda report: True)
+    # Only the skip notice is in scope — the "Applied" information box after the
+    # write is an UNTOUCHED window (rule 43 bans new ones, not existing ones).
+    _forbid_windows(monkeypatch, "warning")
+    _silence_information(monkeypatch)
+    caplog.clear()
+
+    fieldstool_window._on_apply()
+
+    warns = [r for r in records_from("gui.fieldstool_window")
+             if r.levelno == logging.WARNING]
+    assert any("skipped" in r.message for r in warns)
+    assert '"Role" "NEW"' in root.read_text(encoding="utf-8")   # R2 still written
+
+
+def test_a_failed_auto_reread_keeps_the_last_read_and_warns_once(
+        fieldstool_window, tmp_path, caplog, records_from):
+    """The auto path must not open a window (it runs on a poll tick) and must
+    not lose the last good read: an unreadable sheet logs ONE WARN per failing
+    signature, and both components and signature stay so the next tick retries."""
+    root = _write_root(tmp_path, symbol_block(["R1"], role="OLD"))
+    fieldstool_window._set_root_sheet(root)
+    before = fieldstool_window._components
+    caplog.clear()
+
+    root.unlink()                                    # now unreadable (removed)
+    fieldstool_window.set_live_snapshot([_selected("R1", "NEW", None)])
+    fieldstool_window.set_live_snapshot([_selected("R1", "NEW", None)])
+
+    warns = [r for r in records_from("gui.fieldstool_window")
+             if r.levelno == logging.WARNING]
+    assert len(warns) == 1
+    assert "could not be re-read" in warns[0].message
+    assert fieldstool_window._components == before
+
+
+def test_rescan_button_keeps_its_error_window(
+        fieldstool_window, tmp_path, monkeypatch):
+    """The Rescan BUTTON is an explicit click, so its failure path KEEPS the
+    "Rescan failed" window (rule 43 bans NEW windows, not this one) — unlike the
+    auto path above."""
+    root = _write_root(tmp_path, symbol_block(["R1"], role="OLD"))
+    fieldstool_window._set_root_sheet(root)
+    shown = []
+    monkeypatch.setattr(fieldstool_window_mod.QMessageBox, "warning",
+                        staticmethod(lambda *a, **k: shown.append(a[1])))
+
+    root.unlink()
+    fieldstool_window._rescan()
+
+    assert shown and "Rescan failed" in shown[0]

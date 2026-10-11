@@ -88,8 +88,8 @@ from .docks._common import (ERROR_STYLE as _ERROR_STYLE,
                             WARN_STYLE as _WARN_STYLE, configure_searchable,
                             show_message)
 from .docks.pending import PendingChangesDock, PendingEdit, compute_pending_edits, edits_to_fields_cfg
-from .schema_model import (SchematicComponent, SchematicInstance,
-                           load_schematic_components, load_schematic_instances)
+from .schema_model import SchematicComponent, SchematicInstance
+from .schematic_freshness import SchematicFreshness
 from .settings import Settings
 from .worker import start_long_op
 
@@ -127,10 +127,12 @@ class MainWindow(QMainWindow):
         self._current_targets: List[str] = []
         self._components: List[SchematicComponent] = []
         # full-path index (load_schematic_instances): board sheet_path.path ->
-        # schematic instance. Built on Rescan alongside self._components and fed
-        # to compute_pending_edits so the diff can resolve re-annotated boards
-        # per-instance instead of trusting the refdes string (2026-08-08).
+        # schematic instance; fed to compute_pending_edits so the diff resolves
+        # re-annotated boards per-instance, not by the refdes string (2026-08-08).
         self._path_index: Dict[tuple, SchematicInstance] = {}
+        # The schematic re-reads itself when its files change (plan_2026_10_11_
+        # fieldstool_stale_schematic); the probe is gui.schematic_freshness.
+        self._freshness = SchematicFreshness(logger)
         # Last live-board snapshot pushed by the main GUI's ~2s poll (see
         # set_live_snapshot below) — together with self._components, this is
         # the whole input to the schematic-vs-board diff (gui.docks.pending.
@@ -427,57 +429,56 @@ class MainWindow(QMainWindow):
                 _WARN_STYLE, logger))
 
     def _rescan(self) -> None:
-        """Explicit action, not auto-polled — the schematic only changes
-        when someone saves in Eeschema, not every 2 seconds (same
-        "explicit refresh, no silent polling" discipline
-        kicadstamp/gui/main_window.py documents for its own tree)."""
+        """The Rescan BUTTON: force a read (the fallback for the stat probe's one
+        blind spot — an identical mtime_ns AND size) and recompute. Its failure
+        keeps the "Rescan failed" modal: an explicit click may show one."""
         if self._root_sheet is None:
             return
-        try:
-            components = load_schematic_components(str(self._root_sheet))
-        except (OSError, ValueError) as e:
-            QMessageBox.warning(self, _("Rescan failed"), str(e))
+        view, error = self._freshness.read(self._root_sheet)
+        if error is not None:
+            QMessageBox.warning(self, _("Rescan failed"), error)
             return
-        self._components = components
-        try:
-            self._path_index = load_schematic_instances(str(self._root_sheet))
-        except (OSError, ValueError):
-            # Same failure mode as above; the diff then falls back to the
-            # refdes join + symbol-uuid guard, which is still safe.
-            self._path_index = {}
-        roles = {c.role for c in components if c.role}
-        clusters = {c.cluster for c in components if c.cluster}
-        # Union in whatever's currently on the live board too — a value set
-        # there (Stage, Clear all, Cluster tagging, ...) won't be in the
-        # schematic on disk until Apply, so a rescan alone would never
-        # surface it as a pickable combo item this session.
-        for s in self._live_snapshot:
-            if s.role:
-                roles.add(s.role)
-            if s.cluster:
-                clusters.add(s.cluster)
-        self._set_combo_items(self.role_combo, sorted(roles))
-        self._set_combo_items(self.cluster_combo, sorted(clusters))
-        # Т6/С5: the sheet was just read, so "our note is redundant now" is
-        # knowable here — and a Rescan is exactly how a user's own edit in
-        # Eeschema reaches this tool (see _forget_the_notes_the_sheet_carries).
-        self._forget_the_notes_the_sheet_carries()
+        self._adopt_schematic_read(view)
         self._recompute_pending()
 
+    def _adopt_schematic_read(self, view) -> None:
+        """Adopt a read (components, path_index, files): store it, refresh the
+        pickable combos and drop the notes the sheet now carries (Т6/С5)."""
+        components, path_index, _files = view
+        self._components = components
+        self._path_index = path_index
+        roles = {c.role for c in components if c.role}
+        clusters = {c.cluster for c in components if c.cluster}
+        roles |= {s.role for s in self._live_snapshot if s.role}
+        clusters |= {s.cluster for s in self._live_snapshot if s.cluster}
+        self._set_combo_items(self.role_combo, sorted(roles))
+        self._set_combo_items(self.cluster_combo, sorted(clusters))
+        self._forget_the_notes_the_sheet_carries()
+
+    def _maybe_reread_schematic(self) -> bool:
+        """The cheap gate every trigger runs (poll, Apply, Sync): re-read the
+        schematic — and recompute the diff — only when its files changed on
+        disk. False (unchanged, or a failed re-read reported by ONE WARN) leaves
+        self._pending_edits untouched, so a hand-injected diff survives."""
+        view, _error = self._freshness.reread_if_stale(self._root_sheet)
+        if view is None:
+            return False
+        self._adopt_schematic_read(view)
+        self._pending_edits = compute_pending_edits(
+            self._components, self._live_snapshot, self._path_index,
+            self._overrides)
+        return True
+
     def _recompute_pending(self) -> None:
-        """Recomputes the schematic-vs-board diff and pushes it to
-        pending_dock — cheap (no new IPC/file reads, the inputs are
-        already-cached: self._components from the last Rescan,
-        self._live_snapshot from the last poll tick and self._overrides
-        from the project's own store, held in memory), so this can safely
-        run on every trigger (Rescan, or a fresh live snapshot) without
-        the "expensive work belongs behind an explicit action" concern
-        that applies to the reads themselves. Also the single place that
-        notifies on_components_changed — the main GUI's Components tree in
-        "Not yet applied" mode now filters by pending_refs (see below), so
-        it needs telling on every trigger this fires from (a fresh poll
-        tick/Stage write changes which refs are pending, not just Rescan/
-        Apply), not just the two call sites that used to fire it directly."""
+        """Recomputes the schematic-vs-board diff and pushes it to pending_dock
+        — cheap (the inputs are already-cached; the ONE read it may do is the
+        stat probe at the top, plan_2026_10_11_fieldstool_stale_schematic), so
+        it can safely run on every trigger. Also the single place that notifies
+        on_components_changed — the main GUI's Components tree in "Not yet
+        applied" mode filters by pending_refs (see below), so it needs telling
+        on every trigger this fires from (a fresh poll tick/Stage write changes
+        which refs are pending, not just Rescan/Apply)."""
+        self._maybe_reread_schematic()
         self._pending_edits = compute_pending_edits(
             self._components, self._live_snapshot, self._path_index,
             self._overrides)
@@ -808,7 +809,12 @@ class MainWindow(QMainWindow):
         on both sides).
 
         Both halves are collected BEFORE the confirmation: the loss of our notes
-        is announced first, never discovered afterwards."""
+        is announced first, never discovered afterwards.
+
+        plan_2026_10_11_fieldstool_stale_schematic: the schematic side is
+        refreshed FIRST (_maybe_reread_schematic), so the decision below is not
+        made on a read taken before the last Eeschema save."""
+        self._maybe_reread_schematic()
         syncable = [e for e in self._pending_edits if not e.mismatched]
         if not syncable:
             return
@@ -1109,6 +1115,11 @@ class MainWindow(QMainWindow):
         if self._root_sheet is None:
             QMessageBox.warning(self, _("No root sheet"), _("Pick a root sheet first."))
             return
+        # plan_2026_10_11_fieldstool_stale_schematic: decide on a FRESH read —
+        # _maybe_reread_schematic re-reads the schematic AND recomputes the diff
+        # when its files changed, so a save since the last look is not judged
+        # stale. No board needed for this (Apply runs with KiCad closed anyway).
+        self._maybe_reread_schematic()
         # Apply requires KiCad closed anyway (check below), so there is no
         # point holding on to a stale connection handle while it's gone —
         # drop it before even checking (disconnect() also closes the
@@ -1136,19 +1147,24 @@ class MainWindow(QMainWindow):
         mismatched = [e for e in self._pending_edits if e.mismatched]
         applicable = [e for e in self._pending_edits if not e.mismatched]
         if mismatched and not applicable:
-            QMessageBox.warning(
-                self, _("Nothing to apply"),
+            # A Log line, never a window (rule 43). The extra sentence is the fix
+            # for the live 2026-10-11 finding: a pile of "mismatches" usually
+            # means an Eeschema save landed after this window read.
+            show_message(
                 _("{count} ref(s) are refdes/symbol mismatches: the schematic and the "
                   "board disagree on what that refdes is (different symbol UUIDs). "
                   "Re-annotate the schematic / Update PCB from Schematic to re-sync, "
-                  "then Apply again.").format(count=len(mismatched)))
+                  "then Apply again — or, if the schematic has just changed, save it "
+                  "in Eeschema: fieldstool re-reads it by itself.").format(
+                      count=len(mismatched)),
+                _ERROR_STYLE, logger)
             return
         if mismatched:
-            QMessageBox.warning(
-                self, _("Skipped mismatches"),
+            show_message(
                 _("{count} ref(s) skipped: the schematic and the board disagree on what "
                   "that refdes is (different symbol UUIDs). Only verified matches are "
-                  "applied.").format(count=len(mismatched)))
+                  "applied.").format(count=len(mismatched)),
+                _WARN_STYLE, logger)
 
         fields_cfg = edits_to_fields_cfg(self._pending_edits)
         try:
@@ -1159,8 +1175,8 @@ class MainWindow(QMainWindow):
             return
 
         if not report:
-            QMessageBox.information(self, _("Nothing to apply"),
-                                    _("Every pending value already matches the schematic."))
+            show_message(_("Every pending value already matches the schematic."),
+                         "", logger)
             return
 
         if not self._confirm_apply(report):

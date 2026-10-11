@@ -225,6 +225,15 @@ above:
   Refresh (its automatic ~2s tick is a deliberate no-op once connected, so it is NOT a refresh
   source — this paragraph used to claim it was) — never stored, so it can't go stale relative to
   the board.
+- **The schematic re-reads itself when its files change on disk** (2026-10-11,
+  `plan_2026_10_11_fieldstool_stale_schematic`). The hierarchy used to be read once, so Pending/
+  Apply/Sync judged a read taken *before* the last Eeschema save — a save then looked like a pile of
+  stale "Refdes/symbol mismatch" rows and Apply wrongly answered "Nothing to apply". On every existing
+  trigger (the ~2s poll, Apply, Sync) the window now stats the `.kicad_sch` files the last read covered
+  and re-reads the hierarchy, cheaply, only when one changed (no file hashing on a tick, no new timer).
+  Apply and Sync decide on that fresh read. The one gap a stat cannot see — a rewrite with an identical
+  mtime **and** size — has a fallback: the **Rescan** button always re-reads. If the mismatches are
+  because you have just edited the schematic, save it in Eeschema; fieldstool re-reads it by itself.
 - **Direction, stated on both surfaces** (2026-09-16). The diff itself has no direction — the dock
   cannot know which side is *newer*, only that the two disagree — so its two value columns are named
   by SIDE (**Schematic** / **Board**, no more "(current)"/"(new)"), and each button says which way it

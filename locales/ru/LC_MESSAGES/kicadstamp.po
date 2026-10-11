@@ -755,17 +755,20 @@ msgstr ""
 msgid "Nothing to apply"
 msgstr "Нечего применять"
 
-#: gui/fieldstool_window.py:1141
+#: gui/fieldstool_window.py:1160
 #, python-brace-format
 msgid ""
 "{count} ref(s) are refdes/symbol mismatches: the schematic and the board "
 "disagree on what that refdes is (different symbol UUIDs). Re-annotate the"
-" schematic / Update PCB from Schematic to re-sync, then Apply again."
+" schematic / Update PCB from Schematic to re-sync, then Apply again — or, "
+"if the schematic has just changed, save it in Eeschema: fieldstool re-reads"
+" it by itself."
 msgstr ""
 "{count} поз. — рассинхрон refdes/символ: схема и плата расходятся в том, "
 "что такое этот refdes (разные UUID символов). Переаннотируйте схему / "
 "Update PCB from Schematic для повторной синхронизации и нажмите Apply "
-"снова."
+"снова — или, если схема только что изменилась, сохраните её в Eeschema: "
+"fieldstool перечитает её сам."
 
 #: gui/fieldstool_window.py:1148
 msgid "Skipped mismatches"
@@ -5447,11 +5450,24 @@ msgstr ""
 msgid ""
 "{count} refdes mean a DIFFERENT symbol on the board than in the schematic"
 " (Refdes/symbol mismatch) — Apply skips them, so their Role/Cluster will "
-"not reach the schematic; check the annotation of these parts"
+"not reach the schematic; check the annotation of these parts — or, if the "
+"schematic has just changed, save it in Eeschema: fieldstool re-reads it by "
+"itself"
 msgstr ""
 "У {count} реф(ов) плата и схема означают РАЗНЫЕ символы (Refdes/symbol "
 "mismatch) — Apply их не переносит, Role/Cluster у них в схему не попадут;"
-" проверьте аннотацию этих компонентов"
+" проверьте аннотацию этих компонентов — или, если схема только что "
+"изменилась, сохраните её в Eeschema: fieldstool перечитает её сам"
+
+#: gui/schematic_freshness.py:70
+msgid ""
+"The schematic changed on disk but could not be re-read — keeping the "
+"previous read; it will be retried. If this persists, use Rescan once the "
+"file is readable."
+msgstr ""
+"Схему не удалось перечитать — она изменилась на диске. Оставляю прежнее "
+"чтение; попробую снова. Если это повторяется, нажмите Rescan, когда файл "
+"станет читаемым."
 
 #: gui/docks/pending.py:444
 msgid "Field"
