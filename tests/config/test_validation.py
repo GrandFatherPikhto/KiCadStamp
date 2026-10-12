@@ -576,7 +576,7 @@ class TestBridgingPadHintsSelfConsistent:
         redraw) — verified by patching it on an empty config where every other
         check is a no-op."""
         import kicadstamp.validation as v
-        cfg = Config(cells={}, clone_placements=[], chains=[], coordinate_placements=[])
+        cfg = Config(cells={}, clone_placements=[], coordinate_placements=[])
         adapter = MagicMock()
         adapter.get_board_filename.return_value = None
         called = []

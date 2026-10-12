@@ -52,7 +52,7 @@ class _FakePlanner(FakePlanner):
 
 def _pipeline(dry_run=True):
     cfg = Config(layer='F.Cu', cells={},
-                 chains=[], clone_placements=[])
+                 clone_placements=[])
     pipeline = ApplyPipeline("board.sexp", dry_run=dry_run, preloaded_cfg=cfg)
     pipeline.items = [SimpleNamespace(label="rule_A"), SimpleNamespace(label="rule_B")]
     pipeline.planner = _FakePlanner()
@@ -132,7 +132,7 @@ class TestRunApplyAndCmdApplyPropagateReport:
 class TestAuthorReportPlumbing:
     def test_apply_config_returns_run_apply_result(self):
         with patch("kicadstamp.author.run_apply", return_value=["report-line"]) as m:
-            result = apply_config(Config(layer='F.Cu', cells={}, chains=[]), "board.sexp",
+            result = apply_config(Config(layer='F.Cu', cells={}), "board.sexp",
                                   dry_run=True)
         assert result == ["report-line"]
         assert m.call_args.args[0].dry_run is True

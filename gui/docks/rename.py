@@ -12,11 +12,9 @@ Two shapes, matching config/includes.py's _DICT_SECTIONS/_LIST_SECTIONS:
 
 * Dict sections (cells:/points:/extract_profiles:/clone_profiles:) are
   keyed by name — rename_dict_entry() renames the KEY in place.
-* List sections (clone_placements:/thermal_via_arrays:/rules:) carry their
-  own name: field — rename_list_entry() sets it. rules: is the one
-  exception with no required name: (falls back to net:, see config/
-  models.py's rule_effective_name()) — renaming one for the first time is
-  what actually GIVES it an explicit name:.
+* List sections (clone_placements:/thermal_via_arrays:) carry their own
+  name: field — rename_list_entry() sets it. (The retired rules: section was
+  the one exception with no required name: — it fell back to net:.)
 
 Cross-reference cascading (found via direct audit of config/models.py +
 every resolver that reads cell:/anchor_point: — see

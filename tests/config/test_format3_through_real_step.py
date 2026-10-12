@@ -380,7 +380,7 @@ def _all_record_uuids(cfg) -> set:
         out.add(cell.uuid)
     for point in cfg.points.values():
         out.add(point.uuid)
-    for seq in (cfg.clone_placements, cfg.entities, cfg.chains,
+    for seq in (cfg.clone_placements, cfg.entities,
                 cfg.thermal_via_arrays, cfg.net_traces, cfg.coordinate_placements,
                 cfg.imprints):
         for rec in seq:

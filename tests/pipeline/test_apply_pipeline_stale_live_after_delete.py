@@ -153,7 +153,7 @@ def _pipeline(tmp_path):
     """A real ApplyPipeline whose adapter and planner are stand-ins. Registry
     paths are pointed at tmp files through the RuntimeContext, so the REAL
     registries persist and reconcile for real."""
-    cfg = Config(layer='F.Cu', cells={}, chains=[], clone_placements=[])
+    cfg = Config(layer='F.Cu', cells={}, clone_placements=[])
     ctx = RuntimeContext(
         registry_path=str(tmp_path / "registry" / "vias.json"),
         track_registry_path=str(tmp_path / "tracks" / "tracks.json"),

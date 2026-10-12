@@ -46,7 +46,7 @@ def _dto(ref, uuid_str):
 
 
 def _pipeline(items, adapter):
-    cfg = Config(layer='F.Cu', cells={}, chains=[], clone_placements=[])
+    cfg = Config(layer='F.Cu', cells={}, clone_placements=[])
     pipeline = ApplyPipeline("board.yaml", preloaded_cfg=cfg)
     pipeline.adapter = adapter
     pipeline.items = items

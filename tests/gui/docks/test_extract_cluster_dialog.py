@@ -26,7 +26,6 @@ def _cfg(entities=None, cells=None):
         entities=entities or [],
         cells={c.name: c for c in (cells or [])},
         trees=[],
-        chains=[],
     )
 
 

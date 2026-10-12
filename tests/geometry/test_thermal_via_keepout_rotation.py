@@ -110,7 +110,7 @@ class _FakeBoard:
 def _config(diameter_mm: float = 0.5, margin_mm: float = 0.5,
             clearance_mm: float = 0.2) -> Config:
     return Config(
-        layer="B.Cu", cells={}, chains=[], clone_placements=[],
+        layer="B.Cu", cells={}, clone_placements=[],
         skip_existing_components=False,
         via_keepout_clearance_mm=clearance_mm,
         via_search_step_mm=0.1,

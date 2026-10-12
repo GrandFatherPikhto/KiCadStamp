@@ -42,7 +42,7 @@ from pathlib import Path
 import pytest
 
 from kicadstamp.config import (
-    Cell, CellPlacement, Chain, ClonePlacement, Config, Entity, ManualSpoke,
+    Cell, CellPlacement, ClonePlacement, Config, Entity,
     NetTrace, Point, TemplateTrack, ThermalViaArrayConfig,
 )
 from kicadstamp.config import format_version

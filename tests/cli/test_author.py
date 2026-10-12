@@ -6,7 +6,7 @@ core_yaml_removal: author fragments are s-expr/.sexp now)."""
 import pytest
 from unittest.mock import patch
 
-from kicadstamp.config import ClonePlacement, Config, ManualSpoke, Rule, load_config
+from kicadstamp.config import ClonePlacement, Config, load_config
 from kicadstamp.config.sexp_format import dict_to_sexp, sexp_to_dict
 from kicadstamp.exceptions import ValidationError
 from kicadstamp.author import (_prune_defaults, apply_config, dump_clone_placements,
@@ -39,10 +39,11 @@ class TestPruneDefaults:
         assert d["rotation_deg"] == 90.0
         assert d["nets"] == {"X": "NET_A"}
 
-    def test_recurses_into_rule_spokes(self):
-        rule = Rule(net="GND", spokes=[ManualSpoke(pad="1", cell="t", shift_x_mm=2.0)])
-        d = _prune_defaults(rule)
-        assert d["spokes"] == [{"pad": "1", "cell": "t", "shift_x_mm": 2.0}]
+    # test_recurses_into_rule_spokes went with the Chain/ManualSpoke models
+    # (Б6, 2026-10-12): a Rule's spokes were the ONLY nesting _prune_defaults
+    # recursed into, so the recursion has no carrier any more. The code path
+    # stays (generic, cheap); the property is not asserted, and is named as
+    # carrier-less in done_2026_10_12_remove_spokes_ch3_b6.md.
 
 
 def _fragment_profile_root(tmp_path, cells, fragment_name):

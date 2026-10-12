@@ -70,7 +70,6 @@ def test_clone_placements_only_via_selection():
     cfg = Config(
         layer='B.Cu',
         cells={"crystal": tpl},
-        chains=[],  # НЕТ rules вовсе
         clone_placements=[clone],
     )
 

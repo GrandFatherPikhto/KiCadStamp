@@ -14,8 +14,6 @@ from .models import (
     TemplateTrack,
     Cell,
     CellPlacement,
-    ManualSpoke,
-    Chain,
     ClonePlacement,
     CoordinatePlacement,
     NetTrace,
@@ -23,7 +21,6 @@ from .models import (
     ImprintConfig,
     TreeInstance,
     Config,
-    chain_effective_name,
     thermal_via_array_effective_name,
     coordinate_placement_effective_name,
     clone_placement_effective_name,
@@ -53,13 +50,9 @@ from .loader import (
     _check_layer_value,
 )
 
-# Backward-compat aliases for the 2026-09-01 Rule -> Chain rename — any
-# existing external importer/script referencing the old names keeps working.
-# (`load_rule` is gone: the per-entry Chain validator went with the `chains:`
-# section, 2026-10-11 — see config/retired_sections.py.)
-Rule = Chain
-rule_effective_name = chain_effective_name
-
+# (the `Rule`/`rule_effective_name` compat aliases went with the `chains:`
+# section itself, 2026-10-11 — Д1 refuses a config that carries it, see
+# config/retired_sections.py.)
 # load_cell/load_template_component_slot/load_template_via/
 # load_template_track/load_cell_placement (2026-08-06) — the cell editor's
 # own validators, same "gui/ must not import the private names" reasoning
@@ -101,8 +94,6 @@ __all__ = [
     "Cell",
     "CellPlacement",
     "Point",
-    "ManualSpoke",
-    "Chain",
     "ClonePlacement",
     "CoordinatePlacement",
     "NetTrace",
@@ -128,7 +119,6 @@ __all__ = [
     "load_point",
     "entity_effective_name",
     "imprint_effective_name",
-    "chain_effective_name",
     "thermal_via_array_effective_name",
     "coordinate_placement_effective_name",
     "clone_placement_effective_name",

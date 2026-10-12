@@ -128,7 +128,7 @@ def _cfg(net_traces):
                              sheet="Channel_0")
     return SimpleNamespace(entities=[entity], clone_placements=[],
                            cells={"dac_buf": cell}, net_traces=list(net_traces),
-                           chains=[])
+                           )
 
 
 def _config_path(tmp_path):

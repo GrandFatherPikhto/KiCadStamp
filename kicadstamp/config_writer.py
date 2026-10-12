@@ -446,15 +446,14 @@ def upsert_list_entry(path: Path, section: str, entry: Dict[str, Any], key: str 
     place (same position), a new one gets appended. Every other top-level
     key in the file (cells:, include:, extract_profiles:, ...) is left
     untouched. Shared shape for clone_placements: (see
-    upsert_clone_placement), thermal_via_arrays: (ConfigTreeDock's Add
-    thermal via pad, 2026-08-03), and rules: (gui/docks/rules.py, 2026-08-05)
-    — all three are "list of dict entries" sections in exactly this way.
+    upsert_clone_placement) and thermal_via_arrays: (ConfigTreeDock's Add
+    thermal via pad, 2026-08-03) — both are "list of dict entries" sections in
+    exactly this way.
 
     key_fn (callable, entry -> identity) overrides the default `entry.get(key)`
-    — rules: needs this because a Rule's identity for --only falls back to
-    net: when name: is absent (config/models.py's rule_effective_name()),
-    unlike clone_placements:/thermal_via_arrays: which always require an
-    explicit name:.
+    — needed by a section whose identity is not a plain required name: (the
+    retired rules: fell back to net:), unlike clone_placements:/
+    thermal_via_arrays: which always require an explicit name:.
 
     IDENTITY IS THE UUID WHEN THE ENTRY CARRIES ONE (2026-10-07, plan
     plan_2026_10_05_uuid_tails 0а-1). A form save that RENAMES a record keeps

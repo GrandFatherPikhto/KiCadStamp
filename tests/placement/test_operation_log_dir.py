@@ -115,7 +115,6 @@ class TestBatchExecutorUsesConfigOperationLogDir:
         cfg = Config(
             layer='B.Cu',
             cells={},
-            chains=[],
             clone_placements=[],
         )
         adapter = self._adapter(self._fp("C39"))
@@ -135,7 +134,6 @@ class TestBatchExecutorUsesConfigOperationLogDir:
         cfg = Config(
             layer='B.Cu',
             cells={},
-            chains=[],
             clone_placements=[],
         )
         adapter = self._adapter(self._fp("C39"))

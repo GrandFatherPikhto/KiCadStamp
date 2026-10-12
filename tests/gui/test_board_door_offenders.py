@@ -1292,7 +1292,7 @@ def test_the_read_position_seam_forwards_the_snapshot_to_its_base_resolve(
         trees_mod, "resolve_base_rotation_deg",
         lambda *a, **k: seen.append(k) or 0.0)
     cfg = SimpleNamespace(trees=[], cells={}, entities=[], points={},
-                          clone_placements=[], chains=[], coordinate_placements=[],
+                          clone_placements=[], coordinate_placements=[],
                           net_traces=[], thermal_via_arrays=[])
     tree = Tree(name="t", anchor=TreeAnchor(is_origin=True), nodes=[])
     cfg.trees = [tree]

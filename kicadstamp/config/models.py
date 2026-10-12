@@ -1,7 +1,7 @@
 # kicadstamp/config/models.py
 """
 config/models.py — all configuration dataclasses (cells, ClonePlacement,
-Rule, Config, etc.) WITHOUT any YAML loading/validation logic — this is purely
+NetTrace, Config, etc.) WITHOUT any YAML loading/validation logic — this is purely
 a description of the data shape. Loading is in config/loader.py.
 
 Split from monolithic config.py by refactoring. The public interface of the
@@ -457,134 +457,6 @@ class Cell:
     comment: str | None = None
     # Record identity (format 3) — see ThermalViaArrayConfig.uuid.
     uuid: str | None = None
-
-
-@dataclass
-class ManualSpoke:
-    """
-    A specific spoke on a specific FPGA pad. Position — EXACTLY ONE of two
-    mutually exclusive modes, with the same field names as CoordinatePlacement
-    for consistency across the project. Fatal at load if BOTH are set, or if
-    the polar pair is only half-filled (one of radius_mm/angle_deg without the
-    other — see config/entries.py); the absence of both is simply the default
-    Cartesian zero shift:
-
-      - Cartesian (default): shift_x_mm/shift_y_mm — a plain translation from
-        the pad centre to the spoke origin, WITHOUT rotation (raw shift, no
-        parent_rotation — spokes have no parent frame).
-      - Polar: radius_mm/angle_deg — the spoke origin is the pad centre plus
-        "radius_mm along the X axis, rotated by angle_deg", i.e.
-        origin = local_to_absolute(pad_position, radius_mm, 0.0, angle_deg),
-        the exact same primitive/convention as CoordinatePlacement's polar
-        mode and every cell's own along/across offsets — so angle_deg's
-        rotation direction is guaranteed consistent with rotation_deg's
-        meaning everywhere else.
-
-    rotation_deg (both modes) is ALWAYS in KiCad board coordinates (not local),
-    tuned visually for the specific board. Order: first shift (shift_x/shift_y
-    or radius/angle) from the pad centre to the spoke origin, then rotation of
-    the resulting origin (and all cell contents) by rotation_deg. Unlike
-    CoordinatePlacement, polar angle_deg does NOT become rotation_deg — it only
-    positions the origin; the component/cell orientation is a separate, already
-    existing rotation_deg concern.
-
-    IMPORTANT: no component refs here anymore — concrete components are
-    automatically selected from the pool (see placement/services/component_pool.py)
-    by matching the actual rule net (rule.net) and the custom Role field on the
-    component, in the order of spokes in this list.
-
-    skip — see ThermalViaArrayConfig.skip for the retired-vs-skip distinction;
-    here it lets you narrow work down to a single spoke within a rule without
-    touching retired (which would prune its registry entries).
-    """
-    pad: str
-    cell: str
-    shift_x_mm: float = 0.0
-    shift_y_mm: float = 0.0
-    rotation_deg: float = 0.0
-    radius_mm: float | None = None
-    angle_deg: float | None = None
-    retired: bool = False
-    cluster: str | None = None
-    skip: bool = False
-    # UUID of the referenced cell (`cell` above stays a string; see
-    # ThermalViaArrayConfig.anchor_point_uuid).
-    cell_uuid: str | None = None
-
-
-@dataclass
-class Chain:
-    """Chain: a group of spokes around ONE anchor component, all on one net
-    (renamed from Rule 2026-09-01 — "rule" confused users; a chain is
-    identified by its net). anchor_ref OR anchor_role (mutually exclusive,
-    exactly one required) — whose pads are listed in spokes.
-    anchor_sheet/anchor_cluster narrow ambiguity of anchor_role, same
-    principle as in ClonePlacement.
-
-    name — OPTIONAL, for --only. Defaults to net when not set (see
-    chain_effective_name). An explicit name is only needed to give a chain a
-    more readable label than its net; it is NOT a grouping mechanism — do not
-    reuse the same name across several chains to "bundle" them for --only, use
-    a shared Cluster (anchor_cluster / spoke.cluster) for that instead. The
-    loader fatals if two chains resolve to the same effective name (see
-    config/loader.py) — add a distinguishing name: to one of them.
-
-    retired — whole‑chain switch (default False), same convention as
-    ManualSpoke.retired/ClonePlacement.retired/ThermalViaArrayConfig.retired.
-    Always wins over --only/--cluster: a retired chain is dropped before any
-    CLI selection is applied, it cannot be resurrected by naming it explicitly
-    on the command line — retired: true means "does not exist on the board
-    right now", not "excluded from this particular run".
-
-    skip — see ThermalViaArrayConfig.skip. Unlike retired, skip: true does
-    NOT prune this chain's via/tracks from the registry, it only skips
-    (re)planning them this run — the inline, per-item equivalent of --only/
-    --cluster, for narrowing work without retyping CLI flags each time (see
-    drop_inactive_items in kicadstamp/apply_pipeline.py, added 2026-07-29).
-
-    sheet — OPTIONAL own-identity sheet (2026-08-21, anchor dependency tree
-    plan §1.0): mirrors ClonePlacement.sheet / CoordinatePlacement.sheet —
-    the same (Sheet, Cluster, Role) addressing convention completed for Chain.
-    It narrows the roles THIS chain produces (its spokes' cell component roles)
-    for the STATIC anchor graph / dependency tree grouping, and is DISTINCT
-    from anchor_sheet (which narrows only the OTHER, anchor component).
-    Deliberately NOT consumed by the live spoke resolver (ComponentPool has
-    no sheet axis) — a chain's produced roles are matched on the board by
-    net + role + cluster only, so this field is config bookkeeping + graph
-    grouping, not live resolution.
-    """
-    net: str
-    spokes: list[ManualSpoke]
-    anchor_ref: str | None = None
-    anchor_role: str | None = None
-    anchor_sheet: str | None = None
-    anchor_cluster: str | None = None
-    # Alternative to anchor_ref/anchor_role — see ThermalViaArrayConfig.anchor_point
-    # for the mutual-exclusion/footprint-required rules, same here (Chain looks
-    # up spoke.pad on the resolved component, a bare coordinate isn't enough).
-    anchor_point: str | None = None
-    sheet: str | None = None
-    name: str | None = None
-    retired: bool = False
-    skip: bool = False
-    # Optional free-form note shown in the GUI (handoff_2026_08_27_entity_comment_field.md).
-    comment: str | None = None
-    # Record identity and the UUID of the referenced points: entry (see
-    # ThermalViaArrayConfig.uuid / .anchor_point_uuid).
-    uuid: str | None = None
-    anchor_point_uuid: str | None = None
-
-
-def chain_effective_name(chain: "Chain") -> str:
-    """Single point for reading the identity used for --only: the explicit
-    name if set, otherwise the net (net is guaranteed present on any Chain)."""
-    return chain.name or chain.net
-
-
-# Backward-compat aliases for the 2026-09-01 Rule -> Chain rename — any
-# existing external importer/script referencing the old names keeps working.
-Rule = Chain
-rule_effective_name = chain_effective_name
 
 
 @dataclass
@@ -1189,23 +1061,9 @@ class Config:
     # references these by name. Physically they live in an included .json
     # file, but the section itself is format-agnostic.
     imprints: list[ImprintConfig] = field(default_factory=list)
-    # chains: — the rule-of-pads container (renamed from rules: 2026-09-01).
-    # `rules` below is a READ-ONLY property alias so every existing cfg.rules
-    # call site keeps working until it is migrated to cfg.chains (writes must
-    # go through cfg.chains; the loader's normalize_section_aliases() maps the
-    # raw `rules:` key on read).
-    chains: list[Chain] = field(default_factory=list)
-
-    @property
-    def rules(self) -> list[Chain]:
-        """Backward-compat alias for the 2026-09-01 rules: -> chains: rename."""
-        return self.chains
-
-    @rules.setter
-    def rules(self, value: list[Chain]) -> None:
-        """Read-write alias so existing `cfg.rules = [...]` / setattr call
-        sites keep working until migrated to cfg.chains."""
-        self.chains = value
+    # (the `chains:` / legacy `rules:` section is RETIRED — 2026-10-11, Д1: a
+    # config that carries it is refused while its text is parsed, see
+    # config/retired_sections.py, so no `chains` field exists any more.)
     # entities: — NEW section (design_2026_08_30_entity_placement_grammar.md):
     # the "what" of a placement, WITHOUT position (position lives only in a
     # trees: node). Loaded by config/entries.py::_load_entity.
@@ -1302,8 +1160,7 @@ class Config:
 
     @property
     def anchor_refs(self) -> set:
-        """All anchor refs in the config: spoke chains + thermal via arrays."""
-        out = {c.anchor_ref for c in self.chains if c.anchor_ref}
-        out |= {tva.anchor_ref for tva in self.thermal_via_arrays
+        """Every anchor ref in the config — thermal via arrays today (the
+        spoke chains that used to contribute here are retired, 2026-10-11)."""
+        return {tva.anchor_ref for tva in self.thermal_via_arrays
                 if not tva.retired and tva.anchor_ref}
-        return out

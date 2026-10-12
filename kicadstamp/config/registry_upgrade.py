@@ -31,13 +31,11 @@ adoptable by the cell that now describes it) where a KEPT entry would be pruned
 by reconcile on the next apply — deleting the copper. Schema 2 (uuid keys, spokes
 still attached) is lifted too, by the detach alone.
 
-7. While the config STILL PLANS the spoke copper (a non-empty ``chains:``) the
-   registry is NOT lifted AT ALL — no write, no ``.bak``, the schema stays where
-   it is. Lifting it (even keeping the keys) would stamp the target schema and
-   turn the lift into a NO-OP for the open that runs AFTER the chains are removed:
-   the spoke keys would stay attached with nothing planning them, and reconcile
-   would PRUNE them — the very deletion Д2 prevents. Leaving the file alone keeps
-   the lift available for that later open, and a WARNING says why.
+7. The old "while the config still PLANS the spoke copper, leave the registry
+   alone" skip (Д2 доделка п.1, 09.10.2026) is GONE with the section itself
+   (2026-10-12, Б6): a config that carries a non-empty ``chains:`` is refused
+   while its text is parsed (Д1, config/retired_sections.py), so this lift can
+   never be reached with chains still planning copper.
 
 What changes in a key is ONLY the record-identifying NAME parts (plan §6,
 Р-У5.1/Р-У5.2): ``name:<name>`` -> ``name:<uuid>``, ``point:<name>:ox:oy`` ->
@@ -75,7 +73,6 @@ from ..utils.paths import registry_paths_for_config
 from ..utils.safe_write import backup_file, write_text_atomic
 from .format_version import current_format
 from .models import (
-    chain_effective_name,
     clone_placement_effective_name,
     entity_effective_name,
     net_trace_effective_name,
@@ -356,10 +353,6 @@ def upgrade_registries_on_disk(config_path: str | Path, cfg) -> list[Path]:
     schema (``TARGET_SCHEMA_VERSION``): map name keys to uuids (schema 1) and
     DETACH the spoke copper keys (schema 1 and 2 — Д2).
 
-    A config that still carries a non-empty ``chains:`` PLANS its spoke copper, so
-    both registries are left UNTOUCHED (rule 7 above) — the lift waits for the
-    open that runs after the chains are gone.
-
     Returns the files written (empty when nothing needed lifting). Refuses a
     registry NEWER than this build BEFORE the first write (pre-pass); a failed
     write leaves that file as it was and logs the reason.
@@ -402,15 +395,6 @@ def upgrade_registries_on_disk(config_path: str | Path, cfg) -> list[Path]:
                 .format(path=str(path), version=schema, expected=TARGET_SCHEMA_VERSION))
         schemas[path] = schema
 
-    # Д2 доделка п.1 (дыра первого захода, 09.10.2026): while the config STILL
-    # PLANS the spoke copper the registry must NOT be lifted AT ALL. Lifting it
-    # (even keeping the keys) would stamp the TARGET schema, and once the
-    # `chains:` section is removed the lift becomes a NO-OP for that file — the
-    # spoke keys stay attached with nothing planning them, and `reconcile` then
-    # PRUNES them (deleting the copper). Left alone, the file keeps the lift
-    # available for the open that runs AFTER the chains are gone.
-    chains = list(getattr(cfg, "chains", None) or [])
-
     idx = _build_index(cfg)
     lifted: list[Path] = []
     for path in paths:
@@ -420,17 +404,6 @@ def upgrade_registries_on_disk(config_path: str | Path, cfg) -> list[Path]:
             continue
         if schema not in (REGISTRY_SCHEMA_VERSION, _UUID_KEY_SCHEMA_VERSION):
             # Unreachable: the pre-pass refuses anything NEWER than the target.
-            continue
-        if chains:
-            logger.warning(
-                "registry {path}: left at schema {schema} — the config still has "
-                "chains: ({names}); the spoke copper keys are still PLANNED, so "
-                "they must stay attached. Remove the chains: section — the NEXT "
-                "open detaches the spoke copper and lifts the schema".format(
-                    path=path, schema=schema,
-                    names=_listed([chain_effective_name(c) for c in chains])))
-            _debug_listed(path, "chains",
-                          [chain_effective_name(c) for c in chains])
             continue
         # Schema 1 (name keys) is mapped to uuids; schema 2 is already
         # uuid-keyed and only needs the spoke detach. Both end at the target.

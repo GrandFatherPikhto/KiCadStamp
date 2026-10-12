@@ -17,7 +17,7 @@ from kicadstamp.placement.commands import TrackCommand, ViaCommand
 
 
 def _pipeline():
-    cfg = Config(layer='F.Cu', cells={}, chains=[], clone_placements=[])
+    cfg = Config(layer='F.Cu', cells={}, clone_placements=[])
     pipeline = ApplyPipeline("board.sexp", dry_run=True, preloaded_cfg=cfg)
     pipeline.items = []
     return pipeline

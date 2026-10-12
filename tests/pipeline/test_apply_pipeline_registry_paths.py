@@ -151,12 +151,12 @@ def test_execute_uses_the_explicit_registry_paths(tmp_path, explicit_from):
     explicit_trk = tmp_path / "alt" / "trk.registry.json"
 
     if explicit_from == "cfg":
-        cfg = Config(layer="F.Cu", cells={}, chains=[], clone_placements=[],
+        cfg = Config(layer="F.Cu", cells={}, clone_placements=[],
                      registry_path=str(explicit_via),
                      track_registry_path=str(explicit_trk))
         ctx = None
     else:
-        cfg = Config(layer="F.Cu", cells={}, chains=[], clone_placements=[])
+        cfg = Config(layer="F.Cu", cells={}, clone_placements=[])
         ctx = RuntimeContext(registry_path=str(explicit_via),
                              track_registry_path=str(explicit_trk),
                              operation_log_dir=str(tmp_path / "operational"))

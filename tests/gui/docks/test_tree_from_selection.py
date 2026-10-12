@@ -57,12 +57,11 @@ def _fp(ref):
                      angle_deg=0.0, layer=None)
 
 
-def _cfg(entities=None, cells=None, trees=None, rules=None):
+def _cfg(entities=None, cells=None, trees=None):
     return Config(
         entities=entities or [],
         cells={c.name: c for c in (cells or [])},
         trees=trees or [],
-        chains=rules or [],
     )
 
 

@@ -20,7 +20,7 @@ MM = 1_000_000
 
 
 def _pipeline(coordinate_placements):
-    cfg = Config(layer='F.Cu', cells={}, chains=[], clone_placements=[],
+    cfg = Config(layer='F.Cu', cells={}, clone_placements=[],
                  coordinate_placements=coordinate_placements)
     pipeline = ApplyPipeline("board.yaml", preloaded_cfg=cfg)
     pipeline.adapter = MagicMock()
@@ -105,7 +105,7 @@ def test_dry_run_report_includes_coordinate_placements(monkeypatch):
 
     cp = CoordinatePlacement(cluster="FPGA_PERIPH", role="R18",
                              x_mm=10.0, y_mm=20.0, rotation_deg=90.0)
-    cfg = Config(layer='F.Cu', cells={}, chains=[], clone_placements=[],
+    cfg = Config(layer='F.Cu', cells={}, clone_placements=[],
                  coordinate_placements=[cp])
     pipeline = ApplyPipeline("board.yaml", dry_run=True, preloaded_cfg=cfg)
     pipeline.items = [SimpleNamespace(label="rule_A")]
@@ -134,7 +134,7 @@ def test_dry_run_report_includes_coordinate_placements(monkeypatch):
 def test_dry_run_report_omits_coordinate_placements_section_when_empty():
     from types import SimpleNamespace
 
-    cfg = Config(layer='F.Cu', cells={}, chains=[], clone_placements=[], coordinate_placements=[])
+    cfg = Config(layer='F.Cu', cells={}, clone_placements=[], coordinate_placements=[])
     pipeline = ApplyPipeline("board.yaml", dry_run=True, preloaded_cfg=cfg)
     pipeline.items = [SimpleNamespace(label="rule_A")]
 
