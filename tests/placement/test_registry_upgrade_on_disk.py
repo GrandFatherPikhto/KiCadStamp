@@ -242,17 +242,15 @@ def _config_data() -> dict:
                 {"name": "inner1", "cell": "lvl2", "xy": [1.0, 0.0]}]},
         },
         "points": {"P1": {"anchor_ref": "U1"}},
-        "entities": [{"name": "E", "cell": "leaf"}],
-        "clone_placements": [
-            {"cluster": "cabs", "name": "cabs", "cell": "leaf", "xy": [0.0, 0.0]},
-            {"cluster": "cref", "name": "cref", "cell": "leaf", "xy": [0.0, 0.0],
-             "anchor_ref": "U1"},
-            {"cluster": "crole", "name": "crole", "cell": "leaf", "xy": [0.0, 0.0],
-             "anchor_role": "FPGA", "anchor_sheet": "FPGA", "anchor_cluster": "FPGA"},
-            {"cluster": "cpoint", "name": "cpoint", "cell": "leaf", "xy": [0.0, 0.0],
-             "anchor_point": "P1"},
-            {"cluster": "cnest", "name": "cnest", "cell": "lvl1", "xy": [0.0, 0.0]},
-        ],
+        # 12.10 (Ч1в-5): the root clone_placements: section is retired. The name
+        # index only needs the NAMES the rig's registry keys carry, so `cabs` and
+        # `cnest` ride entities — map_registry_key never looks at the record KIND.
+        # The old cref/crole/cpoint records are gone too: their registry keys are
+        # physics-anchored (`anchor:`/`role:`) or point-anchored (`point:`), whose
+        # anchor parts are never touched and whose template part is the cell.
+        "entities": [{"name": "E", "cell": "leaf"},
+                     {"name": "cabs", "cell": "leaf"},
+                     {"name": "cnest", "cell": "lvl1"}],
         # NO ``chains`` section: Д1 (plan_2026_10_08_remove_spokes) refuses a
         # non-empty one at load, and the Д2 cells below name a spoke KEY in the
         # registry directly — the config no longer has to carry a chain for it.
@@ -296,7 +294,7 @@ def _expect_mapped() -> tuple[dict, dict]:
     """
     E, leaf = det_uuid("entities:E"), det_uuid("cells:leaf")
     tva1 = det_uuid("thermal_via_arrays:tva1")
-    cabs = det_uuid("clone_placements:cabs")
+    cabs = det_uuid("entities:cabs")
     nt1 = det_uuid("net_traces:nt1")
     P1 = det_uuid("points:P1")
     via_new = {
@@ -364,6 +362,44 @@ def test_the_sweep_maps_both_files_and_keeps_the_previous_bytes(tmp_path, format
     assert len(via_baks) == 1 and len(trk_baks) == 1
     assert via_baks[0].read_text(encoding="utf-8") == via_old
     assert trk_baks[0].read_text(encoding="utf-8") == trk_old
+
+
+def test_an_old_clone_era_registry_is_read_without_falling_over(tmp_path, format3):  # noqa: F811
+    """**Клетка Б** (Денис, 12.10, приёмка Ч1в-5). A schema-1 registry written by
+    the PRE-retirement build carries the clone-era key forms (``name:`` /
+    ``anchor:`` / ``role:`` / ``point:`` / ``pad:``). Opening the profile must
+    never fall over: resolvable record-name parts are mapped to uuids, the
+    ``pad:`` spoke key is DETACHED, and a key whose record is gone is left
+    UNTOUCHED — never dropped, never rewritten.
+
+    The READING side is deliberately NOT touched by the Placer removal (Ч1):
+    ``registry_upgrade._map_anchor_id`` keeps ``pad:``/``anchor:``/``role:`` as
+    physics and still maps ``point:``/``name:``, so an old user registry keeps
+    working after the section is closed."""
+    root, via, trk = _setup(tmp_path)
+    _write_registry(via, {
+        "name:cabs|leaf|__spoke__|0": _VIA,            # record still there -> mapped
+        "name:gone_clone|leaf|__spoke__|0": _VIA,      # clone-era record gone -> kept
+    })
+    _write_registry(trk, {
+        "anchor:U1::0.0000:0.0000|leaf|__spoke__|0": _TRK,      # physics
+        "role:FPGA:FPGA:FPGA::0.0000:0.0000|leaf|__spoke__|0": _TRK,   # physics
+        "point:P1:0.0000:0.0000|leaf|__spoke__|0": _TRK,        # point -> uuid
+    })
+
+    load_config(str(root))          # the promise: no exception, no lost copper
+
+    cabs = det_uuid("entities:cabs")
+    leaf = det_uuid("cells:leaf")
+    P1 = det_uuid("points:P1")
+    via_after = _read(via)
+    assert f"name:{cabs}|{leaf}|__spoke__|0" in via_after
+    assert "name:gone_clone|leaf|__spoke__|0" in via_after, (
+        "an unresolvable clone-era key must be KEPT, never dropped")
+    trk_after = _read(trk)
+    assert f"anchor:U1::0.0000:0.0000|{leaf}|__spoke__|0" in trk_after
+    assert f"role:FPGA:FPGA:FPGA::0.0000:0.0000|{leaf}|__spoke__|0" in trk_after
+    assert f"point:{P1}:0.0000:0.0000|{leaf}|__spoke__|0" in trk_after
 
 
 def test_a_repeat_open_touches_nothing_and_does_not_parse(tmp_path, monkeypatch, format3):  # noqa: F811
@@ -441,12 +477,18 @@ def test_an_orphan_and_an_ambiguous_key_are_kept_with_a_warning(tmp_path, caplog
         "name:ghost|leaf|__spoke__|0": _VIA,          # orphan
         "name:cabs|leaf|__spoke__|0": _VIA,           # maps
     })
-    # Make ``name:E`` ambiguous (an Entity AND a clone_placement named E).
+    # Make the TEMPLATE part ambiguous: the cell `amb` and a net_trace whose
+    # identity is also `amb` carry different uuids, so `name:` and `net:` both
+    # resolve to the SAME template name. 12.10 (Ч1в-5): the old axis was an
+    # Entity AND a clone_placement named E — that one died with the retired
+    # section (nothing else populates the name: index), so the surviving
+    # reachable ambiguity is the template one (cell vs net-trace identity).
     data = _config_data()
-    data["clone_placements"].append(
-        {"cluster": "e2", "name": "E", "cell": "leaf", "xy": [0.0, 0.0]})
+    data["cells"]["amb"] = {}
+    data["net_traces"].append(
+        {"name": "amb", "net": "/L/GND", "anchor_role": "FPGA"})
     root.write_text(dict_to_sexp(mint_format3(data), format_number=3), encoding="utf-8")
-    _write_registry(trk, {"name:E|leaf|__spoke__|0": _TRK})   # ambiguous
+    _write_registry(trk, {"name:E|amb|__spoke__|0": _TRK})   # ambiguous template
 
     with caplog.at_level(logging.WARNING, logger="kicadstamp.config.registry_upgrade"):
         load_config(str(root))
@@ -455,7 +497,7 @@ def test_an_orphan_and_an_ambiguous_key_are_kept_with_a_warning(tmp_path, caplog
     assert "name:ghost|leaf|__spoke__|0" in via_after, "the orphan key was kept"
     assert "name:cabs|leaf|__spoke__|0" not in via_after, "the resolvable key was mapped"
     trk_after = _read(trk)
-    assert "name:E|leaf|__spoke__|0" in trk_after, "the ambiguous key was kept"
+    assert "name:E|amb|__spoke__|0" in trk_after, "the ambiguous key was kept"
     warnings = [r.getMessage() for r in caplog.records
                 if r.name == "kicadstamp.config.registry_upgrade"
                 and r.levelno == logging.WARNING]
@@ -763,7 +805,7 @@ def test_the_detach_leaves_a_cell_key_carrying_the_spoke_literal(
 
     load_config(str(root))
 
-    cabs, leaf = det_uuid("clone_placements:cabs"), det_uuid("cells:leaf")
+    cabs, leaf = det_uuid("entities:cabs"), det_uuid("cells:leaf")
     after = _read(via)
     assert f"name:{cabs}|{leaf}|__spoke__|0" in after, (
         "a cell-copper key with the __spoke__ literal survives the detach")
