@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""Tests for kicadstamp/author.py — build ClonePlacement/Rule in Python,
-dump back to s-expr, or feed straight into the apply pipeline (2026-08-28,
+"""Tests for kicadstamp/author.py — build ClonePlacement in Python, dump back
+to s-expr, or feed straight into the apply pipeline (2026-08-28,
 core_yaml_removal: author fragments are s-expr/.sexp now)."""
 
 import pytest
@@ -10,7 +10,7 @@ from kicadstamp.config import ClonePlacement, Config, ManualSpoke, Rule, load_co
 from kicadstamp.config.sexp_format import dict_to_sexp, sexp_to_dict
 from kicadstamp.exceptions import ValidationError
 from kicadstamp.author import (_prune_defaults, apply_config, dump_clone_placements,
-                               dump_rules, dump_template)
+                               dump_template)
 from kicadstamp.author_cli import cli_main
 from kicadstamp.apply_pipeline import RunOptions
 from tests.fakes.format3 import format3  # noqa: F401  (pytest fixture: pin to 3)
@@ -136,10 +136,9 @@ class TestDumpRefusesWithoutGraphRoot:
                 [ClonePlacement(cluster="c", cell="t", xy=(1.0, 2.0))],
                 str(tmp_path / "f.sexp"))
 
-    def test_rules_refuses_without_graph_root(self, tmp_path, format3):
-        with pytest.raises(ValidationError, match="pass graph_root"):
-            dump_rules([Rule(net="N", name="N", spokes=[])],
-                       str(tmp_path / "r.sexp"))
+    # The dump_rules variant of this refusal went with the retired chains:
+    # section; the SAME guard is _require_fragment_graph_root, still exercised
+    # by test_clone_placements_refuses_without_graph_root above.
 
 
 class TestApplyConfig:

@@ -1,15 +1,15 @@
 # kicadstamp/author.py
 """
-author.py — build ClonePlacement/Rule in real Python (loops, computed
-values) instead of hand-writing repetitive config, where copy-paste mistakes
-live (wrong nets: key, duplicate anchor_pad:, wrong anchor_sheet — all hit
-live in one working session). Config/ClonePlacement/Rule (config/models.py)
-are plain dataclasses already — this module adds nothing new to them, just
-two ways to get a built list somewhere useful:
+author.py — build ClonePlacement in real Python (loops, computed values)
+instead of hand-writing repetitive config, where copy-paste mistakes live
+(wrong nets: key, duplicate anchor_pad:, wrong anchor_sheet — all hit live in
+one working session). Config/ClonePlacement (config/models.py) are plain
+dataclasses already — this module adds nothing new to them, just two ways to
+get a built list somewhere useful:
 
   (a) apply_config() — straight into the existing apply pipeline
       (run_apply() already accepts a pre-built Config).
-  (b) dump_clone_placements()/dump_rules()/dump_template() — serialize back
+  (b) dump_clone_placements()/dump_template() — serialize back
       to s-expr (dict_to_sexp, 2026-08-28 — was YAML; the config graph is
       now .sexp/.json only), so generated subsystem files stay diffable/
       reviewable in git even when authored by a script.
@@ -24,7 +24,7 @@ both are strictly additive.
 import dataclasses
 from typing import Any
 
-from .config import Chain, ClonePlacement, Config, RuntimeContext
+from .config import ClonePlacement, Config, RuntimeContext
 from .config.sexp_format import dict_to_sexp
 from .constants import DEFAULT_BATCH_SIZE, DEFAULT_TIMEOUT_MS
 from .apply_pipeline import RunOptions, run_apply
@@ -46,9 +46,8 @@ def _prune_defaults(obj: Any) -> Any:
     default (scalar default or default_factory() instance) — keeps
     generated output close to the hand-written minimal style the s-expr
     writer already uses. Required fields (no default at all, e.g.
-    ClonePlacement.name/xy, Chain.net/spokes) are always
-    kept regardless of value. Recurses into nested dataclasses and lists of
-    them (only nesting that exists in these models: Chain.spokes -> List[ManualSpoke])."""
+    ClonePlacement.name/xy) are always kept regardless of value. Recurses
+    into nested dataclasses and lists of them."""
     if dataclasses.is_dataclass(obj) and not isinstance(obj, type):
         result = {}
         for f in dataclasses.fields(obj):
@@ -69,9 +68,9 @@ def _prune_defaults(obj: Any) -> Any:
                 result[f.name] = [_prune_defaults(v) if dataclasses.is_dataclass(v) else v
                                    for v in value]
             elif isinstance(value, tuple):
-                # e.g. ClonePlacement.xy — plain yaml.dump (see dump_clone_placements/
-                # dump_rules below) has no clean representer for tuples, it would
-                # emit an unreadable !!python/tuple tag that config/loader.py's
+                # e.g. ClonePlacement.xy — plain yaml.dump (see dump_clone_placements
+                # below) has no clean representer for tuples, it would emit an
+                # unreadable !!python/tuple tag that config/loader.py's
                 # yaml.safe_load can't parse back. A list dumps as plain [x, y].
                 result[f.name] = list(value)
             else:
@@ -83,9 +82,9 @@ def _prune_defaults(obj: Any) -> Any:
 def _require_fragment_graph_root(path: str, graph_root) -> None:
     """Refuse a format-3 fragment write without the graph root it belongs to.
 
-    dump_clone_placements/dump_chains write a FRAGMENT: its records reference
-    §0 records (cells:, points:, …) that live in the profile root the fragment
-    is later include:'d into, NOT in the fragment itself. Under format 3 the
+    dump_clone_placements writes a FRAGMENT: its records reference §0 records
+    (cells:, points:, …) that live in the profile root the fragment is later
+    include:'d into, NOT in the fragment itself. Under format 3 the
     writer's stamp resolves every reference UUID against the graph of an
     explicit `graph_root` (У4.2, the same contract as gui/docks/entity_export);
     a fragment alone has no such graph, so the write is refused with a hint
@@ -123,21 +122,6 @@ def dump_clone_placements(clones: list[ClonePlacement], path: str, *,
     write_config_file(path, data, graph_root=graph_root)
 
 
-def dump_chains(chains: list[Chain], path: str, *, graph_root=None) -> None:
-    """Writes {'chains': [...]} to path as s-expr — same include:-ready shape
-    and same `graph_root` contract as dump_clone_placements."""
-    data = {"chains": [_prune_defaults(c) for c in chains]}
-    # Through the ONE config writer (Т3), same contract as dump_clone_placements.
-    from .config_writer import write_config_file
-
-    _require_fragment_graph_root(path, graph_root)
-    write_config_file(path, data, graph_root=graph_root)
-
-
-# Backward-compat alias for the 2026-09-01 Rule -> Chain rename.
-dump_rules = dump_chains
-
-
 def dump_template(template_dict: dict, path: str) -> None:
     """Writes a template_extraction.extract_template_from_selection() result
     (already {name: {...}} shaped) wrapped as {'cells': {name: {...}}} to
@@ -145,7 +129,7 @@ def dump_template(template_dict: dict, path: str) -> None:
     into include: 2026-08-02 — see
     handoff_2026_08_02_cells_include_unification.md — include: expects the
     wrapped shape, same as an inline cells: block). Always overwrites the
-    whole file, matching dump_clone_placements/dump_rules — a script
+    whole file, matching dump_clone_placements — a script
     re-running extract for one subsystem should produce a clean, idempotent
     regeneration of its own dedicated file, not accumulate into a shared one.
     Use cmd_extract/the CLI directly if you want the merge behaviour

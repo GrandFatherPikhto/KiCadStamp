@@ -2,7 +2,7 @@
 """CLI front-end for kicadstamp/author.py — split out of author.py so the
 author module stays a pure library (no argparse / sys.exit / CLI exit-code
 concerns). See author.py's module docstring for the two library entry points
-(dump_clone_placements/dump_rules/dump_template + apply_config); this module
+(dump_clone_placements/dump_template + apply_config); this module
 owns only the `if __name__ == "__main__":` boilerplate for
 boards/<board>/scripts/*.py generators: --apply/--dry-run parsing, writing the
 built ClonePlacements via dump_clone_placements(), and (with --apply) loading
