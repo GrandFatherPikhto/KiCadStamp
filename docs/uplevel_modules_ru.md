@@ -172,7 +172,7 @@
 | Модуль | Описание |
 |--------|----------|
 | `__init__.py` | Экспортирует все типы конфига и `load_config()`. |
-| `models.py` | Датаклассы: `Config`, `SpokeTemplate`, `ManualSpoke`, `ClonePlacement`, `Chain`, `TemplateVia`, `TemplateTrack`, `TemplateComponentSlot`, `ThermalViaArrayConfig`. |
+| `models.py` | Датаклассы: `Config`, `Cell`, `CellPlacement`, `ClonePlacement`, `CoordinatePlacement`, `NetTrace`, `Entity`, `ImprintConfig`, `TreeInstance`, `TemplateVia`, `TemplateTrack`, `TemplateComponentSlot`, `ThermalViaArrayConfig`. |
 | `loader.py` | `load_config()` и вспомогательные функции `_load_*` для каждой секции конфига. Обрабатывает проверки уникальности ролей. |
 | `includes.py` | Обрабатывает директивы `include:` — загружает и объединяет конфиги из нескольких файлов с обнаружением циклов и проверкой дубликатов ключей. |
 
@@ -184,9 +184,7 @@
 | `TemplateVia` | Описание via в шаблоне (локальные координаты, цепь, размеры). |
 | `TemplateTrack` | Описание прямого отрезка дорожки в шаблоне: начальная и конечная точки (локальные), ширина, цепь, опциональный слой. |
 | `TemplateComponentSlot` | Слот компонента в шаблоне: роль, локальные координаты, угол, список via, опциональный `net_template` и `layer`. |
-| `SpokeTemplate` | Полный шаблон спицы: имя, список via, список треков, список слотов компонентов, абсолютный `layer`. |
-| `ManualSpoke` | Конкретная спица: пад, шаблон, сдвиг, поворот, флаги `enabled`, `active`. |
-| `Chain` | Правило для одной цепи: имя цепи, список спиц, `anchor_ref` (обязательное), флаг `active`. |
+| `Cell` | Кусок геометрии, описанный один раз (до 2026-07-31 — `SpokeTemplate`): имя, список via, список треков, список слотов компонентов, абсолютный `layer`, вложенные `clone_placements`. |
 | `ClonePlacement` | Клонируемое размещение: имя, шаблон, абсолютная точка или сдвиг от якоря, угол, словари `nets`, `params`, `net_overrides`, `layer`, `mirror`, `refs`, `by_selection`, `anchor_role`, `anchor_sheet`, `anchor_pad`. |
 | `Config` | Главный объект: глобальный `layer`, шаблоны, термовиа, цепи, клонирования, флаги. |
 
@@ -194,12 +192,11 @@
 
 | Функция | Описание |
 |---------|----------|
-| `load_config(path)` | Читает конфиг (`.sexp`/`.json`), разрешает `include:` (мёржит внешние `cells:`/`chains:`/и т.д. из других файлов). Парсит все секции, возвращает `Config` и `RuntimeContext`. |
+| `load_config(path)` | Читает конфиг (`.sexp`/`.json`), разрешает `include:` (мёржит внешние `cells:`/`entities:`/и т.д. из других файлов). Парсит все секции, возвращает `Config` и `RuntimeContext`. |
 | `_load_template_via(data)` | Загружает `TemplateVia`. Проверяет, что `net` — строка. |
 | `_load_template_track(data)` | Загружает `TemplateTrack`. Проверяет, что `net` — строка. |
 | `_load_template_component_slot(data)` | Загружает `TemplateComponentSlot`. |
-| `_load_spoke_template(name, data)` | Загружает `SpokeTemplate` с проверкой уникальности ролей. |
-| `_load_manual_spoke(data)` | Загружает `ManualSpoke`. |
+| `_load_cell(name, data)` | Загружает `Cell` с проверкой уникальности ролей. |
 | `_load_clone_placement(data)` | Загружает `ClonePlacement`. Проверяет ограничения на якоря и координаты. |
 
 **Особенности:**  
@@ -319,7 +316,7 @@
 ## 14. `template_extraction.py` — извлечение шаблона из выделения
 
 **Назначение:**  
-Реализует логику команды `extract`: из текущего выделения в PCB-редакторе KiCad извлекает шаблон спицы (компоненты, via и треки) и формирует структуру для записи в файл.
+Реализует логику команды `extract`: из текущего выделения в PCB-редакторе KiCad извлекает ЯЧЕЙКУ (компоненты, via и треки) и формирует структуру для записи в файл.
 
 **Основные функции:**
 
@@ -356,8 +353,6 @@
 
 | Функция | Описание |
 |---------|----------|
-| `check_templates_and_pads_exist(adapter, cfg)` | Проверяет, что каждая включённая спица ссылается на существующий шаблон и пад. |
-| `check_role_pool_sufficiency(adapter, cfg)` | Проверяет доступность компонентов по ролям. |
 | `check_clone_templates_exist(cfg)` | Проверка существования шаблонов (только конфиг). |
 | `check_no_duplicate_clone_anchors(cfg)` | Уникальность имён и физических якорей клонов. |
 | `check_anchor_sheet_configured(cfg, sheet_names)` | Проверяет `anchor_sheet` на соответствие реальным именам листов. |
@@ -385,7 +380,7 @@
 | `DEFAULT_BATCH_SIZE` | `10` | Размер батча по умолчанию. |
 | `DEFAULT_TIMEOUT_MS` | `5000` | Таймаут IPC по умолчанию. |
 | `DEFAULT_LOG_DIR` | `"logs"` | Папка для логов по умолчанию. |
-| `SPOKE_LEVEL_ROLE_PLACEHOLDER` | `"__spoke__"` | Плейсхолдер для via уровня спицы в реестре. |
+| `CELL_LEVEL_ROLE_PLACEHOLDER` | `"__spoke__"` | Плейсхолдер роли уровня ячейки в ключах реестра (переименован 2026-10-12; ЗНАЧЕНИЕ заморожено — см. constants.py). |
 
 ---
 

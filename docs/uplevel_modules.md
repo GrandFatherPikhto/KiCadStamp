@@ -172,7 +172,7 @@ Replaced the old monolithic `config.py`. Now a package with separate modules for
 | Module | Description |
 |--------|-------------|
 | `__init__.py` | Exports all config types and `load_config()`. |
-| `models.py` | Dataclasses: `Config`, `SpokeTemplate`, `ManualSpoke`, `ClonePlacement`, `Chain`, `TemplateVia`, `TemplateTrack`, `TemplateComponentSlot`, `ThermalViaArrayConfig`. |
+| `models.py` | Dataclasses: `Config`, `Cell`, `CellPlacement`, `ClonePlacement`, `CoordinatePlacement`, `NetTrace`, `Entity`, `ImprintConfig`, `TreeInstance`, `TemplateVia`, `TemplateTrack`, `TemplateComponentSlot`, `ThermalViaArrayConfig`. |
 | `loader.py` | `load_config()` and `_load_*` helper functions for each config section. Handles role uniqueness checks. |
 | `includes.py` | Handles `include:` directives — loads and merges configs from multiple files with cycle detection and duplicate key checks. |
 
@@ -184,22 +184,19 @@ Replaced the old monolithic `config.py`. Now a package with separate modules for
 | `TemplateVia` | Via slot in a template (local coordinates, net, dimensions). |
 | `TemplateTrack` | Straight track segment in a template: start/end points (local), width, net, optional layer. |
 | `TemplateComponentSlot` | Component slot in a template: role, local coordinates, angle, list of vias, optional `net_template` and `layer`. |
-| `SpokeTemplate` | Complete spoke template: name, list of vias, list of tracks, list of component slots, absolute `layer`. |
-| `ManualSpoke` | Specific spoke: pad, template, shift, rotation, `enabled` flag, `active` flag. |
-| `Chain` | Chain for one net: net name, list of spokes, `anchor_ref` (mandatory), `active` flag. |
+| `Cell` | A piece of geometry described once (called `SpokeTemplate` until 2026-07-31): name, list of vias, list of tracks, list of component slots, absolute `layer`, nested `clone_placements`. |
 | `ClonePlacement` | Cloned placement: name, template, absolute point or shift from anchor, angle, dicts `nets`, `params`, `net_overrides`, `layer`, `mirror`, `refs`, `by_selection`, `anchor_role`, `anchor_sheet`, `anchor_pad`. |
-| `Config` | Main object: global `layer`, templates, thermal vias, chains, clones, flags. |
+| `Config` | Main object: global `layer`, `cells`, thermal vias, clones, entities, trees, flags. |
 
 **Main functions:**
 
 | Function | Description |
 |----------|-------------|
-| `load_config(path)` | Reads config (`.sexp`/`.json`), resolves `include:` (merges external `cells:`/`chains:`/etc. from other files). Parses all sections, returns a `Config` object and `RuntimeContext`. |
+| `load_config(path)` | Reads config (`.sexp`/`.json`), resolves `include:` (merges external `cells:`/`entities:`/etc. from other files). Parses all sections, returns a `Config` object and `RuntimeContext`. |
 | `_load_template_via(data)` | Loads `TemplateVia`. Checks that `net` is a string. |
 | `_load_template_track(data)` | Loads `TemplateTrack`. Checks that `net` is a string. |
 | `_load_template_component_slot(data)` | Loads `TemplateComponentSlot`. |
-| `_load_spoke_template(name, data)` | Loads `SpokeTemplate` with role uniqueness check. |
-| `_load_manual_spoke(data)` | Loads `ManualSpoke`. |
+| `_load_cell(name, data)` | Loads `Cell` with the role-uniqueness check. |
 | `_load_clone_placement(data)` | Loads `ClonePlacement`. Checks anchor and coordinate constraints. |
 
 **Features:**  
@@ -318,7 +315,7 @@ Ensures idempotency of via and track placement across runs. Stores information a
 ## 14. `template_extraction.py` – Template Extraction from Selection
 
 **Purpose:**  
-Implements the `extract` command logic: from the current selection in the KiCad PCB editor, extracts a spoke template (components, vias, **and tracks**) and builds a structure ready for file output.
+Implements the `extract` command logic: from the current selection in the KiCad PCB editor, extracts a CELL (components, vias, **and tracks**) and builds a structure ready for file output.
 
 **Main functions:**
 
@@ -355,8 +352,6 @@ Performs fatal checks on the configuration **before** any board modifications. C
 
 | Function | Description |
 |----------|-------------|
-| `check_templates_and_pads_exist(adapter, cfg)` | Ensures every enabled spoke references an existing template and valid pad. |
-| `check_role_pool_sufficiency(adapter, cfg)` | Checks component availability per role. |
 | `check_clone_templates_exist(cfg)` | Config-only template existence check. |
 | `check_no_duplicate_clone_anchors(cfg)` | Uniqueness of clone names and physical anchors. |
 | `check_anchor_sheet_configured(cfg, sheet_names)` | Validates `anchor_sheet` references against actual sheet names. |
@@ -384,7 +379,7 @@ Holds global constants used across various modules.
 | `DEFAULT_BATCH_SIZE` | `10` | Default batch size for transactions. |
 | `DEFAULT_TIMEOUT_MS` | `5000` | Default IPC timeout. |
 | `DEFAULT_LOG_DIR` | `"logs"` | Default log directory. |
-| `SPOKE_LEVEL_ROLE_PLACEHOLDER` | `"__spoke__"` | Placeholder for spoke‑level vias in registry. |
+| `CELL_LEVEL_ROLE_PLACEHOLDER` | `"__spoke__"` | Cell-level role placeholder in registry keys (renamed 2026-10-12; the VALUE is frozen — see constants.py). |
 
 ---
 
