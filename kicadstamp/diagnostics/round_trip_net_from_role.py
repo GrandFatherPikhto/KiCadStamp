@@ -45,7 +45,7 @@ CLUSTER_FIELD = "Cluster"
 ROLE_FIELD = "Role"
 P2V5 = "LDO_ADJ_P2V5"
 N2V5 = "LDO_ADJ_N2V5"
-RULE_NETS = {"GND"}
+ROLELESS_NETS = {"GND"}
 DEFAULT_PROFILE = (Path(__file__).resolve().parents[2] / "profiles"
                    / "3ch-awg-tia-v103" / "config.sexp")
 
@@ -144,7 +144,7 @@ def main():
     print(f"\n=== EXTRACT {P2V5} ===")
     items = _build_cluster_items(adapter, P2V5)
     result = extract_template_from_selection(
-        adapter, "roundtrip_ldo_adj_p2v5", items=items, rule_nets=RULE_NETS)
+        adapter, "roundtrip_ldo_adj_p2v5", items=items, rule_nets=ROLELESS_NETS)
     cell = result["roundtrip_ldo_adj_p2v5"]
     print(f"  extracted: {len(cell['vias'])} vias, {len(cell['tracks'])} tracks, "
           f"{len(cell['components'])} components")
@@ -176,7 +176,7 @@ def main():
             continue
         pad = entry.get("net_from_role_pad")
         net = resolve_net_from_role(role, pad, role_to_ref, adapter,
-                                    rule_nets=RULE_NETS)
+                                    rule_nets=ROLELESS_NETS)
         resolved[(role, pad)] = net
         print(f"  {role!r}{', pad=' + str(pad) if pad else ''} -> live net {net!r}")
 

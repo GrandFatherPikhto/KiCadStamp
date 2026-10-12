@@ -179,7 +179,7 @@ def adopt_cell_copper_at_current_place(adapter, cfg, items, via_reg, track_reg,
     from .cell_frame import RIGID_TOLERANCE_MM
     from .cell_geometry_refresh import cell_frame_from_live, cell_slot_dicts
     from .config import clone_placement_effective_name
-    from .constants import SPOKE_LEVEL_ROLE_PLACEHOLDER
+    from .constants import CELL_LEVEL_ROLE_PLACEHOLDER
     from .exceptions import ValidationError
     from .placement.services.clone_position_calculator import (
         ClonePositionCalculator, clone_registry_identity)
@@ -257,7 +257,7 @@ def adopt_cell_copper_at_current_place(adapter, cfg, items, via_reg, track_reg,
 
         for kind, role_part, index in sorted(cell_record_slots(cell)):
             reg = regs[kind]
-            role = None if role_part == SPOKE_LEVEL_ROLE_PLACEHOLDER else role_part
+            role = None if role_part == CELL_LEVEL_ROLE_PLACEHOLDER else role_part
             key = make_registry_key(anchor_id, cell_key_part, role, index)
             entry = reg.entries.get(key)
             if entry is not None and getattr(entry, "uuid", None) in live_uuid[kind]:

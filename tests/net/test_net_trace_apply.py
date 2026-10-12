@@ -23,7 +23,7 @@ from kicadstamp.net_trace_planner import plan_net_traces, net_trace_anchor_id, a
 from kicadstamp.registry import PlacementRegistry, TrackRegistry
 from kicadstamp.apply_pipeline import (apply_only_filter, apply_cluster_filter,
                                        drop_inactive_items, _compute_all_anchor_ids)
-from kicadstamp.constants import SPOKE_LEVEL_ROLE_PLACEHOLDER
+from kicadstamp.constants import CELL_LEVEL_ROLE_PLACEHOLDER
 from kicadstamp.utils.units import MM
 from tests.fakes.format3 import det_uuid, identity_value
 
@@ -122,8 +122,8 @@ def test_registry_key_structure():
     # format 2, the uuid under the gate; the prefixes and physics are unchanged.
     part = identity_value("DAC_DB0", nt.uuid)
     assert net_trace_anchor_id(nt) == f"net:{part}"
-    assert tracks[0].registry_key == f"net:{part}|{part}|{SPOKE_LEVEL_ROLE_PLACEHOLDER}|0"
-    assert vias[0].registry_key == f"net:{part}|{part}|{SPOKE_LEVEL_ROLE_PLACEHOLDER}|0"
+    assert tracks[0].registry_key == f"net:{part}|{part}|{CELL_LEVEL_ROLE_PLACEHOLDER}|0"
+    assert vias[0].registry_key == f"net:{part}|{part}|{CELL_LEVEL_ROLE_PLACEHOLDER}|0"
 
 
 def test_retired_and_skip_plan_nothing():

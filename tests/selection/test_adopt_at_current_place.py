@@ -31,7 +31,7 @@ from kicadstamp.config import format_version
 from kicadstamp.config.tree_instances import expand_tree_instances
 from kicadstamp.placement.entity_placement import materialize_entity_placements
 from kicadstamp.trees import tree_from_dict
-from kicadstamp.constants import ROLE_FIELD_NAME, SPOKE_LEVEL_ROLE_PLACEHOLDER
+from kicadstamp.constants import ROLE_FIELD_NAME, CELL_LEVEL_ROLE_PLACEHOLDER
 from kicadstamp.domain.board import Footprint, Track, Via
 from kicadstamp.domain.geometry import BoardLayer, Vector2
 from kicadstamp.placement.services.clone_position_calculator import (
@@ -500,7 +500,7 @@ def test_adopted_keys_are_a_subset_of_the_plan_keys(gate, tmp_path):
     assert len(trk_reg.entries) == 1      # cell track
     # The plan really carries both levels (spoke placeholder AND the role), so
     # the inclusion above is not vacuously true over a single merged key.
-    assert any(SPOKE_LEVEL_ROLE_PLACEHOLDER in k for k in plan_keys)
+    assert any(CELL_LEVEL_ROLE_PLACEHOLDER in k for k in plan_keys)
     assert any("|DA|" in k for k in plan_keys)
 
 

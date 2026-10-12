@@ -49,7 +49,7 @@ from .domain.board import Footprint, Via, Track
 from .constants import ROLE_FIELD_NAME
 from .exceptions import ValidationError, format_fatal_error
 from .kicad.adapter import KiCadBoardAdapter
-from .net_resolution import RULE_NETS, discover_net_template_pattern, parametrize_net
+from .net_resolution import ROLELESS_NETS, discover_net_template_pattern, parametrize_net
 from .net_from_role_resolver import classify_net
 from .utils.layers import layer_to_str
 from .utils.units import MM
@@ -423,7 +423,7 @@ def extract_template_from_selection(
             fp_pads = adapter.get_footprint_pads(fp)
             fp_nets = sorted({p.net_name for p in fp_pads if p.net_name})
             mapped = [n for n in fp_nets if n in net_template_map]
-            candidates = mapped or [n for n in fp_nets if n not in RULE_NETS]
+            candidates = mapped or [n for n in fp_nets if n not in ROLELESS_NETS]
             if len(candidates) == 1:
                 net = candidates[0]
                 if mapped:
@@ -482,7 +482,7 @@ def extract_template_from_selection(
     # Phase 1 step 1.3: auto {param} patterns from the same roles' nets across
     # OTHER instances (guarded — never guesses; only used when a via/track net
     # is not classifiable to a role and not already in net_template_map).
-    auto_patterns = _auto_net_pattern_map(adapter, selection_role_nets, RULE_NETS)
+    auto_patterns = _auto_net_pattern_map(adapter, selection_role_nets, ROLELESS_NETS)
 
     spoke_vias = []
     for v in vias:
@@ -496,10 +496,10 @@ def extract_template_from_selection(
             # (optionally with pad) instead of a literal/parametrised net —
             # the cell then resolves that net live on ANY cluster it is
             # applied to. On fallback/ambiguity keep the existing path. A net
-            # in the built-in RULE_NETS (GND) needs no role — classify_net
+            # in the built-in ROLELESS_NETS (GND) needs no role — classify_net
             # returns (None, None) and the literal is kept.
             role_net, role_net_pad = _suggest_net_from_role(
-                selection_role_nets, via_net, RULE_NETS,
+                selection_role_nets, via_net, ROLELESS_NETS,
                 [(along_mm, across_mm)], components)
             if role_net is not None:
                 via_net = None
@@ -534,9 +534,9 @@ def extract_template_from_selection(
         role_net = role_net_pad = None
         if track_net is not None:
             # Same net_from_role auto-suggestion as the via loop (plan step 4),
-            # with the same built-in RULE_NETS (GND needs no role).
+            # with the same built-in ROLELESS_NETS (GND needs no role).
             role_net, role_net_pad = _suggest_net_from_role(
-                selection_role_nets, track_net, RULE_NETS,
+                selection_role_nets, track_net, ROLELESS_NETS,
                 [(start_along_mm, start_across_mm), (end_along_mm, end_across_mm)],
                 components)
             if role_net is not None:

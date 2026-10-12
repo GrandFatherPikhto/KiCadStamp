@@ -93,8 +93,8 @@ MUTATIONS = [
     # changes, i.e. a registry migration nobody wrote (plan «НЕ УДАЛЯТЬ» 1).
     ("M7 the __spoke__ literal is renamed", CONST,
      # constants.py ends without a trailing newline — leave it out of the template.
-     "SPOKE_LEVEL_ROLE_PLACEHOLDER = \"__spoke__\"",
-     "SPOKE_LEVEL_ROLE_PLACEHOLDER = \"__spoke_renamed__\"",
+     "CELL_LEVEL_ROLE_PLACEHOLDER = \"__spoke__\"",
+     "CELL_LEVEL_ROLE_PLACEHOLDER = \"__spoke_renamed__\"",
      "die", GUARDS, ()),
     # 8 — the chains skip is dropped: the registry IS lifted while the config still
     # plans the spoke copper. The file then gets the target schema with its spoke

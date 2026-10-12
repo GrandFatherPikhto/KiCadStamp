@@ -16,7 +16,7 @@ from kicadstamp.config import (
     TemplateVia, TemplateComponentSlot
 )
 from kicadstamp.placement.planner import PlacementPlanner
-from kicadstamp.constants import SPOKE_LEVEL_ROLE_PLACEHOLDER
+from kicadstamp.constants import CELL_LEVEL_ROLE_PLACEHOLDER
 from tests.fakes.format3 import stamp_config
 
 MM = 1_000_000
@@ -101,4 +101,4 @@ def test_clone_placements_only_via_selection():
     assert clone_vias[0].net_name == "GND"
     # Проверяем, что registry_key заполнен (важно для идемпотентности)
     assert clone_vias[0].registry_key is not None
-    assert SPOKE_LEVEL_ROLE_PLACEHOLDER in clone_vias[0].registry_key
+    assert CELL_LEVEL_ROLE_PLACEHOLDER in clone_vias[0].registry_key

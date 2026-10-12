@@ -117,7 +117,7 @@ def test_via_net_from_role_is_resolved_live_from_the_pad():
 
 def test_net_from_role_without_a_pad_uses_lemma_two():
     """No net_from_role_pad: the role must carry exactly ONE non-rule net —
-    GND is a rule net (RULE_NETS) and does not count."""
+    GND is a rule net (ROLELESS_NETS) and does not count."""
     track = TemplateTrack(net_from_role="DAC_BUF", layer="F.Cu")
     nt = _record(tracks=[track])
     adapter = _board(

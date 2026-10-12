@@ -30,7 +30,7 @@ FACTS — each printed below is also held by a CELL, so the answer cannot rot:
      removed in Б5б-3c, and the remaining READER wording was rewritten in this
      commit (cell_placement_copy._copper_net_ok, cell_geometry_refresh tier 3).
 
-  4. `RULE_NETS` / `rule_nets` are NOT part of this: they are the built-in
+  4. `ROLELESS_NETS` / `rule_nets` are NOT part of this: they are the built-in
      role-less net SET ({"GND"}), still live in the clone role lemma —
      kept by decision of 12.10.2026.
 

@@ -10,7 +10,7 @@ import pytest
 
 from kicadstamp.config import format_version
 from kicadstamp.constants import (CLUSTER_FIELD_NAME, ROLE_FIELD_NAME,
-                                SPOKE_LEVEL_ROLE_PLACEHOLDER)
+                                CELL_LEVEL_ROLE_PLACEHOLDER)
 from kicadstamp.domain.board import Footprint, Track, Via
 from kicadstamp.domain.geometry import BoardLayer, Vector2
 from kicadstamp.registry import make_registry_key, record_key_part
@@ -157,21 +157,21 @@ def test_select_cell_targets_own_instance_and_own_copper(gate, tmp_path):
     # an ORPHAN key is never a pair, so it could not test the ownership rule.
     via_entries = {
         make_registry_key("anchor:C1:1:0.0000:0.0000", cell_identity,
-                          SPOKE_LEVEL_ROLE_PLACEHOLDER, 0):
+                          CELL_LEVEL_ROLE_PLACEHOLDER, 0):
             {"uuid": "v_own", "x_mm": 0.0, "y_mm": 0.0, "net": "N",
              "drill_mm": 0.3, "diameter_mm": 0.6},
         make_registry_key("anchor:X9:1:0.0000:0.0000", cell_identity,
-                          SPOKE_LEVEL_ROLE_PLACEHOLDER, 0):
+                          CELL_LEVEL_ROLE_PLACEHOLDER, 0):
             {"uuid": "v_foreign", "x_mm": 1.0, "y_mm": 1.0, "net": "N",
              "drill_mm": 0.3, "diameter_mm": 0.6},
         make_registry_key("anchor:C2:1:0.0000:0.0000", cell_identity,
-                          SPOKE_LEVEL_ROLE_PLACEHOLDER, 1):
+                          CELL_LEVEL_ROLE_PLACEHOLDER, 1):
             {"uuid": "v_gone", "x_mm": 2.0, "y_mm": 2.0, "net": "N",
              "drill_mm": 0.3, "diameter_mm": 0.6},
     }
     track_entries = {
         make_registry_key("anchor:C1:1:0.0000:0.0000", cell_identity,
-                          SPOKE_LEVEL_ROLE_PLACEHOLDER, 0):
+                          CELL_LEVEL_ROLE_PLACEHOLDER, 0):
             {"uuid": "t_own", "start_x_mm": 0.0, "start_y_mm": 0.0,
              "end_x_mm": 1.0, "end_y_mm": 0.0, "width_mm": 0.25,
              "net": "N", "layer": "F.Cu"},
@@ -201,7 +201,7 @@ def test_select_cell_targets_counts_registry_uuids_not_on_board(gate, tmp_path):
     config_path.write_text("", encoding="utf-8")
     via_entries = {
         make_registry_key("anchor:C1:1:0.0000:0.0000", cell_identity,
-                          SPOKE_LEVEL_ROLE_PLACEHOLDER, 0):
+                          CELL_LEVEL_ROLE_PLACEHOLDER, 0):
             {"uuid": "v_gone", "x_mm": 0.0, "y_mm": 0.0, "net": "N",
              "drill_mm": 0.3, "diameter_mm": 0.6},
     }

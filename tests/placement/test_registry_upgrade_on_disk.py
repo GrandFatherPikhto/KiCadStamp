@@ -882,9 +882,9 @@ def test_the_cell_level_role_placeholder_literal_is_unchanged():
 
     Hard-coded on purpose: the cell compares the BUILT key against the LITERAL,
     so a mutation that renames the constant dies here."""
-    from kicadstamp.constants import SPOKE_LEVEL_ROLE_PLACEHOLDER
+    from kicadstamp.constants import CELL_LEVEL_ROLE_PLACEHOLDER
     from kicadstamp.registry import make_registry_key
 
-    assert SPOKE_LEVEL_ROLE_PLACEHOLDER == "__spoke__"
+    assert CELL_LEVEL_ROLE_PLACEHOLDER == "__spoke__"
     assert make_registry_key("name:x", "cell", None, 0) == "name:x|cell|__spoke__|0"
     assert make_registry_key("name:x", "cell", "R1", 2) == "name:x|cell|R1|2"

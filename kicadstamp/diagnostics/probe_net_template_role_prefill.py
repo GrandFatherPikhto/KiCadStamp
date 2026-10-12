@@ -32,7 +32,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from kicadstamp.config.sexp_format import sexp_to_dict  # noqa: E402
 from kicadstamp.constants import CLUSTER_FIELD_NAME, ROLE_FIELD_NAME  # noqa: E402
 from kicadstamp.adapter_factory import create_board_adapter  # noqa: E402
-from kicadstamp.net_resolution import RULE_NETS  # noqa: E402
+from kicadstamp.net_resolution import ROLELESS_NETS  # noqa: E402
 from kicadstamp.template_extraction import (  # noqa: E402
     _selection_role_nets as selection_role_nets,
     _suggest_net_from_role as suggest_net_from_role,
@@ -113,7 +113,7 @@ def main():
     nets = sorted({n for fp in fps for n in _pad_nets(adapter, fp)})
     auto_roles = {}
     for net in nets:
-        if net in RULE_NETS:
+        if net in ROLELESS_NETS:
             auto_roles[net] = ("fallback", None)
             continue
         role, pad = suggest_net_from_role(role_nets, net, set(), None, None)

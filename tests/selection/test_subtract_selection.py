@@ -27,7 +27,7 @@ import json
 from types import SimpleNamespace
 
 from kicadstamp.absent_copper_prune import (RecordCopperMap, record_copper_map_for)
-from kicadstamp.constants import ROLE_FIELD_NAME, SPOKE_LEVEL_ROLE_PLACEHOLDER
+from kicadstamp.constants import ROLE_FIELD_NAME, CELL_LEVEL_ROLE_PLACEHOLDER
 from kicadstamp.domain.board import Footprint, Track, Via
 from kicadstamp.domain.geometry import BoardLayer, Vector2
 from kicadstamp.placement.commands import TrackCommand, ViaCommand
@@ -54,7 +54,7 @@ def test_the_exact_pair_is_the_one_removed():
     # Cell-LEVEL copper: the key's role part is the spoke placeholder, the index
     # is a position in the cell's OWN tracks list.
     record_map = RecordCopperMap(
-        by_record={("track", SPOKE_LEVEL_ROLE_PLACEHOLDER, 0): "u0"}, planned=2)
+        by_record={("track", CELL_LEVEL_ROLE_PLACEHOLDER, 0): "u0"}, planned=2)
 
     outcome = plan_subtraction(record_map, [], [rec0, rec1], set(), {"u0"})
 
@@ -70,7 +70,7 @@ def test_selected_copper_that_is_not_a_record_is_ignored_not_removed():
     caller can SAY it (the counter), instead of silently dropping it."""
     rec0 = _track(None, 0.0)
     record_map = RecordCopperMap(
-        by_record={("track", SPOKE_LEVEL_ROLE_PLACEHOLDER, 0): "u0"}, planned=1)
+        by_record={("track", CELL_LEVEL_ROLE_PLACEHOLDER, 0): "u0"}, planned=1)
 
     outcome = plan_subtraction(record_map, [], [rec0], set(), {"foreign"})
 
@@ -105,8 +105,8 @@ def test_via_and_track_records_use_their_own_lists():
             "drill_mm": 0.3, "diameter_mm": 0.6}
     track0 = _track("N", 5.0)
     record_map = RecordCopperMap(
-        by_record={("via", SPOKE_LEVEL_ROLE_PLACEHOLDER, 0): "uv",
-                   ("track", SPOKE_LEVEL_ROLE_PLACEHOLDER, 0): "ut"},
+        by_record={("via", CELL_LEVEL_ROLE_PLACEHOLDER, 0): "uv",
+                   ("track", CELL_LEVEL_ROLE_PLACEHOLDER, 0): "ut"},
         planned=2)
 
     outcome = plan_subtraction(record_map, [via0], [track0], {"uv"}, {"ut"})
@@ -120,7 +120,7 @@ def test_an_index_outside_the_record_list_is_not_a_record_of_the_cell():
     "not a record of the cell" — the same wording an unknown role gets."""
     rec0 = _track("GND", 2.0)
     record_map = RecordCopperMap(
-        by_record={("track", SPOKE_LEVEL_ROLE_PLACEHOLDER, 7): "u0"}, planned=8)
+        by_record={("track", CELL_LEVEL_ROLE_PLACEHOLDER, 7): "u0"}, planned=8)
 
     outcome = plan_subtraction(record_map, [], [rec0], set(), {"u0"})
 
@@ -317,7 +317,7 @@ def test_a_component_via_is_removed_from_its_component_not_from_the_cell():
                   {"role": "C9", "vias": []}]
     record_map = RecordCopperMap(
         by_record={("via", "R3", 0): "u_comp",
-                   ("via", SPOKE_LEVEL_ROLE_PLACEHOLDER, 0): "u_cell"},
+                   ("via", CELL_LEVEL_ROLE_PLACEHOLDER, 0): "u_cell"},
         planned=2)
 
     outcome = plan_subtraction(record_map, [cell_via], [], {"u_comp"}, set(),
@@ -337,7 +337,7 @@ def test_the_cell_level_and_the_component_level_with_one_index_are_distinct():
     comp_via = _via_record(5.0)
     components = [{"role": "R3", "vias": [comp_via]}]
     record_map = RecordCopperMap(
-        by_record={("via", SPOKE_LEVEL_ROLE_PLACEHOLDER, 0): "u_cell",
+        by_record={("via", CELL_LEVEL_ROLE_PLACEHOLDER, 0): "u_cell",
                    ("via", "R3", 0): "u_comp"},
         planned=2)
 
@@ -502,7 +502,7 @@ def test_registry_map_pairs_own_keys_with_the_live_copper_of_their_own_registry(
     assert record_map.planned == 2
     assert record_map.by_record == {
         ("via", "DA", 0): "u_c0",
-        ("track", SPOKE_LEVEL_ROLE_PLACEHOLDER, 0): "u_t0"}
+        ("track", CELL_LEVEL_ROLE_PLACEHOLDER, 0): "u_t0"}
 
 
 def test_registry_map_drops_a_key_whose_uuid_left_the_board(tmp_path):
@@ -513,7 +513,7 @@ def test_registry_map_drops_a_key_whose_uuid_left_the_board(tmp_path):
 
     record_map = _rmap(adapter, config_path, cfg)
 
-    assert ("via", SPOKE_LEVEL_ROLE_PLACEHOLDER, 0) not in record_map.by_record
+    assert ("via", CELL_LEVEL_ROLE_PLACEHOLDER, 0) not in record_map.by_record
     # ...and it IS checked (the registry knows about it) — not "not checked".
     assert record_map.without_registry == 1        # only the foreign track 1
 
@@ -526,7 +526,7 @@ def test_registry_map_never_claims_a_foreign_key(tmp_path):
 
     record_map = _rmap(adapter, config_path, cfg)
 
-    assert ("track", SPOKE_LEVEL_ROLE_PLACEHOLDER, 1) not in record_map.by_record
+    assert ("track", CELL_LEVEL_ROLE_PLACEHOLDER, 1) not in record_map.by_record
     assert set(record_map.by_record.values()) == {"u_c0", "u_t0"}
 
 

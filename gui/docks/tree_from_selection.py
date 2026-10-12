@@ -71,7 +71,7 @@ class InterClusterNet:
     two rows (they become two records), and the row carries what the capture
     needs and what tells the two apart: the unit's pad signature (`pads`, the
     record's identity) and the tree nodes it connects (`nodes`). The old
-    heuristics — the RULE_NETS exclusion and the max-cluster-coverage threshold
+    heuristics — the ROLELESS_NETS exclusion and the max-cluster-coverage threshold
     — are GONE: the strict rule is geometric, so a GND bridge between two nodes
     IS inter-node copper while a GND pour (a zone, not in this graph) never is.
     """
@@ -857,7 +857,7 @@ def detect_inter_cluster_nets(raw_items: Iterable[Any],
     A unit is offered when ALL its pads belong to 2+ of the SELECTED clusters
     (the nodes this tree is being built from) and it has copper — the geometric
     classification of internode_copper.classify_unit, evaluated against the
-    selection. Gone with it: the RULE_NETS exclusion and the
+    selection. Gone with it: the ROLELESS_NETS exclusion and the
     DEFAULT_MAX_CLUSTER_COVERAGE threshold. They were a defence against
     cluster copper, and the geometry now provides that defence by construction —
     so a GND BRIDGE between two nodes is offered (it is real inter-node copper),

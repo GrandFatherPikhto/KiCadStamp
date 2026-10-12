@@ -32,13 +32,14 @@ from __future__ import annotations
 from kicadstamp.exceptions import ValidationError, format_fatal_error
 from kicadstamp.i18n import _
 
-# Rule nets — a via/track on one of these needs no role at all (net: null).
+# Role-less nets — a via/track on one of these needs no role at all. (The
+# constant was called RULE_NETS until 2026-10-12; its job is unchanged.)
 # Homed in net_resolution.py (the neutral low-level net module); imported here
 # directly — this module sits alongside it at the top level, so there is no
 # placement -> net_resolution caller chain to worry about (that chain is why
-# RULE_NETS was originally defined in net_resolution, not here). Configurability
+# ROLELESS_NETS was originally defined in net_resolution, not here). Configurability
 # is added as a separate step only if a real need appears (plan §3).
-from kicadstamp.net_resolution import RULE_NETS  # noqa: E402
+from kicadstamp.net_resolution import ROLELESS_NETS  # noqa: E402
 
 
 def canonical_role(role: str) -> str:
@@ -146,7 +147,7 @@ def dist_to_component(points: list[tuple[float, float]], comp) -> float:
 
 def classify_net(role_nets: dict[str, dict[str, set[str]]], net: str,
                  candidate_roles: set[str],
-                 rule_nets: set[str] = RULE_NETS,
+                 rule_nets: set[str] = ROLELESS_NETS,
                  points: list[tuple[float, float]] | None = None,
                  components: list | None = None,
                  use_geometry: bool = True) -> tuple[str | None, str | None]:

@@ -71,7 +71,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Optional
 
-from .constants import SPOKE_LEVEL_ROLE_PLACEHOLDER
+from .constants import CELL_LEVEL_ROLE_PLACEHOLDER
 from .i18n import _
 from .registry import (
     PlacementRegistry,
@@ -191,7 +191,7 @@ def record_of(cell, kind: str, role_part: str, index: int):
     if cell is None:
         return None
     if kind == "via":
-        if role_part == SPOKE_LEVEL_ROLE_PLACEHOLDER:
+        if role_part == CELL_LEVEL_ROLE_PLACEHOLDER:
             records = list(getattr(cell, "vias", None) or ())
         else:
             slot = next((s for s in (getattr(cell, "components", None) or ())
@@ -200,7 +200,7 @@ def record_of(cell, kind: str, role_part: str, index: int):
                 return None
             records = list(getattr(slot, "vias", None) or ())
     else:
-        if role_part != SPOKE_LEVEL_ROLE_PLACEHOLDER:
+        if role_part != CELL_LEVEL_ROLE_PLACEHOLDER:
             return None
         records = list(getattr(cell, "tracks", None) or ())
     if not 0 <= index < len(records):
@@ -326,9 +326,9 @@ def cell_record_slots(cell) -> set:
     if cell is None:
         return slots
     for index in range(len(getattr(cell, "vias", None) or ())):
-        slots.add(("via", SPOKE_LEVEL_ROLE_PLACEHOLDER, index))
+        slots.add(("via", CELL_LEVEL_ROLE_PLACEHOLDER, index))
     for index in range(len(getattr(cell, "tracks", None) or ())):
-        slots.add(("track", SPOKE_LEVEL_ROLE_PLACEHOLDER, index))
+        slots.add(("track", CELL_LEVEL_ROLE_PLACEHOLDER, index))
     for component in (getattr(cell, "components", None) or ()):
         role = getattr(component, "role", None)
         if not role:

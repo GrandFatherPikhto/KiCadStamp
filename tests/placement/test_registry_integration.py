@@ -33,7 +33,7 @@ from kicadstamp.config import (
 )
 from kicadstamp.placement.services.clone_position_calculator import ClonePositionCalculator
 from kicadstamp.registry import PlacementRegistry
-from kicadstamp.constants import SPOKE_LEVEL_ROLE_PLACEHOLDER
+from kicadstamp.constants import CELL_LEVEL_ROLE_PLACEHOLDER
 from tests.fakes.format3 import det_uuid, identity_value, stamp_config
 
 MM = 1_000_000
@@ -119,7 +119,7 @@ def test_registry_full_cycle_across_two_runs():
     assert len(vias1) == 1
     key = vias1[0].registry_key
     template = identity_value("t", det_uuid("cells:t"))  # the cell's identity part
-    expected_key = f"anchor:IC1::0.0000:0.0000|{template}|{SPOKE_LEVEL_ROLE_PLACEHOLDER}|0"
+    expected_key = f"anchor:IC1::0.0000:0.0000|{template}|{CELL_LEVEL_ROLE_PLACEHOLDER}|0"
     assert key == expected_key
 
     reg1 = PlacementRegistry(adapter, reg_path)

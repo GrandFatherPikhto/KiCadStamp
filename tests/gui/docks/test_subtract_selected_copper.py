@@ -24,7 +24,7 @@ from gui.docks.cell_editor import CellDock
 from kicadstamp.absent_copper_prune import RecordCopperMap
 from kicadstamp.config.sexp_format import dict_to_sexp, sexp_to_dict
 from kicadstamp.constants import (ROLE_FIELD_NAME,
-                                  SPOKE_LEVEL_ROLE_PLACEHOLDER)
+                                  CELL_LEVEL_ROLE_PLACEHOLDER)
 from kicadstamp.domain.board import Footprint, Track, Via
 from kicadstamp.domain.geometry import BoardLayer, Vector2
 from kicadstamp.registry import make_registry_key, record_key_part
@@ -221,7 +221,7 @@ def _fake_map(monkeypatch, maps: dict, default=None):
 
 def _record_map(index=0, uuid="u0", kind="track", role=None, planned=3):
     return RecordCopperMap(
-        by_record={(kind, role or SPOKE_LEVEL_ROLE_PLACEHOLDER, index): uuid},
+        by_record={(kind, role or CELL_LEVEL_ROLE_PLACEHOLDER, index): uuid},
         planned=planned)
 
 
@@ -591,7 +591,7 @@ def test_the_cell_via_with_the_same_index_is_not_the_components(
     cell_via = dock._vias[0]
     _fake_board(monkeypatch, [_live_via("u_cell", "N", 10.0, 10.0)])
     _fake_map(monkeypatch, {"dac0": RecordCopperMap(
-        by_record={("via", SPOKE_LEVEL_ROLE_PLACEHOLDER, 0): "u_cell",
+        by_record={("via", CELL_LEVEL_ROLE_PLACEHOLDER, 0): "u_cell",
                    ("via", "DA", 0): "u_comp"}, planned=2)})
     _messages(dock, monkeypatch)
 
@@ -1062,9 +1062,9 @@ def test_the_entitys_pinned_refs_narrow_which_copper_is_this_instance(
     # TWO own keys: the pinned C1 (cell track 1) and the live zero slot Z9 (0).
     _write_registries(
         tmp_path, {},
-        {make_registry_key("anchor:C1", cell_id, SPOKE_LEVEL_ROLE_PLACEHOLDER, 1):
+        {make_registry_key("anchor:C1", cell_id, CELL_LEVEL_ROLE_PLACEHOLDER, 1):
          _track_reg_entry("u1"),
-         make_registry_key("anchor:Z9", cell_id, SPOKE_LEVEL_ROLE_PLACEHOLDER, 0):
+         make_registry_key("anchor:Z9", cell_id, CELL_LEVEL_ROLE_PLACEHOLDER, 0):
          _track_reg_entry("u0")})
     # The selection is the UNPINNED slot's copper (u0). The frame's live zero
     # slot is Z9 at (10, 10); u1 (track 1, across 2.0 mm) sits at (10, 12).

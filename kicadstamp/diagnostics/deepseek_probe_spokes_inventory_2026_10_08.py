@@ -19,7 +19,7 @@ The unit of classification is a LINE, and a line is what it NAMES:
     `rules:` / `Rule` alias, the tree NODE KINDS `chain` / legacy `rule`, "Add
     chain", "placed by chain", "chain dict/list/form/row/leaf", ...);
   * allow  — the line names a KEPT symbol (the registry role placeholder name
-    `SPOKE_LEVEL_ROLE_PLACEHOLDER` and its FROZEN value `__spoke__`; the cell via
+    `CELL_LEVEL_ROLE_PLACEHOLDER` and its FROZEN value `__spoke__`; the cell via
     `offset_along_mm` / `offset_across_mm`; the `spoke_layout` geometry
     primitives) or uses "chain" in another sense (sheet-name chain, `include:`
     import chain, anchor / point / dependency chain, "the chain would loop").
@@ -82,7 +82,7 @@ _SKIP_DIRS = {"__pycache__", ".venv", ".git", "profiles", ".mypy_cache"}
 # symbol matched (see `_classify_line`).
 _FROZEN_ALLOW = (
     ("registry role placeholder (name renameable, VALUE frozen)",
-     r"SPOKE_LEVEL_ROLE_PLACEHOLDER|__spoke__"),
+     r"CELL_LEVEL_ROLE_PLACEHOLDER|__spoke__"),
     ("cell via offset_*_mm fields (cell format, not spokes)",
      r"offset_along_mm|offset_across_mm"),
 )
@@ -220,7 +220,7 @@ def _scan():
 _SYMBOLS = (
     "Chain", "ManualSpoke", "chains", "rules", "Rule",
     "spoke_pad", "SOURCE_SPOKE", "apply_spoke_geometry",
-    "SPOKE_LEVEL_ROLE_PLACEHOLDER",
+    "CELL_LEVEL_ROLE_PLACEHOLDER",
     "LEGACY_KINDS", "_F3_NODE_KIND_TARGET",
 )
 _RE_IMPORT = re.compile(r"^\s*(?:from\s+\S+\s+import|import)\b")

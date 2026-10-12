@@ -6,7 +6,7 @@ signature, the nodes it connects and the counts the dialog's third tab shows.
 
 OBSOLETE PREDECESSOR (kept under the same filename for the paper trail): this
 probe used to measure the two HEURISTICS that no longer exist — the
-RULE_NETS={"GND"} name exclusion and the DEFAULT_MAX_CLUSTER_COVERAGE<=2
+ROLELESS_NETS={"GND"} name exclusion and the DEFAULT_MAX_CLUSTER_COVERAGE<=2
 threshold (both were the 2026-09-01 fix for a live GND leak: GND on 6 clusters,
 +3V3 on 3, real links on exactly 2). Plan_2026_09_12_internode_copper_core (stage
 Э5; design §4/§14) replaced them with a STRICT RULE: copper is inter-node when

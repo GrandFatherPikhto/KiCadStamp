@@ -22,7 +22,7 @@ matched by the registry uuid and then by exact geometry). The invariant:
 
 A CELL'S COPPER HAS TWO LEVELS, and the map key says which. The dry run plans the
 cell's own copper under ``make_registry_key(anchor, cell, None, i)`` — the
-role part is ``SPOKE_LEVEL_ROLE_PLACEHOLDER`` and ``i`` is the index in the cell's
+role part is ``CELL_LEVEL_ROLE_PLACEHOLDER`` and ``i`` is the index in the cell's
 own ``vias``/``tracks`` — AND each component's copper under
 ``make_registry_key(anchor, cell, comp.role, i)``, where ``i`` is the index in THAT
 COMPONENT's ``vias``/``tracks``. So the record is resolved by the WHOLE key: the
@@ -42,7 +42,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from .constants import SPOKE_LEVEL_ROLE_PLACEHOLDER
+from .constants import CELL_LEVEL_ROLE_PLACEHOLDER
 
 __all__ = [
     "SubtractionOutcome",
@@ -96,7 +96,7 @@ def _record_bucket(kind: str, role_part, cell_vias, cell_tracks, by_role):
     name = _RECORD_LISTS.get(kind)
     if name is None:
         return None
-    if role_part in (None, "", SPOKE_LEVEL_ROLE_PLACEHOLDER):
+    if role_part in (None, "", CELL_LEVEL_ROLE_PLACEHOLDER):
         return cell_vias if name == "vias" else cell_tracks
     component = by_role.get(str(role_part))
     return None if component is None else (component.get(name) or [])

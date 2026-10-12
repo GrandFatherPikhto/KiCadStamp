@@ -67,7 +67,7 @@ from .utils.paths import (default_log_file_for_config,
                           registry_path_for_config,
                           registry_paths_for_config,
                           track_registry_path_for_config)
-from .constants import POSITION_TOLERANCE_MM, SPOKE_LEVEL_ROLE_PLACEHOLDER
+from .constants import POSITION_TOLERANCE_MM, CELL_LEVEL_ROLE_PLACEHOLDER
 from .exceptions import ValidationError, format_fatal_error
 from .persistence import (
     REGISTRY_SCHEMA_VERSION,
@@ -115,7 +115,7 @@ def make_registry_key(anchor_id: str, template_name: str, role: str | None, inde
     ``template_name`` — the clone cell name (param kept as
     ``template_name`` for registry backward compatibility).
     ``role`` — component role (unique within a cell) or ``None`` for
-    cell‑level vias/tracks (substituted by :data:`SPOKE_LEVEL_ROLE_PLACEHOLDER`).
+    cell‑level vias/tracks (substituted by :data:`CELL_LEVEL_ROLE_PLACEHOLDER`).
     ``index`` — 0‑based index within the specific list (vias or tracks).
 
     Homed here, not in placement/commands.py: the registry key is the registry's
@@ -123,7 +123,7 @@ def make_registry_key(anchor_id: str, template_name: str, role: str | None, inde
     (single direction placement -> registry) instead of the registry depending
     on placement to produce its keys.
     """
-    role_part = role if role is not None else SPOKE_LEVEL_ROLE_PLACEHOLDER
+    role_part = role if role is not None else CELL_LEVEL_ROLE_PLACEHOLDER
     return f"{anchor_id}|{template_name}|{role_part}|{index}"
 
 

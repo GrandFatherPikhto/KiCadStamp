@@ -68,4 +68,9 @@ ROLE_CLUSTER_SOURCE_BOARD = "board"
 ROLE_CLUSTER_SOURCES = (ROLE_CLUSTER_SOURCE_REGISTRY, ROLE_CLUSTER_SOURCE_BOARD)
 
 # --- Registry ---
-SPOKE_LEVEL_ROLE_PLACEHOLDER = "__spoke__"
+# HISTORICAL LITERAL, FROZEN (2026-10-12): the NAME is neutral now, the VALUE must
+# never change — it is part of every cell-copper registry key
+# (`name:…|__spoke__|N`), and the live profile carries ~1900 such records;
+# changing it would be a registry MIGRATION, not a rename. (The spoke mechanism
+# itself is gone; this is the CELL-level role placeholder.)
+CELL_LEVEL_ROLE_PLACEHOLDER = "__spoke__"

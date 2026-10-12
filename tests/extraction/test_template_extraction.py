@@ -482,7 +482,7 @@ class TestNetFromRoleAutoSuggest:
         assert "net_from_role_pad" not in v  # lemma 2, no pad needed
 
     def test_via_on_a_builtin_rule_net_keeps_the_literal(self):
-        """A via on GND (the built-in RULE_NETS) during extract is written as
+        """A via on GND (the built-in ROLELESS_NETS) during extract is written as
         its LITERAL, never net: null — a ClonePlacement via with net=None is
         FATAL at apply (clone_geometry.py has no rule net to inherit), so the
         old --rule-net "write null" path is gone with the mechanism. The

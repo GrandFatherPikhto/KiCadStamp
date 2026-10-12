@@ -19,7 +19,7 @@ import kicadstamp.adapter_factory as adapter_factory_mod
 
 from kicadstamp.config import format_version
 from kicadstamp.constants import (CLUSTER_FIELD_NAME, ROLE_FIELD_NAME,
-                                  SPOKE_LEVEL_ROLE_PLACEHOLDER)
+                                  CELL_LEVEL_ROLE_PLACEHOLDER)
 from kicadstamp.domain.board import Footprint, Track, Via
 from kicadstamp.domain.geometry import BoardLayer, Vector2
 from kicadstamp.placement.commands import ViaCommand
@@ -165,7 +165,7 @@ def _setup(tmp_path, live_vias):
     adapter = _Adapter({"C1": ("DA", "DAC_BUF")}, footprints=[fp_c1],
                        vias=live_vias)
     key = make_registry_key("anchor:C1:1:0.0000:0.0000", cell_identity,
-                            SPOKE_LEVEL_ROLE_PLACEHOLDER, 0)
+                            CELL_LEVEL_ROLE_PLACEHOLDER, 0)
     return cfg, config_path, adapter, key
 
 

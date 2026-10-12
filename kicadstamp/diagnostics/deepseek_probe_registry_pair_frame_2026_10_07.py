@@ -80,7 +80,7 @@ from kicadstamp.cell_frame import RIGID_TOLERANCE_MM
 from kicadstamp.cell_geometry_refresh import (_cell_frame_for,
                                               _cell_selection_context)
 from kicadstamp.config import load_config
-from kicadstamp.constants import SPOKE_LEVEL_ROLE_PLACEHOLDER
+from kicadstamp.constants import CELL_LEVEL_ROLE_PLACEHOLDER
 from kicadstamp.registry import load_registry_entries
 from kicadstamp.selection_narrowing import cell_record_addresses
 from kicadstamp.trees import check_tree_self_anchor_drift
@@ -143,7 +143,7 @@ def _record_of(cell, kind: str, role_part: str, index: int):
 
     ``points`` — one ``(along_mm, across_mm)`` for a via, two for a track."""
     if kind == "via":
-        if role_part == SPOKE_LEVEL_ROLE_PLACEHOLDER:
+        if role_part == CELL_LEVEL_ROLE_PLACEHOLDER:
             records, where = list(cell.vias), "__spoke__ (cell level)"
         else:
             slot = next((s for s in cell.components
@@ -158,7 +158,7 @@ def _record_of(cell, kind: str, role_part: str, index: int):
         rec = records[index]
         return ((float(rec.offset_along_mm), float(rec.offset_across_mm)),), None
 
-    if role_part != SPOKE_LEVEL_ROLE_PLACEHOLDER:
+    if role_part != CELL_LEVEL_ROLE_PLACEHOLDER:
         return None, (f"track key with role part {role_part!r} — tracks are "
                       "stored at cell level only")
     tracks = list(cell.tracks)

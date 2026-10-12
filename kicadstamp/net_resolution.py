@@ -37,13 +37,14 @@ from typing import Any
 from .exceptions import ValidationError, format_fatal_error
 from .i18n import _
 
-# Rule nets — a via/track on one of these needs no role at all (net: null).
+# Role-less nets — a via/track on one of these needs no role at all. (The
+# constant was called RULE_NETS until 2026-10-12; its job is unchanged.)
 # Homed here (a neutral, low-level module) rather than in placement/services/
 # net_from_role_resolver.py: that resolver re-exports it, but defining it here
 # avoids an import cycle (net_resolution <- placement.services is fine, but
 # placement/services would pull placement/__init__ -> planner -> clone_geometry
 # -> net_resolution back).
-RULE_NETS: set[str] = {"GND"}
+ROLELESS_NETS: set[str] = {"GND"}
 
 
 def resolve_placeholder(template: str, params: dict[str, Any], what: str = "value") -> str:
@@ -121,7 +122,7 @@ def resolve_net_from_role(role: str, pad: str | None, role_to_ref: dict[str, str
     before apply_clone_geometry) — preserves the "geometry does not touch the
     live board" boundary (clone_geometry.py docstring).
     """
-    rule = set(rule_nets) if rule_nets is not None else set(RULE_NETS)
+    rule = set(rule_nets) if rule_nets is not None else set(ROLELESS_NETS)
 
     ref = role_to_ref.get(role)
     if ref is None:

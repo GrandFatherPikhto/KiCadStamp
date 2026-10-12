@@ -19,7 +19,7 @@ TestNetFromRoleAutoSuggest::test_via_on_a_builtin_rule_net_keeps_the_literal: a
 GND via must come out as the LITERAL, never null, and without net_from_role.
 
   * M1  the extract via loop nulls a built-in rule net again  -> the cell dies
-  * M2  extract classifies with an EMPTY rule set (not RULE_NETS) -> GND maps to
+  * M2  extract classifies with an EMPTY rule set (not ROLELESS_NETS) -> GND maps to
         a role's pad via the multi-net path, so the cell dies
   * K1  a cosmetic comment                                    -> MUST survive
 
@@ -40,16 +40,16 @@ MUTATIONS = [
      "        if via_net is not None:\n",
      "        via_net = v.net_name\n"
      "        role_net = role_net_pad = None\n"
-     "        if via_net in RULE_NETS:  # MUTATION\n"
+     "        if via_net in ROLELESS_NETS:  # MUTATION\n"
      "            via_net = None\n"
      "        elif via_net is not None:\n",
      "die", GUARDS, ()),
     # 2 — the extract classifier is handed an EMPTY rule set instead of the
-    # built-in RULE_NETS: GND stops being "no role needed" and resolves to the
+    # built-in ROLELESS_NETS: GND stops being "no role needed" and resolves to the
     # cap role's pad (multi-net path), so the cell's literal assertion dies.
     ("M2 extract classifies with an empty rule set", EXTRACTION,
      "            role_net, role_net_pad = _suggest_net_from_role(\n"
-     "                selection_role_nets, via_net, RULE_NETS,\n"
+     "                selection_role_nets, via_net, ROLELESS_NETS,\n"
      "                [(along_mm, across_mm)], components)\n",
      "            role_net, role_net_pad = _suggest_net_from_role(\n"
      "                selection_role_nets, via_net, set(),  # MUTATION\n"

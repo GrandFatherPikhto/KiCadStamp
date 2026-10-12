@@ -42,7 +42,7 @@ from kicadstamp.absent_copper_prune import (
 )
 from kicadstamp.cell_frame import RIGID_TOLERANCE_MM
 from kicadstamp.config import format_version
-from kicadstamp.constants import ROLE_FIELD_NAME, SPOKE_LEVEL_ROLE_PLACEHOLDER
+from kicadstamp.constants import ROLE_FIELD_NAME, CELL_LEVEL_ROLE_PLACEHOLDER
 from kicadstamp.domain.board import Footprint, Track, Via
 from kicadstamp.domain.geometry import BoardLayer, Vector2
 from kicadstamp.placement.commands import TrackCommand, ViaCommand
@@ -193,13 +193,13 @@ def _map(tmp_path, cell, *, second_live=None, via_entries=None,
 
 def test_record_points_names_the_two_levels_and_refuses_an_orphan():
     cell = _cell()
-    assert record_points(cell, "via", SPOKE_LEVEL_ROLE_PLACEHOLDER, 0) == \
+    assert record_points(cell, "via", CELL_LEVEL_ROLE_PLACEHOLDER, 0) == \
         ((0.0, 0.0),)
-    assert record_points(cell, "track", SPOKE_LEVEL_ROLE_PLACEHOLDER, 0) == \
+    assert record_points(cell, "track", CELL_LEVEL_ROLE_PLACEHOLDER, 0) == \
         ((0.0, 0.0), (1.0, 0.0))
     # past the end of the list / a role the cell does not have: NO record
-    assert record_points(cell, "via", SPOKE_LEVEL_ROLE_PLACEHOLDER, 1) is None
-    assert record_points(cell, "track", SPOKE_LEVEL_ROLE_PLACEHOLDER, 5) is None
+    assert record_points(cell, "via", CELL_LEVEL_ROLE_PLACEHOLDER, 1) is None
+    assert record_points(cell, "track", CELL_LEVEL_ROLE_PLACEHOLDER, 5) is None
     assert record_points(cell, "track", "DA", 0) is None
     assert record_points(cell, "via", "GONE", 0) is None
 
@@ -227,7 +227,7 @@ def test_a_rigid_frame_accepts_the_pair_that_sits_where_the_record_puts_it(
         "uv", *FPGA_LIVE)}, vias=[_live_via("uv", *FPGA_LIVE)])
 
     assert record_map.by_record == \
-        {("via", SPOKE_LEVEL_ROLE_PLACEHOLDER, 0): "uv"}
+        {("via", CELL_LEVEL_ROLE_PLACEHOLDER, 0): "uv"}
     assert record_map.disagreed == 0
     assert record_map.orphan_keys == 0
     assert record_map.not_rigid is False
@@ -264,7 +264,7 @@ def test_the_place_check_of_the_registry_only_path_is_a_tolerance(
 
     if accepted:
         assert record_map.by_record == \
-            {("via", SPOKE_LEVEL_ROLE_PLACEHOLDER, 0): "uv"}, record_map
+            {("via", CELL_LEVEL_ROLE_PLACEHOLDER, 0): "uv"}, record_map
         assert record_map.disagreed == 0
         return
     assert record_map.by_record == {}
@@ -369,7 +369,7 @@ def test_a_dry_run_takes_the_tier1_pair_only_at_the_commands_own_place(
     record_map = _dry_run(tmp_path, key, live_via=_live_via("uv", 0.0, 0.0),
                           planned=(0.0, 0.0))
 
-    assert record_map.by_record == {("via", SPOKE_LEVEL_ROLE_PLACEHOLDER, 0): "uv"}
+    assert record_map.by_record == {("via", CELL_LEVEL_ROLE_PLACEHOLDER, 0): "uv"}
     assert record_map.disagreed == 0
 
 
@@ -400,7 +400,7 @@ def test_a_dry_run_tier2_geometry_pair_is_not_touched_by_the_place_check(
         [_planned_via(key, 7.0, 7.0)], [])
 
     assert record_map.by_record and second.by_record == \
-        {("via", SPOKE_LEVEL_ROLE_PLACEHOLDER, 0): "uv2"}
+        {("via", CELL_LEVEL_ROLE_PLACEHOLDER, 0): "uv2"}
     assert second.disagreed == 0
 
 

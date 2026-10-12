@@ -46,7 +46,7 @@ from typing import Any, Iterator, Optional
 
 from .exceptions import ValidationError, format_fatal_error
 from .i18n import _
-from .net_resolution import RULE_NETS
+from .net_resolution import ROLELESS_NETS
 
 __all__ = [
     "PlacementCopyPlan",
@@ -131,7 +131,7 @@ def _copper_net_ok(record: dict, kind: str) -> tuple[bool, str]:
         return False, _("{kind} has no net (net: null) — a net-less via/track is "
                         "fatal at apply for a placed cell (clone_geometry), so a "
                         "copy cannot transport it").format(kind=kind)
-    if net in RULE_NETS:
+    if net in ROLELESS_NETS:
         return True, f"net: {net} (rule net)"
     if "{" in str(net):
         return False, _("{kind} has a parametrized literal net {net!r} — "

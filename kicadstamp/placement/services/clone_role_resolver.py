@@ -44,7 +44,7 @@ from ...config import Cell, CellPlacement, ClonePlacement, TemplateComponentSlot
     clone_placement_effective_name
 from ...exceptions import ValidationError, format_fatal_error
 from ...net_derive import PREFIX_REMAP, derive_role_nets
-from ...net_resolution import RULE_NETS, resolve_net, resolve_placeholder
+from ...net_resolution import ROLELESS_NETS, resolve_net, resolve_placeholder
 from .component_pool import ROLE_FIELD_NAME
 from ...constants import CLUSTER_FIELD_NAME
 from ...i18n import _
@@ -137,7 +137,7 @@ def resolve_single_role_candidate(all_fps, adapter, role: str, cluster: str,
 
 def candidate_nets(adapter, fp, rule_nets: set[str] | None = None) -> list[str]:
     """Sorted non-rule nets on a resolved candidate's pads."""
-    rule = set(rule_nets) if rule_nets is not None else set(RULE_NETS)
+    rule = set(rule_nets) if rule_nets is not None else set(ROLELESS_NETS)
     pads = adapter.get_footprint_pads(fp)
     return sorted({p.net_name for p in pads if p.net_name and p.net_name not in rule})
 
@@ -311,7 +311,7 @@ def _role_designated_net(adapter, fp, slot) -> str | None:
     pad's net; else exactly one non-rule net (lemma 2); else None (a bridging
     role without a designated pad cannot be reduced to one net — never a
     guess)."""
-    rule = set(RULE_NETS)
+    rule = set(ROLELESS_NETS)
     pad = getattr(slot, "net_template_pad", None)
     if pad:
         p = adapter.get_pad_by_number(fp, str(pad))
@@ -379,7 +379,7 @@ def _auto_derive_live_net(adapter, all_fps, role, clone, slot, sheet_names):
 
     shared = {n for c in candidates for n in
               {p.net_name for p in adapter.get_footprint_pads(c)
-               if p.net_name and p.net_name not in RULE_NETS}}
+               if p.net_name and p.net_name not in ROLELESS_NETS}}
     if len(shared) == 1:
         net = next(iter(shared))
         # Step 2.2 separation note (debug — the common PI-filter/power-rail case
@@ -712,7 +712,7 @@ def resolve_roles_by_nets(adapter, cell: Cell, clone: ClonePlacement | CellPlace
                          getattr(slot, "net_template_same_as_role", None))
             suggested = suggest_role_nets_from_cluster(
                 adapter, {role: role_hint}, getattr(clone, "cluster", ""),
-                rule_nets=RULE_NETS, sheet=getattr(clone, "sheet", None),
+                rule_nets=ROLELESS_NETS, sheet=getattr(clone, "sheet", None),
                 sheet_names=sheet_names or {})
             if role in suggested:
                 expected_net = suggested[role]
