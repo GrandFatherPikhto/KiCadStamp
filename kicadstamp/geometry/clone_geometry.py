@@ -69,9 +69,9 @@ def _resolve_clone_via(origin: Vector2, via: TemplateVia, rotation_deg: float,
             raise ValidationError(format_fatal_error(
                 _("via without net in cell {cell!r} ({name!r})").format(
                     cell=clone.cell, name=clone_placement_effective_name(clone)),
-                [_("via at (along={along}, across={across}) has no net — "
-                   "ClonePlacement has no default rule net (unlike ManualSpoke), "
-                   "so every via in a cloned cell must have a net explicitly set")
+                [_("via at (along={along}, across={across}) has no net — a cloned "
+                   "cell has no default net to fall back to, so every via in it "
+                   "must have a net explicitly set")
                  .format(along=via.offset_along_mm, across=via.offset_across_mm)]
             ))
         net = resolve_net(via.net, clone.params, clone.net_overrides,

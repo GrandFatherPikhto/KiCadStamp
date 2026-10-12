@@ -206,8 +206,8 @@ def _load_config_uncached(path: str) -> tuple[Config, RuntimeContext]:
     if 'side' in data:
         raise ValidationError(format_fatal_error(
             _("deprecated field 'side' at root of config"),
-            [_("use layer: F.Cu or layer: B.Cu instead (layer for ManualSpoke rules; "
-               "back -> B.Cu)")]
+            [_("use layer: F.Cu or layer: B.Cu instead (the layer the retired "
+               "spoke rules used to set; back -> B.Cu)")]
         ))
     root_layer = data.get('layer', 'F.Cu')
     _check_layer_value(root_layer, _("at root of config"))

@@ -14851,11 +14851,11 @@ msgstr "устаревшее поле 'side' в корне конфига"
 
 #: kicadstamp/config/loader.py:209
 msgid ""
-"use layer: F.Cu or layer: B.Cu instead (layer for ManualSpoke rules; back"
-" -> B.Cu)"
+"use layer: F.Cu or layer: B.Cu instead (the layer the retired spoke rules"
+" used to set; back -> B.Cu)"
 msgstr ""
-"используйте layer: F.Cu или layer: B.Cu (слой для ManualSpoke правил; "
-"back -> B.Cu)"
+"используйте layer: F.Cu или layer: B.Cu (слой, который задавали снятые "
+"правила спиц; back -> B.Cu)"
 
 #: kicadstamp/config/loader.py:213
 msgid "at root of config"
@@ -17178,13 +17178,13 @@ msgstr "via без цепи в шаблоне {cell!r} ({name!r})"
 #: kicadstamp/geometry/clone_geometry.py:72
 #, python-brace-format
 msgid ""
-"via at (along={along}, across={across}) has no net — ClonePlacement has "
-"no default rule net (unlike ManualSpoke), so every via in a cloned cell "
-"must have a net explicitly set"
+"via at (along={along}, across={across}) has no net — a cloned cell has no "
+"default net to fall back to, so every via in it must have a net "
+"explicitly set"
 msgstr ""
-"via на (along={along}, across={across}) не имеет цепи — у ClonePlacement "
-"нет цепи правила по умолчанию (в отличие от ManualSpoke), поэтому каждая "
-"via в клонируемом шаблоне должна иметь явно заданную цепь"
+"переход (along={along}, across={across}) без цепи — у клонированного "
+"шаблона нет цепи по умолчанию, поэтому у каждого перехода в нём сеть "
+"должна быть задана явно"
 
 #: kicadstamp/geometry/clone_geometry.py:99
 #, python-brace-format
