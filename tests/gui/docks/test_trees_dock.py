@@ -4548,22 +4548,24 @@ LIVE_CLUSTER_CFG = {
     ],
 }
 
-# A two-node tree (a clone parent + a clone child) used by the reread
+# A two-node tree (a coordinate parent + a coordinate child) used by the reread
 # idempotency test — the base is MOCKED there, so the records only need to
-# resolve by name/kind. NOTE (Placer removal, Ч1в-1): the flat clone_placements:
-# carrier is retired; this cell still rides it, so it is the ONE remaining
-# tree-dock cell under the refusal patch and is to be re-expressed on a live
-# carrier (or dropped) in Ч1 together with the section-removal slice.
+# resolve by name/kind. TRANSLATED off the retired clone_placements: carrier: the
+# live pass-through carrier is coordinate_placements: (the same historical read
+# path as the old clone records — the mocked resolve_base_* seam), so this cell
+# is re-expressed, never dropped.
 REREAD_ROT_CFG = {
     "cells": {"t": {}},
-    "clone_placements": [
-        {"name": "PARENT", "cluster": "c", "cell": "t", "xy": [0.0, 0.0]},
-        {"name": "CHILD", "cluster": "c", "cell": "t", "xy": [3.0, 2.0]},
+    "coordinate_placements": [
+        {"name": "PARENT", "cluster": "c", "role": "PARENT_ROLE",
+         "x_mm": 0.0, "y_mm": 0.0, "rotation_deg": 0.0},
+        {"name": "CHILD", "cluster": "c", "role": "CHILD_ROLE",
+         "x_mm": 3.0, "y_mm": 2.0, "rotation_deg": 0.0},
     ],
     "trees": [
         {"name": "t1", "anchor": {"origin": True},
-         "nodes": [{"ref": "PARENT", "kind": "clone",
-                    "children": [{"ref": "CHILD", "kind": "clone",
+         "nodes": [{"ref": "PARENT", "kind": "coordinate",
+                    "children": [{"ref": "CHILD", "kind": "coordinate",
                                   "xy": [3.0, 2.0], "rotation": 0.0}]}]},
     ],
 }
