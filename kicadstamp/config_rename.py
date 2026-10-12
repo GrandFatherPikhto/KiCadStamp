@@ -24,21 +24,21 @@ schematic side never confuses a Role VALUE with some other string that
 happens to be equal:
 
   Cluster renames (``renames: Cluster:``):
-    - ``cluster:``        — rules[].spokes[].cluster, coordinate_placements[].cluster,
+    - ``cluster:``        — coordinate_placements[].cluster,
                             clone_placements[].cluster (the Cluster TAG written onto
                             the board's components, read by role_narrowing.py as
                             the placement's own Cluster)
-    - ``anchor_cluster:`` — rules / clone_placements / coordinate_placements /
+    - ``anchor_cluster:`` — clone_placements / coordinate_placements /
                             thermal_via_arrays / net_traces / points
     (``name:`` of clone_placements is the SAVE/--only identity, NOT a Cluster —
-    deliberately not touched; same for rules[].name / thermal_via_arrays[].name /
+    deliberately not touched; same for thermal_via_arrays[].name /
     coordinate_placements[].name / points keys / cells keys.)
 
   Role renames (``renames: Role:``):
     - ``role:``                    — cells.*.components[].role,
                                      cells.*.clone_placements[].role,
                                      coordinate_placements[].role
-    - ``anchor_role:``             — rules / clone_placements / coordinate_placements /
+    - ``anchor_role:``             — clone_placements / coordinate_placements /
                                      thermal_via_arrays / net_traces / points /
                                      cells.*.anchor_role (display-only)
     - ``net_from_role:``           — cells.*.vias[] / cells.*.tracks[] /
@@ -125,18 +125,6 @@ class _Ctx:
 
 
 # ── Per-entry visitors ───────────────────────────────────────────────────────
-
-def _visit_spoke(spoke: Dict[str, Any], location: str, ctx: _Ctx) -> None:
-    ctx.rename_value(spoke, "cluster", f"{location}.cluster", "Cluster")
-
-
-def _visit_chain(chain: Dict[str, Any], location: str, ctx: _Ctx) -> None:
-    ctx.rename_value(chain, "anchor_role", f"{location}.anchor_role", "Role")
-    ctx.rename_value(chain, "anchor_cluster", f"{location}.anchor_cluster", "Cluster")
-    for i, spoke in enumerate(chain.get("spokes", []) or []):
-        if isinstance(spoke, dict):
-            _visit_spoke(spoke, f"{location}.spokes[{i}]", ctx)
-
 
 def _visit_placement_kind(entry: Dict[str, Any], location: str, ctx: _Ctx) -> None:
     """Shared for clone_placements / coordinate_placements entries — both now
@@ -231,7 +219,6 @@ def _walk_file(data: Dict[str, Any], ctx: _Ctx) -> None:
             if isinstance(entry, dict):
                 visitor(entry, f"{section}[{i}]", ctx)
 
-    visit_list("chains", _visit_chain)
     visit_list("clone_placements", _visit_clone_placement)
     visit_list("coordinate_placements", _visit_coordinate_placement)
     visit_list("thermal_via_arrays", _visit_thermal_via_array)
