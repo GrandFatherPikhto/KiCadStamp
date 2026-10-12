@@ -16,7 +16,7 @@ geometry/
 ├── keepout.py              # Keepout obstacles (Rect + a pad's own area) and free‑space search
 ├── pad_area.py             # The pad's own copper area, in the pad's axes
 ├── pad_projection.py       # Pad position prediction (only for diagnostics)
-├── spoke_layout.py         # Template transformation for ManualSpoke (vias and tracks)
+├── spoke_layout.py         # Shared along/across primitives (SpokeLayout) used by clone_geometry
 ├── clone_geometry.py       # Template transformation for ClonePlacement (with tracks and mirror)
 └── thermal_grid.py         # Thermal via grid generation
 ```
@@ -42,7 +42,7 @@ Defines the `Rect` (axis‑aligned bounding box) class and provides functions fo
 | `find_free_point(ideal, keepout, via_radius, preferred_direction=None, step_mm=0.1, max_radius_mm=3.0, n_directions=8)` | Searches for the nearest free point around `ideal` in expanding rings. On each ring, it first tries `preferred_direction` (if given), then `n_directions` points evenly around the circle. Returns a `Vector2` or `None`. Takes the same mixed obstacle list. |
 | `find_free_point_along_line(ideal, keepout, via_radius, line_direction, step_mm=0.1, max_radius_mm=3.0)` | Searches for a free point along a straight line through `ideal` with direction `line_direction` (unit vector). Checks `ideal`, then steps out in both directions. Same mixed obstacle list. |
 
-**Used in:** `via_planner.py` **only** for placing thermal vias (the only case requiring automatic search). For all other vias (spoke‑level and component‑level), search is not used because they are placed strictly by template coordinates.
+**Used in:** `via_planner.py` **only** for placing thermal vias (the only case requiring automatic search). For all other vias (cell-level and component-level), search is not used because they are placed strictly by template coordinates.
 
 ---
 
@@ -84,33 +84,25 @@ In the current KiCadStamp version, this function **is not used** in the main cod
 
 ---
 
-### `spoke_layout.py` – Transformation for ManualSpoke
+### `spoke_layout.py` – shared along/across primitives
 
-**Purpose:**  
-Transforms template local coordinates (`along`, `across`) to absolute board coordinates for `ManualSpoke` (pad‑based placement) with the spoke’s `(shift_x, shift_y)` and `rotation_deg`. It also computes the final component rotation and generates all vias (at both the spoke and component levels) as `ResolvedVia` with absolute coordinates and nets (if `net` is omitted, `rule.net` is used).
+**Purpose:** the geometric vocabulary every placement path shares — it turns LOCAL along/across
+coordinates into absolute board coordinates and back (`local_to_absolute`, `rotate_local_offset`,
+the engine's own KiCad Y-down convention), and carries the containers `ResolvedVia`/`ResolvedTrack`,
+`ComponentLayout` and `SpokeLayout` that `clone_geometry.py` fills in.
 
-**Important:** `ManualSpoke` also generates tracks (spoke‑level `TemplateTrack` entries), the same way `ClonePlacement` does. A track with `net = None` inherits `chain.net` – the same convention as `TemplateVia` – which is what lets one template (e.g. `cap_pair_standard`) be reused across chains with different nets without hardcoding a net per chain.
+> **The `ManualSpoke` entry point is gone (2026-10):** `apply_spoke_geometry`, which transformed a
+> SPOKE (a cell placed on an IC pad, with `shift`/`rotation` and the "a track with `net = None`
+> inherits `chain.net`" convention), was removed with the whole spokes mechanism. What remains is the
+> primitive layer — used by `clone_geometry.py`, `cell_frame` and the tree code. The module's NAME
+> still says "spoke" for history; renaming it is not part of this cleanup.
 
-**Key Classes and Functions:**
-
-| Name | Description |
-|------|-------------|
-| `rotate_local_offset(along_mm, across_mm, rotation_deg)` | Rotates the local vector `(along, across)` by the given angle about the origin (no translation). |
-| `local_to_absolute(origin, along_mm, across_mm, rotation_deg)` | Transforms a local vector to an absolute position relative to `origin`, applying rotation. |
-| `ResolvedVia` | A fully resolved via: absolute position, net, drill and diameter parameters. |
-| `ResolvedTrack` | A fully resolved track segment: start and end points (absolute), width, net, absolute layer. Used by both `ManualSpoke` and `ClonePlacement`. |
-| `ComponentLayout` | Describes the placement of one component: ref, role, position, angle, list of vias. |
-| `SpokeLayout` | Describes all elements of a spoke: origin, vias (spoke level), components, tracks. |
-| `apply_spoke_geometry(pad_position, spoke, template, rule_net, role_to_ref)` | Main function. Takes the FPGA pad position, spoke data (`ManualSpoke`), template (`SpokeTemplate`), rule net, and role→ref mapping. Returns a `SpokeLayout` with absolute coordinates for all elements, including resolved tracks. |
-
-**Used in:** `manual_position_calculator.py` for computing component and via positions.
-
----
+**Used in:** `clone_geometry.py`, `cell_layout`/`cell_frame`, the tree position code.
 
 ### `clone_geometry.py` – Transformation for ClonePlacement
 
 **Purpose:**  
-Analogous to `spoke_layout.py`, but for `ClonePlacement` (cloned placements). Differences:
+The clone counterpart of the cell-to-board transformation (`clone_geometry.py`), built on the same `spoke_layout.py` primitives. Differences:
 - `origin` can be absolute `(origin_x_mm, origin_y_mm)` or a shift from an anchor (if `anchor_ref` or `anchor_role` is set).
 - `net` of each via and track is resolved via `net_resolution.resolve_net()` using `params` and `net_overrides` – there is no default `rule_net`. If `net` is missing, a fatal error is raised.
 - Supports binding to an anchor component/pad via `anchor_ref`/`anchor_role` and `anchor_pad`.
@@ -155,7 +147,7 @@ The local grid (rows/columns/stagger/margin) is laid out in the **pad's own axes
 | `keepout.py` | `via_planner.py` | Building keepout (from the pads' own areas and from KiCad's boxes) and searching for free spots for thermal vias. |
 | `pad_area.py` | `keepout.py`, `thermal_grid.py`, `template_selection.py` | The pad's own copper area, in the pad's axes — no board access. |
 | `thermal_grid.py` | `via_planner.py` | Generating thermal via positions. |
-| `spoke_layout.py` | `manual_position_calculator.py` | Template transformation for manual spokes (vias and tracks). |
+| `spoke_layout.py` | `clone_geometry.py`, `cell_frame`, trees | Shared along/across primitives. |
 | `clone_geometry.py` | `clone_position_calculator.py` | Template transformation for cloned placements (with tracks and mirror). |
 | `pad_projection.py` | Diagnostic scripts | Checking the pad mirroring convention. |
 
@@ -245,7 +237,7 @@ layout_mirrored = apply_clone_geometry(clone, template, role_to_ref, mirror=True
 - The `spoke_layout.py` and `clone_geometry.py` modules are completely independent of zones and boundaries – all geometry is defined in the template’s local system, making configuration rotation‑invariant and predictable.
 - For `ClonePlacement`, via and track nets **must** be specified (either via `net` in the template or via `nets`/`net_overrides` in the clone), because there is no default `rule_net`. Otherwise, a `ValidationError` is raised.
 - The `pad_projection.py` module is kept for diagnostic purposes and potential future extensions, although it is not used in the main flow.
-- **Tracks are only supported in `ClonePlacement`.** They are not planned for `ManualSpoke` (this is an architectural decision).
+- **Tracks are only supported in `ClonePlacement`** (the other placement path).
 
 ---
 
