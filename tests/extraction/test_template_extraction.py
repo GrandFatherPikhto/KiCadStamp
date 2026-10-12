@@ -373,50 +373,6 @@ class TestNetTemplateRole:
         assert "net_template_pad" not in by_role["PI_FILTER_FB"]
 
 
-class TestRuleNets:
-    """rule_nets (2026-08-05, Denis: "давай сделаем явный чекбокс [для null].
-    Это правильная фича. Она замыкает использование rules") — a via/track
-    net in rule_nets is written as null instead of its literal, so a
-    ManualSpoke-placed cell using it inherits the enclosing Chain's own net
-    at apply time (spoke_layout.py's `via.net or rule_net`)."""
-
-    def test_via_net_in_rule_nets_is_written_as_null(self):
-        via_pwr = _make_via(0, 0, "+3V3_VCCIO")
-        via_gnd = _make_via(1, 0, "GND")
-        adapter = MagicMock()
-        adapter.get_selected_items.return_value = [via_pwr, via_gnd]
-
-        result = extract_template_from_selection(
-            adapter, "t", rule_nets={"+3V3_VCCIO"})
-
-        vias_by_net = {v["net"] for v in result["t"]["vias"]}
-        assert None in vias_by_net  # the PWR via
-        assert "GND" in vias_by_net  # GND untouched — not in rule_nets
-
-    def test_net_in_both_rule_nets_and_net_template_map_is_fatal(self):
-        via = _make_via(0, 0, "+5V_DIRTY")
-        adapter = MagicMock()
-        adapter.get_selected_items.return_value = [via]
-
-        with pytest.raises(ValidationError):
-            extract_template_from_selection(
-                adapter, "t", params={"PWR_IN": "+5V_DIRTY"},
-                net_template_map={"+5V_DIRTY": "{PWR_IN}"},
-                rule_nets={"+5V_DIRTY"})
-
-    def test_rule_nets_does_not_affect_unrelated_nets(self):
-        via_pwr = _make_via(0, 0, "+3V3_VCCIO")
-        via_other = _make_via(1, 0, "+1V2_VCCINT")
-        adapter = MagicMock()
-        adapter.get_selected_items.return_value = [via_pwr, via_other]
-
-        result = extract_template_from_selection(
-            adapter, "t", rule_nets={"+3V3_VCCIO"})
-
-        nets = {v["net"] for v in result["t"]["vias"]}
-        assert nets == {None, "+1V2_VCCINT"}
-
-
 class TestRenderUncertainComments:
     """render_uncertain_comments — текстовая пост-обработка yaml.dump()
     вывода cmd_extract: закомментированная строка-подсказка после блока
@@ -519,20 +475,26 @@ class TestNetFromRoleAutoSuggest:
         via = _make_via(0.0, -2.0, "+3V3")
         adapter = _make_adapter([cap], [via])
 
-        result = extract_template_from_selection(adapter, "t", rule_nets={"GND"})
+        result = extract_template_from_selection(adapter, "t")
         v = result["t"]["vias"][0]
         assert v["net"] is None          # no literal — resolved from the role
         assert v["net_from_role"] == "C_OUT_BULK"
         assert "net_from_role_pad" not in v  # lemma 2, no pad needed
 
-    def test_via_on_rule_net_keeps_net_null(self):
+    def test_via_on_a_builtin_rule_net_keeps_the_literal(self):
+        """A via on GND (the built-in RULE_NETS) during extract is written as
+        its LITERAL, never net: null — a ClonePlacement via with net=None is
+        FATAL at apply (clone_geometry.py has no rule net to inherit), so the
+        old --rule-net "write null" path is gone with the mechanism. The
+        classifier still treats GND as needing no role, so no net_from_role is
+        written either (only the literal survives)."""
         cap = _make_fp("C1", 0.0, 0.0, 0.0, "C_OUT_BULK", pad_nets=["+3V3", "GND"])
         via = _make_via(0.0, -2.0, "GND")
         adapter = _make_adapter([cap], [via])
 
-        result = extract_template_from_selection(adapter, "t", rule_nets={"GND"})
+        result = extract_template_from_selection(adapter, "t")
         v = result["t"]["vias"][0]
-        assert v["net"] is None
+        assert v["net"] == "GND"
         assert "net_from_role" not in v
 
     def test_via_no_matching_role_keeps_literal(self):
@@ -540,7 +502,7 @@ class TestNetFromRoleAutoSuggest:
         via = _make_via(0.0, -2.0, "+1V8")  # no selected role carries +1V8
         adapter = _make_adapter([cap], [via])
 
-        result = extract_template_from_selection(adapter, "t", rule_nets={"GND"})
+        result = extract_template_from_selection(adapter, "t")
         v = result["t"]["vias"][0]
         assert v["net"] == "+1V8"
         assert "net_from_role" not in v
@@ -552,7 +514,7 @@ class TestNetFromRoleAutoSuggest:
         via = _make_via(0.0, -2.0, "+3V3")
         adapter = _make_adapter([ldo], [via])
 
-        result = extract_template_from_selection(adapter, "t", rule_nets={"GND"})
+        result = extract_template_from_selection(adapter, "t")
         v = result["t"]["vias"][0]
         assert v["net"] is None
         assert v["net_from_role"] == "LDO"
@@ -566,7 +528,7 @@ class TestNetFromRoleAutoSuggest:
         via = _make_via(1.0, 0.0, "+5V")
         adapter = _make_adapter([c1, c2], [via])
 
-        result = extract_template_from_selection(adapter, "t", rule_nets={"GND"})
+        result = extract_template_from_selection(adapter, "t")
         v = result["t"]["vias"][0]
         assert v["net"] is None
         assert v["net_from_role"] == "C1"
@@ -578,7 +540,7 @@ class TestNetFromRoleAutoSuggest:
 
         result = extract_template_from_selection(
             adapter, "t", params={"PWR_OUT": "+3V3"},
-            net_template_map={"+3V3": "{PWR_OUT}"}, rule_nets={"GND"})
+            net_template_map={"+3V3": "{PWR_OUT}"})
         v = result["t"]["vias"][0]
         assert v["net"] is None
         assert v["net_from_role"] == "C_OUT_BULK"  # not "{PWR_OUT}"
@@ -610,7 +572,7 @@ class TestNetFromRoleAutoSuggest:
 
         adapter.get_bounding_boxes.side_effect = _bboxes
 
-        result = extract_template_from_selection(adapter, "t", rule_nets={"GND"})
+        result = extract_template_from_selection(adapter, "t")
         tr = result["t"]["tracks"][0]
         assert tr["net"] is None
         assert tr["net_from_role"] == "C_OUT_BULK"
@@ -939,7 +901,7 @@ class TestSoftDeprecationNotices:
         # whole selection is covered by net_from_role, so --net-template/--param
         # was redundant.
         extract_template_from_selection(
-            adapter, "t", net_template_map={"+1V8": "{VOUT}"}, rule_nets={"GND"})
+            adapter, "t", net_template_map={"+1V8": "{VOUT}"})
         assert "not needed" in caplog.text
 
     def test_net_template_used_no_notice(self, caplog):
@@ -948,7 +910,7 @@ class TestSoftDeprecationNotices:
         adapter = _make_adapter([cap], [via])
         extract_template_from_selection(
             adapter, "t", params={"VOUT": "+1V8"},
-            net_template_map={"+1V8": "{VOUT}"}, rule_nets={"GND"})
+            net_template_map={"+1V8": "{VOUT}"})
         # +1V8 is parametrized from the map -> the map was genuinely used.
         assert "not needed" not in caplog.text
 

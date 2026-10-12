@@ -38,7 +38,7 @@ logger = logging.getLogger(__name__)
 
 
 def run_extract_to_file(adapter, *, name: str, params, items, net_template_role,
-                        rule_nets, origin_kwargs: Dict[str, Any], target_path: Path,
+                        origin_kwargs: Dict[str, Any], target_path: Path,
                         save_profile: bool, profile_key: str, profile_path: Optional[Path],
                         placer_path: Optional[Path], raw_selection: bool = False,
                         extract_fn=extract_template_from_selection,
@@ -49,7 +49,7 @@ def run_extract_to_file(adapter, *, name: str, params, items, net_template_role,
     Parameters mirror the GUI payload keys (see ExtractDock._collect_extract_inputs)
     so the dock's thin wrapper is a plain forward of the payload dict:
     adapter — the board adapter to extract from; name — cell/profile name;
-    params/items/net_template_role/rule_nets — extractor inputs; origin_kwargs
+    params/items/net_template_role — extractor inputs; origin_kwargs
     — origin_* kwargs forwarded to the extractor (used for the extract_profile
     recipe and, when `origin` is None, for deriving the origin); target_path —
     the cells file; save_profile/profile_key/profile_path — optional
@@ -77,7 +77,6 @@ def run_extract_to_file(adapter, *, name: str, params, items, net_template_role,
             template_dict = extract_fn(
                 adapter, name, params=params,
                 items=items, net_template_role=net_template_role,
-                rule_nets=rule_nets,
                 annotations=annotations, raw_selection=raw_selection,
                 origin=origin, **origin_kwargs)
         except PlacerError as e:
@@ -145,8 +144,6 @@ def run_extract_to_file(adapter, *, name: str, params, items, net_template_role,
             entry["params"] = params
         if net_template_role:
             entry["net_template_role"] = net_template_role
-        if rule_nets:
-            entry["rule_nets"] = sorted(rule_nets)
         if raw_selection:
             entry["raw_selection"] = True
         for key, value in origin_kwargs.items():

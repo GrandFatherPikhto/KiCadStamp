@@ -79,10 +79,10 @@ class _CapturingExtract:
         self.raise_error = None
 
     def __call__(self, adapter, name, params=None, items=None, net_template_role=None,
-                 rule_nets=None, annotations=None, raw_selection=False, **kwargs):
+                 annotations=None, raw_selection=False, **kwargs):
         self.calls.append({
             "adapter": adapter, "name": name, "params": params, "items": items,
-            "net_template_role": net_template_role, "rule_nets": rule_nets,
+            "net_template_role": net_template_role,
             "annotations": annotations, "raw_selection": raw_selection,
             "kwargs": kwargs,
         })
@@ -94,7 +94,7 @@ class _CapturingExtract:
 
 
 def _run(tmp_path, *, name="cell1", params=None, items=None, net_template_role=None,
-         rule_nets=None, origin_kwargs=None, save_profile=False, profile_key="cell1",
+         origin_kwargs=None, save_profile=False, profile_key="cell1",
          profile_path=None, placer_path=None, raw_selection=False, extract_fn=None,
          adapter="ADAPTER", clone_placements=None, seed_cells=None):
     """Run run_extract_to_file with a fresh cells target under tmp_path and a
@@ -112,7 +112,7 @@ def _run(tmp_path, *, name="cell1", params=None, items=None, net_template_role=N
     result = run_extract_to_file(
         adapter,
         name=name, params=params, items=items, net_template_role=net_template_role,
-        rule_nets=rule_nets, origin_kwargs=origin_kwargs or {},
+        origin_kwargs=origin_kwargs or {},
         target_path=target, save_profile=save_profile, profile_key=profile_key,
         profile_path=profile_path, placer_path=placer_path,
         raw_selection=raw_selection, extract_fn=fn,
@@ -191,7 +191,7 @@ def test_preserves_unrelated_top_level_keys(tmp_path):
 
     run_extract_to_file(
         "ADAPTER", name="cell1", params=None, items=None, net_template_role=None,
-        rule_nets=None, origin_kwargs={}, target_path=target, save_profile=False,
+        origin_kwargs={}, target_path=target, save_profile=False,
         profile_key="cell1", profile_path=None, placer_path=None,
         extract_fn=_CapturingExtract())
 
@@ -288,7 +288,7 @@ def test_cell_write_os_error_returns_error(tmp_path):
 
     result = run_extract_to_file(
         "ADAPTER", name="cell1", params=None, items=None, net_template_role=None,
-        rule_nets=None, origin_kwargs={}, target_path=bad_target, save_profile=False,
+        origin_kwargs={}, target_path=bad_target, save_profile=False,
         profile_key="cell1", profile_path=None, placer_path=None,
         extract_fn=_CapturingExtract())
 
@@ -302,7 +302,7 @@ def test_profile_entry_construction(tmp_path):
     profile = tmp_path / "profiles.sexp"
     target, result, _ = _run(
         tmp_path, save_profile=True, profile_key="prof_cell",
-        params={"a": 1}, net_template_role="C1", rule_nets=["GND", "+5V"],
+        params={"a": 1}, net_template_role="C1",
         origin_kwargs={"origin_component_role": "X", "origin_via_net": "GND"},
         profile_path=profile)
 
@@ -314,7 +314,6 @@ def test_profile_entry_construction(tmp_path):
     assert entry["name"] == "cell1"                      # profile_key != name
     assert entry["params"] == {"a": 1}
     assert entry["net_template_role"] == "C1"
-    assert entry["rule_nets"] == ["+5V", "GND"]          # sorted
     assert entry["origin_by_component_role"] == "X"      # origin_* -> origin_by_*
     assert entry["origin_by_via_net"] == "GND"
     # both messages: the cell write AND the profile write
@@ -358,7 +357,7 @@ def test_profile_write_os_error_returns_error(tmp_path):
 
     result = run_extract_to_file(
         "ADAPTER", name="cell1", params=None, items=None, net_template_role=None,
-        rule_nets=None, origin_kwargs={}, target_path=target, save_profile=True,
+        origin_kwargs={}, target_path=target, save_profile=True,
         profile_key="cell1", profile_path=bad_profile, placer_path=None,
         extract_fn=_CapturingExtract())
 
@@ -387,7 +386,7 @@ def test_placer_include_skips_self_reference(tmp_path):
     target = tmp_path / "cells.sexp"
     run_extract_to_file(
         "ADAPTER", name="cell1", params=None, items=None, net_template_role=None,
-        rule_nets=None, origin_kwargs={}, target_path=target, save_profile=False,
+        origin_kwargs={}, target_path=target, save_profile=False,
         profile_key="cell1", profile_path=None, placer_path=target,
         extract_fn=_CapturingExtract())
 
@@ -451,7 +450,7 @@ def test_extract_fn_receives_full_payload(tmp_path):
     items = ["item1", "item2"]
     _run(
         tmp_path, name="cell1", params={"a": 1}, items=items,
-        net_template_role="C1", rule_nets=["GND"],
+        net_template_role="C1",
         origin_kwargs={"origin_component_role": "X"},
         extract_fn=fn, adapter="REAL_ADAPTER")
 
@@ -462,7 +461,6 @@ def test_extract_fn_receives_full_payload(tmp_path):
     assert call["params"] == {"a": 1}
     assert call["items"] == items
     assert call["net_template_role"] == "C1"
-    assert call["rule_nets"] == ["GND"]
     assert call["raw_selection"] is False
     # origin defaults to None (caller didn't pre-resolve) — extract_fn then
     # derives it internally, unchanged behavior for CLI/direct callers.

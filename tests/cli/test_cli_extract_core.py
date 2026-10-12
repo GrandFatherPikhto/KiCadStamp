@@ -40,32 +40,6 @@ class TestExtractTemplateValidation:
             )
 
 
-class TestRuleNets:
-    """rule_nets (2026-08-05, --rule-net) — the CLI-core passthrough down to
-    extract_template_from_selection(), and the profile-file known-keys
-    allowlist that would otherwise fatal on a rule_nets: key found live."""
-
-    def test_rule_nets_is_a_known_extract_profile_key(self):
-        assert 'rule_nets' in EXTRACT_PROFILE_KNOWN_KEYS
-
-    def test_rule_nets_forwarded_to_extract_template_from_selection(self, monkeypatch, tmp_path):
-        captured = {}
-
-        def _fake(adapter, name, **kwargs):
-            captured.update(kwargs)
-            return {name: {"vias": [], "components": [], "tracks": [], "layer": "F.Cu"}}
-
-        import kicadstamp.cli_extract as cli_extract_mod
-        monkeypatch.setattr(cli_extract_mod, "extract_template_from_selection", _fake)
-
-        extract_template(
-            adapter=object(), name="cell", output=str(tmp_path / "out.sexp"),
-            rule_nets={"+3V3_VCCIO"},
-        )
-
-        assert captured["rule_nets"] == {"+3V3_VCCIO"}
-
-
 class TestRawSelection:
     """raw_selection (2026-08-24, --raw-selection) — the opt-in bypass of the
     pad-connectivity filter: a profile known key and a passthrough down to
@@ -164,7 +138,7 @@ class TestCmdExtractRawSelection:
 
         args = SimpleNamespace(
             name="cell", output="out.sexp", timeout_ms=100,
-            param=None, net_template=None, net_template_role=None, rule_net=None,
+            param=None, net_template=None, net_template_role=None,
             origin_by_via_net=None, origin_by_component_role=None,
             origin_by_component_pad=None, origin_by_component_cluster=None,
             origin_by_component_sheet=None, profile=None, profiles=None,

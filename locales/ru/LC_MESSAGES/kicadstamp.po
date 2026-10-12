@@ -9134,11 +9134,11 @@ msgstr "Посторонняя медь внутри bbox исходного к�
 #: kicadstamp/cli.py:71
 msgid ""
 "[error] --profile cannot be combined with --name/--output/--param/--net-"
-"template/--net-template-role/--rule-net/--raw-selection/--origin-by-*: "
+"template/--net-template-role/--raw-selection/--origin-by-*: "
 "either all from profile or all as explicit flags, not mixed."
 msgstr ""
 "[ошибка] --profile нельзя сочетать с --name/--output/--param/--net-"
-"template/--net-template-role/--rule-net/--origin-by-*: либо всё из "
+"template/--net-template-role/--origin-by-*: либо всё из "
 "профиля, либо всё явными флагами, не смешивая."
 
 #: kicadstamp/cli.py:77 kicadstamp/cli.py:209
@@ -11488,20 +11488,6 @@ msgid ""
 msgstr ""
 "sheet_names: просканировано {count} файлов .kicad_sch, {sheets} листов в "
 "словаре"
-
-#: kicadstamp/template_extraction.py:269
-#, python-brace-format
-msgid "net(s) {nets} are in both --rule-net and --param/--net-template"
-msgstr "цепь(и) {nets} указаны и в --rule-net, и в --param/--net-template"
-
-#: kicadstamp/template_extraction.py:271
-msgid ""
-"a net can't be both \"always the enclosing Chain's own net\" and \"always"
-" resolved from this param\" — pick one per net"
-msgstr ""
-"цепь не может быть одновременно «всегда собственной цепью объемлющей "
-"цепи» и «всегда разрешаться из этого параметра» — выберите одно для "
-"каждой цепи"
 
 #: kicadstamp/template_extraction.py:281
 #, python-brace-format

@@ -88,7 +88,6 @@ def test_reextract_keeps_r_fl_signal_pads_on_1(adapter, tmp_path):
         params={},
         items=items,
         net_template_role={},
-        rule_nets=set(),
         origin_kwargs={},
         target_path=target,
         save_profile=False,

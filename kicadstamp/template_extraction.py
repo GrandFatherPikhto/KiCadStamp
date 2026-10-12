@@ -161,7 +161,6 @@ def extract_template_from_selection(
     origin_component_cluster: str | None = None,
     origin_component_sheet: str | None = None,
     net_template_role: dict[str, str] | None = None,
-    rule_nets: set[str] | None = None,
     items: list[Any] | None = None,
     annotations: list[tuple[str, str, str]] | None = None,
     raw_selection: bool = False,
@@ -218,18 +217,6 @@ def extract_template_from_selection(
     No guessing here either: if the role is in net_template_role but the
     specified net is not actually on the component's pads — fatal, not silent.
 
-    rule_nets — OPTIONAL (see --rule-net in CLI), a set of literal net names
-    to write as via.net/track.net: null instead of the literal (or an alias)
-    — the SAME null a ManualSpoke-placed cell's via/track already treats as
-    "inherit the enclosing Chain's own net" (kicadstamp/geometry/
-    spoke_layout.py's _resolve_via/_resolve_track: `via.net or rule_net`).
-    Only meaningful for a cell meant to be reused across several Rules with
-    DIFFERENT nets (e.g. the same decoupling-cap-pair cell placed once per
-    power rail) — component net_template is untouched by this (ManualSpoke
-    placement never reads it, only ClonePlacement does). Fatal if a net is in
-    BOTH rule_nets and net_template_map/params — a net cannot be simultaneously
-    "always the rule's own net" and "always resolved from this specific param".
-
     annotations — OPTIONAL output parameter (list appended to in place, same
     "explicit opt-in" shape as items above). When given, every case where
     net_template could not be determined unambiguously (see "N nets from
@@ -254,7 +241,6 @@ def extract_template_from_selection(
     params = params or {}
     net_template_role = net_template_role or {}
     net_template_map = dict(net_template_map or {})
-    rule_nets = set(rule_nets or ())
     # Auto‑inference for the simple case: if the literal net name EQUALS a
     # param value exactly (not part of a longer string), net_template can be
     # derived automatically — no need for explicit --net-template.
@@ -263,14 +249,6 @@ def extract_template_from_selection(
         if value not in net_template_map:
             net_template_map[value] = f"{{{key}}}"
 
-    both = rule_nets & set(net_template_map)
-    if both:
-        raise ValidationError(format_fatal_error(
-            _("net(s) {nets} are in both --rule-net and --param/--net-template")
-            .format(nets=sorted(both)),
-            [_("a net can't be both \"always the enclosing Chain's own net\" and "
-               "\"always resolved from this param\" — pick one per net")]
-        ))
     items = items if items is not None else adapter.get_selected_items()
     footprints = [i for i in items if isinstance(i, Footprint)]
     vias = [i for i in items if isinstance(i, Via)]
@@ -445,8 +423,7 @@ def extract_template_from_selection(
             fp_pads = adapter.get_footprint_pads(fp)
             fp_nets = sorted({p.net_name for p in fp_pads if p.net_name})
             mapped = [n for n in fp_nets if n in net_template_map]
-            candidates = mapped or [n for n in fp_nets
-                                    if n not in rule_nets and n not in RULE_NETS]
+            candidates = mapped or [n for n in fp_nets if n not in RULE_NETS]
             if len(candidates) == 1:
                 net = candidates[0]
                 if mapped:
@@ -505,7 +482,7 @@ def extract_template_from_selection(
     # Phase 1 step 1.3: auto {param} patterns from the same roles' nets across
     # OTHER instances (guarded — never guesses; only used when a via/track net
     # is not classifiable to a role and not already in net_template_map).
-    auto_patterns = _auto_net_pattern_map(adapter, selection_role_nets, rule_nets)
+    auto_patterns = _auto_net_pattern_map(adapter, selection_role_nets, RULE_NETS)
 
     spoke_vias = []
     for v in vias:
@@ -513,16 +490,16 @@ def extract_template_from_selection(
         across_mm = round((v.position.y - origin.y) / MM, 4)
         via_net = v.net_name
         role_net = role_net_pad = None
-        if via_net in rule_nets:
-            via_net = None
-        elif via_net is not None:
+        if via_net is not None:
             # Try net_from_role BEFORE net_template_map: a via whose net maps
             # unambiguously to one selected role is written as net_from_role
             # (optionally with pad) instead of a literal/parametrised net —
             # the cell then resolves that net live on ANY cluster it is
-            # applied to. On fallback/ambiguity keep the existing path.
+            # applied to. On fallback/ambiguity keep the existing path. A net
+            # in the built-in RULE_NETS (GND) needs no role — classify_net
+            # returns (None, None) and the literal is kept.
             role_net, role_net_pad = _suggest_net_from_role(
-                selection_role_nets, via_net, rule_nets,
+                selection_role_nets, via_net, RULE_NETS,
                 [(along_mm, across_mm)], components)
             if role_net is not None:
                 via_net = None
@@ -555,12 +532,11 @@ def extract_template_from_selection(
         end_across_mm = round((t.end.y - origin.y) / MM, 4)
         track_net = t.net_name
         role_net = role_net_pad = None
-        if track_net in rule_nets:
-            track_net = None
-        elif track_net is not None:
-            # Same net_from_role auto-suggestion as the via loop (plan step 4).
+        if track_net is not None:
+            # Same net_from_role auto-suggestion as the via loop (plan step 4),
+            # with the same built-in RULE_NETS (GND needs no role).
             role_net, role_net_pad = _suggest_net_from_role(
-                selection_role_nets, track_net, rule_nets,
+                selection_role_nets, track_net, RULE_NETS,
                 [(start_along_mm, start_across_mm), (end_along_mm, end_across_mm)],
                 components)
             if role_net is not None:

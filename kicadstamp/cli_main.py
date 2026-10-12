@@ -280,14 +280,6 @@ def main() -> int:
                                        "this flag only changes the designated net. "
                                        "Fatal if the role does not actually have that net on its pads, "
                                        "or if the literal is not registered in --net-template/params."))
-    extract_parser.add_argument("--rule-net", action="append", metavar="LITERAL",
-                                help=_("Write this via/track net as null instead of its literal name "
-                                       "(e.g. '+3V3') — at apply time a ManualSpoke-placed cell's via/"
-                                       "track with net: null inherits the enclosing Chain's own net "
-                                       "(spoke_layout.py's 'via.net or rule_net'), so this makes the "
-                                       "cell reusable across Chains on different nets. Only needed for "
-                                       "ManualSpoke-reused cells — net_from_role cells need none of this. "
-                                       "Can be repeated. Fatal if the same net is also in --param/--net-template."))
     extract_parser.add_argument("--raw-selection", action="store_true",
                                 help=_("Take the current selection as tracks/vias as-is, without the "
                                        "pad-connectivity filter (every selected track/via goes into the "

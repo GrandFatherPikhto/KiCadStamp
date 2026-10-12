@@ -50,7 +50,7 @@ logger = logging.getLogger(__name__)
 # extract_profiles 'dac': 'uuid'"). The key is NOT stripped before the check:
 # the profile dict keeps it, like every other §0 record.
 EXTRACT_PROFILE_KNOWN_KEYS = {
-    'name', 'output', 'params', 'net_template', 'net_template_role', 'rule_nets',
+    'name', 'output', 'params', 'net_template', 'net_template_role',
     'origin_by_via_net', 'origin_by_component_role', 'origin_by_component_pad',
     'origin_by_component_cluster', 'origin_by_component_sheet',
     'raw_selection', 'uuid',
@@ -118,7 +118,6 @@ def extract_template(adapter: IBoardAdapter, *, name: str, output: str,
                      params: dict[str, Any] | None = None,
                      net_template_map: dict[str, str] | None = None,
                      net_template_role: dict[str, str] | None = None,
-                     rule_nets: set[str] | None = None,
                      origin_via_net: str | None = None,
                      origin_component_role: str | None = None,
                      origin_component_pad: str | None = None,
@@ -152,7 +151,6 @@ def extract_template(adapter: IBoardAdapter, *, name: str, output: str,
         origin_component_cluster=origin_component_cluster,
         origin_component_sheet=origin_component_sheet,
         net_template_role=net_template_role or {},
-        rule_nets=rule_nets or set(),
         annotations=annotations,
         raw_selection=raw_selection,
     )

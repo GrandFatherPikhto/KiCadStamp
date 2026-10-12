@@ -216,7 +216,7 @@ def test_duplicate_full_name_across_the_graph_is_fatal(format3, tmp_path):
 def test_service_section_record_without_uuid_is_fatal(format3, tmp_path):
     """Н6: extract_profiles/clone_profiles are §0 records and need a UUID too."""
     _dangling(format3, tmp_path,
-               {"extract_profiles": {"ep": {"rule_nets": ["+3V3"]}}},
+               {"extract_profiles": {"ep": {"output": "x"}}},
                needle="has no uuid")
 
 
