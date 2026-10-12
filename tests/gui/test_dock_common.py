@@ -87,8 +87,10 @@ def test_merge_write_flat_reports_overwrite(config_path):
 
 
 def test_merge_write_section_merges_only_that_nested_dict(config_path):
+    """12.10 (Ч1в-3): the section that must stay UNTOUCHED is the live
+    `net_traces:` — the retired `clone_placements:` carrier is gone."""
     config_path.write_text(_dump(config_path, {
-        "clone_placements": [{"name": "A"}],
+        "net_traces": [{"name": "A", "net": "+3V3"}],
         "extract_profiles": {"p1": {"a": 1}},
     }), encoding="utf-8")
     overwritten = merge_write(
@@ -96,7 +98,7 @@ def test_merge_write_section_merges_only_that_nested_dict(config_path):
     assert overwritten is False
     data = _load(config_path)
     # uuid-free shape: the records carry a uuid under the format-3 gate.
-    assert without_identity(data["clone_placements"]) == [{"name": "A"}]
+    assert without_identity(data["net_traces"]) == [{"name": "A", "net": "+3V3"}]
     assert without_identity(data["extract_profiles"]) == {"p1": {"a": 1},
                                                           "p2": {"b": 2}}
 

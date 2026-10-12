@@ -61,11 +61,11 @@ def test_write_data_sexp_roundtrips(tmp_path):
         "place_components": False,
         # an explicit record name (under the gate the lift mints one for a
         # nameless record — the round-trip would carry a name the input dict
-        # does not).
+        # does not). 12.10 (Ч1в-3): the live `net_traces:` record carries it,
+        # not the retired `clone_placements:`.
         "cells": {"fpga_pwr_bank": {}},
-        "clone_placements": [
-            {"name": "CH0", "cluster": "CH0", "cell": "fpga_pwr_bank",
-             "xy": [1.2, -1.5]},
+        "net_traces": [
+            {"name": "CH0", "net": "+3V3", "anchor_role": "MCU"},
         ],
     }
     from kicadstamp.config_writer import _write_data
