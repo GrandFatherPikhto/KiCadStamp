@@ -4,14 +4,13 @@
 
 The `placement/` directory contains the core logic for placing components, creating vias, and routing tracks. It orchestrates all stages of the process:
 
-1. **Planning** – calculates target positions for components, vias, and tracks based on spoke templates for three types of placements:
-   - **`ManualSpoke`** (`chains`) – binds to pads of the target IC, with automatic refdes selection via a role pool (`ComponentPool`). **Tracks are not supported** in this mode.
-   - **`ClonePlacement`** (cloned sections) – reuses a template (`cell:`, mandatory) at multiple board locations, resolving roles either by selection or by explicit nets (`CloneRoleResolver`). Supports **tracks** as part of the template.
+1. **Planning** – calculates target positions for components, vias, and tracks based on cell templates for two types of placements:
+   - **`ClonePlacement`** (cloned sections) – reuses a cell (`cell:`, mandatory) at multiple board locations, resolving roles either by selection or by explicit nets (`CloneRoleResolver`). Supports **tracks** as part of the template.
    - **`CoordinatePlacement`** (`coordinate_placements`) – moves one EXISTING footprint (found by an exact Cluster+Role match) to an absolute position or relative to another component's anchor. No template, no via/track, no registry — see the dedicated section below.
 2. **Execution** – applies moves, creates vias, and creates tracks on the board via the KiCad adapter, split into **three phases** (moves first, then vias, then tracks), with a mandatory board reload between phases.
 3. **Logging and undo** – saves operation information as JSON for the `undo` command (including tracks).
 4. **Collision checking** – simplified overlap checking for components (optional); track collisions are **not checked** (rely on KiCad DRC).
-5. **Idempotency** – skips already‑existing vias, tracks, and components already in place (via `skip_existing_components` and the placement registries for vias and tracks). Since 2026-08-31 the TRACK positional pre-check (`filter_existing_tracks`, see `kicadstamp/registry.py`) runs **unconditionally** in Phase 3 (not only under `skip_existing_components`): it is skip‑only (never deletes/adopts foreign copper), so a repeated redraw of the same cell through two different mechanisms — e.g. a legacy `clone_placement` AND an Entity materialized from a tree — no longer stacks literal duplicates under different registry keys. Since 2026-09-08 the VIA positional pre-check (`filter_existing_vias`) does the same for vias in THEIR OWN phase (Phase 2, not Phase 3): a via whose registry entry stops matching the live board for any reason — lost/overwritten registry state, a run interrupted between via creation and registry save — is no longer recreated on every redraw (a live profile had accumulated up to 4 literal duplicates per via this way on FPGA power-bank chains).
+5. **Idempotency** – skips already‑existing vias, tracks, and components already in place (via `skip_existing_components` and the placement registries for vias and tracks). Since 2026-08-31 the TRACK positional pre-check (`filter_existing_tracks`, see `kicadstamp/registry.py`) runs **unconditionally** in Phase 3 (not only under `skip_existing_components`): it is skip‑only (never deletes/adopts foreign copper), so a repeated redraw of the same cell through two different mechanisms — e.g. a legacy `clone_placement` AND an Entity materialized from a tree — no longer stacks literal duplicates under different registry keys. Since 2026-09-08 the VIA positional pre-check (`filter_existing_vias`) does the same for vias in THEIR OWN phase (Phase 2, not Phase 3): a via whose registry entry stops matching the live board for any reason — lost/overwritten registry state, a run interrupted between via creation and registry save — is no longer recreated on every redraw (a live profile had accumulated up to 4 literal duplicates per via this way on the FPGA power-bank cells).
 6. **First‑run ownership adoption (Bug 3, 2026‑09‑05)** – the registry is the ONLY ownership record of placed copper; `reconcile()` deletes strictly by key, so live copper that is not registered under the current run's keys can never be pruned. A fresh / newly‑copied profile (its `tracks/<stem>.tracks.registry.json` / `registry/<stem>.registry.json` are empty) pointing at an already‑routed board therefore left the old copper orphaned on the FIRST reposition (duplicate at the new place + leftovers at the old one). Fix: `adopt_matching_unowned` (see `kicadstamp/registry.py`) runs BEFORE each reconcile (Phase 2 vias / Phase 3 tracks) and claims any planned‑but‑unregistered via/track that already sits EXACTLY at its planned position into the registry — generalizing the net‑trace‑only `adopt_net_trace_copper`. Safe by construction (never deletes, never steals copper owned under another key, geometry‑identical only), and a no‑op in steady state. After a first no‑move redraw registers the copper, a later move relocates it (delete old UUID + create new) instead of duplicating. The GUI redraw also warns on an empty registry with live copper present ("adopt existing copper?"). Limit (accepted): if the very first action is already a MOVE, the old copper no longer matches any planned geometry and cannot be claimed — run one redraw without moving first (see the heads‑up).
 
 **At-current-place adoption (2026-10-07).** Before any component moves,
@@ -205,10 +204,10 @@ placement/
 │   └── operation_logger.py     # JSON logging (including tracks)
 └── services/                   # Service classes
     ├── __init__.py
-    ├── component_pool.py       # Component selection by role and net (for ManualSpoke)
+    ├── component_pool.py       # Component selection by role and net (library; no live caller since the spokes
+    │                           #   removal — the clone path builds its own pools)
     ├── clone_role_resolver.py  # Role resolution for ClonePlacement (with anchor proximity, by_selection, refs)
     ├── clone_position_calculator.py # Position/via/track calculation for ClonePlacement (with physical anchor)
-    ├── manual_position_calculator.py   # Position/via/track calculation for ManualSpoke
     └── via_planner.py          # Thermal via planning and via filtering via registry (live reconciliation)
 ```
 
@@ -238,7 +237,7 @@ Defines data transfer objects (DTOs) for passing information between components.
 | `TrackCommand` | `start`, `end`, `width_mm`, `net_name`, `layer`, `owner_ref`, `registry_key` | Track (straight copper segment) creation command. `registry_key` for the track registry (`TrackRegistry`). |
 | `PlacedComponentInfo` | `ref`, `dest`, `angle_deg`, `layer` | Information about a placed component. `layer` may be `None` (inherits global layer). |
 
-**Used in:** `planner.py`, `executor/`, `manual_position_calculator.py`, `clone_position_calculator.py`, `via_planner.py`, `registry.py`.
+**Used in:** `planner.py`, `executor/`, `clone_position_calculator.py`, `via_planner.py`, `registry.py`.
 
 ---
 
@@ -257,28 +256,22 @@ Simplified component collision checking (using circle approximations). Uses real
 
 ---
 
-### `interfaces.py`
-
-Defines abstract interfaces for position calculators and via planners.
-
-| Interface | Method | Description |
-|-----------|--------|-------------|
-| `IPositionCalculator` | `compute_raw_positions(target_fp, chains, side)` | Calculates component/via positions for `ManualSpoke` (pad‑based). |
-| `IViaPlanner` | `plan_vias(planned_components, planned_vias, target_fp, target_layer)` | Plans vias (thermal vias + registry filtering). |
-
-**Used in:** `planner.py`, `manual_position_calculator.py`, `via_planner.py`.
+### `interfaces.py` — REMOVED
+The file is gone: the abstract split (`IPositionCalculator` / `IViaPlanner`) was dropped with the
+spoke path, and the remaining pieces are used directly — `planner.py` calls `ClonePositionCalculator`
+(and the coordinate/tree paths), `via_planner.py` is used as-is.
 
 ---
 
 ### `planner.py`
 
-**Class `PlacementPlanner`** – the main orchestrator. Coordinates position/via/track calculation for `chains` (via `ManualPositionCalculator`) and `clone_placements` (via `ClonePositionCalculator`). Applies skipping of already‑placed components (`skip_existing_components`). Splits planning into three phases: `plan_moves()`, `plan_vias()`, `plan_tracks()`.
+**Class `PlacementPlanner`** – the main orchestrator. Coordinates position/via/track calculation for `clone_placements` (via `ClonePositionCalculator`). Applies skipping of already‑placed components (`skip_existing_components`). Splits planning into three phases: `plan_moves()`, `plan_vias()`, `plan_tracks()`.
 
 | Method | Description |
 |-------|-------------|
-| `__init__(adapter, config)` | Initialisation, determines global layer for ManualSpoke. |
+| `__init__(adapter, config)` | Initialisation. |
 | `_already_in_place(ref, dest, angle_deg, layer)` | Checks if the component is already at the target position (layer, position, angle). Tolerances: 0.01 mm for position, 0.1° for angle. |
-| `plan_moves()` | Calls `ManualPositionCalculator.compute_raw_positions()` for `chains` and `ClonePositionCalculator.compute_raw_positions()` for `clone_placements`, merges results. Applies `skip_existing_components` to components. Stores `_planned`, `_planned_vias`, `_planned_tracks` for later phases. Returns `MoveCommand[]`. |
+| `plan_moves()` | Calls `ClonePositionCalculator.compute_raw_positions()` for `clone_placements` (and the tree/coordinate paths), merges results. Applies `skip_existing_components` to components. Stores `_planned`, `_planned_vias`, `_planned_tracks` for later phases. Returns `MoveCommand[]`. |
 | `plan_vias()` | Calls `ViaPlanner.plan_vias()` with the stored data. Returns `ViaCommand[]`. |
 | `plan_tracks()` | Returns the stored `_planned_tracks` (no additional processing; collisions not checked). |
 | `plan()` | Backward‑compatible wrapper (calls all three phases). Not recommended for production use. |
@@ -351,15 +344,15 @@ A façade combining all execution phases and managing logging.
 ### `services/`
 
 #### `services/component_pool.py`
-**Class `ComponentPool`** – selects refdes for roles in `ManualSpoke`. Built once per chain (`chain.net`) and consumed by spokes in order.
+**Class `ComponentPool`** – selects refdes for roles on a net. It was built once per spoke CHAIN and consumed by spokes in order; the clone path builds its own cross-instance pools, so the class has **no live caller today** — it is kept as a library (the plan's "НЕ УДАЛЯТЬ" list), not because a path uses it.
 
 | Method | Description |
 |-------|-------------|
 | `__init__(adapter, net_name, roles)` | Builds the pool: reads all footprints with a `Role` field connected to `net_name`, sorted by natural numeric order. |
-| `pop(role, spoke_pad)` | Takes the next component with the given role. If the pool is exhausted, raises `ValidationError`. |
+| `pop(role, pad)` | Takes the next component with the given role. If the pool is exhausted, raises `ValidationError`. |
 | `remaining_count(role)` | Returns the number of remaining components. |
 
-**Used in:** `manual_position_calculator.py`.
+**Used in:** nothing today — see the paragraph above.
 
 #### `services/clone_role_resolver.py`
 Resolves roles for `ClonePlacement`. Supports two modes:
@@ -410,14 +403,11 @@ Functions:
 
 **Used in:** `planner.py`.
 
-#### `services/manual_position_calculator.py`
-**Class `ManualPositionCalculator`** – calculates component, via, and track positions for `ManualSpoke` based on IC pads. Implements `IPositionCalculator`. A `TemplateTrack.net = None` inherits `chain.net` (same convention as `TemplateVia`), which is what lets one template (e.g. `cap_pair_standard`) be reused across chains with different nets.
-
-| Method | Description |
-|-------|-------------|
-| `compute_raw_positions(chains)` | For each chain, builds a `ComponentPool`, for each spoke calls `apply_spoke_geometry`, returns `(PlacedComponentInfo[], ViaCommand[], TrackCommand[])`. |
-
-**Used in:** `planner.py`.
+#### `services/manual_position_calculator.py` — REMOVED (2026-10)
+The module and its `ManualPositionCalculator` are gone with the spoke mechanism (`chains:`/`ManualSpoke`),
+and so are `apply_spoke_geometry` (in `geometry/spoke_layout.py`, which keeps only its primitives) and
+the nets it inherited from the enclosing chain. The clone path (`clone_position_calculator.py`) is the
+only position calculator left.
 
 #### `services/via_planner.py`
 **Class `ViaPlanner`** – implements `IViaPlanner`. Responsible for:
@@ -438,7 +428,7 @@ Functions:
 ## Relationships with Other Modules
 
 - **`kicad/adapter.py`** – board operations (reading, writing, transactions, creating vias and tracks).
-- **`geometry/spoke_layout.py`** – template transformation for `ManualSpoke` (vias and tracks).
+- **`geometry/spoke_layout.py`** – the shared along/across primitives (`local_to_absolute`, `rotate_local_offset`, `ResolvedVia/Track`, `SpokeLayout`), used by `clone_geometry.py`, `cell_frame` and the tree code; the ManualSpoke entry point `apply_spoke_geometry` was removed with the spokes.
 - **`geometry/clone_geometry.py`** – transformation for `ClonePlacement` (vias and tracks, with mirror).
 - **`geometry/thermal_grid.py`** and **`geometry/keepout.py`** – thermal vias and keepout.
 - **`config/`** – configuration package (loader.py, models.py, includes.py, __init__.py).
@@ -467,13 +457,13 @@ Functions:
 
 - **Idempotency** – enabling `skip_existing_components: true` allows safe re‑runs. The via and track registries prevent duplication (reconciling with real objects on the board).
 
-- **Automatic refdes selection** – for `ManualSpoke` via `ComponentPool` using the `Role` field. For `ClonePlacement` – two modes (selection or nets) with disambiguation by anchor proximity (including `refs` for extreme cases).
+- **Automatic refdes selection** – for `ClonePlacement`: two modes (selection or nets) with disambiguation by anchor proximity (including `refs` for extreme cases).
 
 - **Section cloning** – for repeated templates, use `clone_placements` (expected nets auto-derive from the live board since Phase 2 step 2.1; explicit `nets`/`params` remain optional overrides) and run without selection; for one‑off instances, use selection mode (no `nets`/`params`, or with `by_selection: true`) and select components in KiCad before running.
 
 - **Tracks** – only supported in `ClonePlacement`. When extracting a template (`extract`), tracks are automatically included (if selected). When cloning, they are created together with components and vias.
 
-- **Layer placement** – each component may have its own layer (per‑placement); for `ManualSpoke`, the global `layer` from the config is used. When mirroring (`mirror`), only the outer pair is inverted (`F.Cu` ↔ `B.Cu`); copper on an **inner** layer keeps its own layer (it is a plane of the board, not a side of the construction).
+- **Layer placement** – each component may have its own layer (per‑placement). When mirroring (`mirror`), only the outer pair is inverted (`F.Cu` ↔ `B.Cu`); copper on an **inner** layer keeps its own layer (it is a plane of the board, not a side of the construction).
 
 - **Anchor by role** – instead of `anchor_ref`, you can use `anchor_role` (the `Role` field of the anchor component). This survives re‑annotation. You can further narrow the search with `anchor_sheet` (local net prefix) or `anchor_pad`.
 
