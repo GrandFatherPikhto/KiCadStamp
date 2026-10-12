@@ -538,3 +538,53 @@ class TestMirrorKeepsInnerLayers:
             self._run(cell, mirror=False)
         assert not [r for r in caplog.records
                     if "stays on its own layer" in r.getMessage()]
+
+
+class TestComponentSlotLayer:
+    """Cell for the rule "a component slot's OWN layer overrides the cell's
+    layer; a slot without a layer inherits the cell's layer".
+
+    This property was guarded on the SPOKE side by
+    tests/placement/test_manual_position_calculator.py
+    ::test_component_slot_layer_overrides_template_layer, which was removed with
+    the spoke mechanism (plan_2026_10_08_remove_spokes, Б5б-3a). The LIVE rule it
+    guarded still stands — clone_position_calculator.py:599
+    `slot_layer = comp_layout.slot_layer or cell.layer` — so the cell is
+    restored here on ClonePositionCalculator, the live owner.
+
+    A mirror flips the SIDE, F.Cu <-> B.Cu ONLY (a footprint stands on F or B —
+    there is no inner side, design §3.1). This is deliberately NOT the copper
+    rule: inner-layer COPPER keeps its layer under a mirror (Р16,
+    utils.layers.mirror_layer) — see TestCloneTrackCopperLayer below."""
+
+    def _run(self, cell_layer, slot_layer=None, mirror=False):
+        cell = Cell(name="slot_layer_src", layer=cell_layer,
+                    components=[TemplateComponentSlot(role="R1", layer=slot_layer)])
+        adapter = _adapter([_make_fp("C1", "R1", ["NET1"], x_mm=105.0, y_mm=205.0)])
+        clone = ClonePlacement(cluster="abs1", cell=cell.name, xy=(100.0, 200.0),
+                               nets={"R1": "NET1"}, mirror=mirror)
+        calc = ClonePositionCalculator(
+            adapter, Config(layer="F.Cu", cells={cell.name: cell}))
+        placed, _vias, _tracks = calc.compute_raw_positions([clone])
+        assert len(placed) == 1
+        return placed[0]
+
+    def test_slot_layer_overrides_cell_layer(self):
+        """The slot's OWN layer wins over the cell layer — a B.Cu slot in an
+        F.Cu cell places its part on B, not where the cell stands."""
+        assert self._run("F.Cu", "B.Cu").layer is BoardLayer.BL_B_Cu
+
+    def test_slot_without_layer_inherits_cell_layer(self):
+        """No slot layer -> the CELL layer is used (a B.Cu cell -> B), not a
+        hard F.Cu default."""
+        assert self._run("B.Cu").layer is BoardLayer.BL_B_Cu
+
+    def test_slot_layer_overrides_cell_layer_under_a_mirror(self):
+        """The overriding slot layer's SIDE flips under a mirror: an F.Cu cell
+        with a B.Cu slot mirrors the part to F.Cu (B -> F)."""
+        assert self._run("F.Cu", "B.Cu", mirror=True).layer is BoardLayer.BL_F_Cu
+
+    def test_slot_without_layer_inherits_cell_layer_under_a_mirror(self):
+        """A slot without a layer inherits the cell layer, and the mirror flips
+        the inherited side (F.Cu cell -> B.Cu part)."""
+        assert self._run("F.Cu", mirror=True).layer is BoardLayer.BL_B_Cu
