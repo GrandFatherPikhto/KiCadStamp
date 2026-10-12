@@ -44,7 +44,7 @@ class Point:
     shift_x_mm/shift_y_mm layer on top of anchor_ref/anchor_role/anchor_point/
     anchor_origin (not on top of xy — fatal if both are set, just edit the
     literal coordinate instead), same board-absolute-mm convention as
-    ManualSpoke.shift_x_mm/shift_y_mm (not relative to any anchor rotation,
+    the retired spoke path's shift_x_mm/shift_y_mm (not relative to any anchor rotation,
     there is none here).
     """
     name: str

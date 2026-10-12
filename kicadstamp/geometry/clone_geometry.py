@@ -320,7 +320,7 @@ def apply_clone_geometry(
     anchor_ref/anchor_pad), resolved EXTERNALLY (the calculator goes to the
     adapter, geometry does not touch the live board). If set — origin_x/y_mm
     act as a FLAT shift from it (without rotation, exactly like shift in
-    ManualSpoke); rotation_deg rotates only the cell contents. If None —
+    the retired spoke path); rotation_deg rotates only the cell contents. If None —
     origin_x/y_mm remain absolute board coordinates, as before.
 
     parent_rotation_deg (Phase 4, recursive Cell, default 0.0 — every

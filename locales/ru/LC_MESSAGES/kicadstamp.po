@@ -9857,7 +9857,7 @@ msgstr ""
 #: kicadstamp/cli_main.py:329
 msgid ""
 "Role field of the anchor footprint (resolved over the whole board, same "
-"search Chain/ClonePlacement use)"
+"search ClonePlacement uses)"
 msgstr ""
 "Поле Role якорного футпринта (ищется по всей плате, тот же поиск, что у "
 "Chain/ClonePlacement)"

@@ -248,7 +248,8 @@ class TemplateComponentSlot:
     net_template — OPTIONAL, for TemplatePlacer (role matching by nets, not by
     selection): the expected net of this component, with the same placeholder
     syntax as TemplateVia.net (see net_resolution.py). Not used at all for
-    ManualSpoke/component_pool.py — there the role is looked up by (rule.net, Role)
+    the retired spoke path / component_pool.py — there the role was looked up by
+    (a net, Role)
     without any field here.
 
     {sheet}/{cluster} are RESERVED placeholders, always available in a
@@ -513,7 +514,7 @@ class NetTrace:
     into the anchor's local frame at capture — the whole rotation correction
     lives at apply time via anchor_rotation_deg above). Track/via net is ALWAYS
     written explicitly (the whole record is about ONE net; there is no
-    enclosing Chain to inherit a net from, unlike Cell contents).
+    enclosing record to inherit a net from, unlike Cell contents).
 
     retired/skip — the same convention as every other section (Rule/
     ClonePlacement/ThermalViaArrayConfig): retired: true = "does not exist on
@@ -888,13 +889,13 @@ class TreeInstance:
 class ClonePlacement:
     """
     Applying a cell at a new location (TemplatePlacer/Cloner) — unlike
-    ManualSpoke (anchor = IC pad), the anchor here is just a name, not tied to
+    the retired spoke path (anchor = IC pad), the anchor here is just a name, not tied to
     any specific component (anchor_id in registry = f"name:{name}"). Two
     positioning modes:
       - an anchor set (anchor_ref/anchor_role/anchor_point): origin = centre
         of anchor_pad (or footprint centre if anchor_pad omitted, or the
         point's own position for anchor_point), xy is an optional FLAT shift
-        from the anchor (without rotation, like shift in ManualSpoke),
+        from the anchor (without rotation, like the retired spoke path's shift),
         rotation_deg rotates only the cell contents.
       - no anchor set: xy is an ABSOLUTE point on the board (required).
 

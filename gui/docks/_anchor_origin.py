@@ -67,7 +67,7 @@ def build_role_anchor_fields(form: QFormLayout, *, show_ref: bool = True,
                              anchor_fields: Sequence[str] = ()) -> Dict[str, Any]:
     """THE one place the anchor-IDENTITY widgets (Ref / Role / Sheet / Pad /
     Cluster) are constructed and added to `form`, in the project's canonical
-    order. Shared by AnchorOriginWidget (Points/Placer/Chain/ThermalVia/
+    order. Shared by AnchorOriginWidget (Points/Placer/ThermalVia/
     NetTrace/Extract) AND the trees dock's tree-anchor form (AnchorFormWidget,
     gui/docks/trees_dock.py), so the two can never drift in labels,
     placeholders or the "populate, don't restrict" combo behaviour (design

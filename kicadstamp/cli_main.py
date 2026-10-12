@@ -327,7 +327,7 @@ def main() -> int:
                                            "nets keep their full '/Channel_0/...' form)"))
     extract_net_parser.add_argument("--anchor-role", required=True, metavar="ROLE",
                                     help=_("Role field of the anchor footprint (resolved over the whole "
-                                           "board, same search Chain/ClonePlacement use)"))
+                                           "board, same search ClonePlacement uses)"))
     extract_net_parser.add_argument("--anchor-sheet", metavar="SHEET",
                                     help=_("Narrow the anchor_role search by sheet (needs schematic_dir "
                                            "in the target config at apply time; extract-net itself has no "
