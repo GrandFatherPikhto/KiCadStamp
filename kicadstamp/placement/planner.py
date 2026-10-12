@@ -175,8 +175,8 @@ class PlacementPlanner:
 
     def plan_tracks(self) -> list[TrackCommand]:
         """
-        Tracks are planned for ClonePlacement (net=None in TemplateTrack
-        inherits the record's net — see spoke_layout._resolve_track).
+        Tracks are planned for ClonePlacement (a TemplateTrack with no net is
+        fatal — clone_geometry.py has no rule net to fall back to).
         No keepout/thermal planning here, unlike plan_vias — tracks are not
         moved to avoid collisions; collision checking for long geometry is
         deliberately not done (see discussion), we rely on KiCad DRC after

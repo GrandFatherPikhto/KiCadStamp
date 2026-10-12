@@ -128,8 +128,8 @@ def resolve_pad_mount(adapter: KiCadBoardAdapter, cell: Cell,
     anchor_xy WINS: an explicitly stored mount is the real data (see Cell's
     docstring) and must not be silently overridden by a live re-derivation —
     GUARD 1 (plan_2026_09_09_cell_anchor_v2 §A.5, phase A). The caller passes
-    the result to apply_clone_geometry/apply_spoke_geometry as resolved_mount;
-    None keeps those functions' historical cell_mount_offset path intact.
+    the result to apply_clone_geometry as resolved_mount;
+    None keeps that function's historical cell_mount_offset path intact.
 
     Every unresolvable piece of a DECLARED pad anchor is a FATAL
     ValidationError — never a silent fallback to (0,0), which would shift the
@@ -183,16 +183,16 @@ def resolve_pad_mount(adapter: KiCadBoardAdapter, cell: Cell,
 
 
 class ComponentResolver:
-    """Common logic shared by ``ManualPositionCalculator`` (and, in a
-    structurally similar way, ``ClonePositionCalculator``):
+    """Common logic shared by the live-position / placement resolvers
+    (``tree_position.py``, ``entity_placement.py``, ``clone_position_calculator.py``):
 
     * Resolve an anchor footprint by ref (``anchor_ref``) **or** by role
       (+ sheet + cluster).
     * Build :class:`ComponentPool`` instances per cluster for role-based
       footprint allocation.
 
-    Removes the duplicated "ref vs role" branching that both calculators
-    had inline.
+    Removes the duplicated "ref vs role" branching the callers used to have
+    inline.
     """
 
     def __init__(self, adapter: KiCadBoardAdapter, config: Config,

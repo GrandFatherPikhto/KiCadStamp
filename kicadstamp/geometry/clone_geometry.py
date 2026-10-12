@@ -6,10 +6,9 @@ for ClonePlacement (TemplatePlacer), unlike spoke_layout.py:
   - origin = xy DIRECTLY (no pad, no shift — it is an
     absolute point, not an offset from something).
   - net of each via is resolved via net_resolution.resolve_net()
-    (params + net_overrides) — there is NO concept of rule_net (ClonePlacement,
-    unlike Rule/ManualSpoke, has no single "rule net" at all).
-    via.net=None is FATAL here — there is no sensible default to fall back to,
-    unlike in spoke_layout.py.
+    (params + net_overrides) — there is NO single "rule net" for a
+    ClonePlacement to fall back to.
+    via.net=None is FATAL here — there is no sensible default.
 """
 from __future__ import annotations
 

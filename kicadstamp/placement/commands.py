@@ -45,12 +45,11 @@ class TrackCommand:
 @dataclass
 class PlacedComponentInfo:
     """
-    Information about one placed component — carried over from planner.py
-    (via the position calculator) to via_planner.py (for keepout and
-    skip_existing_components idempotency). Vias are no longer here —
-    all vias (spoke-level and component-level) are now pure geometry,
-    computed directly as ViaCommand in the same pass as the position
-    (see geometry/spoke_layout.py, ComponentPool is consumed once).
+    Information about one placed component — carried from the position
+    calculator (placement/services/clone_position_calculator.py) to
+    via_planner.py (for keepout and skip_existing_components idempotency).
+    Vias are not here — every via is pure geometry, built as a ViaCommand in
+    the same pass as the position.
     """
     ref: str
     dest: Vector2

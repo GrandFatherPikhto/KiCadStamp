@@ -66,7 +66,7 @@ class ComponentPool:
                          .format(net=self.net_name, role=role, suffix=cluster_suffix,
                                  refs=self._pools[role]))
 
-    def pop(self, role: str, spoke_pad: str) -> str:
+    def pop(self, role: str, pad: str) -> str:
         """
         Takes the next (in natural order) component with the given role.
         Fatal error if the pool for this role is already exhausted.
@@ -77,7 +77,7 @@ class ComponentPool:
                 _("\nCell (pad {pad}) requires role {role!r}, "
                   "but the pool for net {net!r} does not know this role at all "
                   "(check the list of roles passed when building the pool).")
-                .format(pad=spoke_pad, role=role, net=self.net_name)
+                .format(pad=pad, role=role, net=self.net_name)
             )
         if not candidates:
             raise ValidationError(
@@ -85,7 +85,7 @@ class ComponentPool:
                   "for spoke on pad {pad} — pool exhausted. "
                   "Check the {field!r} field in the schematic: perhaps you forgot "
                   "to mark another component, or it is not physically on this net.")
-                .format(role=role, net=self.net_name, pad=spoke_pad, field=ROLE_FIELD_NAME)
+                .format(role=role, net=self.net_name, pad=pad, field=ROLE_FIELD_NAME)
             )
         return candidates.pop(0)
 
