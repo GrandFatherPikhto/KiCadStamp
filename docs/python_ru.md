@@ -136,7 +136,8 @@ python boards/3ch-awg-tia/scripts/my_subsystem.py --apply                      #
 from kicadstamp.author import dump_clone_placements, dump_rules, dump_template, apply_config
 
 dump_clone_placements(clones, "boards/3ch-awg-tia/generated/dac_channels.sexp")   # {'clone_placements': [...]}
-dump_rules(chains, "boards/3ch-awg-tia/generated/fpga_spokes.sexp")                # {'chains': [...]}
+# `dump_rules()`/`dump_chains()` СНЯТЫ (2026-10) вместе с секцией `chains:`/спиц —
+# конфиг, в котором она осталась, не грузится; пишите ячейки, а не спицы.
 dump_template({"my_cell": {"vias": [...], "components": [...]}}, "templates/my_cell.sexp")
 
 # прямо в живой пайплайн apply, минуя шаг с генерируемым .sexp вовсе:

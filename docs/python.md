@@ -136,7 +136,8 @@ all):
 from kicadstamp.author import dump_clone_placements, dump_rules, dump_template, apply_config
 
 dump_clone_placements(clones, "boards/3ch-awg-tia/generated/dac_channels.sexp")   # {'clone_placements': [...]}
-dump_rules(chains, "boards/3ch-awg-tia/generated/fpga_spokes.sexp")                # {'chains': [...]}
+# `dump_rules()`/`dump_chains()` are GONE (2026-10) with the `chains:`/spoke section —
+# a config that still carries it is refused; write cells, not spokes.
 dump_template({"my_cell": {"vias": [...], "components": [...]}}, "templates/my_cell.sexp")
 
 # straight into the live apply pipeline, bypassing the generated-.sexp step entirely:
