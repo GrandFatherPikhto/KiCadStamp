@@ -279,7 +279,7 @@ it loads into the config (apply can run it) without manual net definition.
 3. Run `clone-extract` for one of the channels to see which components and nets are present and who their twins are in other channels.
 4. Examine the resulting s-expr:
    - Verify that all components have twins in all channels (incomplete groups will be logged as warnings).
-   - Pay attention to `foreign_in_bbox` – this indicates which global nets pass through this channel and will need to be consciously connected in the clone (via spoke vias or separate components).
+   - Pay attention to `foreign_in_bbox` – this indicates which global nets pass through this channel and will need to be consciously connected in the clone (via cell vias or separate components).
 5. Run `clone-plan` to auto-generate the `clone_placements:` block for every target channel (cluster/cell/xy + params `{channel: N}` + nets `{role: net}`), writing it straight into the s-expr config — no manual `params`/`nets`.
 6. If the role→net mapping is ambiguous (electrically symmetric roles), `clone-plan` and `channel-copy` report the SCC group as a DIAGNOSTIC warning — never a stop; disambiguate by sheet/cluster.
 
