@@ -258,9 +258,11 @@ def _rig_data(**t1_extra):
         "entities": [{"name": name, "cell": "c", "cluster": name}
                      for name in ("E1", "E2", "E3", "E4", "E5")],
         # A record of ANOTHER section, so a cell can pin that a kind change moves
-        # the Ref (and the uuid) into the NEW section.
-        "clone_placements": [{"name": "CP1", "cluster": "CP1", "cell": "c",
-                              "xy": [0.0, 0.0]}],
+        # the Ref (and the uuid) into the NEW section. (The retired flat
+        # clone_placements: carrier is replaced by the live coordinate_placements:.)
+        "coordinate_placements": [{"name": "CP1", "cluster": "CP1",
+                                   "role": "CP1_ROLE", "x_mm": 0.0, "y_mm": 0.0,
+                                   "rotation_deg": 0.0}],
         "trees": [t1, {"name": "t2", "anchor": {"origin": True},
                        "nodes": [{"ref": "E2", "kind": "placement",
                                   "xy": [0.0, 0.0]}]}],
@@ -411,20 +413,20 @@ def test_a_handle_that_changes_its_kind_is_refused_by_the_loader_rule(
 
 def test_a_record_to_record_kind_change_moves_the_section(main_window, tmp_path,
                                                           format3):
-    """(ж) A plain kind change of a non-handle node (placement -> clone) is legal:
-    the Ref moves to a record of the NEW section and the uuid follows it there —
-    the ORDINARY case the new rules must not block."""
+    """(ж) A plain kind change of a non-handle node (placement -> coordinate) is
+    legal: the Ref moves to a record of the NEW section and the uuid follows it
+    there — the ORDINARY case the new rules must not block."""
     dock, root = _rich_dock(main_window, tmp_path)
     _widget, _item, form = _open_form(dock, "E4")
 
-    index = form.kind_combo.findData("clone")
+    index = form.kind_combo.findData("coordinate")
     form.kind_combo.setCurrentIndex(index)
     form.ref_combo.setEditText("CP1")     # the kind change repopulated the combo
     assert form.apply() is True
 
     written = _node_shot(root, node_index=1)
-    assert (written["kind"], written["ref"]) == ("clone", "CP1")
-    assert written["ref_uuid"] == det_uuid("clone_placements:CP1")
+    assert (written["kind"], written["ref"]) == ("coordinate", "CP1")
+    assert written["ref_uuid"] == det_uuid("coordinate_placements:CP1")
     reloaded = _reload(root)
     assert reloaded.trees[0].nodes[1].ref == "CP1"
 
