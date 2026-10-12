@@ -84,8 +84,7 @@ def test_config_tree_file_selected_does_not_retarget_entity_docks(real_main_wind
 
     real_main_window.config_tree_dock.file_selected.emit(target_file)
 
-    assert real_main_window.placer_dock._cells_path is None
-    assert real_main_window.placer_dock._placer_path is None
+    assert real_main_window.points_dock._path is None
 
 
 def test_root_metadata_dock_restores_last_root_after_restart(qapp, tmp_path):
@@ -134,61 +133,6 @@ def test_config_tree_picks_up_a_root_restored_before_wiring_existed(qapp, tmp_pa
         window._timer.stop()
         window._selection_timer.stop()
         window._poll_worker.stop()
-
-
-def test_tree_cluster_picked_fills_placer_cluster_field(real_main_window):
-    """The Components-tree -> Placer wiring now goes through the
-    cluster_picked signal — clicking a Cluster group node in the real window
-    fills PlacerDock's Cluster field.
-
-    real_main_window's tree_dock is wired to a LIVE BoardConnection on this
-    machine, and clicking would highlight the real board through the real
-    kipy adapter (our _FakeSelected.fp is not a kipy footprint). The signal
-    is emitted before the board-highlight early-return, so swapping in a
-    board-less connection still exercises the signal -> Placer wiring while
-    keeping the live adapter untouched."""
-    real_main_window.tree_dock.group_by.setCurrentIndex(1)  # Cluster grouping
-    real_main_window.tree_dock._connection = SimpleNamespace(board=None)
-    real_main_window.tree_dock.set_footprints([
-        _FakeSelected("C1", "C_IN", "Channel_1/PI_FILTER"),
-    ])
-
-    top_level = _find_item(real_main_window.tree_dock.tree.model(), "Channel_1")
-    real_main_window.tree_dock._on_clicked(
-        real_main_window.tree_dock.tree.model().indexFromItem(top_level))
-
-    assert real_main_window.placer_dock.cluster_edit.currentText() == "Channel_1"
-
-
-def test_cell_picked_fills_placer_selected_cell(real_main_window):
-    """ConfigTreeDock -> PlacerDock wiring (cell_picked -> set_selected_cell,
-    see gui/docks/config_tree.py's cell_picked docstring) — clicking a Cell
-    leaf in the real Config tree must reach PlacerDock's Cell field
-    end-to-end, not just via a direct set_selected_cell() call (already
-    covered elsewhere, but never through the actual signal).
-
-    Since task V the Placer is no longer REVEALED by a cell pick — the merged
-    cell page is — so only the field fill is asserted here. The Placer keeps
-    receiving the signal because a clone_placements leaf still uses it."""
-    real_main_window.config_tree_dock.cell_picked.emit("ldo_adj")
-
-    assert real_main_window.placer_dock._selected_cell == "ldo_adj"
-    assert real_main_window.placer_dock.cell_combo.currentText() == "ldo_adj"
-
-
-def test_placement_picked_loads_into_placer_form(real_main_window):
-    """ConfigTreeDock -> PlacerDock wiring (placement_picked -> load_placement,
-    see gui/docks/config_tree.py's placement_picked docstring) — clicking an
-    already-saved placement leaf in the real Config tree must reach
-    PlacerDock's form end-to-end, not just via a direct load_placement()
-    call (already covered elsewhere, but never through the actual signal)."""
-    entry = {"cluster": "spoke_1", "cell": "ldo_adj", "xy": [1.5, 2.5]}
-    real_main_window.config_tree_dock.placement_picked.emit(entry)
-
-    assert real_main_window.placer_dock.cluster_edit.currentText() == "spoke_1"
-    assert real_main_window.placer_dock._selected_cell == "ldo_adj"
-    assert real_main_window.placer_dock.x_edit.text() == "1.5"
-    assert real_main_window.placer_dock.y_edit.text() == "2.5"
 
 
 def test_points_saved_refreshes_config_tree_points(real_main_window, tmp_path):
@@ -1397,14 +1341,14 @@ def test_file_selected_no_longer_switches_the_right_page(real_main_window, tmp_p
     signal) does NOT switch the Config dock's right page — routing is driven
     by the specific per-leaf signals only (2026-09-05, plan
     config_qview_placer_nettrace). The page stays on whatever it was on."""
-    real_main_window._dock_hub._show_config_placer()
+    real_main_window._dock_hub._show_config_net_trace()
     target_file = tmp_path / "power.sexp"
     _write(target_file)
 
     real_main_window.config_tree_dock.file_selected.emit(target_file)
 
     assert (real_main_window._dock_hub.config_tree_dock.current_right_page()
-            is real_main_window.placer_dock)
+            is real_main_window._dock_hub.net_trace_dock)
 
 
 def test_net_trace_picked_routes_to_config_net_trace_page(real_main_window):
@@ -1415,35 +1359,6 @@ def test_net_trace_picked_routes_to_config_net_trace_page(real_main_window):
     real_main_window.config_tree_dock.net_trace_picked.emit(
         {"net": "GND", "anchor_role": "FPGA", "tracks": [], "vias": []})
     assert hub.config_tree_dock.current_right_page() is hub.net_trace_dock
-
-
-def test_placer_saved_refreshes_config_tree_placements(real_main_window, tmp_path):
-    """PlacerDock -> ConfigTreeDock wiring (saved -> refresh, see
-    gui/docks/config_tree.py's refresh docstring) — a successful Save must
-    reach ConfigTreeDock's Clone placements category end-to-end, not just
-    via a direct call (the tree would otherwise go stale after Save
-    without a file reassign).
-
-    Asserts on real widget state (the tree picking up a change made on disk
-    after the fact) rather than monkeypatching refresh() — a PyQt signal
-    connection captures the bound method at connect() time, so patching the
-    instance attribute afterwards would not be intercepted (same caveat as
-    test_fieldstool_components_changed_refreshes_tree above)."""
-    placer_file = tmp_path / "placer.sexp"
-    _write(placer_file)
-    real_main_window.config_tree_dock.set_root_file(placer_file)
-    root_item = real_main_window.config_tree_dock.tree.topLevelItem(0)
-    assert root_item.childCount() == 0
-
-    _write(placer_file, {"clone_placements": [
-        {"name": "spoke_1", "cell": "ldo_adj", "xy": [0, 0]},
-    ]})
-    real_main_window.placer_dock.saved.emit()
-
-    root_item = real_main_window.config_tree_dock.tree.topLevelItem(0)
-    placements = root_item.child(0)
-    assert placements.text(0) == "Clone placements"
-    assert placements.child(0).text(0) == "spoke_1"
 
 
 # ── 3.2: docks use the injected BoardConnection, not main_window.connection ──
@@ -1542,7 +1457,6 @@ def test_main_window_exposes_all_docks_through_the_hub(real_main_window):
     assert real_main_window.tree_dock is hub.tree_dock
     assert real_main_window.config_tree_dock is hub.config_tree_dock
     assert real_main_window.fieldstool_dock is hub.fieldstool_dock
-    assert real_main_window.placer_dock is hub.placer_dock
     assert real_main_window.log_dock is hub.log_dock
 
 
@@ -1559,13 +1473,11 @@ def test_dock_hub_constructs_all_docks(main_window, tmp_path):
         assert hub.tree_dock is not None
         assert hub.config_tree_dock is not None
         assert hub.fieldstool_dock is not None
-        assert hub.placer_dock is not None
         assert hub.root_metadata_dock is not None
         assert hub.points_dock is not None
         assert hub.log_dock is not None
 
         hub.config_tree_dock.file_selected.emit(target_file)
-        assert hub.placer_dock._cells_path is None
         assert hub.points_dock._path is None
     finally:
         _teardown_hub(hub)
@@ -1890,15 +1802,10 @@ def test_dock_hub_delegates_route_to_the_right_docks(real_main_window, monkeypat
     pushed = {}
     monkeypatch.setattr(hub.tree_dock, "set_footprints",
                         lambda s: pushed.setdefault("tree", []).append(s))
-    monkeypatch.setattr(hub.placer_dock, "refresh_known_roles",
-                        lambda s: pushed.setdefault("roles", []).append(s))
     monkeypatch.setattr(hub.thermal_via_dock, "refresh_known_roles",
                         lambda s: pushed.setdefault("thermal_roles", []).append(s))
     monkeypatch.setattr(hub.thermal_via_dock, "refresh_known_nets",
                         lambda n: pushed.setdefault("thermal_nets", []).append(n))
-    # No separate coordinate_dock since 2026-08-12 (Group 1) — coordinate
-    # mode lives inside the merged placer_dock, whose refresh_known_roles is
-    # already captured above as pushed["roles"].
     monkeypatch.setattr(hub.points_dock, "refresh_known_roles",
                         lambda s: pushed.setdefault("points_roles", []).append(s))
     monkeypatch.setattr(hub.cells_dock, "refresh_known_roles",
@@ -1927,7 +1834,6 @@ def test_dock_hub_delegates_route_to_the_right_docks(real_main_window, monkeypat
     net_names, copper_net_names, snapshot = ["GND"], ["GND", "VCC"], object()
     hub.push_snapshot(snapshot, net_names, copper_net_names)
     assert pushed["tree"] == [snapshot]
-    assert pushed["roles"] == [snapshot]
     assert pushed["thermal_roles"] == [snapshot]
     assert pushed["thermal_nets"] == [net_names]
     assert pushed["points_roles"] == [snapshot]
@@ -1948,16 +1854,11 @@ def test_dock_hub_delegates_route_to_the_right_docks(real_main_window, monkeypat
     hub.highlight_selection({"R1"})
     assert highlighted == [{"R1"}]
 
-    placer_selected = []
     # Phase F (2026-09-01): ExtractDock is removed — the selection-watch state
-    # now lives in DockHub (read by "Extract tree..."); PlacerDock is still fed
-    # (2026-08-31, plan placer_source_tab_gaps P.1).
-    monkeypatch.setattr(hub.placer_dock, "set_board_selection",
-                        lambda items, sel: placer_selected.append((items, sel)))
+    # now lives in DockHub (read by "Extract tree...").
     hub.set_board_selection(["raw"], ["sel"])
     assert hub._selection_raw_items == ["raw"]
     assert hub._selection_footprints == ["sel"]
-    assert placer_selected == [(["raw"], ["sel"])]
 
     # Cell editor (2026-09-12, plan_2026_09_12_cell_layer_dialog Э3): the layer
     # dialog derives "empty in the selection" from the RAW items it is fed here —
@@ -1995,7 +1896,7 @@ def _spy_graph_refresh_targets(hub, monkeypatch):
     (construction itself calls set_root_path during _wire; the spies must only
     see post-construction calls). Returns {name: [recorded_arg, ...]}."""
     calls = {}
-    for name in ("placer_dock", "thermal_via_dock", "cells_dock",
+    for name in ("thermal_via_dock", "cells_dock",
                  "tools_dock", "points_dock"):
         recorded = []
         monkeypatch.setattr(getattr(hub, name), "set_root_path",
@@ -2039,12 +1940,12 @@ def test_dock_saved_also_refreshes_graph_dependent_choices(main_window, monkeypa
     hub = DockHub(main_window, connection=main_window.connection, verbose=False)
     try:
         targets = _spy_graph_refresh_targets(hub, monkeypatch)
-        for dock_name in ("placer_dock", "thermal_via_dock",
+        for dock_name in ("thermal_via_dock",
                           "points_dock", "cells_dock",
                           "tools_dock"):
             getattr(hub, dock_name).saved.emit()
         for name, calls in targets.items():
-            assert len(calls) == 5, f"{name} not refreshed once per dock Save: {calls}"
+            assert len(calls) == 4, f"{name} not refreshed once per dock Save: {calls}"
     finally:
         _teardown_hub(hub)
 

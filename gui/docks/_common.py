@@ -4,7 +4,7 @@
 Two groups live here:
 
 * read-merge-write config helpers (merge_write / add_list_entry /
-  upsert_clone_placement / non_includable_keys / display_path / ...) — these
+  non_includable_keys / display_path / ...) — these
   are PURE file operations with no Qt dependency, so they moved to
   kicadstamp/config_writer.py in Phase 2 of the gui god-file decomposition
   (see techdocs/handoff/handoff_2026_08_05_architecture_fixes_roadmap.md).

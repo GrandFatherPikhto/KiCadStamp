@@ -177,7 +177,6 @@ def _builders(window, built: dict) -> list[tuple[str, object]]:
     from gui.docks.log_panel import LogDock
     from gui.docks.net_trace import NetTraceDock
     from gui.docks.pending import PendingChangesDock
-    from gui.docks.placer import PlacerDock
     from gui.docks.points import PointsDock
     from gui.docks.profile_import import ProfileImportDialog
     from gui.docks.project_dialog import ProjectDialog
@@ -222,7 +221,6 @@ def _builders(window, built: dict) -> list[tuple[str, object]]:
         ("RoleClusterTreeDock", lambda: RoleClusterTreeDock(window, connection=connection)),
         ("ConfigTreeDock", lambda: ConfigTreeDock(window)),
         ("TreesDock", lambda: TreesDock(window)),
-        ("PlacerDock", lambda: PlacerDock(window)),
         ("ThermalViaArrayDock", lambda: ThermalViaArrayDock(window)),
         ("EntityInfoDock", lambda: EntityInfoDock(window)),
         ("RootMetadataDock", lambda: RootMetadataDock(window)),

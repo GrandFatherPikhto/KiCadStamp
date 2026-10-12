@@ -149,7 +149,6 @@ logger = logging.getLogger(__name__)
 # Display label per recognized section, in the order shown under a file
 # node. Order matches config/includes.py's _LIST_SECTIONS + _DICT_SECTIONS.
 _SECTION_LABELS = {
-    "clone_placements": _("Clone placements"),
     "thermal_via_arrays": _("Thermal via arrays"),
     "coordinate_placements": _("Coordinate placements"),
     "net_traces": _("Net traces"),
@@ -178,8 +177,6 @@ _SECTION_LABELS = {
 _ADD_ACTION_BY_SECTION = {
     "cells": (_("Add cell..."), "add_cell_requested"),
     "thermal_via_arrays": (_("Add thermal via pad..."), "add_thermal_via_requested"),
-    "coordinate_placements": (_("Add coordinate placement..."), "add_coordinate_placement_requested"),
-    "clone_placements": (_("Add placer..."), "add_placer_requested"),
     "points": (_("Add point..."), "add_point_requested"),
 }
 

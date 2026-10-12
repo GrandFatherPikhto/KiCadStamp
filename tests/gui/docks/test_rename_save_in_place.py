@@ -142,26 +142,13 @@ def _section(path, section):
     return (sexp_to_dict(path.read_text(encoding="utf-8")) or {}).get(section) or []
 
 
-def test_clone_placement_rename_saves_in_place(main_window, tmp_path):
-    from gui.docks.placer import PlacerDock
-
-    target, saved = _clonable_project(tmp_path)
-    dock = PlacerDock(main_window)
-    dock.set_root_path(target)
-    dock.load_placement({"name": saved.name, "uuid": saved.uuid,
-                         "cluster": saved.cluster, "cell": saved.cell,
-                         "xy": [1.0, 2.0]})
-    dock.placer_name_edit.setText("C1_renamed")
-
-    dock._do_save()
-
-    records = _section(target, "clone_placements")
-    assert [r.get("name") for r in records] == ["C1_renamed"]
-    assert [r["uuid"] for r in records] == [saved.uuid]
-
-
 def test_coordinate_placement_rename_saves_in_place(main_window, tmp_path):
-    from gui.docks.placer import PlacerDock
+    """П2 (plan_2026_10_08_remove_placer): the `coordinate_placements:` section
+    STAYS and so does the rename — the Placer's form is gone, so the rename
+    goes through the Config tree's own LIVE path (gui/docks/rename.py, the same
+    `rename_entry` the tree's Rename action calls). Edit-in-place contract: the
+    record's uuid and its `anchor_point_uuid` reference survive the rename."""
+    from gui.docks.rename import rename_entry
 
     target = tmp_path / "root.sexp"
     _seed_fmt2(target, {
@@ -175,14 +162,8 @@ def test_coordinate_placement_rename_saves_in_place(main_window, tmp_path):
 
     cfg, _ = load_config(str(target))
     saved = cfg.coordinate_placements[0]
-    dock = PlacerDock(main_window)
-    dock.set_root_path(target)
-    dock.load_placement({"name": saved.name, "cluster": saved.cluster,
-                         "role": saved.role, "anchor_point": saved.anchor_point,
-                         "uuid": saved.uuid})
-    dock.coordinate_form.name_edit.setText("cp1_renamed")
 
-    dock._do_save()
+    rename_entry(target, target, "coordinate_placements", "cp1", "cp1_renamed")
 
     records = _section(target, "coordinate_placements")
     assert [r.get("name") for r in records] == ["cp1_renamed"]

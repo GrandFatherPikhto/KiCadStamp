@@ -76,8 +76,8 @@ def test_page_switch_rebuilds_once_and_refreshes_the_dock_lists(
                                  [_row("R1", "OLD_ROLE", "CL1"),
                                   _row("R2", "NEW_ROLE", "CL2")]])
     real_main_window.connection = connection
-    hub.placer_dock.refresh_known_roles(connection.snapshot)  # the connect state
-    assert "CL2" not in _combo_items(hub.placer_dock.cluster_edit)
+    hub.tree_dock.refresh_known_lists()                       # the connect state
+    assert "CL2" not in _combo_items(hub.tree_dock.tag_cluster_combo)
     hub._config_right_page_index = 0                          # a real switch
 
     hub._on_config_right_page_changed(3)
@@ -89,11 +89,11 @@ def test_page_switch_rebuilds_once_and_refreshes_the_dock_lists(
     assert connection.refresh_calls == 1
     # S.4 #5 — and it never ran on the UI thread.
     assert connection.refresh_threads[0] != threading.main_thread().name
-    # S.4 #1 — the new known values reached the docks' combos.
-    assert "CL2" in _combo_items(hub.placer_dock.cluster_edit)
-    # ...and the tree dock's own Tag lists (S.3.2: it is in the distribution now).
+    # S.4 #1 — the new known values reached the docks' combos, here the tree
+    # dock's own Tag lists (S.3.2: it is in the distribution now).
     hub.tree_dock._connection = connection    # the dock's own reference
     hub.tree_dock.refresh_known_lists()
+    assert "CL2" in _combo_items(hub.tree_dock.tag_cluster_combo)
     assert "NEW_ROLE" in _combo_items(hub.tree_dock.tag_role_combo)
 
 

@@ -70,7 +70,6 @@ from .explode_guard import ExplodeGuard
 from .explode_wiring import ExplodeWiring
 from .docks.configurator import ConfiguratorDock
 from .docks.net_trace import NetTraceDock
-from .docks.placer import PlacerDock
 from .docks.trees_dock import TreesDock
 from .docks.dedupe import DedupeDock
 from .docks.fieldstool_dock import FieldsToolDock
@@ -212,14 +211,13 @@ class DockHub:
         # diff the user reads would still show values that are no longer there.
         self.tree_dock.on_overrides_written = self._on_overrides_written
 
-        # Placer / NetTrace (2026-09-05, plan config_qview_placer_nettrace):
+        # NetTrace (2026-09-05, plan config_qview_placer_nettrace):
         # ConfigTreeDock is now a master-detail — the Config tree on the left
-        # and a context QStack on the right. PlacerDock and NetTraceDock (the
-        # two former DetailDock pages) are built here and embedded as the
-        # Config dock's right pages; DetailDock is GONE (removed this day).
-        self.placer_dock = PlacerDock(main_window)
+        # and a context QStack on the right. NetTraceDock (a former DetailDock
+        # page) is built here and embedded as the Config dock's right page;
+        # DetailDock is GONE (removed this day). The Placer right page was
+        # removed 2026-10-12 with the `clone_placements:` section.
         self.net_trace_dock = NetTraceDock(main_window, connection=connection)
-        self._placer_page = self.config_tree_dock.add_right_page(self.placer_dock)
         self._net_trace_page = self.config_tree_dock.add_right_page(self.net_trace_dock)
         self._selection_raw_items: list = []
         self._selection_footprints: list = []
@@ -443,12 +441,6 @@ class DockHub:
         self.tree_dock.restore_mode_from_settings()
 
     # ── Config right-page routing (2026-09-05, plan config_qview_placer_nettrace) ──
-
-    def _show_config_placer(self, *_args) -> None:
-        """Route a Config tree pick (cell/placement/entity/coordinate) to the
-        Placer right page of the Config dock — the payload of the picked leaf
-        is irrelevant here (the load happened via the dedicated handler)."""
-        self.config_tree_dock.show_page(self._placer_page)
 
     def _show_config_net_trace(self, *_args) -> None:
         """Route a net_trace pick to the NetTrace right page of the Config
@@ -781,9 +773,6 @@ class DockHub:
             partial(self._safe_call, "net_trace_dock.set_root_path",
                     self.net_trace_dock.set_root_path))
         self.root_metadata_dock.root_changed.connect(
-            partial(self._safe_call, "placer_dock.set_root_path",
-                    self.placer_dock.set_root_path))
-        self.root_metadata_dock.root_changed.connect(
             partial(self._safe_call, "thermal_via_dock.set_root_path",
                     self.thermal_via_dock.set_root_path))
         # Imprint (2026-09-06, plan imprint P5): Reread Apply needs the
@@ -888,14 +877,6 @@ class DockHub:
         # (see config_tree.py's _on_clicked) — the specific handler below (if
         # any) wins by running after it, same emission order as before.
 
-        # Components tree -> Placer: clicking a Cluster group node in the
-        # tree fills PlacerDock's Cluster field; Config tree -> Placer/
-        # Extract: clicking a Cell/Clone placement/Extract profile leaf
-        # routes into the matching existing form (2026-08-03, GUI tree
-        # roadmap Этап 1 — replaces the old CellListDock/PlacerListDock
-        # wiring, same target methods, unified single source).
-        self.tree_dock.cluster_picked.connect(self.placer_dock.set_cluster_name)
-        self.config_tree_dock.cell_picked.connect(self.placer_dock.set_selected_cell)
         # 3б (step 5 of plan_2026_10_09_entity_page): with the CELL page gone the
         # "just a drawing" read-only page no longer exists; a cell-leaf click keeps
         # ONLY its original "pick as placement content" meaning (wired above).
@@ -909,19 +890,14 @@ class DockHub:
         # pre-loaded with that Entity (single click stays entity_picked above).
         self.config_tree_dock.entity_edit_requested.connect(
             self._start_edit_entity_template)
-        self.config_tree_dock.placement_picked.connect(self.placer_dock.load_placement)
-        self.config_tree_dock.placement_picked.connect(self._show_config_placer)
         # Thermal via (2026-09-05 QView move, design config_qview_chain_entity_
         # pages): a single click on a thermal_via_arrays leaf loads the record
         # and shows it as a Config right-QView page (no dialog).
         self.config_tree_dock.thermal_via_picked.connect(self._load_thermal_via_page)
         # Coordinate placements (2026-08-12, Group 1): a normal named-records
-        # section now — a leaf click carries the full entry dict, loaded into
-        # the merged PlacerDock's coordinate mode, exactly like clone_placements
-        # -> placement_picked -> load_placement (see config_tree.py's
-        # coordinate_placements_picked docstring).
-        self.config_tree_dock.coordinate_placements_picked.connect(self.placer_dock.load_placement)
-        self.config_tree_dock.coordinate_placements_picked.connect(self._show_config_placer)
+        # section. The Placer's coordinate form was removed 2026-10-12 with the
+        # `clone_placements:` section; the Config tree shows the record's leaf
+        # read-only, and `coordinate_placements_picked` has no live consumer.
         # Points (2026-09-05 QView move, design config_qview_chain_entity_pages):
         # a SINGLE click (points_picked) or a double click (points_edit_requested)
         # on a points: leaf loads the point and shows it as a Config right-QView
@@ -1029,7 +1005,6 @@ class DockHub:
         # combo (the cell combos, the point-name combos in
         # ThermalViaArrayDock/PlacerDock, ...) must hear about it
         # — the tree refresh above only updates the TREE's own display.
-        self.placer_dock.saved.connect(self.config_tree_dock.refresh)
         self.thermal_via_dock.saved.connect(self.config_tree_dock.refresh)
         self.points_dock.saved.connect(self.config_tree_dock.refresh)
         self.net_trace_dock.saved.connect(self.config_tree_dock.refresh)
@@ -1058,7 +1033,6 @@ class DockHub:
         # in any table writes the Entity and emits saved; a validation failure
         # never emits it, so the dialog stays open for the fix.
         self.tools_dock.saved.connect(self.tools_dialog.hide)
-        self.placer_dock.saved.connect(self._refresh_graph_dependent_choices)
         self.thermal_via_dock.saved.connect(self._refresh_graph_dependent_choices)
         self.points_dock.saved.connect(self._refresh_graph_dependent_choices)
         self.cells_dock.saved.connect(self._refresh_graph_dependent_choices)
@@ -1075,15 +1049,7 @@ class DockHub:
         # Rules: open the form blank, targeting the file the action was
         # invoked on, and bring that tab to front (same raise pattern as
         # open_fieldstool() below).
-        self.config_tree_dock.add_placer_requested.connect(self._start_new_placement)
         self.config_tree_dock.add_thermal_via_requested.connect(self._start_new_thermal_via)
-        # "Add coordinate placement..." (2026-08-12, Group 1) — opens the
-        # merged PlacerDock's coordinate form blank for the target file, the
-        # same "Add placer..." shape (new_placement) the clone source uses.
-        self.config_tree_dock.add_coordinate_placement_requested.connect(
-            self.placer_dock.new_coordinate_placement)
-        self.config_tree_dock.add_coordinate_placement_requested.connect(
-            self._show_config_placer)
         self.config_tree_dock.add_point_requested.connect(self._start_new_point)
         self.config_tree_dock.add_cell_requested.connect(self._start_new_cell)
         # Config tree's own graph-mutating actions (_on_rename/_on_delete/
@@ -1205,7 +1171,6 @@ class DockHub:
         refresh_snapshot_and_push)."""
         self.tree_dock.refresh_known_lists()
         self.trees_dock.refresh_known_lists()
-        self.placer_dock.refresh_known_roles(snapshot)
         self.thermal_via_dock.refresh_known_roles(snapshot)
         self.points_dock.refresh_known_roles(snapshot)
         self.net_trace_dock.refresh_known_roles(snapshot)
@@ -1326,7 +1291,6 @@ class DockHub:
         # opened BEFORE connecting (see _warn_if_sheet_narrowing_disabled).
         self._warn_if_sheet_narrowing_disabled(
             self.root_metadata_dock.root_path)
-        self.placer_dock.set_board_selection(items, selected)
         # Imprint Place (2026-09-06, plan imprint §6 / P6 Stage 3): the
         # Place page's opt-in "from selection" hint reads the current selection
         # center — fed by the same polled snapshot tick as Placer's auto-fill.
@@ -1375,14 +1339,6 @@ class DockHub:
         master-detail replacement for the retired right-hand fieldstool dock
         (2026-09-05, plan components_fieldstool_master_detail)."""
         self.show_left_page(self.tree_dock)
-
-    def _start_new_placement(self, placer_path) -> None:
-        """ConfigTreeDock's add_placer_requested delegate — resets
-        PlacerDock's form and brings the Config dock's Placer right page to
-        front, same reasoning as open_fieldstool() above (the action was
-        invoked from the Config tree tab)."""
-        self.placer_dock.new_placement(placer_path)
-        self._show_config_placer()
 
     def _show_config_thermal_via(self, *_args) -> None:
         """Route a thermal_via_arrays pick to the Thermal via right page of the
@@ -2614,7 +2570,6 @@ class DockHub:
         from wherever the new file was created, the tree's own action never
         told any other dock)."""
         root_path = self.root_metadata_dock.root_path
-        self.placer_dock.set_root_path(root_path)
         self.thermal_via_dock.set_root_path(root_path)
         self.cells_dock.set_root_path(root_path)
         self.tools_dock.set_root_path(root_path)
@@ -2978,7 +2933,6 @@ class DockHub:
         self._safe_call("config_tree_dock.set_root_file",
                         self.config_tree_dock.set_root_file, path)
         self._safe_call("trees_dock.set_root_file", self.trees_dock.set_root_file, path)
-        self._safe_call("placer_dock.set_root_path", self.placer_dock.set_root_path, path)
         self._safe_call("thermal_via_dock.set_root_path",
                         self.thermal_via_dock.set_root_path, path)
         self._safe_call("cells_dock.set_root_path", self.cells_dock.set_root_path, path)

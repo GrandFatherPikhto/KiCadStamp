@@ -256,20 +256,28 @@ def test_clicking_a_cell_leaf_fires_cell_picked(main_window, tmp_path):
     assert picked == ["one_role"]
 
 
-def test_clicking_a_placement_leaf_fires_full_dict(main_window, tmp_path):
+def test_coordinate_placement_leaf_click_opens_no_form(main_window, tmp_path):
+    """П2 (plan_2026_10_08_remove_placer): the «Coordinate placements» group
+    STAYS (read-only), but the Placer's coordinate form is gone — a leaf click
+    opens NO right-page form (the Config right stack keeps its current page).
+    `coordinate_placements_picked` still fires (the signal stays) but has no
+    live consumer."""
     root = tmp_path / "root.sexp"
-    _write(root, {"clone_placements": [{"name": "spoke_1", "cell": "ldo_adj", "xy": [0, 0]}]})
+    _write(root, {"coordinate_placements": [
+        {"name": "coord_1", "cluster": "CL", "role": "R1", "x_mm": 1.0, "y_mm": 2.0}]})
 
     dock = ConfigTreeDock(main_window)
     dock.set_root_file(root)
 
-    leaf = _find(dock.tree.topLevelItem(0), "Clone placements").child(0)
+    leaf = _find(dock.tree.topLevelItem(0), "Coordinate placements").child(0)
+    before = dock.current_right_page()
     picked = []
-    dock.placement_picked.connect(picked.append)
+    dock.coordinate_placements_picked.connect(picked.append)
     dock.tree.itemClicked.emit(leaf, 0)
 
+    assert dock.current_right_page() is before          # no form opened
     assert [without_identity(p) for p in picked] == \
-        [{"name": "spoke_1", "cell": "ldo_adj", "xy": [0, 0]}]
+        [{"name": "coord_1", "cluster": "CL", "role": "R1", "x_mm": 1.0, "y_mm": 2.0}]
 
 
 def test_clicking_a_file_or_category_header_fires_no_signal(main_window, tmp_path):
@@ -886,8 +894,6 @@ def _add_labels(labels):
 @pytest.mark.parametrize("category_label, expected_add", [
     ("Cells", "Add cell..."),
     ("Thermal via arrays", "Add thermal via pad..."),
-    ("Coordinate placements", "Add coordinate placement..."),
-    ("Clone placements", "Add placer..."),
     ("Points", "Add point..."),
 ])
 def test_category_context_menu_shows_only_its_own_add_action(
@@ -906,8 +912,6 @@ def test_category_context_menu_shows_only_its_own_add_action(
 @pytest.mark.parametrize("category_label, expected_add", [
     ("Cells", "Add cell..."),
     ("Thermal via arrays", "Add thermal via pad..."),
-    ("Coordinate placements", "Add coordinate placement..."),
-    ("Clone placements", "Add placer..."),
     ("Points", "Add point..."),
 ])
 def test_leaf_context_menu_shows_only_its_sections_add_action(
@@ -968,14 +972,15 @@ def test_clone_profiles_category_has_no_add_actions(main_window, tmp_path, monke
     assert _add_labels(labels) == ["Add included file..."]
 
 
-def test_file_header_context_menu_shows_all_five_add_actions(
+def test_file_header_context_menu_shows_all_three_add_actions(
         main_window, tmp_path, monkeypatch):
     """Denis's explicit decision: a file header (incl. the root) must still
     offer ALL the Add actions — otherwise a fresh file with no sections yet
     couldn't create its first entity. (2026-09-01: extract_profiles no longer
-    has a section Add action — profiles are a CLI/config-only section now,
-    Phase F. 2026-10-08: the chains/Spokes section is gone, so the count is
-    five.)"""
+    has a section Add action. 2026-10-08: chains/Spokes gone → five.
+    2026-10-12: the Placer is gone — «Add placer…» and «Add coordinate
+    placement…» removed with the `clone_placements:` section, so the count is
+    THREE.)"""
     root = tmp_path / "root.sexp"
     _write(root, ALL_SECTIONS)
     dock = ConfigTreeDock(main_window)
@@ -983,9 +988,10 @@ def test_file_header_context_menu_shows_all_five_add_actions(
 
     labels = _context_menu_labels(dock, dock.tree.topLevelItem(0), monkeypatch)
 
-    for label in ("Add cell...", "Add thermal via pad...", "Add coordinate placement...",
-                  "Add placer...", "Add point..."):
+    for label in ("Add cell...", "Add thermal via pad...", "Add point..."):
         assert label in labels
+    assert "Add placer..." not in labels
+    assert "Add coordinate placement..." not in labels
 
 
 def test_nested_cell_child_context_menu_shows_all_add_actions(
@@ -1377,24 +1383,6 @@ def test_on_export_cancelled_dialog_writes_nothing(main_window, tmp_path, monkey
     # is untouched; the lift adds a uuid under format 3, so drop it.
     data = _load(target)
     assert without_identity(data["cells"]) == {"existing": {}}
-
-
-def test_clone_placement_leaf_shows_name_when_set(main_window, tmp_path, pin_format2):
-    """A clone_placements leaf whose entry carries name shows THAT (the save/
-    --only identity) in the tree — not the raw Cluster tag `cluster`. Entries
-    without name fall back to cluster as before.
-
-    SUBJECT includes the format-2 cluster fallback (the format-3 lift mints a
-    name) — pinned to 2."""
-    root = tmp_path / "root.sexp"
-    _write(root, {"clone_placements": [{"cluster": "PIF_AVDD", "name": "CH0_PIF_AVDD", "cell": "ldo_adj", "xy": [0, 0]}, {"cluster": "plain", "cell": "ldo_adj", "xy": [0, 0]}]})
-    dock = ConfigTreeDock(main_window)
-    dock.set_root_file(root)
-
-    category = _find(dock.tree.topLevelItem(0), "Clone placements")
-    texts = [category.child(i).text(0) for i in range(category.childCount())]
-    assert "CH0_PIF_AVDD" in texts
-    assert "plain" in texts
 
 
 # ── graph_changed broadcast (2026-08-15, plan graph_changed_broadcast) ────
@@ -1860,42 +1848,43 @@ def test_persist_ui_state_flushes_collapsed_from_widget(main_window, tmp_path):
 # ── G.5: keyboard navigation of the Config tree ────────────────────────────
 #
 # The tree used to be wired to itemClicked alone, so the arrow keys moved the
-# CURRENT item without ever routing: the Config right pages (Placer, anchor,
-# points, ...) never learned the selection had moved. currentItemChanged fires
+# CURRENT item without ever routing: the Config right pages (anchor, points,
+# ...) never learned the selection had moved. currentItemChanged fires
 # for BOTH mouse and keyboard and now feeds the same idempotent router.
 
 
 def test_keyboard_current_item_change_emits_the_click_signals(main_window,
                                                               tmp_path):
     """G.5: moving the CURRENT item (exactly what an arrow key does) must route
-    like a click — checked here for cells and for a second section.
+    like a click — checked here for cells.
     setCurrentItem emits currentItemChanged and NO itemClicked; the mouse guard
     stays awake because no button is held."""
     root = tmp_path / "root.sexp"
     _write(root, {
         "cells": {"cell_a": {}, "cell_b": {}},
-        "clone_placements": [
-            {"name": "pl_a", "cell": "cell_a"},
-            {"name": "pl_b", "cell": "cell_b"},
-        ],
+        "points": {"p1": {"anchor_role": "R1"}},
     })
     dock = ConfigTreeDock(main_window)
     dock.set_root_file(root)
 
     top = dock.tree.topLevelItem(0)
     cell_b = _find(_find(top, "Cells"), "cell_b")
-    pl_b = _find(_find(top, "Clone placements"), "pl_b")
+    p1 = _find(_find(top, "Points"), "p1")
 
     cells = []
-    placements = []
+    points = []
+    # A cell with no entity and no placer is a DRAWING (3б): its keyboard
+    # routing fires cell_picked_read_only, not cell_picked.
     dock.cell_picked.connect(cells.append)
-    dock.placement_picked.connect(placements.append)
+    dock.cell_picked_read_only.connect(cells.append)
+    dock.points_picked.connect(points.append)
 
+    # A section CHANGE routes: Cells -> Points.
     dock.tree.setCurrentItem(cell_b)
-    dock.tree.setCurrentItem(pl_b)
+    dock.tree.setCurrentItem(p1)
 
     assert cells == ["cell_b"]
-    assert [p["name"] for p in placements] == ["pl_b"]
+    assert points == ["p1"]
 
 
 def test_refresh_does_not_navigate(main_window, tmp_path):

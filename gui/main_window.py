@@ -612,9 +612,6 @@ class MainWindow(QMainWindow):
     def fieldstool_dock(self):
         return self._dock_hub.fieldstool_dock
 
-    @property
-    def placer_dock(self):
-        return self._dock_hub.placer_dock
 
     @property
     def root_metadata_dock(self):
