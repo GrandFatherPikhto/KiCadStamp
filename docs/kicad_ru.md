@@ -142,7 +142,6 @@ kicad/
 | `placement/executor/move_executor.py` | Перемещение и флип компонентов. |
 | `placement/executor/via_executor.py` | Создание via, регистрация в реестре. |
 | `placement/executor/track_executor.py` | Создание треков, регистрация в реестре треков. |
-| `placement/services/manual_position_calculator.py` | Поиск футпринтов по refdes. |
 | `placement/services/clone_position_calculator.py` | Поиск футпринтов при клонировании (включая anchor_role). |
 | `placement/services/via_planner.py` | Чтение падов и создание термовиа. |
 | `placement/services/component_pool.py` | Построение пула компонентов по полю `Role` и цепи. |

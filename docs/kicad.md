@@ -143,7 +143,6 @@ The adapter is used throughout the project wherever KiCad interaction is needed:
 | `placement/executor/move_executor.py` | Moving and flipping components. |
 | `placement/executor/via_executor.py` | Creating vias and registering them. |
 | `placement/executor/track_executor.py` | Creating tracks and registering them. |
-| `placement/services/manual_position_calculator.py` | Looking up footprints by refdes. |
 | `placement/services/clone_position_calculator.py` | Looking up footprints during cloning (including anchor_role). |
 | `placement/services/via_planner.py` | Reading pads and creating thermal vias. |
 | `placement/services/component_pool.py` | Building the component pool by `Role` and net. |

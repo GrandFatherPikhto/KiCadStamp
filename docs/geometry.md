@@ -4,7 +4,7 @@
 
 The modules in the `geometry/` directory provide low‑level geometric functions and classes used for calculating positions of components, vias, and tracks; deriving a pad's own copper area (rotation‑invariant); building keepout areas; searching for free space; predicting pad positions after movement/rotation; generating thermal via grids; and transforming local template coordinates to global board coordinates.
 
-These modules are **independent** of KiCad and the adapter – they operate solely on coordinates and vectors, making them easy to test and reuse. They are primarily used in `placement/services/manual_position_calculator.py`, `placement/services/clone_position_calculator.py`, `via_planner.py`, and other placement modules.
+These modules are **independent** of KiCad and the adapter – they operate solely on coordinates and vectors, making them easy to test and reuse. They are primarily used in `placement/services/clone_position_calculator.py`, `via_planner.py`, and other placement modules (the spoke-side `manual_position_calculator.py` was removed in 2026-10).
 
 ---
 

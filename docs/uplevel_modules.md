@@ -433,7 +433,7 @@ graph TD
     ConfigPkg --> Exceptions[exceptions.py]
     ConfigPkg --> Models[config/models.py]
     ConfigPkg --> Loader[config/loader.py]
-    ConfigPkg --> Includes[config/includes.py: include: (external cells:/chains:/etc.)]
+    ConfigPkg --> Includes[config/includes.py: include: (external cells:/entities:/etc.)]
 
     Validation --> ConfigPkg
     Validation --> ComponentPool[placement/services/component_pool.py]
