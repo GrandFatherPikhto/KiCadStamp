@@ -122,24 +122,33 @@ def _data() -> dict:
                 {"name": "inner1", "cell": "lvl2", "xy": [1.0, 0.0]}]},
         },
         "points": {"P1": {"anchor_ref": "U1"}},
-        "entities": [{"name": "E", "cell": "leaf"}],
+        # 2026-10-12 (Ч1в-4 / вердикт Claude): the root `clone_placements:`
+        # section is retired. This fixture's subject — "one key FORM per row
+        # survives the 2 -> 3 registry lift" — keeps every form a LIVE record
+        # can carry:
+        #   * `name:` of a tree Entity (E) and of its two tree_instances copies;
+        #   * `nested` — an Entity whose CELL nests (E2 -> lvl1 -> lvl2 -> leaf),
+        #     the same path-composed key form;
+        #   * `thermal:` / `net:` from their own sections.
+        # Rows removed with the section (class А — no live record produces these
+        # key forms): the absolute clone's `name:`, `anchor:`, `role:`, `point:`
+        # AND the two `sheet_templates` copies — a template may only instantiate
+        # `coordinate_placements:` after Ч1 (its retired `clone_placements:`
+        # block is a FATAL, plan §П8), and a coordinate placement carries no
+        # registry copper at all. `CellPlacement` deliberately has NO anchor_*
+        # (closed boundary). That an OLD registry still holding such keys READS
+        # without falling over is guarded separately
+        # (tests/placement/test_registry_upgrade_on_disk.py).
+        "entities": [{"name": "E", "cell": "leaf"},
+                     {"name": "E2", "cell": "lvl1"}],
         "trees": [{"name": "etree",
                    "anchor": {"role": "FPGA", "anchor_sheet": "FPGA",
                               "anchor_cluster": "FPGA"},
-                   "nodes": [{"ref": "E", "kind": "placement", "xy": [0.0, 0.0]}]}],
+                   "nodes": [{"ref": "E", "kind": "placement", "xy": [0.0, 0.0]},
+                             {"ref": "E2", "kind": "placement", "xy": [0.0, 0.0]}]}],
         "tree_instances": [
             {"template": "etree", "name": "ti1", "sheet": "S1"},
             {"template": "etree", "name": "ti2", "sheet": "S2"},
-        ],
-        "clone_placements": [
-            {"name": "cabs", "cluster": "cabs", "cell": "leaf", "xy": [0.0, 0.0]},
-            {"name": "cref", "cluster": "cref", "cell": "leaf", "xy": [0.0, 0.0],
-             "anchor_ref": "U1"},
-            {"name": "crole", "cluster": "crole", "cell": "leaf", "xy": [0.0, 0.0],
-             "anchor_role": "FPGA", "anchor_sheet": "FPGA", "anchor_cluster": "FPGA"},
-            {"name": "cpoint", "cluster": "cpoint", "cell": "leaf", "xy": [0.0, 0.0],
-             "anchor_point": "P1"},
-            {"name": "cnest", "cluster": "cnest", "cell": "lvl1", "xy": [0.0, 0.0]},
         ],
         "thermal_via_arrays": [{"name": "tva1", "anchor_ref": "U1", "pad": "1",
                                 "net": "GND", "rows": 1, "cols": 1, "margin_mm": 0.0,
@@ -149,16 +158,6 @@ def _data() -> dict:
                         "tracks": [{"start_along_mm": 0.0, "start_across_mm": 0.0,
                                     "end_along_mm": 2.0, "end_across_mm": 0.0,
                                     "width_mm": 0.25, "net": "GND", "layer": "F.Cu"}]}],
-        "sheet_templates": {
-            "one": {"sheets": ["S3"],
-                    "clone_placements": [{"name": "csheet1", "cluster": "csheet1",
-                                          "cell": "leaf", "anchor_point": "P1",
-                                          "xy": [0.0, 0.0]}]},
-            "many": {"sheets": ["S4", "S5"],
-                     "clone_placements": [{"name": "csheet2", "cluster": "csheet2",
-                                           "cell": "leaf", "anchor_point": "P1",
-                                           "xy": [0.0, 0.0]}]},
-        },
     }
 
 
@@ -174,10 +173,6 @@ def _clone_cmds(cfg, adapter, clones):
     return vias, tracks
 
 
-def _clones_named(cfg, names):
-    return [c for c in cfg.clone_placements if c.name in names]
-
-
 def _entity_clones(adapter, cfg, names):
     from kicadstamp.config.models import clone_placement_effective_name
     return [c for c in materialize_entity_placements(adapter, cfg, {})
@@ -189,20 +184,10 @@ def _commands(form, cfg, adapter):
         return _clone_cmds(cfg, adapter, _entity_clones(adapter, cfg, {"E"}))
     if form == "tree_instance":
         return _clone_cmds(cfg, adapter, _entity_clones(adapter, cfg, {"E__ti1", "E__ti2"}))
-    if form == "name_clone":
-        return _clone_cmds(cfg, adapter, _clones_named(cfg, {"cabs"}))
-    if form == "role":
-        return _clone_cmds(cfg, adapter, _clones_named(cfg, {"crole"}))
-    if form == "anchor":
-        return _clone_cmds(cfg, adapter, _clones_named(cfg, {"cref"}))
-    if form == "point":
-        return _clone_cmds(cfg, adapter, _clones_named(cfg, {"cpoint"}))
     if form == "nested":
-        return _clone_cmds(cfg, adapter, _clones_named(cfg, {"cnest"}))
-    if form == "sheet_single":
-        return _clone_cmds(cfg, adapter, _clones_named(cfg, {"csheet1"}))
-    if form == "sheet_multi":
-        return _clone_cmds(cfg, adapter, _clones_named(cfg, {"S4_csheet2", "S5_csheet2"}))
+        # The path-composed "<outer>/<nested.name>" form, carried by a LIVE
+        # Entity whose cell nests: name:E2 -> lvl1 -> lvl2 -> leaf.
+        return _clone_cmds(cfg, adapter, _entity_clones(adapter, cfg, {"E2"}))
     if form == "thermal":
         return ViaPlanner(adapter, cfg).plan_vias([], []), []
     if form == "net":
@@ -211,8 +196,11 @@ def _commands(form, cfg, adapter):
     raise AssertionError(form)
 
 
-_FORMS = ["name_entity", "name_clone", "point", "role", "anchor", "thermal",
-          "net", "nested", "tree_instance", "sheet_single", "sheet_multi"]
+# 2026-10-12 (Ч1в-4): the rows `name_clone`, `role`, `anchor`, `point`,
+# `sheet_single` and `sheet_multi` are GONE with the root section — no live
+# record can produce those key forms (see _data()'s note). Every row kept here
+# is reachable after Ч1.
+_FORMS = ["name_entity", "tree_instance", "nested", "thermal", "net"]
 
 
 # ── the registry-path apply (reconcile + create + record) ───────────────────
@@ -363,11 +351,12 @@ def test_an_unlifted_registry_is_a_fatal_before_any_copper_moves(form, tmp_path,
 
 
 def test_an_unlifted_registry_is_a_fatal_under_only_too(tmp_path, monkeypatch):
-    """The --only path of the Н3 probe: the Point-anchored clone ``cpoint`` is on
-    the board and in the name-keyed registry; an apply --only ``cabs`` is planned
-    with the FULL known-anchor-id set. Under the mix, ``cpoint``'s name-keyed
-    anchor_id matches no uuid-keyed known id and would be PRUNED. With the fix
-    the apply refuses BEFORE reconcile, so ``cpoint``'s copper stays."""
+    """The --only path of the Н3 probe: the nested-entity record ``E2`` is on the
+    board and in the name-keyed registry; an apply --only ``E`` is planned with
+    the FULL known-anchor-id set. Under the mix, ``E2``'s name-keyed anchor_id
+    matches no uuid-keyed known id and would be PRUNED. With the fix the apply
+    refuses BEFORE reconcile, so ``E2``'s copper stays. 12.10 (Ч1в-4): the
+    carrier is the LIVE Entity + its nested cell, not the retired clone."""
     root = tmp_path / "root.sexp"
     _write(root, _data(), 2)
     adapter = _Adapter()
@@ -376,8 +365,8 @@ def test_an_unlifted_registry_is_a_fatal_under_only_too(tmp_path, monkeypatch):
     # must still be unlifted when pass 2 runs under format 3.
     monkeypatch.setattr(format_version, "CURRENT_FORMAT", 2)
     cfg2, _ = load_config(str(root))
-    v1, t1 = _commands("name_clone", cfg2, adapter)   # cabs
-    v2, t2 = _commands("point", cfg2, adapter)        # cpoint
+    v1, t1 = _commands("name_entity", cfg2, adapter)   # E
+    v2, t2 = _commands("nested", cfg2, adapter)        # E2 (through its cell)
     _apply(adapter, cfg2, root, v1 + v2, t1 + t2)
     board_before = _board_uuids(adapter)
     assert board_before
@@ -388,15 +377,15 @@ def test_an_unlifted_registry_is_a_fatal_under_only_too(tmp_path, monkeypatch):
     monkeypatch.setattr(format_version, "CURRENT_FORMAT", 3)
     _stub_lift(monkeypatch)
     cfg3, _ = load_config(str(root))
-    # --only cabs: only cabs' commands, but _apply still passes the FULL known
+    # --only E: only E's commands, but _apply still passes the FULL known
     # anchor-id set (what apply_pipeline._compute_all_anchor_ids returns).
-    vias3, tracks3 = _commands("name_clone", cfg3, adapter)
+    vias3, tracks3 = _commands("name_entity", cfg3, adapter)
 
     with pytest.raises(ValidationError):
         _apply(adapter, cfg3, root, vias3, tracks3)
 
     assert _board_uuids(adapter) == board_before, (
-        "the --only apply deleted cpoint's copper")
+        "the --only apply deleted E2's copper")
     assert _registry_bytes(cfg3, root) == bytes_before
 
 
@@ -418,7 +407,7 @@ def test_explicit_registry_paths_are_lifted_and_equivalent(tmp_path, monkeypatch
     assert via2 == str(tmp_path / "alt" / "via.registry.json")
     assert trk2 == str(tmp_path / "alt" / "trk.registry.json")
 
-    vias2, tracks2 = _commands("name_clone", cfg2, adapter)
+    vias2, tracks2 = _commands("name_entity", cfg2, adapter)
     _apply(adapter, cfg2, root, vias2, tracks2)
     board_before = _board_uuids(adapter)
     assert board_before
@@ -436,7 +425,7 @@ def test_explicit_registry_paths_are_lifted_and_equivalent(tmp_path, monkeypatch
     assert (json.loads(Path(trk2).read_text(encoding="utf-8"))["schema_version"]
             == REGISTRY_SCHEMA_VERSION_FORMAT3)
 
-    vias3, tracks3 = _commands("name_clone", cfg3, adapter)
+    vias3, tracks3 = _commands("name_entity", cfg3, adapter)
     v_create, v_delete, t_create, t_delete = _apply(adapter, cfg3, root, vias3, tracks3)
     assert v_create == [] and t_create == []
     assert v_delete == [] and t_delete == []
@@ -467,7 +456,7 @@ def test_an_unlifted_track_registry_is_a_fatal_when_nothing_masks_it(
     _write(root, _data(), 2)
     adapter = _Adapter()
     cfg2, _ = load_config(str(root))
-    vias2, tracks2 = _commands("name_clone", cfg2, adapter)
+    vias2, tracks2 = _commands("name_entity", cfg2, adapter)
     _apply(adapter, cfg2, root, vias2, tracks2)
     board_before = _board_uuids(adapter)
     assert board_before
@@ -483,13 +472,13 @@ def test_an_unlifted_track_registry_is_a_fatal_when_nothing_masks_it(
     # ONE failed write: the track registry stays UNLIFTED (no `schema_version`
     # — the legacy schema-1-by-convention form the reader must still refuse).
     Path(trk_path).write_text(
-        json.dumps({"name:cabs|leaf|__spoke__|0": _TRK_ENTRY}),
+        json.dumps({"name:E|leaf|R1|0": _TRK_ENTRY}),
         encoding="utf-8")
     track_before = Path(trk_path).read_text(encoding="utf-8")
     if not via_present:
         Path(via_path).unlink()                          # tracks-only profile
 
-    vias3, tracks3 = _commands("name_clone", cfg3, adapter)
+    vias3, tracks3 = _commands("name_entity", cfg3, adapter)
     if not via_present:
         vias3 = []                                       # no via records planned
 
