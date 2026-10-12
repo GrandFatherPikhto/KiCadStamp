@@ -2,19 +2,19 @@
 
 ## 1. Overview
 
-**KiCadStamp** is a command‑line tool for automated placement of components, vias, and tracks on PCBs in **KiCad 10** using **spoke templates**. It is an advanced script‑based alternative to the KiCad Replicate Layout plugin, designed for complex multi‑channel projects and automated design reuse via the IPC API.
+**KiCadStamp** is a command‑line tool for automated placement of components, vias, and tracks on PCBs in **KiCad 10** using **cell templates**. It is an advanced script‑based alternative to the KiCad Replicate Layout plugin, designed for complex multi‑channel projects and automated design reuse via the IPC API.
 
 The tool connects to a running KiCad instance via IPC (the `kipy` library) and performs:
 
-- Moving components to specified positions according to spoke templates.
-- Creating vias at the spoke level and at the component level.
+- Moving components to specified positions according to cell templates.
+- Creating vias at the cell level and at the component level.
 - **Creating tracks** (straight copper segments) that are part of the template – they are cloned together with components and vias.
 - Undo of the last operation (restores the board to its original state).
 - Extracting templates from the current PCB selection (command `extract`) with support for JSON output and net parametrisation.
 - **Template cloning** (`ClonePlacement`) – reusing a single template at multiple board locations with different nets and parameters.
 - **Disambiguation** of component selection by physical proximity to the anchor.
 
-The core concept is a **spoke** – a set of components, vias, and tracks that belong to a single IC pin or to an arbitrary point on the board (for cloned sections). The entire geometry of a spoke is described in **local coordinates (along, across)** as a **template**, which can be applied to any pad of the target IC (with shift and rotation) or to any board location (for ClonePlacement).
+The core concept is a **cell** – a set of components, vias, and tracks described ONCE in **local coordinates (along, across)** and then placed wherever it is needed: by a `clone_placements:` record (at an absolute point or through an anchor), by an Entity/tree instance, or inside another cell. > **The old "spoke" is RETIRED (2026-10-11):** it was a cell pinned to one IC pad through a `chains:` entry (with a per-net component pool); a config that still carries that section is REFUSED while its text is parsed — see [docs/config.md](config.md).
 
 ---
 
@@ -87,13 +87,13 @@ Modules that work with coordinates, independent of KiCad:
 
 - **`keepout.py`** – `Rect` (AABB) class and functions for building keepout areas, checking point clearance, finding free positions.
 - **`pad_projection.py`** – predicts pad position after moving/rotating the component, accounting for flipping.
-- **`spoke_layout.py`** – transforms template local coordinates (`along/across`) to absolute board coordinates for `ManualSpoke` (pad‑based). Generates vias and **tracks** using `chain.net` as default net.
+- **`spoke_layout.py`** – the shared along/across primitives (`local_to_absolute`, `rotate_local_offset`, `ResolvedVia/Track`, `SpokeLayout`) that `clone_geometry.py`, `cell_frame` and the tree code fill in. The spoke entry point `apply_spoke_geometry` is gone (2026-10).
 - **`clone_geometry.py`** – similar transformation for `ClonePlacement`, but without pad binding: uses an absolute origin `(origin_x, origin_y)`, resolves via/track nets via `net_resolution` (with placeholder support). Supports mirroring (`mirror`).
 - **`thermal_grid.py`** – generates thermal via grids under pads.
 
 ### 4.3. Business Logic (`placement/`)
 
-- **`planner.py`** – `PlacementPlanner` is the main orchestrator. It calls `ManualPositionCalculator` for `chains` and `ClonePositionCalculator` for `clone_placements` (which also returns tracks). Then it builds move, via, and track commands. Implements skipping already‑placed components.
+- **`planner.py`** – `PlacementPlanner` is the main orchestrator. It calls `ClonePositionCalculator` for `clone_placements` and the coordinate/tree paths (which also return tracks). Then it builds move, via, and track commands. Implements skipping already‑placed components.
 - **`executor/`** – split into modules for readability and testability:
   - `FlipManager` – flip management.
   - `MoveExecutor` – move execution.
@@ -101,24 +101,23 @@ Modules that work with coordinates, independent of KiCad:
   - `TrackExecutor` – track creation.
   - `OperationLogger` – writes JSON logs (including tracks).
   - `BatchExecutor` – façade orchestrating all phases and logging.
-- **`interfaces.py`** – defines `IPositionCalculator` and `IViaPlanner` to allow easy replacement of implementations.
+- **`interfaces.py`** – REMOVED (2026-10): the abstract split went with the spoke path; the concrete calculators and `ViaPlanner` are used directly.
 - **`services/`**:
-  - `ComponentPool` – collects components by `Role` field and net, sorts them, assigns to spokes (for `ManualSpoke`).
+  - `ComponentPool` – collects components by `Role` field and net and sorts them; it used to feed spokes and has **no live caller today** (kept as a library).
   - `CloneRoleResolver` – resolves roles for `ClonePlacement` in two modes: by selection (reads roles from selected components) and by nets (explicit net assignment with placeholders via `net_resolution`). In net mode, **disambiguation** is performed by physical proximity to the anchor (if multiple candidates exist, the closest one is chosen if the distance margin is sufficient). Supports `anchor_role`, `anchor_sheet`, `by_selection`, and explicit `refs`.
-  - `ManualPositionCalculator` – implements `IPositionCalculator` for `chains`: builds a pool, applies `apply_spoke_geometry`, returns `PlacedComponentInfo` and `ViaCommand`.
   - `ClonePositionCalculator` – implements calculation for `clone_placements`, using `apply_clone_geometry` and `clone_role_resolver`, returns components, vias, and tracks.
-  - `ViaPlanner` – implements `IViaPlanner`: handles only thermal vias and existing‑via filtering via the registry (`skip_existing_components`).
+  - `ViaPlanner` – handles only thermal vias and existing‑via filtering via the registry (`skip_existing_components`).
 
 ### 4.4. Configuration and Validation
 
-- **`config/` package** (`__init__.py`, `loader.py`, `models.py`, `includes.py`) – defines dataclasses for all config structures (`Config`, `SpokeTemplate`, `ManualSpoke`, `ClonePlacement`, `TemplateVia`, `TemplateTrack`, `TemplateComponentSlot`, etc.) and the `load_config()` function. The `includes.py` module handles `include:` directives for splitting configs across multiple files, including external template files (wrapped in a `cells:` key, merged with any inline `cells:`) – this allows moving heavy geometry out of the main config.
-- **`validation.py`** – pre‑validation checks: template/pad existence, component pool sufficiency, clone correctness (no more than one selection‑based clone per run), **resolution of via/track nets against actual board nets**, uniqueness of clone names/physical anchors, validity of `layer`/`mirror` combinations. Throws `ValidationError` with a clear list of issues.
+- **`config/` package** (`__init__.py`, `loader.py`, `models.py`, `includes.py`) – defines dataclasses for all config structures (`Config`, `Cell`, `CellPlacement`, `ClonePlacement`, `CoordinatePlacement`, `NetTrace`, `Entity`, `TemplateVia`, `TemplateTrack`, `TemplateComponentSlot`, etc.) and the `load_config()` function. The `includes.py` module handles `include:` directives for splitting configs across multiple files, including external template files (wrapped in a `cells:` key, merged with any inline `cells:`) – this allows moving heavy geometry out of the main config.
+- **`validation.py`** – pre‑validation checks: clone correctness (no more than one selection‑based clone per run), **resolution of via/track nets against actual board nets**, uniqueness of clone names/physical anchors, validity of `layer`/`mirror` combinations. (The spoke-era checks — template/pad existence, per-role pool sufficiency — went with the section.) Throws `ValidationError` with a clear list of issues.
 
 ### 4.5. Placement Registry (`registry.py`)
 
 - Ensures idempotency of vias and tracks across runs.
 - Stores via/track information (UUID, position, net, parameters for vias; start/end, width, layer for tracks) in JSON files with composite keys `anchor_id|template_name|role|via_index` (and similar for tracks).
-- For `ManualSpoke`, `anchor_id = pad:{pad}`; for `ClonePlacement`, `anchor_id` can be `name:{clone.name}`, `anchor:{ref}:{pad}`, or `role:{role}:{sheet}:{pad}` depending on the anchor type.
+- For `ClonePlacement`, `anchor_id` can be `name:{clone.name}`, `anchor:{ref}:{pad}`, or `role:{role}:{sheet}:{pad}` depending on the anchor type; the legacy spoke anchor `pad:{pad}` is DETACHED from old registries by the format lift (Д2).
 - On subsequent runs, **compares planned vias/tracks with real objects on the board** (`adapter.get_vias()`, `adapter.get_tracks()`) rather than only the JSON record. This prevents desynchronisation due to manual deletions or crashes.
 - Removes obsolete vias/tracks (prune) and creates only those that are new or have changed position/parameters.
 
@@ -129,7 +128,7 @@ Modules that work with coordinates, independent of KiCad:
 
 ### 4.7. Template Extraction (`template_extraction.py`)
 
-- Implements the `extract` command: from the current PCB selection, extracts a spoke template (components, vias, and **tracks**) and builds a structure ready for serialisation.
+- Implements the `extract` command: from the current PCB selection, extracts a CELL (components, vias, and **tracks**) and builds a structure ready for serialisation.
 - Supports **JSON output** (when extension is `.json`) – writes `{cells: {template_name: {...}}}`, ready to be listed directly under `include:`.
 - Supports **net parametrisation** via `--net-template` and `--param`: replaces literal net names with placeholder patterns.
 - Supports **choosing origin** not by bbox but by a specific via or component (`--origin-by-via-net`, `--origin-by-component-role`).
@@ -146,7 +145,7 @@ Modules that work with coordinates, independent of KiCad:
 
 ### 4.10. User Interface (CLI)
 
-- **`kicadstamp_cli.py`** – the main executable, handling argument parsing, config loading, KiCad connection, validation, planning, and execution (three phases: moves → vias → tracks), plus `undo`, `extract`, `clone-extract`, and the optional `--only` flag for processing only the named `chains`/`clone_placements`/`thermal_via_arrays`.
+- **`kicadstamp_cli.py`** – the main executable, handling argument parsing, config loading, KiCad connection, validation, planning, and execution (three phases: moves → vias → tracks), plus `undo`, `extract`, `clone-extract`, and the optional `--only` flag for processing only the named `clone_placements`/`thermal_via_arrays`.
 
 ---
 
@@ -161,7 +160,7 @@ Modules that work with coordinates, independent of KiCad:
 2. Config loading (load_config)
    │
    ├── Read config (.sexp)
-   ├── Resolve include: (merges external cells:/chains:/clone_placements:/etc.)
+   ├── Resolve include: (merges external cells:/clone_placements:/entities:/etc.)
    ├── Merge with inline templates
    ├── Check role uniqueness in templates
    ├── Build Config object
@@ -182,12 +181,10 @@ Modules that work with coordinates, independent of KiCad:
 5. Planning (PlacementPlanner)
    │
    ├── plan_moves()
-   │   ├── For each rule:
-   │   │   ├── Build ComponentPool
-   │   │   ├── For each spoke:
-   │   │   │   ├── pop() – get refdes for each role
-   │   │   │   ├── apply_spoke_geometry() – compute positions (and vias)
-   │   │   │   └── generate ViaCommand and PlacedComponentInfo
+   │   ├── For each clone_placement / tree instance:
+   │   │   ├── Resolve roles (CloneRoleResolver / the tree code)
+   │   │   ├── apply_clone_geometry() – compute positions (and vias/tracks)
+   │   │   └── generate ViaCommand / TrackCommand and PlacedComponentInfo
    │   │
    │   ├── For each clone_placement:
    │   │   ├── Determine mode (selection or nets)
@@ -255,7 +252,7 @@ Modules that work with coordinates, independent of KiCad:
 |---------|-------------|
 | **Adapter** | `KiCadBoardAdapter` provides a unified interface for `kipy`. |
 | **Command** | `MoveCommand`, `ViaCommand`, `TrackCommand`, `PlacedComponentInfo` encapsulate actions. |
-| **Builder** | `apply_spoke_geometry` and `apply_clone_geometry` build `SpokeLayout` from parts (vias, components, tracks). |
+| **Builder** | `apply_clone_geometry` builds `SpokeLayout` from parts (vias, components, tracks). |
 | **Memento** | JSON logs store state for undo. |
 | **Template Method** | `BatchExecutor` uses a common template for moves, vias, and tracks (batches, transactions). |
 | **Dependency Injection** | All services receive `adapter` and `config` via constructor. |
