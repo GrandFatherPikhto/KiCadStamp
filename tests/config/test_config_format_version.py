@@ -920,11 +920,6 @@ _CONFIG_WRITE_BYPASSES: dict[tuple[str, str], str] = {
         "parent directories (documented: a missing parent is more likely a wrong "
         "path than a directory worth inventing). The format number still comes "
         "from dict_to_sexp."),
-    ("tools/generate_config.py", "<module>"): "one-time generator (see the row below)",
-    ("tools/generate_test_profile.py", "main"): (
-        "a one-time generator that AUTHORS a fresh file from scratch; it still "
-        "gets the CURRENT number from dict_to_sexp inside"),
-    ("tools/generate_10cl006.py", "write_sexp"): "one-time generator (see above)",
 }
 
 

@@ -101,7 +101,7 @@ clone_placement для неё вместе, или внешний файл `Cell
 нет. Пути резолвятся относительно файла, который на них ссылается, а не относительно корневого конфига
 или текущей директории.
 
-**Про текущий боевой конфиг:** мастер-конфиг платы `3CH-AWG-TIA` — `profiles/3ch-awg-tia-v103/config.sexp` (слиты `chains:`, `clone_placements:`, `thermal_via_arrays:`, плюс подключённый через `include:` файл `cells:` с шаблонами). Файл `profiles/generated/10CL006YE144C8G.sexp`, который пишет `tools/generate_10cl006.py`, — самодостаточный архивный вариант (можно прогнать отдельно, но в `apply` для этой платы больше не используется).
+**Про текущий боевой конфиг:** мастер-конфиг платы `3CH-AWG-TIA` — `profiles/3ch-awg-tia-v103/config.sexp` (слиты `entities:`/`trees:`, `thermal_via_arrays:`, плюс подключённый через `include:` файл `cells:` с шаблонами). Легаси-секции `chains:`/`clone_placements:` — и генератор `tools/generate_10cl006.py`, который писал одну из них, — СНЯТЫ (2026-10-12); оставшиеся от него файлы в `profiles/generated/` — самодостаточные архивные копии, в `apply` для этой платы больше не используются.
 
 **`name:` обязателен у каждой записи `thermal_via_arrays:` и у каждого
 `clone_placements:`, но у `chains:` — НЕОБЯЗАТЕЛЕН** (цепейо падает на `net` как фоллбэк — это ненадолго
@@ -919,48 +919,20 @@ python -m kicadstamp.diagnostics.transform_template -i template.sexp -o template
 python -m kicadstamp.diagnostics.transform_template -i template.sexp -o template_shifted.sexp --origin-x 1.5 --origin-y -2.0
 ```
 
-### `generate_10cl006.py` – генератор конфигов для 10CL006YE144C8G
+### `generate_10cl006.py` – СНЯТО (2026-10-12)
 
-Готовый к запуску скрипт (не пример, реально используется в проекте). Единый источник данных — таблицы `BANKS` (пад/сдвиг/поворот по каждому банку питания FPGA) и `CLUSTER_MAP` (net → имя `Cluster`) в самом файле — из них генерируются сразу три производных артефакта.
+Генератор конфигов 10CL006 УДАЛЁН вместе с секцией `clone_placements:` (см.
+[docs/config_ru.md](config_ru.md)). Он писал корневой блок `clone_placements:` —
+секцию, которую профиль больше не имеет права нести, — и импортировал модели
+`Rule`/`ManualSpoke`, ушедшие со спицами (`chains:`) ещё раньше. Его архивные
+выходы в `profiles/generated/` остаются как есть (это файлы, не генератор);
+боевой конфиг платы — `profiles/3ch-awg-tia-v103/config.sexp`.
 
-#### Синтаксис
+### `generate_config.py` – СНЯТО (2026-10-12)
 
-```bash
-python tools/generate_10cl006.py
-```
-
-Без аргументов — все пути на выход зашиты в скрипте (см. `main()`), таблицы `BANKS`/`CLUSTER_MAP`/переключатели якоря (`USE_ANCHOR_ROLE`, `THERMAL_USE_ANCHOR_ROLE`) правятся прямо в исходнике.
-
-#### Что генерирует
-
-| Файл | Назначение |
-|------|------------|
-| `profiles/generated/10CL006YE144C8G.sexp` | ЛЕГАСИ-артефакт: конфиг спиц (`ManualSpoke`/`Chain`), записанный до 2026-10-11 — он больше НЕ ЗАГРУЖАЕТСЯ (секция отказывается; см. [docs/config_ru.md](config_ru.md)). Оставлен для истории; для работы — его двойник `.clone_placements.sexp`. |
-| `profiles/generated/10CL006YE144C8G.clone_placements.sexp` | Та же геометрия, но как `clone_placements:` (`ClonePlacement`) — поддерживаемый путь (треки включены, `params`/`{power_net}`-плейсхолдеры резолвятся). Требует шаблон `cap_pair_standard_clone` из `profiles/templates/3ch-awg-tia.sexp` (внешний cells-файл, перечисленный в `include:` корневого конфига). Автоматически никуда не подключается — блок копируется руками в `profiles/3ch-awg-tia-v103/config.sexp` после проверки `--dry-run`. |
-| `profiles/generated/10CL006YE144C8G.cluster_table.md` | Таблица `net \| pad \| cluster` (`FPGA_PWR_BANK/<pad>`) — шпаргалка для ручной простановки поля `Cluster` в Eeschema (Bulk Edit) на тех падах, для которых резолву не хватит сужения по физической близости к якорю. |
-
-`anchor_cluster` в `clone_placements` проставлен всегда — с 2026-08-14 он сужает ТОЛЬКО якорь, а сужение ролей ВНУТРИ ячейки читает собственный Cluster размещения (`name:`, см. `docs/config.md`); в рабочих профилях `name:` совпадает с `anchor_cluster`, так что они не расходятся. Даже до разметки `Cluster` в схеме резолвер просто пропускает соответствующую ступень сужения и падает на следующую — поэтому сгенерированный файл можно сразу гонять через `apply --dry-run --verbose`, а по логу видно, для каких падов сужения по близости не хватило — только их и тегать.
-
-#### Пример
-
-```bash
-python tools/generate_10cl006.py
-# Сгенерирован: profiles/generated/10CL006YE144C8G.sexp
-# Сгенерирован: profiles/generated/10CL006YE144C8G.clone_placements.sexp
-# Сгенерирован: profiles/generated/10CL006YE144C8G.cluster_table.md
-# Всего спиц: 24
-```
-
-### `generate_config.py` – заготовка-пример (НЕ готовый к запуску скрипт)
-
-В отличие от `generate_10cl006.py`, это **шаблон-заготовка** для написания подобного генератора под новую микросхему, а не рабочий инструмент. `TEMPLATE` в нём заполнен литералами `[...]` (Ellipsis) вместо реальной геометрии — при запуске «как есть» падает с ошибкой s-expr-сериализации:
-
-```bash
-python tools/generate_config.py
-# ValueError: dictionary update sequence element #0 has length 1; 2 is required
-```
-
-Используйте его как отправную точку: скопируйте, замените `TEMPLATE` на реальный шаблон (например, полученный через `extract`), заполните список `FILTERS` своими `CloneParams` (`anchor_ref`/`anchor_pad`/`origin_x`/`origin_y`/`rotation_deg`/`params`/`nets`) — и только тогда запускайте.
+Заготовка тоже УДАЛЕНА — она выводила корневой список `clone_placements:`, ту же
+секцию, что и выше. Для генератора под новую микросхему авторите `entities:` +
+`trees:` (или пишите s-expr руками).
 
 ### `fieldstool_cli.py` – массовая простановка/переименование Role/Cluster в схеме
 
@@ -1318,11 +1290,8 @@ python kicadstamp_cli.py apply profiles/3ch-awg-tia.sexp --verbose --log-file lo
 
 ### Пересборка сгенерированных конфигов/таблицы кластеров для 10CL006
 
-```bash
-python tools/generate_10cl006.py
-```
-
-Дальше — `apply profiles/3ch-awg-tia.sexp --dry-run --verbose`, чтобы проверить, что новая геометрия резолвится так, как ожидается (см. раздел `generate_10cl006.py` выше).
+СНЯТО (2026-10-12) — генератор `tools/generate_10cl006.py` удалён вместе с
+секцией `clone_placements:`; см. его раздел выше.
 
 ### Отмена расстановки
 

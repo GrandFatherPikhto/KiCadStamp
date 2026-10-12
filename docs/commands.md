@@ -100,7 +100,7 @@ to be separate files, so a repeated name is far more likely a mistake. A file in
 reached from two different branches) is fatal too, whether or not it's a true cycle. Paths are resolved
 relative to the file that references them, not the top‑level config or the current working directory.
 
-**About the current production config:** the master config for the `3CH-AWG-TIA` board is `profiles/3ch-awg-tia-v103/config.sexp` (merged `chains:`, `clone_placements:`, `thermal_via_arrays:`, with an `include:`-d `cells:` file for the templates). The file `profiles/generated/10CL006YE144C8G.sexp` written by `tools/generate_10cl006.py` is a self‑contained archival version (can be run separately, but is no longer used in `apply` for this board).
+**About the current production config:** the master config for the `3CH-AWG-TIA` board is `profiles/3ch-awg-tia-v103/config.sexp` (merged `entities:`/`trees:`, `thermal_via_arrays:`, with an `include:`-d `cells:` file for the templates). The legacy `chains:`/`clone_placements:` sections — and the `tools/generate_10cl006.py` generator that wrote one — are GONE (2026-10-12); the files it left in `profiles/generated/` are self‑contained archival copies, no longer used in `apply` for this board.
 
 **`name:` is mandatory on every `thermal_via_arrays:` entry and every
 `clone_placements:` entry, but OPTIONAL on `chains:` entries** (a chain falls back to its `net` – this was
@@ -970,48 +970,20 @@ python -m kicadstamp.diagnostics.transform_template -i template.sexp -o template
 python -m kicadstamp.diagnostics.transform_template -i template.sexp -o template_shifted.sexp --origin-x 1.5 --origin-y -2.0
 ```
 
-### `generate_10cl006.py` – config generator for 10CL006YE144C8G
+### `generate_10cl006.py` – REMOVED (2026-10-12)
 
-A ready‑to‑run script (not an example, actually used in the project). A single source of data – the `BANKS` table (pad/shift/rotation per power rail of the FPGA) and `CLUSTER_MAP` (net → `Cluster` name) inside the file – from which three derived artefacts are generated.
+The 10CL006 config generator is GONE, removed with the `clone_placements:` section
+(see [docs/config.md](config.md)). It wrote a root `clone_placements:` block — a
+section a profile may no longer carry — and it imported the `Rule`/`ManualSpoke`
+models that went with the spokes (`chains:`) long before that. Its archived
+outputs in `profiles/generated/` are kept as they are (files, not generators); the
+live board config is `profiles/3ch-awg-tia-v103/config.sexp`.
 
-#### Syntax
+### `generate_config.py` – REMOVED (2026-10-12)
 
-```bash
-python tools/generate_10cl006.py
-```
-
-No arguments – output paths are hard‑coded inside the script (see `main()`); the `BANKS`/`CLUSTER_MAP` tables and anchor toggles (`USE_ANCHOR_ROLE`, `THERMAL_USE_ANCHOR_ROLE`) are edited directly in the source.
-
-#### What it generates
-
-| File | Purpose |
-|------|---------|
-| `profiles/generated/10CL006YE144C8G.sexp` | LEGACY artefact: a spokes config (`ManualSpoke`/`Chain`) written before 2026-10-11 — it no longer LOADS (that section is refused; see [docs/config.md](config.md)). Kept for reference; use the `.clone_placements.sexp` twin for work. |
-| `profiles/generated/10CL006YE144C8G.clone_placements.sexp` | The same geometry as `clone_placements:` (`ClonePlacement`) — the supported path (tracks included, `params`/`{power_net}` placeholders resolved). Requires template `cap_pair_standard_clone` from `profiles/templates/3ch-awg-tia.sexp` (an external cells file, listed under the root config's `include:`). Not automatically included – copy the block manually into `profiles/3ch-awg-tia-v103/config.sexp` after verifying with `--dry-run`. |
-| `profiles/generated/10CL006YE144C8G.cluster_table.md` | Table `net \| pad \| cluster` (`FPGA_PWR_BANK/<pad>`) – a cheat sheet for manually setting the `Cluster` field in Eeschema (Bulk Edit) for those pads for which proximity‑based resolution is not sufficient. |
-
-`anchor_cluster` in `clone_placements` is always set — since 2026-08-14 it narrows ONLY the anchor, while the narrowing of roles INSIDE the cell reads the placement's OWN Cluster (`name:`, see `docs/config.md`); in the working profiles `name:` equals `anchor_cluster`, so the two stay in sync. Even before `Cluster` is assigned in the schematic the resolver simply skips the corresponding narrowing step and falls back to the next one, so the generated file can be run with `apply --dry-run --verbose` before marking `Cluster` in Eeschema; the log will show which pads need explicit tagging.
-
-#### Example
-
-```bash
-python tools/generate_10cl006.py
-# Generated: profiles/generated/10CL006YE144C8G.sexp
-# Generated: profiles/generated/10CL006YE144C8G.clone_placements.sexp
-# Generated: profiles/generated/10CL006YE144C8G.cluster_table.md
-# Total spokes: 24
-```
-
-### `generate_config.py` – template stub (NOT a ready‑to‑run script)
-
-Unlike `generate_10cl006.py`, this is a **template stub** for writing a similar generator for a new chip, not a working tool. The `TEMPLATE` in it is filled with ellipsis `[...]` instead of real geometry – running it "as is" fails with an s-expr serialisation error:
-
-```bash
-python tools/generate_config.py
-# ValueError: dictionary update sequence element #0 has length 1; 2 is required
-```
-
-Use it as a starting point: copy it, replace `TEMPLATE` with a real template (e.g., obtained via `extract`), fill the `FILTERS` list with your own `CloneParams` (`anchor_ref`/`anchor_pad`/`origin_x`/`origin_y`/`rotation_deg`/`params`/`nets`) – and only then run it.
+The template stub is GONE as well — it emitted a root `clone_placements:` list,
+the same section as above. For a new chip's generator, author `entities:` +
+`trees:` (or write the s-expr by hand) instead.
 
 ### `update_i18n.py` – rebuild the gettext translation catalogs
 
@@ -1208,11 +1180,8 @@ python kicadstamp_cli.py apply profiles/3ch-awg-tia.sexp --verbose --log-file lo
 
 ### Regenerate generated configs/cluster table for 10CL006
 
-```bash
-python tools/generate_10cl006.py
-```
-
-Then run `apply profiles/3ch-awg-tia.sexp --dry-run --verbose` to verify that the new geometry resolves as expected (see the `generate_10cl006.py` section above).
+REMOVED (2026-10-12) — the `tools/generate_10cl006.py` generator was deleted with
+the `clone_placements:` section; see its section above.
 
 ### Undo placement
 
