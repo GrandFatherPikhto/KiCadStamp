@@ -1309,6 +1309,97 @@ def test_refresh_round_trip_mirrored_is_idempotent():
                                                               abs=1e-6)
 
 
+# ── 2026-10-12 (plan_2026_10_12_reread_frame_mirror): the mirror is the
+#    INSTANCE'S PHYSICAL SIDE, never the fit's choice ───────────────────────
+#
+# Denis, 12.10.2026: "зеркалить при перечитывании нужно, только если слой
+# поменялся". The fit used to CHOOSE the mirror, and on a rearranged cluster the
+# mirrored candidate won by a smaller residual — so an instance standing on the
+# cell's OWN side re-read into a MIRRORED cell, and the next Redraw turned every
+# 0°/180° slot ("J1 переворачивает на 180°"). With the cell's layer known the
+# mirror comes from cell_frame.mirror_for_layer and the fit is merely
+# CONSTRAINED by it; an unknown side keeps the historical free fit.
+
+def _frame_spec(spec, theta, mirror=False, cell_layer="F.Cu", sides=None):
+    """The FRAME itself (not the plan) of a live cluster of `spec` — the very
+    construction build_refresh_plan uses (mod._frame_and_context), so the mirror
+    and the residual can be asserted directly. `sides` overrides the live
+    footprints' layer (a B.Cu instance of an F.Cu cell)."""
+    fps = _live_cluster(spec, theta, mirror)
+    if sides is not None:
+        for fp in fps:
+            fp.layer = sides
+    adapter = _FakeAdapter(roles={f"R-{role}": role for role, *_r in spec})
+    frame = mod._frame_and_context(
+        _spec_components(spec), fps, adapter, "refresh", "C_IN_BULK",
+        cell_layer=cell_layer)[0]
+    return frame
+
+
+def test_a_mirrored_by_geometry_cluster_on_the_cells_own_side_is_not_mirrored():
+    """К6 (plan_2026_10_12_reread_frame_mirror): THE defect's own cell. The live
+    cluster is geometrically mirrored (theta=90) while the cell and the instance
+    are both F.Cu — the frame's mirror is False whatever the fit would prefer,
+    and the honest non-rigid residual is what the Log reports."""
+    frame = _frame_spec(_MEASURED_270, 90.0, mirror=True)
+    assert frame.mirror is False
+    assert not frame.is_rigid
+
+
+def test_a_cluster_on_the_other_side_is_mirrored_and_re_reads_to_its_own_offsets():
+    """К7 (plan_2026_10_12_reread_frame_mirror): a B.Cu instance of an F.Cu cell
+    IS mirrored — that is the layer rule's answer, and the fit is constrained to
+    it, so the mirrored cluster still re-reads to its own stored geometry
+    (idempotency is not broken by the constraint)."""
+    frame = _frame_spec(_MEASURED_270, 90.0, mirror=True,
+                        sides=BoardLayer.BL_B_Cu)
+    assert frame.mirror is True
+    assert frame.is_rigid
+
+
+def test_an_unknown_cell_layer_keeps_the_fit_free():
+    """К8 (plan_2026_10_12_reread_frame_mirror): a caller that does not know the
+    cell's layer (CLI, probes, synthetic frames) keeps the historical
+    unconstrained fit — the mirrored candidate still wins on geometry alone."""
+    frame = _frame_spec(_MEASURED_270, 90.0, mirror=True, cell_layer=None)
+    assert frame.mirror is True
+    assert frame.is_rigid
+
+
+def test_the_plan_hands_the_cell_layer_to_the_frame():
+    """К6 wiring (plan_2026_10_12_reread_frame_mirror): build_refresh_plan must
+    PASS `cell_layer` into the ONE frame construction. The SAME mirrored cluster
+    is a rigid MIRRORED copy while the layer is unknown (the rotation line and —
+    rule 2/3 of the plan — the mirror line) and an honest non-rigid one as soon
+    as the layer is known (the rigidity line, and NO mirror line, the side rule
+    having refused the mirror) — so a lost keyword cannot hide behind an
+    agreeing fit."""
+    free = _refresh_spec(_MEASURED_270, 90.0, mirror=True)
+    assert not any("not a rigid copy" in w for w in free.warnings), free.warnings
+    assert any("MIRRORED cell frame" in w for w in free.warnings), free.warnings
+    assert any("is rotated" in w for w in free.warnings), free.warnings
+
+    constrained = _refresh_spec(_MEASURED_270, 90.0, mirror=True,
+                                cell_layer="F.Cu")
+    assert any("not a rigid copy" in w for w in constrained.warnings), \
+        constrained.warnings
+    assert not any("MIRRORED cell frame" in w for w in constrained.warnings), \
+        constrained.warnings
+
+
+def test_a_rigid_rotated_copy_on_its_own_side_still_reads_to_its_own_offsets():
+    """К9 (plan_2026_10_12_reread_frame_mirror): the constraint changes nothing
+    for the ordinary case — a 270° rigid copy standing on the cell's own side
+    re-reads to its own offsets and angles, with the cell's layer known."""
+    plan = _refresh_spec(_MEASURED_270, 270.0, cell_layer="F.Cu")
+    geo = _geo_by_role(plan.component_updates)
+    for role, along, across, angle in _MEASURED_270:
+        assert geo[role]["offset_along_mm"] == pytest.approx(along, abs=1e-4)
+        assert geo[role]["offset_across_mm"] == pytest.approx(across, abs=1e-4)
+        assert _norm(geo[role]["angle_deg"]) == pytest.approx(_norm(angle),
+                                                              abs=1e-6)
+
+
 def test_refresh_never_writes_an_anchor_key():
     """anchor_xy is not part of the refresh AT ALL: the plan's geometric dicts
     carry only offsets/angle for components, nothing anchor-shaped, so an

@@ -360,6 +360,19 @@ tab, exploded, with a banner offering "Restore" / "Show journal" / "Forget journ
 one difference while exploded: the selected inter-cluster copper is TRANSFERRED to
 the cell instead of being subtracted.
 
+The FRAME such a read is expressed in (2026-10-12,
+`plan_2026_10_12_reread_frame_mirror`) follows TWO rules, and the Log names both.
+**The mirror is the instance's physical side** — the side of the live footprints
+against the cell's own `layer` — never the fit's choice: a cluster standing on the
+cell's own side can no longer come back mirrored, and a genuinely mirrored one (an
+instance on the other side of the board) says so in the Log. **The rotation comes
+from the geometry while the cluster is a rigid copy**; once it has been rearranged
+by hand, the frame follows the pose of the tree node that PLACES this instance —
+the very rotation Redraw will use — the fitted number is named in the Log, and a
+read that cannot find exactly one such node (no node, two nodes, a tree embedded
+by a module, a mount node on the path) keeps the fit and says the rotation was
+GUESSED, with the reason.
+
 ### Selecting a cell's instance and its enclosed copper (Config tree)
 
 The same Config-tree context menu that holds "Explode…" carries three selection

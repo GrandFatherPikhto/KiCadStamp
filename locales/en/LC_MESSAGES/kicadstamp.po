@@ -17499,3 +17499,65 @@ msgstr "KiCad rejected the move of {ref!r} — the board was not modified"
 #, python-brace-format
 msgid "footprint {ref!r} not found on the board"
 msgstr "footprint {ref!r} not found on the board"
+
+#: kicadstamp/cell_geometry_refresh.py:992
+msgid ""
+"the instance stands on the OTHER side of the board than the "
+"cell's own layer — the geometry was re-read in a MIRRORED cell "
+"frame (the cell was mirrored by this read)"
+msgstr ""
+
+#: kicadstamp/frame_node_pose.py:82
+msgid "no config is loaded, so no tree can place this instance"
+msgstr ""
+
+#: kicadstamp/frame_node_pose.py:84
+msgid "this read does not know the cell's name"
+msgstr ""
+
+#: kicadstamp/frame_node_pose.py:98
+msgid "no tree node places this instance"
+msgstr ""
+
+#: kicadstamp/frame_node_pose.py:101
+#, python-brace-format
+msgid ""
+"{count} tree nodes place this instance ({where}) — which "
+"one is the source of truth is not something this read "
+"may guess"
+msgstr ""
+
+#: kicadstamp/frame_node_pose.py:107
+#, python-brace-format
+msgid ""
+"its tree {tree!r} is also embedded by {trees} — the two "
+"layouts pose the node differently"
+msgstr ""
+
+#: kicadstamp/frame_node_pose.py:111
+msgid ""
+"the node hangs under a mount node, whose base is read "
+"live (or internally) — its pose is a separate story"
+msgstr ""
+
+#: kicadstamp/frame_node_pose.py:118
+#, python-brace-format
+msgid "its tree's anchor could not be read ({error})"
+msgstr ""
+
+#: kicadstamp/frame_node_pose.py:122
+#, python-brace-format
+msgid "the tree lays out no pose for node {node!r}"
+msgstr ""
+
+#: kicadstamp/frame_node_pose.py:166
+#, python-brace-format
+msgid "the rotation was guessed from the layout ({reason})"
+msgstr ""
+
+#: kicadstamp/frame_node_pose.py:170
+#, python-brace-format
+msgid ""
+"the cluster was rearranged; the frame follows the tree "
+"node {where} ({node}°), the fit suggested {fit}°"
+msgstr ""

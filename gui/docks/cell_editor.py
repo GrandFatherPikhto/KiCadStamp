@@ -1960,6 +1960,10 @@ class CellDock(QWidget):
                 chosen_sheet=(prelude.chosen_address[1]
                               if prelude and prelude.chosen_address else None),
                 cell_layer=payload.get("cell_layer"),
+                # 2026-10-12 (plan_2026_10_12_reread_frame_mirror): the cell's
+                # own name — the frame's tree-node lookup needs it (see
+                # build_refresh_plan). The payload already carries it.
+                cell_name=payload.get("cell_name"),
                 nested_placements=nested,
                 cells=cells,
                 sheet_names=sheet_names)
@@ -2347,7 +2351,19 @@ class CellDock(QWidget):
                 plan_footprints, plan_vias, plan_tracks, adapter,
                 origin_role=payload.get("origin_role"),
                 cell_layer=payload.get("cell_layer"),
-                reconcile_components=prelude is not None)
+                reconcile_components=prelude is not None,
+                # 2026-10-12 (plan_2026_10_12_reread_frame_mirror): the additive
+                # twin is given the SAME frame facts as the refresh read (a known
+                # cell layer pins the frame's mirror to the instance's physical
+                # side; a rearranged cluster takes its rotation from the tree node
+                # that places it) — one frame, one set of rules, both doors.
+                config=cfg,
+                chosen_cluster=(prelude.chosen_address[0]
+                                if prelude and prelude.chosen_address else None),
+                chosen_sheet=(prelude.chosen_address[1]
+                              if prelude and prelude.chosen_address else None),
+                sheet_names=sheet_names,
+                cell_name=payload.get("cell_name"))
             # С-1 п.2: Import stays purely ADDITIVE — it never deletes; the strict,
             # deleting path is Refresh's alone (build_refresh_plan(remove_missing=True)).
             # Г: the same rule as the Refresh read (one module, one wording).
@@ -2383,6 +2399,13 @@ class CellDock(QWidget):
         if result.get("read_line"):
             self._show_message(result["read_line"], _SUCCESS_STYLE)
         plan = result["plan"]
+        # 2026-10-12 (plan_2026_10_12_reread_frame_mirror): the frame's honest
+        # report lines — the same ones the refresh path prints (a non-rigid
+        # cluster, a turned instance, and the frame following the tree node of a
+        # rearranged one). They describe the READ, so they are said before the
+        # preview and whether or not the preview is accepted.
+        for warning in getattr(plan, "warnings", None) or []:
+            self._show_message(warning, _WARN_STYLE)
         rows = import_preview_rows(plan)
         if not rows:
             self._show_message(

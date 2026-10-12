@@ -18403,3 +18403,76 @@ msgstr "KiCad отклонил перемещение {ref!r} — плата н�
 #, python-brace-format
 msgid "footprint {ref!r} not found on the board"
 msgstr "футпринт {ref!r} не найден на плате"
+
+#: kicadstamp/cell_geometry_refresh.py:992
+msgid ""
+"the instance stands on the OTHER side of the board than the "
+"cell's own layer — the geometry was re-read in a MIRRORED cell "
+"frame (the cell was mirrored by this read)"
+msgstr ""
+"инстанс стоит на ДРУГОЙ стороне платы, чем собственный слой "
+"шаблона — геометрия перечитана в ЗЕРКАЛЬНОЙ системе координат "
+"шаблона (шаблон отражён этим перечитыванием)"
+
+#: kicadstamp/frame_node_pose.py:82
+msgid "no config is loaded, so no tree can place this instance"
+msgstr "конфиг не загружен, поэтому ни одно дерево не ставит этот инстанс"
+
+#: kicadstamp/frame_node_pose.py:84
+msgid "this read does not know the cell's name"
+msgstr "это перечитывание не знает имени шаблона"
+
+#: kicadstamp/frame_node_pose.py:98
+msgid "no tree node places this instance"
+msgstr "ни один узел дерева не ставит этот инстанс"
+
+#: kicadstamp/frame_node_pose.py:101
+#, python-brace-format
+msgid ""
+"{count} tree nodes place this instance ({where}) — which "
+"one is the source of truth is not something this read "
+"may guess"
+msgstr ""
+"{count} узлов дерева ставят этот инстанс ({where}) — какой из них "
+"источник истины, это перечитывание угадывать не может"
+
+#: kicadstamp/frame_node_pose.py:107
+#, python-brace-format
+msgid ""
+"its tree {tree!r} is also embedded by {trees} — the two "
+"layouts pose the node differently"
+msgstr ""
+"его дерево {tree!r} ещё и вложено в {trees} — две раскладки дают узлу "
+"разные позы"
+
+#: kicadstamp/frame_node_pose.py:111
+msgid ""
+"the node hangs under a mount node, whose base is read "
+"live (or internally) — its pose is a separate story"
+msgstr ""
+"узел висит под узлом mount, чья опора читается с платы (или внутренне) — "
+"его поза это отдельная история"
+
+#: kicadstamp/frame_node_pose.py:118
+#, python-brace-format
+msgid "its tree's anchor could not be read ({error})"
+msgstr "опору его дерева не удалось прочитать ({error})"
+
+#: kicadstamp/frame_node_pose.py:122
+#, python-brace-format
+msgid "the tree lays out no pose for node {node!r}"
+msgstr "дерево не раскладывает позу для узла {node!r}"
+
+#: kicadstamp/frame_node_pose.py:166
+#, python-brace-format
+msgid "the rotation was guessed from the layout ({reason})"
+msgstr "поворот угадан по раскладке ({reason})"
+
+#: kicadstamp/frame_node_pose.py:170
+#, python-brace-format
+msgid ""
+"the cluster was rearranged; the frame follows the tree "
+"node {where} ({node}°), the fit suggested {fit}°"
+msgstr ""
+"раскладка переставлена; рамка следует за узлом дерева {where} ({node}°), "
+"подгонка предлагала {fit}°"

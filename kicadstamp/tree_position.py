@@ -32,12 +32,12 @@ import dataclasses
 import logging
 
 from .anchor_graph import Record, build_records
-from .cell_frame import CellFrame, rotate_ydown_mm
+from .cell_frame import CellFrame, mirror_for_layer, rotate_ydown_mm
 from .component_address import resolve_component_footprint
 from .exceptions import ValidationError, fatal_error_reason, format_fatal_error
 from .geometry.cell_anchor import cell_mount_offset
 from .i18n import _
-from .domain.geometry import BoardLayer, Vector2
+from .domain.geometry import Vector2
 from .geometry.clone_geometry import clone_shift_mm
 from .geometry.spoke_layout import local_to_absolute, rotate_local_offset
 from .link_trees import (
@@ -228,11 +228,14 @@ def _footprint_relative_mirror(fp, cell, fallback: bool) -> bool:
     reference layer — i.e. the pad's local offset must be X-flipped before being
     un-rotated (the same rule `resolve_pad_anchor_offset` uses). `fallback` is
     used when the board object carries no usable layer (a duck-typed test
-    double): then the placement's OWN config mirror decides."""
-    layer = getattr(fp, "layer", None)
-    if not isinstance(layer, BoardLayer):
-        return fallback
-    return (layer == BoardLayer.BL_B_Cu) != (getattr(cell, "layer", "F.Cu") == "B.Cu")
+    double): then the placement's OWN config mirror decides.
+
+    The comparison ITSELF is delegated to the ONE host of that rule,
+    cell_frame.mirror_for_layer (2026-10-12, plan_2026_10_12_reread_frame_mirror):
+    this wrapper keeps only the cell's documented 'F.Cu' default and the
+    duck-typed fallback, so the third copy of the comparison is gone."""
+    return mirror_for_layer(getattr(fp, "layer", None),
+                            getattr(cell, "layer", "F.Cu"), fallback)
 
 
 def _internal_mount_base(node: TreeNode, anchor: TreeAnchor,

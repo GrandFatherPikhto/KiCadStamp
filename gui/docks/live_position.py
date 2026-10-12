@@ -23,7 +23,8 @@ import logging
 from collections import Counter
 from dataclasses import dataclass
 
-from kicadstamp.cell_frame import CellFrame, fit_cell_frame, reference_relative_pairs
+from kicadstamp.cell_frame import (CellFrame, fit_cell_frame, mirror_for_layer,
+                                   reference_relative_pairs)
 from kicadstamp.cluster_matching import cluster_prefix_match
 from kicadstamp.config import clone_placement_effective_name
 from kicadstamp.constants import CLUSTER_FIELD_NAME, ROLE_FIELD_NAME
@@ -507,9 +508,10 @@ def _live_cluster_frame(adapter, cell, cluster: str, sheet: str, sheet_names,
                    "working Cluster on the board")]))
     slot = _reference_slot(cell, role_to_fp)
     fp = role_to_fp[slot.role]
-    # Mirror comes from the LIVE footprint's side against the cell's own layer
-    # (clone_geometry's rule) — not from clone.mirror.
-    mirror = (fp.layer == BoardLayer.BL_B_Cu) != (cell.layer == "B.Cu")
+    # Mirror comes from the LIVE footprint's side against the cell's own layer —
+    # the ONE host of that rule (cell_frame.mirror_for_layer), never a second
+    # copy of the comparison, and never clone.mirror.
+    mirror = mirror_for_layer(fp.layer, cell.layer)
     # resolve_pad_mount takes the role -> ref map of the RESOLVED instance (the
     # same shape the identification stores): built here from the live footprints
     # so the roles verified above are exactly the ones used.

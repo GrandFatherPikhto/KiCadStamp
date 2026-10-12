@@ -35,6 +35,13 @@ instead of silently "straightening" a genuine board edit; the angle itself is
 ALWAYS snapped onto the orthogonal grid, so only the role that really moved
 carries the deviation into the cell.
 
+The SECOND rule this module owns (2026-10-12, plan_2026_10_12_reread_frame_mirror):
+`mirror_for_layer` — WHICH SIDE of the board an instance stands on. A cell frame
+never CHOOSES a mirror from geometry: the side comes from the live footprint
+against the cell's own `layer`, and a fit is merely CONSTRAINED by it. Every
+reader of a live cluster must ask this one function instead of spelling the
+comparison out (three copies drifted into the re-read defect of 2026-10-12).
+
 Pure: no board access, no Qt, no config objects — mm floats in and out.
 """
 from __future__ import annotations
@@ -43,7 +50,7 @@ import math
 from dataclasses import dataclass
 from typing import Iterable
 
-from .domain.geometry import Vector2
+from .domain.geometry import BoardLayer, Vector2
 from .geometry.clone_geometry import clone_rotation_from_component
 from .utils.units import MM
 
@@ -67,6 +74,32 @@ def rotate_ydown_mm(x_mm: float, y_mm: float, rotation_deg: float) -> tuple[floa
     r = math.radians(rotation_deg)
     cos_r, sin_r = math.cos(r), math.sin(r)
     return (x_mm * cos_r + y_mm * sin_r, -x_mm * sin_r + y_mm * cos_r)
+
+
+def mirror_for_layer(fp_layer, cell_layer,
+                     fallback: bool | None = False) -> bool | None:
+    """Is the live instance MIRRORED relative to its cell? — i.e. is it standing
+    on the OTHER SIDE of the board than the cell's own `layer` says.
+
+    THE one host of that rule (2026-10-12): `clone_geometry` applies it at
+    placement time, and the three readers that used to spell the comparison out
+    — `cell_geometry_refresh._read_nested_live`, `live_position.
+    _live_cluster_frame`, `tree_position._footprint_relative_mirror` — call this
+    function now. Geometry NEVER decides the mirror: a fit is constrained by this
+    answer, and the defect of 2026-10-12 (a re-read frame mirrored a cluster that
+    stood on the cell's own side) is exactly what a second copy of the rule cost.
+
+    `fallback` is returned when EITHER side is unknown — a duck-typed double whose
+    `layer` is not a `BoardLayer`, or a cell whose layer is not a string (a config
+    record that names no layer): the caller then keeps its historical behaviour
+    instead of inventing a side. Both sides known is the ONLY case this function
+    answers with the layer rule. The two callers' fallbacks differ on purpose and
+    the TYPE says so: the pad/mount wrapper passes the placement's own config
+    mirror (a `bool`), while the re-read frame passes `None` — "the fit stays
+    free", which is exactly what an unknown side used to mean."""
+    if not isinstance(fp_layer, BoardLayer) or not isinstance(cell_layer, str):
+        return fallback
+    return (fp_layer == BoardLayer.BL_B_Cu) != (cell_layer == "B.Cu")
 
 
 @dataclass(frozen=True)
