@@ -25,7 +25,7 @@ and the two registries; THIS decides:
     an ambiguity the caller reports as a red Log line with the candidate list,
     building nothing.
   * SUBTRACT from the selected copper everything the registries recorded for
-    OTHER records — other cells, ``net_traces`` (inter-cluster copper), chains,
+    OTHER records — other cells, ``net_traces`` (inter-cluster copper),
     thermal via arrays, and this same cell on ANOTHER instance. Copper the
     registries do not know is KEPT and goes the ordinary way (paired with a
     record or imported as a new one), exactly like today.
@@ -458,7 +458,7 @@ def is_own_key(key: str, cell_identity: str | None,
             return False
         return _address_matches(own_addresses[identity], chosen_address)
     # point: / pad: / thermal: / net: / anything else -> foreign (points,
-    # physics pads, inter-cluster net_traces, thermal via arrays, chains).
+    # physics pads, inter-cluster net_traces, thermal via arrays).
     return False
 
 
@@ -673,7 +673,7 @@ def net_trace_transfers(items, net_traces, adapter, *,
     """Р3: the (kept, transfers, notes) split — the selected copper a LIVE
     ``net_traces:`` record owns STAYS in the read (it becomes the cell's new
     copper) and each piece is named for the ownership transfer; everything else is
-    kept exactly as the subtraction would leave it (other cells, chains, thermal
+    kept exactly as the subtraction would leave it (other cells, thermal
     arrays and the record's own unselected copper never appear here).
 
     NOTE (Р3а-3, found while writing the address-gate cells): the owned piece is

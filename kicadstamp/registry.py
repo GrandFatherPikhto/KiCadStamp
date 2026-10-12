@@ -5,14 +5,16 @@ registry.py — placement registry for vias and tracks between runs.
 Allows: (1) not touching a via/track that is already exactly in the right place;
 (2) if the position in the config changed — delete the old via/track by its
 stored UUID and create a new one at the new location; (3) prune — delete
-vias/tracks whose keys no longer appear in the current config (spoke/component
-removed from YAML entirely).
+vias/tracks whose keys no longer appear in the current config (cell/component
+removed from the config entirely).
 
 Composite key — anchor_id/template_name/role/index:
-  anchor_id: f"pad:{spoke_pad}" for KiCadStamp (anchor = IC pad number).
+  anchor_id: f"name:{name}" for KiCadStamp (a clone placement's own name);
+             `pad:<pad>` was the retired spoke anchor, kept only in
+             PROTECTED_ANCHOR_PREFIXES for legacy entries (see below).
              Future extension: f"ref:{anchor_ref}" for section cloning.
   role: component role (unique within a cell, see config.py) for component‑level
-        vias/tracks, or None for spoke‑level vias/tracks.
+        vias/tracks, or None for cell‑level vias/tracks.
   index: 0‑based index within the specific list (vias or tracks) — since roles
          within a cell are unique and the order of lists is stable between
          runs, this is sufficient without additional discrimination.
@@ -95,6 +97,13 @@ _POSITION_TOLERANCE_MM = POSITION_TOLERANCE_MM
 # imprints ever DO start writing registry entries, that test fails and
 # `imprint:` must join both this constant and
 # apply_pipeline._compute_all_anchor_ids.)
+# `pad:` — the LEGACY spoke anchor (built ONLY by the removed
+# manual_position_calculator) — is KEPT on purpose: no builder produces it today,
+# but dropping the prefix would let reconcile treat a legacy pad-keyed entry as
+# unprotected and DELETE its copper on an --only/--cluster run. Such an entry is
+# either detached by the Д2 registry lift or refused by the schema gate
+# (config/registry_upgrade.py), and
+# tests/placement/test_registry_anchor_prefix_protection.py enumerates this tuple.
 PROTECTED_ANCHOR_PREFIXES = ("anchor:", "role:", "name:", "point:",
                              "thermal:", "pad:", "net:")
 
@@ -102,11 +111,11 @@ PROTECTED_ANCHOR_PREFIXES = ("anchor:", "role:", "name:", "point:",
 def make_registry_key(anchor_id: str, template_name: str, role: str | None, index: int) -> str:
     """Build a composite registry key for vias/tracks.
 
-    ``anchor_id`` — e.g. ``"pad:{pad}"`` or ``"thermal:{name}"``.
-    ``template_name`` — the spoke/clone cell name (param kept as
+    ``anchor_id`` — e.g. ``"name:{name}"`` or ``"thermal:{name}"``.
+    ``template_name`` — the clone cell name (param kept as
     ``template_name`` for registry backward compatibility).
     ``role`` — component role (unique within a cell) or ``None`` for
-    spoke‑level vias/tracks (substituted by :data:`SPOKE_LEVEL_ROLE_PLACEHOLDER`).
+    cell‑level vias/tracks (substituted by :data:`SPOKE_LEVEL_ROLE_PLACEHOLDER`).
     ``index`` — 0‑based index within the specific list (vias or tracks).
 
     Homed here, not in placement/commands.py: the registry key is the registry's
@@ -683,8 +692,8 @@ def filter_existing_vias(to_create: list[ViaCommand], live_vias) -> list[ViaComm
     """Positional pre-check of vias — unregistered-copper idempotency (analog of
     filter_existing_tracks, extended 2026-09-08 — plan_2026_09_08_via_
     positional_precheck.md): vias never got the same protection tracks got
-    2026-08-31, so a chain-produced via (chains: spokes, e.g. the live profile's
-    FPGA power-bank chains) whose registry entry stops matching the live board
+    2026-08-31, so a cell-produced via (a clone cell's own via, e.g. the live
+    profile's FPGA power-bank cells) whose registry entry stops matching the board
     for ANY reason — lost/overwritten registry state, a run interrupted between
     via creation and registry save, etc. — was recreated unconditionally on every
     subsequent redraw; a live profile accumulated up to 4 literal duplicates per

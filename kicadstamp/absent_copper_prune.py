@@ -29,7 +29,7 @@ and this map share the ONE filter loop :func:`own_registry_entries`, so the two
 can never disagree about "which copper is mine".
 
 The record-identifying TAIL of ``make_registry_key`` ("via"/"track", the role
-placeholder for spoke-level copper, the 0-based index in the cell's list) is the
+placeholder for cell-level copper, the 0-based index in the cell's list) is the
 key: every command of one dry run shares the anchor and template, so that tail
 tells the records apart — the ONE association the plan allows ("запись ↔ команда
 — по индексу в ключе реестра").
@@ -103,7 +103,7 @@ class RecordCopperMap:
     """``{(kind, role_part, index): live_uuid}`` for ONE instance's copper.
 
     ``planned`` — how many commands the dry run produced (0 = the record placed
-    no copper: a refused tree, an unrealized record, a chain-only placement).
+    no copper: a refused tree, an unrealized record).
     For a map built by :func:`registry_record_copper_map` ``planned`` is the
     number of registry pairs ACCEPTED and ``source`` is ``"registry"``.
 
@@ -182,7 +182,7 @@ def record_of(cell, kind: str, role_part: str, index: int):
 
     THE one lookup of a record by ``(kind, role_part, index)``: :func:`record_points`
     reads the stored points through it, and the at-current-place adoption reads the
-    record's own ``net`` / ``net_from_role`` through it for its chain guard
+    record's own ``net`` / ``net_from_role`` through it for its net guard
     (plan_2026_10_07_adopt_at_current_place, доделка 1б) — never a second lookup.
     Both levels production resolves are covered: a cell-level via/track under the
     ``__spoke__`` placeholder and a component's via under its role. A component
@@ -213,7 +213,7 @@ def record_points(cell, kind: str, role_part: str, index: int):
     when the cell holds NO such record today — an ORPHAN key (its ``index`` is
     past the end of the list, the numbers having shifted after the list was
     edited) or a role the cell no longer has. The record itself is found by
-    :func:`record_of` (ONE lookup, shared with the chain guard).
+    :func:`record_of` (ONE lookup, shared with the net guard).
 
     One ``(along_mm, across_mm)`` for a via, two (start, end) for a track."""
     rec = record_of(cell, kind, role_part, index)
@@ -318,7 +318,7 @@ def not_checked_reasons(*, not_rigid: bool, frame_residual_mm,
 
 def cell_record_slots(cell) -> set:
     """``{(kind, role_part, index)}`` — every copper record the cell's OWN lists
-    can hold: cell-level vias/tracks under the spoke placeholder and each
+    can hold: cell-level vias/tracks under the role placeholder and each
     component's vias under its role (the SAME two levels ``plan_subtraction``
     resolves). Shared by the registry-only map (to count the records the registry
     has no key for) and by the at-current-place adoption (to walk the records)."""
@@ -581,7 +581,7 @@ def _map_for(adapter, config_path: str, cell_identity: Optional[str],
                                 cell_identity)
             if tail is None:
                 # A command of some OTHER record in the same run (net_traces,
-                # a chain, a thermal array): not this cell's record.
+                # a thermal array): not this cell's record.
                 continue
             by_record[(kind, tail[0], tail[1])] = getattr(m.live, "uuid", None)
     planned = len(planned_vias or ()) + len(planned_tracks or ())

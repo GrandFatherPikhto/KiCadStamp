@@ -29,14 +29,15 @@ copy carries the TEMPLATE's cluster/sheet, so those two pick the WRONG channel
 (the live 2026-10-07 `fpga` defect — ch1 framed from ch0's components and adopted
 ch0's copper, which reconcile then deleted as "moved"). As a SECOND safety a live
 object is adopted only when its net is the one this clone's plan gives the record
-(``net_from_role`` resolved live, else ``resolve_net``): copper of a foreign chain
-is never taken, even at an exact geometric match.
+(``net_from_role`` resolved live, else ``resolve_net``): copper on a foreign net
+(another instance's, e.g. ``/Channel_0/…`` for ch1) is never taken, even at an
+exact geometric match.
 
 READ/decide here is pure; the ONLY write is ``reg.adopt_live`` (the registry's own
 schema owner), and only when ``write=True`` (a dry run passes False and counts
 "would adopt").
 
-Scope v1 (deliberately NOT touched): net_traces, chains, thermal_via_arrays,
+Scope v1 (deliberately NOT touched): net_traces, thermal_via_arrays,
 imprints, coordinate_placements / component nodes, points — each has its own path
 and its own key scheme. LIMITATION: a NON-RIGID live cluster (e.g. the live `fpga`
 at 2.56 mm) cannot tell a record from its neighbour, so the whole instance is
@@ -117,7 +118,7 @@ def _entry_from_live(kind: str, item):
 
 
 def _record_net(rec, clone, role_refs, adapter):
-    """``(declared, net)`` for ONE cell via/track record — how the CHAIN GUARD
+    """``(declared, net)`` for ONE cell via/track record — how the NET GUARD
     knows the net this clone's plan will give the record, through the SAME
     primitives the planner uses (``clone_geometry._resolve_clone_via/_track``
     resolve a literal ``net`` with ``resolve_net``; ``net_from_role`` goes through
@@ -126,11 +127,11 @@ def _record_net(rec, clone, role_refs, adapter):
 
     ``declared`` False — the record names NEITHER ``net`` nor ``net_from_role``:
     the planner FATALS on such a record (``clone_geometry``: "via/track without
-    net"), so no real cell reaches this; the guard then has no chain to compare and
+    net"), so no real cell reaches this; the guard then has no net to compare and
     leaves the geometry match standing. ``declared`` True with ``net`` None — the
-    record DOES name a chain that could not be resolved here (a ``net_from_role``
-    this instance has no role for): the guard REFUSES the object rather than adopt
-    copper it cannot attribute."""
+    record DOES name a net source that could not be resolved here (a
+    ``net_from_role`` this instance has no role for): the guard REFUSES the object
+    rather than adopt copper it cannot attribute."""
     from .exceptions import ValidationError
     from .net_resolution import resolve_net, resolve_net_from_role
     role = getattr(rec, "net_from_role", None)
@@ -167,7 +168,7 @@ def adopt_cell_copper_at_current_place(adapter, cfg, items, via_reg, track_reg,
     item owned by ANY registry entry is never taken; a key whose stored uuid is
     STILL live is left alone (reconcile will move its copper); a key whose uuid is
     gone from the board may be rebound; an ambiguous claim is taken by no one; and
-    a live item on another net than the record's is never taken (the chain guard)."""
+    a live item on another net than the record's is never taken (the net guard)."""
     from .absent_copper_prune import (
         cell_record_slots,
         own_instance_context,
@@ -272,8 +273,8 @@ def adopt_cell_copper_at_current_place(adapter, cfg, items, via_reg, track_reg,
                        and pair_agrees_with_record(points, item, frame, RIGID_TOLERANCE_MM)]
             if not matches:
                 continue
-            # THE CHAIN GUARD: a live object is adopted only when its net is the one
-            # this clone's plan will give the record. Copper of another chain
+            # THE NET GUARD: a live object is adopted only when its net is the one
+            # this clone's plan will give the record. Copper on another net
             # (`/Channel_0/…` for ch1) is never taken, even at an exact geometric
             # match — the safety net that catches a role resolution gone wrong again.
             declared, expected_net = _record_net(rec, clone, role_refs, adapter)
