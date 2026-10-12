@@ -65,19 +65,21 @@ GRAMMAR_TREES = {
     "trees": [
         {"name": "power_tree", "anchor": {"ref": "CONN_PM5V"},
          "nodes": [
-             {"ref": "AMS1117_REG", "kind": "clone", "xy": [5.0, 2.0],
+             {"ref": "AMS1117_REG", "kind": "placement", "xy": [5.0, 2.0],
               "children": [{"ref": "C_OUT", "kind": "external", "xy": [1.0, 0]}]},
              {"ref": "R_AROUND", "kind": "external", "polar": [3.0, 45.0]},
          ]},
         {"name": "misc", "anchor": {"origin": True},
          "nodes": [{"ref": "R_DEBUG", "kind": "external", "xy": [100.0, 50.0]}]},
     ],
-    # У3.5 К3, row 1: the format-2 -> 3 converter refuses a node without a `kind`
-    # (Р-У3.3), and a `clone` node's ref must resolve to a clone_placements record
-    # (whose cell must resolve too) or the format-3 load is a dangling reference.
+    # The Placer's flat `clone_placements:` section is gone; a node's "what"
+    # lives in `entities:` (Entity = the "what" of a placement, NO position) and
+    # its position in the tree node itself (kind "placement"). The ref of a
+    # (kind placement) node must resolve to an entities: record whose cell must
+    # resolve too, or the format-3 load is a dangling reference.
     "cells": {"c_out_cell": {}},
-    "clone_placements": [{"name": "AMS1117_REG", "cluster": "AMS1117_REG",
-                          "cell": "c_out_cell", "xy": [0.0, 0.0]}],
+    "entities": [{"name": "AMS1117_REG", "cluster": "AMS1117_REG",
+                  "cell": "c_out_cell"}],
 }
 
 # A trees: section for the SAVE tests (which run _do_save's link_trees
@@ -373,7 +375,7 @@ def test_set_root_file_renders_one_tab_per_tree_with_nested_structure(main_windo
     # Р-У3.3), and the dock shows the kind tag next to a ref whenever it is set
     # (gui/docks/trees_dock.py:_KIND_TAGS) — so the child/polar nodes carry their
     # "(external)" tag too.
-    assert nodes[0].text(0) == "AMS1117_REG (clone)"
+    assert nodes[0].text(0) == "AMS1117_REG (placement)"
     assert nodes[1].text(0) == "R_AROUND (external)"
     ams_children = _children(nodes[0])
     assert [c.text(0) for c in ams_children] == ["C_OUT (external)"]
@@ -772,7 +774,7 @@ def test_delete_node_removes_subtree_and_marks_dirty(main_window, tmp_path):
     assert dock._dirty is True
     tree_widget = dock._current_tree_widget()
     nodes = _children(_children(tree_widget.invisibleRootItem())[0])
-    assert [n.text(0) for n in nodes] == ["AMS1117_REG (clone)"]
+    assert [n.text(0) for n in nodes] == ["AMS1117_REG (placement)"]
 
 
 def test_move_into_own_descendant_is_forbidden(main_window, tmp_path):
@@ -2219,7 +2221,7 @@ def test_edit_dialog_prefilled_and_own_ref_not_rejected(main_window, tmp_path, m
                         existing=node, title="Edit node")
 
     # Pre-filled from `existing`:
-    assert dlg.kind_combo.currentData() == "clone"
+    assert dlg.kind_combo.currentData() == "placement"
     assert dlg.ref_combo.currentText() == "AMS1117_REG"
     assert dlg.offset_widget.x_edit.text() == "5.0"
     assert dlg.offset_widget.y_edit.text() == "2.0"
@@ -2274,20 +2276,22 @@ def test_master_detail_node_tab_apply_mutates_node_and_marks_dirty(main_window, 
     assert dock._dirty is True
 
 
-# ── clone + anchor_point: the KeyError regression (2026-08-27), superseded by
-#    the lazy-resolution fix (bug #6, 2026-08-31) ───────────────────────────
+# ── coordinate + anchor_point: the KeyError regression (2026-08-27),
+#    superseded by the lazy-resolution fix (bug #6, 2026-08-31) ─────────────
 
-# A root config whose only clone_placement is anchored via anchor_point to a
-# points: entry. Bug #6 made ClonePositionCalculator._resolve_anchor resolve
-# its anchor_point LAZILY on demand (resolve_point_chain) even when the caller
-# (here: the ad-hoc GUI read) passes an EMPTY resolved_points dict — so the
-# live read now SUCCEEDS. The point is xy-literal, resolvable without any live
-# board, so the tests run with a bare object() adapter.
+# A root config whose only coordinate_placements entry is anchored via
+# anchor_point to a points: entry. Bug #6 made the position resolver resolve its
+# anchor_point LAZILY on demand (resolve_point_chain) even when the caller (here:
+# the ad-hoc GUI read) passes an EMPTY resolved_points dict — so the live read now
+# SUCCEEDS. The point is xy-literal, resolvable without any live board, so the
+# tests run with a bare object() adapter. (The flat clone_placements: carrier is
+# gone; coordinate_placements is the live pass-through record that still carries
+# its own anchor_point.)
 ANCHOR_POINT_CFG = {
     "points": {"Origin": {"xy": [10.0, 20.0]}},
-    "cells": {"t": {}},
-    "clone_placements": [
-        {"name": "CL_AP", "cluster": "c", "cell": "t", "xy": [1.0, 2.0],
+    "coordinate_placements": [
+        {"name": "CL_AP", "cluster": "c", "role": "R",
+         "x_mm": 1.0, "y_mm": 2.0, "rotation_deg": 0.0,
          "anchor_point": "Origin"},
     ],
     "trees": [
@@ -2295,20 +2299,21 @@ ANCHOR_POINT_CFG = {
     ],
 }
 
-# The same clone+anchor_point record as the tree's own REF-ANCHOR, with a
+# The same coordinate+anchor_point record as the tree's own REF-ANCHOR, with a
 # normal node under it — for the Reread path (an anchor is not FORK-1-checked,
-# so it CAN legitimately reference a clone+anchor_point record).
+# so it CAN legitimately reference a coordinate+anchor_point record).
 ANCHOR_POINT_ANCHOR_CFG = {
     "points": {"Origin": {"xy": [10.0, 20.0]}},
-    "cells": {"t": {}},
-    "clone_placements": [
-        {"name": "CL_AP", "cluster": "c", "cell": "t", "xy": [1.0, 2.0],
+    "coordinate_placements": [
+        {"name": "CL_AP", "cluster": "c", "role": "R",
+         "x_mm": 1.0, "y_mm": 2.0, "rotation_deg": 0.0,
          "anchor_point": "Origin"},
-        {"name": "CL_OK", "cluster": "c2", "cell": "t", "xy": [5.0, 5.0]},
+        {"name": "CL_OK", "cluster": "c2", "role": "R2",
+         "x_mm": 5.0, "y_mm": 5.0, "rotation_deg": 0.0},
     ],
     "trees": [
         {"name": "t1", "anchor": {"ref": "CL_AP"},
-         "nodes": [{"ref": "CL_OK", "kind": "clone"}]},
+         "nodes": [{"ref": "CL_OK", "kind": "coordinate"}]},
     ],
 }
 
@@ -2343,13 +2348,11 @@ UNPLACED_ENTITY_PARENT_CFG = {
     "cells": {"c": {}, "t": {}},
     "entities": [
         {"name": "ENT_A", "cell": "c"},
-    ],
-    "clone_placements": [
-        {"name": "CL_X", "cluster": "c", "cell": "t", "xy": [5.0, 5.0]},
+        {"name": "CL_X", "cell": "t", "cluster": "c"},
     ],
     "trees": [
         {"name": "t1", "anchor": {"ref": "ENT_A"},
-         "nodes": [{"ref": "CL_X", "kind": "clone"}]},
+         "nodes": [{"ref": "CL_X", "kind": "placement"}]},
     ],
 }
 
@@ -2374,14 +2377,14 @@ ZERO_SLOT_ENTITY_CFG = {
 }
 
 
-def test_read_position_clone_anchor_point_resolves_on_demand(
+def test_read_position_coordinate_anchor_point_resolves_on_demand(
         main_window, tmp_path, monkeypatch):
-    """Bug #6 gate (GUI): a clone-kind ref anchored via anchor_point IS
-    live-resolvable by the ad-hoc GUI read now (ClonePositionCalculator.
-    _resolve_anchor resolves the point lazily, not from a pre-populated
-    resolved_points dict) — the Read-position dialog fills the offset from the
-    point's position (10,20) + the clone's own shift (1,2) = (11,22) and does
-    NOT warn. Does NOT mock _resolve_live_offset — exercises the REAL path."""
+    """Bug #6 gate (GUI): a coordinate-kind ref anchored via anchor_point IS
+    live-resolvable by the ad-hoc GUI read now (the position resolver resolves
+    the point lazily, not from a pre-populated resolved_points dict) — the
+    Read-position dialog fills the offset from the point's position (10,20) +
+    the record's own shift (1,2) = (11,22) and does NOT warn. Does NOT mock
+    _resolve_live_offset — exercises the REAL path."""
     import gui.docks.trees_dock as td_mod
     dock, _root = _dock_with(main_window, tmp_path, ANCHOR_POINT_CFG)
     tree = dock._current_tree()
@@ -2390,7 +2393,7 @@ def test_read_position_clone_anchor_point_resolves_on_demand(
     monkeypatch.setattr(td_mod.QMessageBox, "warning",
                         lambda *a, **k: warnings.append(a) or None)
     dlg = _build_dialog(dock, tree, None)
-    dlg.kind_combo.setCurrentIndex(dlg.kind_combo.findData("clone"))
+    dlg.kind_combo.setCurrentIndex(dlg.kind_combo.findData("coordinate"))
     dlg.ref_combo.setCurrentText("CL_AP")
 
     dlg._on_read_position()  # must not raise
@@ -2401,10 +2404,10 @@ def test_read_position_clone_anchor_point_resolves_on_demand(
     assert dlg.rotation_edit.text() == "0.000"
 
 
-def test_reread_node_flow_clone_anchor_point_anchor_resolves_on_demand(
+def test_reread_node_flow_coordinate_anchor_point_anchor_resolves_on_demand(
         main_window, tmp_path, monkeypatch, qapp):
     """Bug #6 gate (GUI): the tree's own ref-anchor resolving to a
-    clone+anchor_point record is live-resolvable on Reread too — the node is
+    coordinate+anchor_point record is live-resolvable on Reread too — the node is
     rewritten from the point-anchored parent (CL_AP = Origin(10,20)+shift(1,2)
     = (11,22)) and the child's own absolute position (CL_OK (5,5)): offset
     (-6,-17), and the dock becomes dirty. Same real-path (no _resolve_live_offset
@@ -2475,7 +2478,7 @@ def test_node_dialog_read_position_unplaced_entity_parent_warns(
     monkeypatch.setattr(td_mod.QMessageBox, "warning",
                         lambda *a, **k: warnings.append(a) or None)
     dlg = _build_dialog(dock, tree, None)  # parent = the tree's (ref "ENT_A") anchor
-    dlg.kind_combo.setCurrentIndex(dlg.kind_combo.findData("clone"))
+    dlg.kind_combo.setCurrentIndex(dlg.kind_combo.findData("placement"))
     dlg.ref_combo.setCurrentText("CL_X")
 
     dlg._on_read_position()  # must not raise
@@ -2561,16 +2564,17 @@ def test_node_dialog_read_position_unplaced_entity_child_zero_slot_resolves(
 # position, so it must resolve regardless.
 DENIS_CFG = {
     "cells": {"dac_buf": {}},
-    "clone_placements": [
-        {"name": "CH0_DAC_BUF", "cluster": "DAC_BUF", "cell": "dac_buf",
-         "xy": [0.0, 25.0], "anchor_role": "FPGA", "anchor_sheet": "FPGA",
+    "coordinate_placements": [
+        {"name": "CH0_DAC_BUF", "cluster": "DAC_BUF", "role": "FPGA",
+         "x_mm": 0.0, "y_mm": 25.0, "rotation_deg": 0.0,
+         "anchor_role": "FPGA", "anchor_sheet": "FPGA",
          "anchor_cluster": "FPGA"},
-        {"name": "CH1_DAC_BUF", "cluster": "DAC_BUF", "cell": "dac_buf",
-         "xy": [25.0, 0.0]},
+        {"name": "CH1_DAC_BUF", "cluster": "DAC_BUF", "role": "CAP",
+         "x_mm": 25.0, "y_mm": 0.0, "rotation_deg": 0.0},
     ],
     "trees": [
         {"name": "10CL06", "anchor": {"origin": True},
-         "nodes": [{"ref": "CH0_DAC_BUF", "kind": "clone"}]},
+         "nodes": [{"ref": "CH0_DAC_BUF", "kind": "coordinate"}]},
     ],
 }
 
@@ -2621,7 +2625,7 @@ def test_resolve_live_offset_reads_new_ref_despite_existing_node_inline_anchor(
         lambda adapter, cfg, ref, record, sheet_names, snapshot=None: 0.0)
 
     offset_mm, rotation = td_mod._resolve_live_offset(
-        dock._cfg, object(), {}, tree, None, "CH1_DAC_BUF", "clone")
+        dock._cfg, object(), {}, tree, None, "CH1_DAC_BUF", "coordinate")
 
     assert offset_mm == (10.0, 20.0)  # relative to the origin anchor
     assert rotation == 0.0
@@ -2630,23 +2634,22 @@ def test_resolve_live_offset_reads_new_ref_despite_existing_node_inline_anchor(
 # ── Kind-filtered "Ref:" combo (plan_2026_08_29_trees_node_kind_filtered_combo.md) ──
 
 # A root config with records in the placeable sections, INCLUDING a name
-# collision between sections (SHARED exists as BOTH a clone and a placement) —
-# the case the node dialog's auto mode must show prefixed ({kind}:{name}).
+# collision between sections (SHARED exists as BOTH an Entity/placement and a
+# point) — the case the node dialog's auto mode must show prefixed
+# ({kind}:{name}). The flat clone_placements: section is gone; placements come
+# from entities: (the "what" of a placement) plus their tree nodes.
 KIND_FILTER_CFG = {
     "cells": {"t": {}},
-    "clone_placements": [
-        {"name": "CL_A", "cluster": "c", "cell": "t", "xy": [1.0, 2.0]},
-        {"name": "SHARED", "cluster": "c2", "cell": "t", "xy": [3.0, 4.0]},
-    ],
     "entities": [
+        {"name": "CL_A", "cluster": "c", "cell": "t"},
+        {"name": "SHARED", "cluster": "c2", "cell": "t"},
         {"name": "E_B", "cell": "t", "cluster": "c3"},
-        {"name": "SHARED", "cell": "t", "cluster": "c4"},
     ],
     "coordinate_placements": [
         {"name": "COORD_C", "cluster": "CHAN", "role": "R",
          "x_mm": 1.0, "y_mm": 2.0, "rotation_deg": 0.0},
     ],
-    "points": {"PNT_D": {"xy": [2.0, 2.0]}},
+    "points": {"PNT_D": {"xy": [2.0, 2.0]}, "SHARED": {"xy": [3.0, 3.0]}},
     "trees": [
         {"name": "t1", "anchor": {"origin": True}, "nodes": []},
     ],
@@ -2663,9 +2666,9 @@ def test_all_ref_candidates_returns_kind_name_pairs(main_window, tmp_path):
     appears once per section (record_key distinguishes them)."""
     dock, _root = _dock_with(main_window, tmp_path, KIND_FILTER_CFG)
     assert dock._all_ref_candidates() == [
-        ("clone", "CL_A"), ("clone", "SHARED"),
-        ("placement", "E_B"), ("placement", "SHARED"),
-        ("coordinate", "COORD_C"), ("point", "PNT_D"),
+        ("placement", "CL_A"), ("placement", "SHARED"), ("placement", "E_B"),
+        ("coordinate", "COORD_C"),
+        ("point", "PNT_D"), ("point", "SHARED"),
     ]
 
 
@@ -2689,7 +2692,7 @@ def test_refresh_ref_candidates_preserves_dirty_trees_and_sees_new_entity(
     flag (a full reset there would silently destroy an in-progress tree
     edit)."""
     dock, root = _dock_with(main_window, tmp_path, KIND_FILTER_CFG)
-    assert ("clone", "BRAND_NEW_ENTITY") not in dock._all_ref_candidates()
+    assert ("placement", "BRAND_NEW_ENTITY") not in dock._all_ref_candidates()
 
     # An unsaved edit made directly on the loaded tree (not through Save) —
     # exactly the state a full set_root_file reset would wipe.
@@ -2703,9 +2706,8 @@ def test_refresh_ref_candidates_preserves_dirty_trees_and_sees_new_entity(
 
     # A new Entity lands in the config file AFTER the dock was loaded.
     changed = dict(KIND_FILTER_CFG)
-    changed["clone_placements"] = KIND_FILTER_CFG["clone_placements"] + [
-        {"name": "BRAND_NEW_ENTITY", "cluster": "c3", "cell": "t",
-         "xy": [5.0, 6.0]}]
+    changed["entities"] = KIND_FILTER_CFG["entities"] + [
+        {"name": "BRAND_NEW_ENTITY", "cluster": "c3", "cell": "t"}]
     root.write_text(dict_to_sexp(changed, format_number=2), encoding="utf-8")
 
     dock.refresh_ref_candidates()
@@ -2714,7 +2716,7 @@ def test_refresh_ref_candidates_preserves_dirty_trees_and_sees_new_entity(
     assert dock._dirty is True
     assert [(t.name, [n.ref for n in t.nodes]) for t in dock._trees] == trees_before
     # ...while the ref candidates now include the freshly saved Entity.
-    assert ("clone", "BRAND_NEW_ENTITY") in dock._all_ref_candidates()
+    assert ("placement", "BRAND_NEW_ENTITY") in dock._all_ref_candidates()
 
 
 def test_refresh_ref_candidates_noop_without_root(main_window):
@@ -2776,15 +2778,15 @@ def test_node_dialog_kind_coordinate_lists_only_coordinates(main_window, tmp_pat
     assert built.kind == "coordinate"
 
 
-def test_node_dialog_kind_clone_lists_only_clones(main_window, tmp_path):
-    """Kind = clone -> only clone_placements names (plain) — never a placement
-    or a coordinate/point leaking in."""
+def test_node_dialog_kind_placement_lists_only_entities(main_window, tmp_path):
+    """Kind = placement -> only entities: names (plain) — never a
+    coordinate/point leaking in."""
     dock, _root = _dock_with(main_window, tmp_path, KIND_FILTER_CFG)
     tree = dock._current_tree()
     dlg = _build_dialog(dock, tree, None)
-    dlg.kind_combo.setCurrentIndex(dlg.kind_combo.findData("clone"))
+    dlg.kind_combo.setCurrentIndex(dlg.kind_combo.findData("placement"))
 
-    assert _combo_texts(dlg.ref_combo) == ["CL_A", "SHARED"]
+    assert _combo_texts(dlg.ref_combo) == ["CL_A", "SHARED", "E_B"]
 
 
 def test_node_dialog_auto_unique_plain_collisions_prefixed(main_window, tmp_path):
@@ -2797,12 +2799,12 @@ def test_node_dialog_auto_unique_plain_collisions_prefixed(main_window, tmp_path
 
     assert dlg.kind_combo.currentData() is None  # auto by default
     assert _combo_texts(dlg.ref_combo) == [
-        "CL_A", "clone:SHARED", "E_B", "placement:SHARED", "COORD_C", "PNT_D",
+        "CL_A", "placement:SHARED", "E_B", "COORD_C", "PNT_D", "point:SHARED",
     ]
     assert dlg.ref_combo.itemData(0) == (None, "CL_A")
-    assert dlg.ref_combo.itemData(1) == ("clone", "SHARED")
-    assert dlg.ref_combo.itemData(3) == ("placement", "SHARED")
-    assert dlg.ref_combo.itemData(5) == (None, "PNT_D")
+    assert dlg.ref_combo.itemData(1) == ("placement", "SHARED")
+    assert dlg.ref_combo.itemData(4) == (None, "PNT_D")
+    assert dlg.ref_combo.itemData(5) == ("point", "SHARED")
 
 
 def test_node_dialog_auto_pick_collision_specializes_kind(main_window, tmp_path):
@@ -2815,10 +2817,10 @@ def test_node_dialog_auto_pick_collision_specializes_kind(main_window, tmp_path)
     dlg = _build_dialog(dock, tree, None)
     assert dlg.kind_combo.currentData() is None
 
-    collision_idx = _combo_texts(dlg.ref_combo).index("clone:SHARED")
+    collision_idx = _combo_texts(dlg.ref_combo).index("placement:SHARED")
     dlg.ref_combo.setCurrentIndex(collision_idx)
 
-    assert dlg.kind_combo.currentData() == "clone"
+    assert dlg.kind_combo.currentData() == "placement"
     assert dlg.ref_combo.currentText() == "SHARED"
 
 
@@ -2862,7 +2864,7 @@ def test_node_dialog_edit_kind_none_collision_ref_stays_clean(main_window, tmp_p
     dlg = _build_dialog(dock, tree, None, existing=node, title="Edit node")
 
     assert dlg.kind_combo.currentData() is None  # auto
-    assert dlg.ref_combo.currentText() == "SHARED"  # clean, not "clone:SHARED"
+    assert dlg.ref_combo.currentText() == "SHARED"  # clean, not "placement:SHARED"
 
     dlg.offset_widget.x_edit.setText("5.0")
     dlg.offset_widget.y_edit.setText("6.0")
@@ -4187,14 +4189,14 @@ def test_context_menu_on_copper_node_offers_redraw(main_window, tmp_path, monkey
     "Select copper on board", and runs the very same _redraw_edited_node the
     form's Redraw button uses — ONE implementation, two entry points."""
     trees = {"trees": [{"name": "t", "anchor": {"origin": True}, "nodes": [
-        {"ref": "AMS1117_REG", "kind": "clone", "xy": [5.0, 2.0]},
+        {"ref": "AMS1117_REG", "kind": "placement", "xy": [5.0, 2.0]},
         {"ref": "2v5_oa__dac_buf__pif_oa_n2v5", "kind": "net_trace"},
     ]}],
         # У3.5 К3, row 1: the format-3 load resolves every node ref, so the
-        # clone and the net_trace records must exist.
+        # placement (Entity) and the net_trace records must exist.
         "cells": {"c": {}},
-        "clone_placements": [{"name": "AMS1117_REG", "cluster": "AMS1117_REG",
-                              "cell": "c", "xy": [0.0, 0.0]}],
+        "entities": [{"name": "AMS1117_REG", "cluster": "AMS1117_REG",
+                      "cell": "c"}],
         "net_traces": [{"name": "2v5_oa__dac_buf__pif_oa_n2v5", "net": "N",
                         "anchor_role": "FPGA", "anchor_pad": "1"}]}
     dock, _root = _dock_with(main_window, tmp_path, trees)
@@ -4548,7 +4550,10 @@ LIVE_CLUSTER_CFG = {
 
 # A two-node tree (a clone parent + a clone child) used by the reread
 # idempotency test — the base is MOCKED there, so the records only need to
-# resolve by name/kind.
+# resolve by name/kind. NOTE (Placer removal, Ч1в-1): the flat clone_placements:
+# carrier is retired; this cell still rides it, so it is the ONE remaining
+# tree-dock cell under the refusal patch and is to be re-expressed on a live
+# carrier (or dropped) in Ч1 together with the section-removal slice.
 REREAD_ROT_CFG = {
     "cells": {"t": {}},
     "clone_placements": [
@@ -5384,21 +5389,21 @@ def test_unchanged_mount_anchor_keeps_the_form_bit_identical(
 # ═══════════════════════════════════════════════════════════════════════════
 
 # A real config: a mount node anchored to a ROLE from OUTSIDE the tree (the LIVE
-# method — exactly Denis's profile), with one clone child under it.
+# method — exactly Denis's profile), with one placement child under it.
 MOUNT_PARENT_CFG = {
     "cells": {"t": {"components": [{"role": "FPGA", "offset_along_mm": 0.0,
                                     "offset_across_mm": 0.0,
                                     "angle_deg": 0.0}]}},
-    "clone_placements": [
-        {"name": "CL_CHILD", "cluster": "DAC_BUF", "cell": "t",
-         "xy": [2.0, -1.0]},
+    "coordinate_placements": [
+        {"name": "CL_CHILD", "cluster": "DAC_BUF", "role": "FPGA",
+         "x_mm": 2.0, "y_mm": -1.0, "rotation_deg": 0.0},
     ],
     "trees": [
         {"name": "t1", "anchor": {"origin": True},
          "nodes": [
              {"ref": "M1", "kind": "mount",
               "anchor": {"role": "DAC_ROLE", "cluster": "DAC_BUF", "pad": "3"},
-              "children": [{"ref": "CL_CHILD", "kind": "clone",
+              "children": [{"ref": "CL_CHILD", "kind": "coordinate",
                             "xy": [2.0, -1.0]}]},
          ]},
     ],
@@ -5411,16 +5416,20 @@ MOUNT_INTERNAL_CFG = {
     "cells": {"t": {"components": [{"role": "FPGA", "offset_along_mm": 0.0,
                                     "offset_across_mm": 0.0,
                                     "angle_deg": 0.0}]}},
-    "clone_placements": [{"name": "CL_CHILD", "cluster": "DAC_BUF", "cell": "t",
-                          "xy": [2.0, -1.0]}],
-    "entities": [{"name": "ENT_A", "cell": "t", "cluster": "CL"}],
+    "coordinate_placements": [
+        {"name": "CL_CHILD", "cluster": "DAC_BUF", "role": "CL_CHILD_ROLE",
+         "x_mm": 2.0, "y_mm": -1.0, "rotation_deg": 0.0},
+    ],
+    "entities": [
+        {"name": "ENT_A", "cell": "t", "cluster": "CL"},
+    ],
     "trees": [
         {"name": "t1", "anchor": {"origin": True},
          "nodes": [
              {"ref": "ENT_A", "kind": "placement", "xy": [10.0, 0.0],
               "rotation": 0.0},
              {"ref": "M1", "kind": "mount", "anchor": {"role": "FPGA"},
-              "children": [{"ref": "CL_CHILD", "kind": "clone",
+              "children": [{"ref": "CL_CHILD", "kind": "coordinate",
                             "xy": [2.0, -1.0]}]},
          ]},
     ],
@@ -5598,12 +5607,12 @@ def test_read_current_position_under_a_mount_parent_returns_a_position(
                                           node_position)
     dock, tree, mount, child, adapter = _mount_parent_setup(main_window, tmp_path)
     record, _external = trees_dock_mod._resolve_probe_ref(
-        dock._cfg, "CL_CHILD", "clone")
+        dock._cfg, "CL_CHILD", "coordinate")
     child_pos = trees_dock_mod.resolve_base_live_position(
         adapter, dock._cfg, "CL_CHILD", record, {}, {})
 
     offset_mm, rotation = trees_dock_mod._resolve_live_offset(
-        dock._cfg, adapter, {}, tree, mount, "CL_CHILD", "clone")
+        dock._cfg, adapter, {}, tree, mount, "CL_CHILD", "coordinate")
 
     base_pos, base_rot = _mount_base_of(dock, tree, mount, adapter)
     expected = board_offset_to_local_mm(
@@ -5612,7 +5621,7 @@ def test_read_current_position_under_a_mount_parent_returns_a_position(
     assert offset_mm == pytest.approx(expected, abs=1e-9)
 
     rebuilt = node_position(
-        TreeNode(ref="CL_CHILD", kind="clone", xy=offset_mm, polar=None,
+        TreeNode(ref="CL_CHILD", kind="coordinate", xy=offset_mm, polar=None,
                  rotation=0.0 if rotation is None else rotation, name=None,
                  group=None),
         base_pos, base_rot)
@@ -5678,13 +5687,13 @@ def test_ordinary_parent_and_tree_anchor_bases_are_unchanged(
     assert (anchor_pose[0].x, anchor_pose[0].y) == (0, 0)
     assert anchor_pose[1] == 0.0 and anchor_pose[2] is False
 
-    # an ordinary (clone) parent still takes the RECORD path: CL_CHILD resolves
-    # through _resolve_probe_ref and its live pose is the clone's own config
-    # position — a real pose, not the (mount-only) branch added by Л.2.1.
-    plain_parent = TreeNode(ref="CL_CHILD", kind="clone", xy=(2.0, -1.0),
+    # an ordinary (coordinate) parent still takes the RECORD path: CL_CHILD
+    # resolves through _resolve_probe_ref and its live pose is the record's own
+    # config position — a real pose, not the (mount-only) branch added by Л.2.1.
+    plain_parent = TreeNode(ref="CL_CHILD", kind="coordinate", xy=(2.0, -1.0),
                             polar=None, rotation=0.0, name=None, group=None)
     record, _external = trees_dock_mod._resolve_probe_ref(
-        dock._cfg, "CL_CHILD", "clone")
+        dock._cfg, "CL_CHILD", "coordinate")
     expected = trees_dock_mod.read_record_live_pose(
         adapter, dock._cfg, "CL_CHILD", record, {})
     parent_pose = trees_dock_mod._resolve_node_base_pose(
@@ -5756,7 +5765,7 @@ def test_kind_switch_shows_and_hides_the_tab_and_the_picker_together(
     assert built is not None and built.kind == "mount"
     assert built.anchor is not None and built.anchor.role == "DAC_ROLE"
 
-    dlg.kind_combo.setCurrentIndex(dlg.kind_combo.findData("clone"))
+    dlg.kind_combo.setCurrentIndex(dlg.kind_combo.findData("coordinate"))
     dlg.ref_combo.setCurrentText("CL_CHILD")
     cloned = dlg.build_node()
     assert cloned is not None and cloned.anchor is None
@@ -7275,7 +7284,9 @@ def _two_path_dock(main_window, tmp_path):
     node. The trees themselves stay HAND-BUILT (the cells below pin the re-hang
     geometry, not the config)."""
     data = {**GRAMMAR_TREES,
-            "entities": [{"name": "R_MOVED", "cell": "c_out_cell"}]}
+            "entities": [{"name": "AMS1117_REG", "cluster": "AMS1117_REG",
+                          "cell": "c_out_cell"},
+                         {"name": "R_MOVED", "cell": "c_out_cell"}]}
     return _dock_with(main_window, tmp_path, data)
 
 
