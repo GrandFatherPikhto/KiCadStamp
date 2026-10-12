@@ -14,9 +14,8 @@ applies a change as `record.update(new_geo)` on the SAME dict object, so the
 invariant is structural, not just "don't forget".
 
 Pure Qt-free module (same style as gui/docks/tree_from_selection.py's pure
-helpers): no widgets, no Config, no cfg.chains/Entity — matching never needs
-the Rule/Chain context (see plan §1.4.1: refresh lives in the
-Entity/Tree/ClonePlacement world, mixing Chain/ManualSpoke would be wrong).
+helpers): no widgets, no Config — matching never needs a placement context
+(see plan §1.4.1: refresh lives in the Entity/Tree/ClonePlacement world).
 The live adapter is used ONLY to read Role fields and to resolve
 net_from_role via net_resolution.resolve_net_from_role; nothing is ever
 written through it.
@@ -941,7 +940,7 @@ def _frame_warnings(frame: CellFrame | None) -> list[str]:
 def referencing_records_for_roles(cfg, roles: set, chosen_cluster=None,
                                   chosen_sheet=None) -> dict:
     """Ф2 (acceptance of cbc8bdc, Н4 п.4): which records OUTSIDE the cell
-    reference a role the reconcile is about to DELETE — entity / tree / spokes /
+    reference a role the reconcile is about to DELETE — entity / tree /
     nested placements by their ``role`` / ``anchor_role``. Best-effort over the
     LOADED config; the caller turns each role into ONE yellow Log line.
 
@@ -981,8 +980,8 @@ def referencing_records_for_roles(cfg, roles: set, chosen_cluster=None,
         _add(getattr(c, "anchor_role", None), f"clone {name}")
         _add(getattr(c, "role", None), f"clone {name}")
     # Н5-4: a Tree has no `cluster` of its own — narrow per NODE, through the
-    # node's (or its anchor's) cluster/sheet; and narrow a SPOKE by its own
-    # cluster. An unfiltered scan named other PIF cells' nodes/spokes.
+    # node's (or its anchor's) cluster/sheet. An unfiltered scan named other
+    # PIF cells' nodes.
     for t in getattr(cfg, "trees", ()) or ():
         tname = getattr(t, "name", "?")
         for n in getattr(t, "nodes", ()) or ():
@@ -997,13 +996,6 @@ def referencing_records_for_roles(cfg, roles: set, chosen_cluster=None,
             _add(getattr(n, "role", None), f"tree {tname}:{ref}")
             if anchor is not None:
                 _add(getattr(anchor, "role", None), f"tree {tname}:{ref}")
-    for ch in getattr(cfg, "chains", ()) or ():
-        cname = getattr(ch, "name", "?")
-        for sp in getattr(ch, "spokes", ()) or ():
-            if not _addr_ok(getattr(sp, "cluster", None),
-                            getattr(sp, "sheet", None)):
-                continue
-            _add(getattr(sp, "role", None), f"chain {cname}")
     return refs
 
 
@@ -1161,7 +1153,7 @@ def build_refresh_plan(components: list[dict], vias: list[dict], tracks: list[di
                                          if c.get("role") in missing_roles]
             # Ф2: ONE yellow line per removed role that records OUTSIDE this
             # cell still reference — the deletion is real, but the user must
-            # see which entity/tree/spoke anchor now points at a gone role.
+            # see which entity/tree anchor now points at a gone role.
             refs = referencing_records_for_roles(
                 config, missing_roles, chosen_cluster, chosen_sheet)
             for role in sorted(refs):
@@ -1319,10 +1311,9 @@ def _classify_import_net(record: dict, live: Via | Track, role_nets: dict,
     Import NEVER writes `net: null` — structurally impossible here, not just
     off by default: Import works exclusively in the ClonePlacement/Entity world
     where via.net=None is fatal always (clone_geometry.py), regardless of the
-    cell's context. rule_nets is deliberately NOT threaded through (unlike
-    ordinary extraction, where net:null = "inherit the Chain's net" is
-    legitimate); the shared classifier is handed an EMPTY rule-nets set so its
-    `if net in rule_nets: return None, None` short-circuit can never fire.
+    cell's context. rule_nets is deliberately NOT threaded through; the shared
+    classifier is handed an EMPTY rule-nets set so its `if net in rule_nets:
+    return None, None` short-circuit can never fire.
     Every live net therefore ends as net_from_role(+pad) when a selected
     role's pad genuinely carries it, or as a plain literal `net:` otherwise —
     never None.
@@ -1369,9 +1360,8 @@ def build_import_plan(components: list[dict], vias: list[dict], tracks: list[dic
     NEVER writes `net: null` — structurally impossible, not merely disabled by
     default: Import is exclusively a ClonePlacement/Entity-world feature, where
     via.net=None is fatal ALWAYS (clone_geometry.py), independent of any
-    specific cell's context. rule_nets is deliberately not threaded through
-    (unlike ordinary extraction, where net:null = "inherit the Chain's net" is
-    legitimate). A net a selected role's pad carries -> net_from_role(+pad);
+    specific cell's context. rule_nets is deliberately not threaded through.
+    A net a selected role's pad carries -> net_from_role(+pad);
     anything else -> a plain literal `net:` — never None. Never mutates its
     inputs.
     """
