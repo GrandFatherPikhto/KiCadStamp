@@ -16,8 +16,8 @@ already-LOADED `Config`. The rule:
   * the record's OWN `uuid` is the uuid the graph already holds for a record of
     this section under the same identity — so an in-place edit, including a rename
     from the form, keeps the record's identity;
-  * every REFERENCE (`cell` / `imprint` / `anchor_point`, and a chain spoke's
-    `cell`) gets its `<field>_uuid` from the TARGET record's uuid, matched by the
+  * every REFERENCE (`cell` / `imprint` / `anchor_point`) gets its `<field>_uuid`
+    from the TARGET record's uuid, matched by the
     name hint the form carries. The reference forms come from the ONE table
     `format3._F3_REF_TARGET` (`format3._f3_refs` walks them), never a copy;
   * a reference whose name hint matches no record in the graph is a REFUSAL
@@ -94,8 +94,8 @@ def node_ref_uuid(cfg, kind, ref):
     `section_uuids` (the same key the writer stamp resolves a new reference by).
 
       * a kind WITH a record section (`placement` / `clone` / `coordinate` /
-        `net_trace` / `point` / `chain` / `rule`): the uuid of the record `ref`
-        names. A `ref` naming NO record of that section raises
+        `net_trace` / `point`): the uuid of the record `ref` names. A `ref`
+        naming NO record of that section raises
         `FormReferenceMissing` — the refusal the writer would reach only at write
         time, here at Apply;
       * any other kind (`module` / `mount` / `copper` / `component`, `external`,
@@ -143,8 +143,8 @@ def _resolve_references(entry: dict, section: str, cfg) -> None:
     """
     from .format3 import _f3_refs  # lazy: same reason format3 imports lazily
 
-    # A reference's set of FORMS depends on its section (chain spokes, nested
-    # placements, …) and lives in format3's table; a one-record pseudo-file lets
+    # A reference's set of FORMS depends on its section (nested placements, …)
+    # and lives in format3's table; a one-record pseudo-file lets
     # that walk run unchanged. Dict sections are keyed by name, list sections are
     # lists of entries — exactly what _f3_refs expects.
     name = entry.get("name")
@@ -179,7 +179,7 @@ def identify(entry: dict, section: str, *, cfg,
     cfg — the LOADED graph the entry is spliced into (working-set aware);
     identity — the value that identifies the record (default `entry["name"]`);
     identity_of — model -> that same value, for `clone_placements` /
-        `coordinate_placements` / `chains`, whose identity is an EFFECTIVE name
+        `coordinate_placements`, whose identity is an EFFECTIVE name
         (default: model's `name`);
     remembered_uuid — the uuid of the record the form was loaded from (so a rename
         in the form still edits THAT record);
