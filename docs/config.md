@@ -43,11 +43,10 @@ Field names match `kicadstamp/config/models.py` exactly as of 2026-08-01.
 | Field | Type | Meaning |
 |---|---|---|
 | `version` | number | The file's format number — see **`version`** below. Absent = format 1. Never type it by hand: the writer always stamps it. |
-| `layer` | string | `F.Cu`\|`B.Cu` — default layer for the `chains:`/ManualSpoke path only. `clone_placements:` each carry their own `layer:`, unaffected by this. |
+| `layer` | string | `F.Cu`\|`B.Cu` — the default layer the RETIRED `chains:`/ManualSpoke path used (kept in the schema for older profiles). `clone_placements:` each carry their own `layer:`, unaffected by this. |
 | `cells` | mapping | Inline `Cell` definitions (see below). Rare to write by hand — usually populated by `extract`; can be split across files via `include:` (see below). |
 | `points` | mapping | Named, reusable anchors (see **Points** below). |
 | `include` | list | Other config files to merge in — see **`include:`** below. |
-| `chains` | list | ManualSpoke chains — see **`chains:`** below. (Legacy `chains:` is still read as an alias.) |
 | `clone_placements` | list | TemplatePlacer placements — see **`clone_placements:`** below. |
 | `entities` | list | Entity records — the "what" of a placement, WITHOUT any position — see **`entities:`** below. |
 | `trees` | list | Placement trees — the ONLY place a position can live — see **`trees:`** below. |
@@ -90,7 +89,7 @@ release (most releases do not change the grammar). The name is borrowed from KiC
 | No number at all | format **1** — every file written before the number existed looks like this |
 | Current format | **3** |
 | What the 1 → 2 step changes | only the number itself; the content does not change |
-| What the 2 → 3 step changes | record identity: every record gains a `uuid`, every reference gains its target's UUID beside the name, each section gains a folder table, and the profile's copper registry is lifted to schema 3 — the spoke copper keys (`pad:<pad>|…`) are **DETACHED** (dropped from the registry, NOT deleted from the board: the copper stays, unowned, ready for the cell that now describes that position to adopt it). While the profile STILL carries a `chains:` section its registries are **left completely untouched** (no write, no `.bak`, the schema stays where it is) — that copper is still planned, and lifting the schema there would prune it later; remove `chains:` and the next open detaches it. See [Identity: UUID](#identity-uuid) |
+| What the 2 → 3 step changes | record identity: every record gains a `uuid`, every reference gains its target's UUID beside the name, each section gains a folder table, and the profile's copper registry is lifted to schema 3 — the spoke copper keys (`pad:<pad>|…`) are **DETACHED** (dropped from the registry, NOT deleted from the board: the copper stays, unowned, ready for the cell that now describes that position to adopt it). (The old exception — a profile still carrying `chains:` left its registries completely untouched — is gone: such a config is refused while its text is parsed, see the RETIRED `chains:` section below.) See [Identity: UUID](#identity-uuid) |
 | Who writes the number | the writer, always. Never write it by hand — saving the config adds it |
 
 ### What happens to an old file
@@ -291,23 +290,19 @@ nesting other cells), or both at once.
         (net "GND")))))
 ```
 
-- `vias:` — `offset_along_mm`/`offset_across_mm` (local), `net:` (`null`/omitted means "inherit the
-  chain's net" — only `chains:`/ManualSpoke supports that; `clone_placements:` fatals on a via with no
-  net, since it has no single "chain net" to fall back to), `drill_mm`, `diameter_mm`. Same `null`
-  convention for `tracks:`' own `net:` below. The old GUI Extract dock's per-net **"Chain net (null)"**
-  checkbox (2026-08-05, removed with the dock in Phase F 2026-09-01) wrote exactly this — see
-  `extract_profiles:`' `rule_nets:` below for the CLI/profile-file equivalent (`--rule-net`).
+- `vias:` — `offset_along_mm`/`offset_across_mm` (local), `net:`, `drill_mm`, `diameter_mm`. Same
+  shape for `tracks:`' own `net:` below. `net: null` still LOADS (the grammar accepts it) but is a
+  **fatal at apply** for a placed cell: `clone_geometry` has no default net to fall back to, so every
+  via/track of a placed cell needs a net. (The old reading "inherit the enclosing chain's net" went
+  with the retired `chains:` section — the `--rule-net` flag that wrote such nets is gone too.)
   A via/track net may instead be resolved live from a role's real pad — `net_from_role:` /
-  `net_from_role_pad:` (see `clone_placements:`/net-from-role) — and this now works on BOTH
-  placement paths, including `chains:`/ManualSpoke (2026-09-05, Bug 3 GND-duplication fix): a
-  GND-assigned via of a bypass role (`net_from_role` + pad `'2'`) is planned as GND, not as the
-  chain's net — it needs neither `net: null` nor a literal.
+  `net_from_role_pad:` (see `clone_placements:`/net-from-role) — so a GND-assigned via of a bypass
+  role (`net_from_role` + pad `'2'`) is planned as GND without a literal.
 - `components:` — `role:` (matched against the board's `Role` custom field, **not** a refdes — the
   same role can resolve to a different real component every time the cell is placed), local
   offset+angle, its own `vias:` (same shape, nested under the component), optional `layer:` (only
   when it differs from the cell's own layer — e.g. a bottom-side component in an otherwise top-side
-  cell), and `net_template:` (used only by `clone_placements:`'s by-nets role matching — see below;
-  `chains:`/ManualSpoke ignores it entirely, matching roles purely by `(chain.net, Role)`).
+  cell), and `net_template:` (used only by `clone_placements:`'s by-nets role matching — see below).
   Optional `net_template_pad:` (2026-08-16) — only meaningful together with `net_template:`: which
   pad of the resolved candidate carries that role's net, for roles whose real component has MORE
   than one non-rule net (a regulator/diode/inductor — LDO VIN/VOUT, etc.). Without it, the Placer's
@@ -446,69 +441,16 @@ path, not a Python `RecursionError`).
 
 ---
 
-## `chains:` — ManualSpoke (radial decoupling around one IC)
+## `chains:` — RETIRED (ManualSpoke)
 
-The original, oldest mechanism (renamed from `chains:` 2026-09-01 — plan rules_to_chains): a group
-of spokes (small cells, usually a decap pair) placed radially around specific pads of **one**
-anchor component, drawing real components from a pool by `(net, Role)` — not tied to a specific
-refdes, so re-annotation-safe. Does **not** support tracks between spokes across different pads
-(each spoke is self-contained). The old `chains:` key is still READ (alias) for backward
-compatibility; [`tools/convert_rules_to_chains.py`](../tools/convert_rules_to_chains.py) rewrites
-an existing profile to `chains:`.
-
-> **Two `chains:` on the same net that consume the same `(role, cluster)` pool are a fatal
-> validation error** (2026-08-20): the pool is rebuilt per chain with no ownership/distance, so
-> whichever chain runs later silently takes components meant for its neighbour (a Redraw of one
-> chain is where this is most visible). Fix: give the spokes of one of them a distinguishing
-> `cluster:` so each chain draws from its own pool.
-
-```sexp
-; e.g. chains/fpga_spokes.sexp, included from your root config
-(chains
-  (chain
-    (net "+3V3_VCCIO")
-    (name "+3V3_VCCIO")       ; optional — defaults to net if omitted, see below
-    (anchor_role "FPGA")
-    (retired false)
-    (skip false)
-    (spokes
-      (spoke
-        (pad "17")
-        (cell "fpga_cap_pair_spoke")
-        (shift_x_mm 1.2)
-        (shift_y_mm -0.5)
-        (rotation_deg 90.0)
-        (cluster "FPGA_PWR_BANK"))
-      (spoke
-        (pad "26")
-        (cell "fpga_cap_pair_spoke")
-        (shift_x_mm 1.2)
-        (shift_y_mm -2.4)
-        (rotation_deg 90.0)
-        (cluster "FPGA_PWR_BANK")))))
-```
-
-**`Chain` fields:**
-
-| Field | Meaning |
-|---|---|
-| `net` | Required. The net every spoke's components/vias resolve against (component pool lookup is `(net, Role)`). |
-| `anchor_ref` **or** `anchor_role` (`+anchor_sheet`/`anchor_cluster`) **or** `anchor_point` | Exactly one — the anchor component whose pads the spokes attach to. |
-| `name` | Optional, for `--only`. Defaults to `net` (see `chain_effective_name`). **Not** a grouping mechanism — don't reuse one `name:` across several chains to bundle them for `--only`; use a shared `Cluster` (`anchor_cluster`/`spoke.cluster`) instead. Two chains that resolve to the same effective name is a fatal load error. |
-| `retired` | Default `false`. `true` = "does not exist on the board" — prunes this chain's via/track registry entries. Always wins over `--only`/`--cluster`. |
-| `skip` | Default `false`. `true` = "leave alone this run" — narrows work like `--only`/`--cluster` would, but inline, without protecting/pruning the registry either way. |
-| `comment` | Optional. Free-form note shown in the GUI — a plain schema field, not a `;` comment in the file. |
-
-**`ManualSpoke` (one entry of `spokes:`) fields:**
-
-| Field | Meaning |
-|---|---|
-| `pad` | Required. Which pad of the chain's anchor this spoke attaches to (a string, like KiCad — `'17'`, not `17`). |
-| `cell` | Required. The `Cell` (must be a leaf) this spoke places. |
-| `shift_x_mm`/`shift_y_mm` | Board-absolute mm shift from the pad centre to the spoke's own origin (not local/rotated — tuned visually per spoke). |
-| `rotation_deg` | Rotation of the resulting origin and all cell contents. |
-| `cluster` | Optional — narrows which physical component pool entry a role resolves to when the same net+Role combination isn't unique on its own. |
-| `retired`/`skip` | Same meaning as on `Chain`, scoped to just this one spoke. |
+> **REMOVED (2026-10-11, decision Д1):** the `chains:` section (and its pre-2026-09-01 spelling
+> `rules:`) no longer exists — the spoke mechanism was replaced by cells placed through
+> `clone_placements:` / `entities:` + `trees:`. A config that still carries a NON-EMPTY
+> `chains:`/`rules:` — or a tree node of the retired kinds `chain`/`rule` — is REFUSED while its text
+> is parsed ("… no longer supported … remove them or open with an older build"), naming the file and
+> the records; an EMPTY `(chains)` is accepted and simply does not survive the next write. Old
+> profiles need the section deleted by hand;
+> [`tools/convert_rules_to_chains.py`](../tools/convert_rules_to_chains.py) is gone with it.
 
 ---
 
@@ -1527,14 +1469,11 @@ bridging roles auto-derive their `net_template`, and `{param}` channel patterns
 are auto-discovered — these keys are only needed for rare manual exceptions
 (soft-deprecated, kept for backward compatibility).
 
-`rule_nets:` (2026-08-05, `--rule-net LITERAL`, repeatable) — a list of literal net names to write as
-`net: null` on any matching via/track instead of the literal (or an alias) — see the `vias:` note
-above on what `null` means there. Only useful for a cell meant to be placed via **`chains:`**/
-ManualSpoke on more than one `Chain` with a DIFFERENT net each (e.g. a decoupling-cap-pair cell reused
-once per power rail) — `net_template`/`params` (`{PLACEHOLDER}`) is the mechanism for the OTHER case,
-reuse across `clone_placements:`, and does nothing for `chains:`/ManualSpoke (`ManualSpoke` has no
-`params:` field to resolve a template against at all). Fatal if the same net is in both `rule_nets:`
-and `params`/`net_template` — pick one per net.
+`rule_nets:` (and the `--rule-net LITERAL` flag it mirrored) was **removed** on 2026-10-11 together
+with the `chains:` section — it existed only to write `net: null` so a ManualSpoke-placed cell could
+inherit the enclosing chain's net. `net: null` is a fatal at apply now (see the `vias:` note above),
+and a profile that still carries the key is refused as an unknown key: use a literal net or
+`net_from_role:` instead.
 
 `output:` can be set once at the file's own root as a fallback for every profile inside it, if they
 all write to the same cells file — a profile that needs a different one still overrides it directly.
@@ -1545,7 +1484,7 @@ all write to the same cells file — a profile that needs a different one still 
 
 - [docs/commands.md](commands.md) — the CLI commands (`apply`/`extract`/`undo`/`clone-extract`) that
   consume everything documented here.
-- [docs/python.md](python.md) — building the same `Chain`/`ClonePlacement`/`Cell` objects from Python
+- [docs/python.md](python.md) — building the same `ClonePlacement`/`Cell`/`Entity` objects from Python
   instead of hand-writing `.sexp`.
 - [docs/architect.md](architect.md) — the module architecture (`config/`, `placement/`, `geometry/`)
   behind this schema.
