@@ -28,9 +28,9 @@ The implicit mode (no `nets`/`params`/`by_selection`) auto-picks by-nets
 whenever the cell auto-derives on the board, else by-selection (Phase 2 step
 2.3); `by_selection: true` remains the explicit override. Extract already
 writes `net_from_role` / auto `net_template` / auto `{param}` patterns
-(Phase 1) and `clone-plan` auto-generates `clone_placements:` without manual
-nets (Phase 3) — see those sections. Combined, nothing in the net coordinate
-needs to be typed by hand.
+(Phase 1). (Phase 3's `clone-plan` auto-generator is REMOVED — 2026-10-12,
+together with the root `clone_placements:` section it wrote.) Combined, nothing
+in the net coordinate needs to be typed by hand.
 
 **Move ordering (dependency chain).** Within the moves phase, `chains`/`clone_placements` are not all
 planned from one snapshot any more — each item's anchor (`anchor_ref`/`anchor_role`) is resolved against

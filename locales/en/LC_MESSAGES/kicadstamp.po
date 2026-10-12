@@ -3,7 +3,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version:  kicadstamp\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-12 15:50+0300\n"
+"POT-Creation-Date: 2026-10-12 15:53+0300\n"
 "PO-Revision-Date: 2026-07-27 12:00+0000\n"
 "Last-Translator: \n"
 "Language: en\n"
@@ -2851,7 +2851,7 @@ msgstr ""
 #: gui/docks/cell_refs_tab.py:1073 gui/docks/cell_refs_tab.py:1093
 #: gui/docks/cell_refs_tab.py:1128 gui/docks/cell_refs_tab.py:1150
 #: gui/docks/imprint_refs_tab.py:561 gui/docks/imprint_refs_tab.py:579
-#: kicadstamp/cli.py:456 kicadstamp/cli.py:548
+#: kicadstamp/cli.py:405 kicadstamp/cli.py:497
 #, python-brace-format
 msgid "skipped: {refs}"
 msgstr ""
@@ -8610,38 +8610,12 @@ msgstr "[error] need --net/--pcb/--channel/--output (or --profiles/--profile)"
 msgid "[{channel}] footprints: {fp}, segments: {seg}, vias: {vias} -> {output}"
 msgstr "[{channel}] footprints: {fp}, segments: {seg}, vias: {vias} -> {output}"
 
-#: kicadstamp/cli.py:241
-msgid ""
-"[error] need --net/--pcb/--source/--cell (and --output to write the .sexp"
-" block)"
-msgstr ""
-"[error] need --net/--pcb/--source/--cell (and --output to write the .sexp"
-" block)"
-
-#: kicadstamp/cli.py:254
-msgid "[error] --xy needs X,Y in mm (e.g. --xy 120.0,80.0)"
-msgstr "[error] --xy needs X,Y in mm (e.g. --xy 120.0,80.0)"
-
-#: kicadstamp/cli.py:271
-#, python-brace-format
-msgid "clone_placements for {channels} (cell {cell!r}) written: {output}"
-msgstr "clone_placements for {channels} (cell {cell!r}) written: {output}"
-
-#: kicadstamp/cli.py:274
-#, python-brace-format
-msgid ""
-"clone_placements for {channels} (cell {cell!r}) — rerun with --output to "
-"write the .sexp block"
-msgstr ""
-"clone_placements for {channels} (cell {cell!r}) — rerun with --output to "
-"write the .sexp block"
-
-#: kicadstamp/cli.py:300
+#: kicadstamp/cli.py:249
 #, python-brace-format
 msgid "[error] {flag} must be X,Y (two comma-separated numbers)"
 msgstr "[error] {flag} must be X,Y (two comma-separated numbers)"
 
-#: kicadstamp/cli.py:374
+#: kicadstamp/cli.py:323
 msgid ""
 "[error] --apply needs --config: every removed item must be written to the"
 " profile's actions.log, and without a profile there is no such file to "
@@ -8649,137 +8623,137 @@ msgid ""
 " report the duplicates."
 msgstr ""
 
-#: kicadstamp/cli.py:428
+#: kicadstamp/cli.py:377
 msgid ""
 "The profile's role_cluster_source is “board”, so its override store is "
 "NOT in force — nothing is written. Switch it back to “registry” to make "
 "these values active again."
 msgstr ""
 
-#: kicadstamp/cli.py:433
+#: kicadstamp/cli.py:382
 #, python-brace-format
 msgid "The override store for {path} is empty — nothing to write."
 msgstr ""
 
-#: kicadstamp/cli.py:451
+#: kicadstamp/cli.py:400
 #, python-brace-format
 msgid "{count} stored value(s) -> {destination}:"
 msgstr ""
 
-#: kicadstamp/cli.py:473 kicadstamp/cli.py:551
+#: kicadstamp/cli.py:422 kicadstamp/cli.py:500
 msgid "Dry run: nothing was written. Drop --dry-run to write."
 msgstr ""
 
-#: kicadstamp/cli.py:477
+#: kicadstamp/cli.py:426
 #, python-brace-format
 msgid "{count} value(s) written to the board"
 msgstr ""
 
-#: kicadstamp/cli.py:480
+#: kicadstamp/cli.py:429
 msgid "Nothing written: the board can take none of these records."
 msgstr ""
 
-#: kicadstamp/cli.py:500
+#: kicadstamp/cli.py:449
 #, python-brace-format
 msgid "Could not load {path}: {error}"
 msgstr ""
 
-#: kicadstamp/cli.py:504
+#: kicadstamp/cli.py:453
 msgid ""
 "The profile has no root_sheet — add root_sheet: to it, or pass --root-"
 "sheet pointing at the .kicad_sch to splice."
 msgstr ""
 
-#: kicadstamp/cli.py:534
+#: kicadstamp/cli.py:483
 msgid "Nothing written: no record can be expressed in the .kicad_sch."
 msgstr ""
 
-#: kicadstamp/cli.py:542
+#: kicadstamp/cli.py:491
 #, python-brace-format
 msgid "{count} edit(s) in the schematic:"
 msgstr ""
 
-#: kicadstamp/cli.py:556
+#: kicadstamp/cli.py:505
 #, python-brace-format
 msgid "{count} note(s) would be forgotten — the schematic would then carry them"
 msgstr ""
 
-#: kicadstamp/cli.py:569
+#: kicadstamp/cli.py:518
 #, python-brace-format
 msgid "Some files failed and were restored from .bak: {failed}"
 msgstr ""
 
-#: kicadstamp/cli.py:571
+#: kicadstamp/cli.py:520
 #, python-brace-format
 msgid "{count} file(s) written (a .bak copy of each was kept)"
 msgstr ""
 
-#: kicadstamp/cli.py:582
+#: kicadstamp/cli.py:531
 #, python-brace-format
 msgid "{count} note(s) forgotten — the schematic now carries them"
 msgstr ""
 
-#: kicadstamp/cli.py:609
+#: kicadstamp/cli.py:558
 #, python-brace-format
 msgid "--field takes {names} — nothing else may live in this store"
 msgstr ""
 
-#: kicadstamp/cli.py:612
+#: kicadstamp/cli.py:561
 msgid ""
 "Nothing to forget: name the components with --ref R1 (repeatable) or add "
 "--all to drop every record of this profile."
 msgstr ""
 
-#: kicadstamp/cli.py:618
+#: kicadstamp/cli.py:567
 #, python-brace-format
 msgid "The override store is empty ({path}) — nothing to forget."
 msgstr ""
 
-#: kicadstamp/cli.py:636
+#: kicadstamp/cli.py:585
 #, python-brace-format
 msgid "No record to forget for {refs}."
 msgstr ""
 
-#: kicadstamp/cli.py:640
+#: kicadstamp/cli.py:589
 #, python-brace-format
 msgid "Would forget {count} record(s) (nothing is written):"
 msgstr ""
 
-#: kicadstamp/cli.py:644
+#: kicadstamp/cli.py:593
 #, python-brace-format
 msgid "Forgot {count} record(s) from {path}"
 msgstr ""
 
-#: kicadstamp/cli.py:650
+#: kicadstamp/cli.py:599
 #, python-brace-format
 msgid "no record for {refs} — nothing was forgotten for them"
 msgstr ""
 
-#: kicadstamp/cli.py:669
+#: kicadstamp/cli.py:618
 #, python-brace-format
 msgid ""
 "The override store is empty ({path}) — no Role/Cluster values are "
 "recorded for this profile."
 msgstr ""
 
-#: kicadstamp/cli.py:700
+#: kicadstamp/cli.py:649
 msgid "logs directory not found."
 msgstr "logs directory not found."
 
-#: kicadstamp/cli.py:704
+#: kicadstamp/cli.py:653
 msgid "No operation files to undo."
 msgstr "No operation files to undo."
 
-#: kicadstamp/cli.py:707
+#: kicadstamp/cli.py:656
 #, python-brace-format
 msgid "Undoing operation from {file}"
 msgstr "Undoing operation from {file}"
 
-#: kicadstamp/cli.py:711
+#: kicadstamp/cli.py:660
 msgid "✅ Operation successfully undone."
 msgstr "✅ Operation successfully undone."
 
-#: kicadstamp/cli.py:713
+#: kicadstamp/cli.py:662
 msgid "❌ Failed to undo operation."
 msgstr "❌ Failed to undo operation."
 
@@ -8894,8 +8868,8 @@ msgid "Only print the plan, do not apply"
 msgstr "Only print the plan, do not apply"
 
 #: kicadstamp/cli_main.py:140 kicadstamp/cli_main.py:201
-#: kicadstamp/cli_main.py:260 kicadstamp/cli_main.py:340
-#: kicadstamp/cli_main.py:383
+#: kicadstamp/cli_main.py:241 kicadstamp/cli_main.py:321
+#: kicadstamp/cli_main.py:364
 #: kicadstamp/diagnostics/diagnose_first_write_crash.py:283
 #: kicadstamp/diagnostics/diagnostic_charset.py:81
 #: kicadstamp/diagnostics/get_pad_bbox.py:38
@@ -8912,21 +8886,20 @@ msgstr "Batch size for commits"
 
 #: kicadstamp/cli_main.py:142 kicadstamp/cli_main.py:169
 #: kicadstamp/cli_main.py:202 kicadstamp/cli_main.py:217
-#: kicadstamp/cli_main.py:236 kicadstamp/cli_main.py:261
-#: kicadstamp/cli_main.py:341 kicadstamp/cli_main.py:381
-#: kicadstamp/cli_main.py:442 kicadstamp/cli_main.py:451
-#: kicadstamp/cli_main.py:480 kicadstamp/diagnostics/get_pad_bbox.py:39
-#: kicadstamp/gui_main.py:101
+#: kicadstamp/cli_main.py:242 kicadstamp/cli_main.py:322
+#: kicadstamp/cli_main.py:362 kicadstamp/cli_main.py:423
+#: kicadstamp/cli_main.py:432 kicadstamp/cli_main.py:461
+#: kicadstamp/diagnostics/get_pad_bbox.py:39 kicadstamp/gui_main.py:101
 msgid "Verbose output"
 msgstr "Verbose output"
 
 #: kicadstamp/cli_main.py:143 kicadstamp/cli_main.py:170
-#: kicadstamp/cli_main.py:262 kicadstamp/cli_main.py:342
-#: kicadstamp/cli_main.py:384
+#: kicadstamp/cli_main.py:243 kicadstamp/cli_main.py:323
+#: kicadstamp/cli_main.py:365
 msgid "File to save logs"
 msgstr "File to save logs"
 
-#: kicadstamp/cli_main.py:144 kicadstamp/cli_main.py:380
+#: kicadstamp/cli_main.py:144 kicadstamp/cli_main.py:361
 msgid "Disable collision checking"
 msgstr "Disable collision checking"
 
@@ -9027,11 +9000,11 @@ msgstr ""
 msgid "Snapshot a channel to s-expr (file‑based cloner, no IPC)"
 msgstr "Snapshot a channel to s-expr (file‑based cloner, no IPC)"
 
-#: kicadstamp/cli_main.py:208 kicadstamp/cli_main.py:223
+#: kicadstamp/cli_main.py:208
 msgid "Path to .net file"
 msgstr "Path to .net file"
 
-#: kicadstamp/cli_main.py:209 kicadstamp/cli_main.py:224
+#: kicadstamp/cli_main.py:209
 msgid "Path to .kicad_pcb file"
 msgstr "Path to .kicad_pcb file"
 
@@ -9055,47 +9028,7 @@ msgstr ""
 "Take net/pcb/channel/output from profile NAME in --profiles file (cannot "
 "combine with explicit flags)"
 
-#: kicadstamp/cli_main.py:221
-msgid ""
-"Generate a ready clone_placements: block for a channel clone (file-based,"
-" no IPC)"
-msgstr ""
-"Generate a ready clone_placements: block for a channel clone (file-based,"
-" no IPC)"
-
-#: kicadstamp/cli_main.py:225
-msgid "Source channel, e.g. Channel_0"
-msgstr "Source channel, e.g. Channel_0"
-
-#: kicadstamp/cli_main.py:226
-msgid "Cell (template) name to clone"
-msgstr "Cell (template) name to clone"
-
 #: kicadstamp/cli_main.py:228
-msgid "Cluster tag base (default: the target channel name)"
-msgstr "Cluster tag base (default: the target channel name)"
-
-#: kicadstamp/cli_main.py:230
-msgid "Target channels, comma-separated (default: every other channel)"
-msgstr "Target channels, comma-separated (default: every other channel)"
-
-#: kicadstamp/cli_main.py:232
-msgid "Absolute position in mm (default: the target channel's own bbox origin)"
-msgstr "Absolute position in mm (default: the target channel's own bbox origin)"
-
-#: kicadstamp/cli_main.py:233
-msgid "Anchor by Role field (survives re-annotation)"
-msgstr "Anchor by Role field (survives re-annotation)"
-
-#: kicadstamp/cli_main.py:234
-msgid "Narrow the anchor role by sheet"
-msgstr "Narrow the anchor role by sheet"
-
-#: kicadstamp/cli_main.py:235
-msgid "Output .sexp file to write the clone_placements: block to"
-msgstr "Output .sexp file to write the clone_placements: block to"
-
-#: kicadstamp/cli_main.py:247
 msgid ""
 "Profile config file — WITH it Role/Cluster resolve through this profile's"
 " override store (our values win over the board; the profile's own "
@@ -9103,23 +9036,23 @@ msgid ""
 "the values come from the BOARD, exactly as before."
 msgstr ""
 
-#: kicadstamp/cli_main.py:251
+#: kicadstamp/cli_main.py:232
 msgid "Extract cell from current selection"
 msgstr "Extract cell from current selection"
 
-#: kicadstamp/cli_main.py:253
+#: kicadstamp/cli_main.py:234
 msgid "Cell name (key in cells:)"
 msgstr "Cell name (key in cells:)"
 
-#: kicadstamp/cli_main.py:254 kicadstamp/cli_main.py:339
+#: kicadstamp/cli_main.py:235 kicadstamp/cli_main.py:320
 msgid "Output .sexp/JSON file"
 msgstr "Output .sexp/JSON file"
 
-#: kicadstamp/cli_main.py:256
+#: kicadstamp/cli_main.py:237
 msgid "S-expr (.sexp) file with named profiles for extract"
 msgstr "S-expr (.sexp) file with named profiles for extract"
 
-#: kicadstamp/cli_main.py:258
+#: kicadstamp/cli_main.py:239
 msgid ""
 "Take name/output/param/net-template/origin-by-* from profile NAME in "
 "--profiles file (cannot combine with explicit flags)"
@@ -9127,7 +9060,7 @@ msgstr ""
 "Take name/output/param/net-template/origin-by-* from profile NAME in "
 "--profiles file (cannot combine with explicit flags)"
 
-#: kicadstamp/cli_main.py:264
+#: kicadstamp/cli_main.py:245
 msgid ""
 "Parameter for --net-template round-trip verification (e.g. channel=1); "
 "can be repeated; not written to the cell, only round-trip check. OPTIONAL"
@@ -9141,7 +9074,7 @@ msgstr ""
 "patterns are auto-discovered, so params are only needed when you still "
 "override nets via --net-template"
 
-#: kicadstamp/cli_main.py:270
+#: kicadstamp/cli_main.py:251
 #, python-brace-format
 msgid ""
 "Mapping real net -> pattern with {placeholder} (e.g. "
@@ -9156,7 +9089,7 @@ msgstr ""
 "roles auto-derive net_template and channel patterns are auto-discovered; "
 "kept as an explicit override"
 
-#: kicadstamp/cli_main.py:276
+#: kicadstamp/cli_main.py:257
 msgid ""
 "For components with multiple nets from --net-template on pads "
 "(ferrite/inductor/fuse between two rails) – override WHICH net is the "
@@ -9174,7 +9107,7 @@ msgstr ""
 " have that net on its pads, or if the literal is not registered in --net-"
 "template/params."
 
-#: kicadstamp/cli_main.py:284
+#: kicadstamp/cli_main.py:265
 msgid ""
 "Take the current selection as tracks/vias as-is, without the pad-"
 "connectivity filter (every selected track/via goes into the cell, no "
@@ -9183,35 +9116,35 @@ msgstr ""
 "Take the current selection as tracks/vias as-is, without the pad-"
 "connectivity filter (every selected track/via goes into the cell, no "
 "'connected to a kept footprint's pad' check)"
+
+#: kicadstamp/cli_main.py:270
+msgid ""
+"Template origin — position of via on this net (instead of bbox); fatal if"
+" no such via in selection or more than one"
+msgstr ""
+"Template origin — position of via on this net (instead of bbox); fatal if"
+" no such via in selection or more than one"
+
+#: kicadstamp/cli_main.py:273
+msgid ""
+"Template origin — position of component with this role (instead of bbox);"
+" fatal if role not found in selection"
+msgstr ""
+"Template origin — position of component with this role (instead of bbox);"
+" fatal if role not found in selection"
+
+#: kicadstamp/cli_main.py:276
+msgid ""
+"Refine --origin-by-component-role: origin is the position of the specific"
+" pad of that component, not its centre. Fatal without --origin-by-"
+"component-role."
+msgstr ""
+"Refine --origin-by-component-role: origin is the position of the specific"
+" pad of that component, not its centre. Fatal without --origin-by-"
+"component-role."
 
 #: kicadstamp/cli_main.py:289
 msgid ""
-"Template origin — position of via on this net (instead of bbox); fatal if"
-" no such via in selection or more than one"
-msgstr ""
-"Template origin — position of via on this net (instead of bbox); fatal if"
-" no such via in selection or more than one"
-
-#: kicadstamp/cli_main.py:292
-msgid ""
-"Template origin — position of component with this role (instead of bbox);"
-" fatal if role not found in selection"
-msgstr ""
-"Template origin — position of component with this role (instead of bbox);"
-" fatal if role not found in selection"
-
-#: kicadstamp/cli_main.py:295
-msgid ""
-"Refine --origin-by-component-role: origin is the position of the specific"
-" pad of that component, not its centre. Fatal without --origin-by-"
-"component-role."
-msgstr ""
-"Refine --origin-by-component-role: origin is the position of the specific"
-" pad of that component, not its centre. Fatal without --origin-by-"
-"component-role."
-
-#: kicadstamp/cli_main.py:308
-msgid ""
 "Refine --origin-by-component-role: narrow the same-role candidates to "
 "this Cluster (prefix match, as the role-anchor resolver uses). Fatal if "
 "several candidates remain even after narrowing."
@@ -9220,7 +9153,7 @@ msgstr ""
 "this Cluster (prefix match, as the role-anchor resolver uses). Fatal if "
 "several candidates remain even after narrowing."
 
-#: kicadstamp/cli_main.py:313
+#: kicadstamp/cli_main.py:294
 msgid ""
 "Refine --origin-by-component-role: narrow the same-role candidates to "
 "this schematic sheet (no-op without schematic sheet_names — the optional "
@@ -9228,7 +9161,7 @@ msgid ""
 "prefer --origin-by-component-cluster)."
 msgstr ""
 
-#: kicadstamp/cli_main.py:321
+#: kicadstamp/cli_main.py:302
 msgid ""
 "Capture one net's copper (tracks + vias) as a net_traces: record, "
 "anchored to a Role-resolved footprint over the whole board"
@@ -9236,7 +9169,7 @@ msgstr ""
 "Capture one net's copper (tracks + vias) as a net_traces: record, "
 "anchored to a Role-resolved footprint over the whole board"
 
-#: kicadstamp/cli_main.py:326
+#: kicadstamp/cli_main.py:307
 msgid ""
 "Network name to capture (e.g. DAC_DB0; local hierarchical nets keep their"
 " full '/Channel_0/...' form)"
@@ -9244,7 +9177,7 @@ msgstr ""
 "Network name to capture (e.g. DAC_DB0; local hierarchical nets keep their"
 " full '/Channel_0/...' form)"
 
-#: kicadstamp/cli_main.py:329
+#: kicadstamp/cli_main.py:310
 msgid ""
 "Role field of the anchor footprint (resolved over the whole board, same "
 "search ClonePlacement uses)"
@@ -9252,7 +9185,7 @@ msgstr ""
 "Role field of the anchor footprint (resolved over the whole board, same "
 "search ClonePlacement uses)"
 
-#: kicadstamp/cli_main.py:332
+#: kicadstamp/cli_main.py:313
 msgid ""
 "Narrow the anchor_role search by sheet (needs schematic_dir in the target"
 " config at apply time; extract-net itself has no config, so prefer "
@@ -9262,15 +9195,15 @@ msgstr ""
 " config at apply time; extract-net itself has no config, so prefer "
 "--anchor-cluster for disambiguation)"
 
-#: kicadstamp/cli_main.py:336
+#: kicadstamp/cli_main.py:317
 msgid "Narrow the anchor_role search by Cluster field (prefix match)"
 msgstr "Narrow the anchor_role search by Cluster field (prefix match)"
 
-#: kicadstamp/cli_main.py:338
+#: kicadstamp/cli_main.py:319
 msgid "Anchor point = this pad's centre instead of the footprint centre"
 msgstr "Anchor point = this pad's centre instead of the footprint centre"
 
-#: kicadstamp/cli_main.py:346
+#: kicadstamp/cli_main.py:327
 msgid ""
 "Copy a whole channel's placement (components + vias + tracks) from --src "
 "to --dst via a live twin map (variant B)"
@@ -9278,11 +9211,11 @@ msgstr ""
 "Copy a whole channel's placement (components + vias + tracks) from --src "
 "to --dst via a live twin map (variant B)"
 
-#: kicadstamp/cli_main.py:351
+#: kicadstamp/cli_main.py:332
 msgid "Source channel name, e.g. Channel_0"
 msgstr "Source channel name, e.g. Channel_0"
 
-#: kicadstamp/cli_main.py:353
+#: kicadstamp/cli_main.py:334
 msgid ""
 "Destination channel name, e.g. Channel_1; repeatable to copy to several "
 "channels in one run"
@@ -9290,39 +9223,39 @@ msgstr ""
 "Destination channel name, e.g. Channel_1; repeatable to copy to several "
 "channels in one run"
 
-#: kicadstamp/cli_main.py:357
+#: kicadstamp/cli_main.py:338
 msgid "Pivot component refdes on the source channel"
 msgstr "Pivot component refdes on the source channel"
 
-#: kicadstamp/cli_main.py:359
+#: kicadstamp/cli_main.py:340
 msgid "Pivot by Role field on the source channel (survives re-annotation)"
 msgstr "Pivot by Role field on the source channel (survives re-annotation)"
 
-#: kicadstamp/cli_main.py:361
+#: kicadstamp/cli_main.py:342
 msgid "Anchor on this pad of the pivot instead of its centre"
 msgstr "Anchor on this pad of the pivot instead of its centre"
 
-#: kicadstamp/cli_main.py:363
+#: kicadstamp/cli_main.py:344
 msgid "Extra shift added to the pivot's destination position"
 msgstr "Extra shift added to the pivot's destination position"
 
-#: kicadstamp/cli_main.py:365
+#: kicadstamp/cli_main.py:346
 msgid "Explicit destination anchor point (when the pivot twin is not placed yet)"
 msgstr "Explicit destination anchor point (when the pivot twin is not placed yet)"
 
-#: kicadstamp/cli_main.py:368
+#: kicadstamp/cli_main.py:349
 msgid "Points mode: source anchor point"
 msgstr "Points mode: source anchor point"
 
-#: kicadstamp/cli_main.py:370
+#: kicadstamp/cli_main.py:351
 msgid "Points mode: destination anchor point"
 msgstr "Points mode: destination anchor point"
 
-#: kicadstamp/cli_main.py:372
+#: kicadstamp/cli_main.py:353
 msgid "Rotation of the whole construction (degrees)"
 msgstr "Rotation of the whole construction (degrees)"
 
-#: kicadstamp/cli_main.py:374
+#: kicadstamp/cli_main.py:355
 msgid ""
 "Mirror the whole construction (F.Cu <-> B.Cu swap; inner copper layers "
 "keep their layer)"
@@ -9330,23 +9263,23 @@ msgstr ""
 "Mirror the whole construction (F.Cu <-> B.Cu swap; inner copper layers "
 "keep their layer)"
 
-#: kicadstamp/cli_main.py:376
+#: kicadstamp/cli_main.py:357
 msgid "Also copy foreign (global-net) copper inside the source bbox"
 msgstr "Also copy foreign (global-net) copper inside the source bbox"
 
-#: kicadstamp/cli_main.py:378
+#: kicadstamp/cli_main.py:359
 msgid "Only print the plan, do not write to the board"
 msgstr "Only print the plan, do not write to the board"
 
-#: kicadstamp/cli_main.py:388
+#: kicadstamp/cli_main.py:369
 msgid "Merge an include: project into one self-contained file"
 msgstr "Merge an include: project into one self-contained file"
 
-#: kicadstamp/cli_main.py:391
+#: kicadstamp/cli_main.py:372
 msgid "Root config file to flatten (the whole include: graph is resolved from it)"
 msgstr "Root config file to flatten (the whole include: graph is resolved from it)"
 
-#: kicadstamp/cli_main.py:394
+#: kicadstamp/cli_main.py:375
 msgid ""
 "Output file. Default: overwrite the root file in place; an explicit path "
 "writes a NEW file and leaves the root untouched"
@@ -9354,7 +9287,7 @@ msgstr ""
 "Output file. Default: overwrite the root file in place; an explicit path "
 "writes a NEW file and leaves the root untouched"
 
-#: kicadstamp/cli_main.py:398
+#: kicadstamp/cli_main.py:379
 msgid ""
 "Print the consolidation plan (sections and target path) without writing "
 "anything"
@@ -9362,164 +9295,163 @@ msgstr ""
 "Print the consolidation plan (sections and target path) without writing "
 "anything"
 
-#: kicadstamp/cli_main.py:403
+#: kicadstamp/cli_main.py:384
 msgid "Rewrite trees: from the removed own_anchor grammar to mount nodes"
 msgstr ""
 
-#: kicadstamp/cli_main.py:406
+#: kicadstamp/cli_main.py:387
 msgid "Config file whose trees: section is converted"
 msgstr ""
 
-#: kicadstamp/cli_main.py:408
+#: kicadstamp/cli_main.py:389
 msgid ""
 "Output file. Default: overwrite --root in place; an explicit path writes "
 "a NEW file and leaves the root untouched (recommended: keep a backup)"
 msgstr ""
 
-#: kicadstamp/cli_main.py:412
+#: kicadstamp/cli_main.py:393
 msgid "Print the conversion report without writing anything"
 msgstr ""
 
-#: kicadstamp/cli_main.py:422
+#: kicadstamp/cli_main.py:403
 msgid ""
 "Write this profile's stored Role/Cluster values onto the board or into "
 "the schematic"
 msgstr ""
 
-#: kicadstamp/cli_main.py:425
+#: kicadstamp/cli_main.py:406
 msgid ""
 "Profile config file whose override store (overrides/<stem>.fields.json, "
 "next to it) is written out. REQUIRED — the store belongs to a profile."
 msgstr ""
 
-#: kicadstamp/cli_main.py:430
+#: kicadstamp/cli_main.py:411
 msgid ""
 "Destination: “board” writes the live board through KiCad (one commit, one"
 " Ctrl+Z); “schematic” splices the .kicad_sch offline, which is an "
 "operation KiCad must be closed for."
 msgstr ""
 
-#: kicadstamp/cli_main.py:435
+#: kicadstamp/cli_main.py:416
 msgid ""
 "Print the plan and write NOTHING — neither the board nor any file is "
 "touched."
 msgstr ""
 
-#: kicadstamp/cli_main.py:438
+#: kicadstamp/cli_main.py:419
 msgid ""
 "The .kicad_sch to splice for --to schematic. Default: the profile's own "
 "root_sheet."
 msgstr ""
 
-#: kicadstamp/cli_main.py:441
+#: kicadstamp/cli_main.py:422
 msgid "IPC timeout in ms (--to board only)"
 msgstr ""
 
-#: kicadstamp/cli_main.py:446
+#: kicadstamp/cli_main.py:427
 msgid "Show the profile's override store (ref, field, value, who set it)"
 msgstr ""
 
-#: kicadstamp/cli_main.py:448
+#: kicadstamp/cli_main.py:429
 msgid ""
 "Profile config file whose override store (overrides/<stem>.fields.json, "
 "next to it) is listed. REQUIRED — the store belongs to a profile."
 msgstr ""
 
-#: kicadstamp/cli_main.py:458
+#: kicadstamp/cli_main.py:439
 msgid ""
 "Drop stored Role/Cluster values by component (the “never mind” of the "
 "override store)"
 msgstr ""
 
-#: kicadstamp/cli_main.py:461
+#: kicadstamp/cli_main.py:442
 msgid ""
 "Profile config file whose override store (overrides/<stem>.fields.json, "
 "next to it) is edited. REQUIRED — the store belongs to a profile."
 msgstr ""
 
-#: kicadstamp/cli_main.py:466
+#: kicadstamp/cli_main.py:447
 msgid ""
 "Forget every record of this component (repeatable). The stored refdes is "
 "the only human name a record has."
 msgstr ""
 
-#: kicadstamp/cli_main.py:471
+#: kicadstamp/cli_main.py:452
 msgid "Narrow the forget to this one field of the named components."
 msgstr ""
 
-#: kicadstamp/cli_main.py:474
+#: kicadstamp/cli_main.py:455
 msgid ""
 "Forget EVERY record of this profile (combine with --field to clear one "
 "field everywhere)."
 msgstr ""
 
-#: kicadstamp/cli_main.py:478
+#: kicadstamp/cli_main.py:459
 msgid "Print what would be forgotten and write NOTHING."
 msgstr ""
 
-#: kicadstamp/cli_main.py:487
+#: kicadstamp/cli_main.py:468
 msgid ""
 "Move foreign clusters aside to read a cell cleanly (plan / run / restore "
 "/ status)"
 msgstr ""
 
-#: kicadstamp/cli_main.py:494
+#: kicadstamp/cli_main.py:475
 msgid "Profile config file whose cells and registries are read."
 msgstr ""
 
-#: kicadstamp/cli_main.py:498
+#: kicadstamp/cli_main.py:479
 msgid "Cell (key in cells:) whose instance is read."
 msgstr ""
 
-#: kicadstamp/cli_main.py:500
+#: kicadstamp/cli_main.py:481
 msgid ""
 "Instance cluster; without it the ONE config record placing the cell is "
 "used (several or none is a refusal)."
 msgstr ""
 
-#: kicadstamp/cli_main.py:504
+#: kicadstamp/cli_main.py:485
 msgid "Instance sheet (used with --cluster)."
 msgstr ""
 
-#: kicadstamp/cli_main.py:506
+#: kicadstamp/cli_main.py:487
 msgid "Margin around the instance's frame, mm (default 5)."
 msgstr ""
 
-#: kicadstamp/cli_main.py:509
+#: kicadstamp/cli_main.py:490
 msgid "Clearance left after the shift, mm (default 5)."
 msgstr ""
 
-#: kicadstamp/cli_main.py:513
+#: kicadstamp/cli_main.py:494
 msgid "Print the plan — writes NOTHING"
 msgstr ""
 
-#: kicadstamp/cli_main.py:516
+#: kicadstamp/cli_main.py:497
 msgid "Journal first, then shift the clusters in one transaction"
 msgstr ""
 
-#: kicadstamp/cli_main.py:519
+#: kicadstamp/cli_main.py:500
 msgid "Take this inter-cluster piece along (repeatable)."
 msgstr ""
 
-#: kicadstamp/cli_main.py:522
+#: kicadstamp/cli_main.py:503
 msgid "Leave this inter-cluster piece behind (repeatable)."
 msgstr ""
 
-#: kicadstamp/cli_main.py:525
+#: kicadstamp/cli_main.py:506
 msgid "Undo the explode from this board's journal"
 msgstr ""
 
-#: kicadstamp/cli_main.py:528
+#: kicadstamp/cli_main.py:509
 msgid "Is there a journal for this board?"
 msgstr ""
 
-#: kicadstamp/cli_main.py:535
+#: kicadstamp/cli_main.py:516
 msgid ""
 "Note: the first argument was taken as a config path for 'apply' (bare-"
 "config shorthand). If you meant a subcommand, spell it exactly: apply, "
-"undo, extract, extract-net, clone-extract, clone-plan, channel-copy, "
-"flatten, convert-trees, overrides-apply, overrides-list, overrides-"
-"forget."
+"undo, extract, extract-net, clone-extract, channel-copy, flatten, "
+"convert-trees, overrides-apply, overrides-list, overrides-forget."
 msgstr ""
 
 #: kicadstamp/component_address.py:74
@@ -12101,7 +12033,7 @@ msgstr ""
 "Copper of GLOBAL nets inside the channel bounds: not included in the "
 "clone; channel connections to common rails are made deliberately."
 
-#: kicadstamp/cloner/extract.py:96 kicadstamp/cloner/plan.py:181
+#: kicadstamp/cloner/extract.py:96
 #, python-brace-format
 msgid "Channel {channel!r} not found; available: {avail}"
 msgstr "Channel {channel!r} not found; available: {avail}"
@@ -12162,21 +12094,12 @@ msgstr ""
 "{channel}: {fp} footprints, {seg} segments, {vias} vias; foreign in bbox:"
 " {fseg} segs, {fvia} vias"
 
-#: kicadstamp/cloner/plan.py:73
-#, python-brace-format
-msgid ""
-"duplicate role {role!r} on {ref} in one channel — clone-plan uses the "
-"first occurrence"
-msgstr ""
-"duplicate role {role!r} on {ref} in one channel — clone-plan uses the "
-"first occurrence"
-
-#: kicadstamp/cloner/plan.py:133
+#: kicadstamp/cloner/plan.py:49
 #, python-brace-format
 msgid "net_matching {src} -> {dst}: {error}"
 msgstr "net_matching {src} -> {dst}: {error}"
 
-#: kicadstamp/cloner/plan.py:138
+#: kicadstamp/cloner/plan.py:54
 #, python-brace-format
 msgid ""
 "net_matching {src} -> {dst}: electrically symmetric roles in group "
@@ -12186,16 +12109,6 @@ msgstr ""
 "net_matching {src} -> {dst}: electrically symmetric roles in group "
 "{roles} — any assignment is valid; disambiguate by sheet/cluster when "
 "several instances share these nets"
-
-#: kicadstamp/cloner/plan.py:184
-#, python-brace-format
-msgid "no footprints for channel {channel!r} on the board"
-msgstr "no footprints for channel {channel!r} on the board"
-
-#: kicadstamp/cloner/plan.py:191
-#, python-brace-format
-msgid "target channel {channel!r} not found; available: {avail}"
-msgstr "target channel {channel!r} not found; available: {avail}"
 
 #: kicadstamp/config/aliases.py:74
 #, python-brace-format
