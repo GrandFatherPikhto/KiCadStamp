@@ -61,7 +61,8 @@ from copy import deepcopy
 from dataclasses import dataclass, field
 from typing import Any
 
-from .cell_frame import (CellFrame, fit_cell_frame, mirror_for_layer,
+from .cell_frame import (CellFrame, fit_cell_frame, frame_for_live_selection,
+                         frame_warnings, mirror_for_layer,
                          reference_relative_pairs)
 from .frame_node_pose import FrameReadContext, follow_the_tree_node
 from .cluster_matching import cluster_prefix_match
@@ -695,64 +696,6 @@ def _cell_selection_context(components: list[dict], footprints: list[Footprint],
     return role_to_ref, matched, origin, (surrogate_along, surrogate_across), problems
 
 
-def _cell_frame_for(components: list[dict], matched: list[dict],
-                    footprints: list[Footprint], role_to_ref: dict[str, str],
-                    origin: Vector2, mount: tuple[float, float],
-                    cell_layer: str | None = None) -> CellFrame:
-    """The ONE cell<->world frame for a live selection (J.1): its origin is the
-    surrogate's live position offset back by the mount, and its rotation/mirror
-    are FITTED — never read from a placement, never from one component's angle.
-
-    The fit's pairs are (stored offset − mount) vs (live delta from the
-    placement origin) over EVERY matched role at once, so a two-pin part's
-    180° angle ambiguity cannot decide the frame. No usable pair (the first
-    extraction of a cell, a single-component cell) keeps the historical
-    theta=0 / mirror=False frame.
-
-    ``cell_layer`` (2026-10-12, plan_2026_10_12_reread_frame_mirror): the cell's
-    OWN copper layer, when the caller knows it (CellDock always sends one). Then
-    the mirror is NOT the fit's to choose — it is the PHYSICAL side of the
-    instance against that layer (cell_frame.mirror_for_layer), and the fit is
-    merely CONSTRAINED by it. That is what makes the re-read frame the inverse of
-    Apply: a cluster standing on the cell's own side can never come back mirrored
-    (the defect this argument exists for — an F.Cu instance re-read into a
-    mirrored cell, whose next Redraw turned every 0°/180° part). A side the
-    caller does not know (`None`, a duck-typed board object) leaves the fit free,
-    byte for byte as before."""
-    placement_origin = Vector2.from_xy(
-        origin.x + int(round(mount[0] * MM)),
-        origin.y + int(round(mount[1] * MM)))
-    # The side of the INSTANCE: the surrogate's footprint IS the one standing on
-    # `placement_origin` (that is how the origin was built from it), so no second
-    # lookup rule is invented here — and the rule itself is the ONE host
-    # (cell_frame.mirror_for_layer). No known side -> None -> the fit stays free.
-    mirror: bool | None = None
-    if cell_layer is not None:
-        for fp in footprints:
-            if fp.position.x == placement_origin.x \
-                    and fp.position.y == placement_origin.y:
-                mirror = mirror_for_layer(fp.layer, cell_layer, fallback=None)
-                break
-    ref_to_fp = {fp.ref: fp for fp in footprints}
-    pairs: list[tuple[float, float, float, float]] = []
-    for rec in matched:
-        fp = ref_to_fp.get(role_to_ref.get(rec.get("role")))
-        if fp is None:
-            continue
-        pairs.append((
-            float(rec.get("offset_along_mm", 0.0)) - mount[0],
-            float(rec.get("offset_across_mm", 0.0)) - mount[1],
-            (fp.position.x - placement_origin.x) / MM,
-            (fp.position.y - placement_origin.y) / MM))
-    fit = fit_cell_frame(pairs, mirror=mirror)
-    if fit is None:
-        return CellFrame(placement_origin=placement_origin,
-                         mount=(mount[0], mount[1]))
-    return CellFrame(placement_origin=placement_origin,
-                     rotation_deg=fit.rotation_deg, mirror=fit.mirror,
-                     mount=(mount[0], mount[1]), residual_mm=fit.residual_mm)
-
-
 def _frame_and_context(components, footprints, adapter, action_label,
                        origin_role=None, reconcile=False, cell_layer=None,
                        node_context=None):
@@ -765,27 +708,20 @@ def _frame_and_context(components, footprints, adapter, action_label,
     baked INTO the cell (re-reading is idempotent) and anchor_xy is never
     touched. ``frame`` is None when the origin could not be resolved.
 
-    ``cell_layer`` (2026-10-12) is passed straight to _cell_frame_for, where a
-    KNOWN layer replaces the fit's mirror with the instance's physical side. The
-    criterion is "the side is known", never "which path called here": a caller
-    that does not know the layer (CLI, probes, synthetic frames) keeps the
-    historical unconstrained fit.
-
-    ``node_context`` (2026-10-12, plan_2026_10_12_reread_frame_mirror) — what the
-    caller knows about the instance (its layer, name, address, the loaded config):
-    a NON-RIGID frame then takes its rotation from the tree node that places the
-    instance instead of from the fit (kicadstamp/frame_node_pose.py owns that
-    rule and every one of its refusals). The lookup is LAZY — it runs only in the
-    rearranged case — so an ordinary rigid re-read pays not a single extra read.
-    The lines it produces come back as the LAST element, for the caller's Log.
+    ``cell_layer``/``node_context`` (2026-10-12, plan_2026_10_12_reread_frame_
+    mirror) — what the caller knows about this instance (its layer, name, address,
+    config). A known layer pins the frame's mirror to the instance's PHYSICAL side
+    (cell_frame.frame_for_live_selection); a NON-RIGID frame takes its rotation
+    from the tree node that places it, LAZILY (kicadstamp/frame_node_pose.py owns
+    that rule and its refusals). The lines produced come back as the LAST element.
 
     Refresh and import need the other outputs too, so the construction lives HERE
     and they share it with the public :func:`cell_frame_from_live` — one place,
     never a copy (rule: "одно правило — одно место")."""
     role_to_ref, matched, origin, mount, problems = _cell_selection_context(
         components, footprints, adapter, action_label, origin_role, reconcile)
-    frame = (_cell_frame_for(components, matched, footprints, role_to_ref,
-                             origin, mount, cell_layer)
+    frame = (frame_for_live_selection(matched, footprints, role_to_ref, origin,
+                                      mount, cell_layer)
              if origin is not None else None)
     frame, node_lines = follow_the_tree_node(
         frame, node_context, adapter, [c.get("role") for c in components])
@@ -965,36 +901,6 @@ def _read_nested_live(adapter, placement, cell, parent_frame: CellFrame,
             round(parent_frame.angle_to_cell(abs_rotation), 4), mirror), None
 
 
-def _frame_warnings(frame: CellFrame | None) -> list[str]:
-    """The user-facing lines for a fitted frame (J.1) — the honest report of a
-    non-rigid cluster, a turned instance and/or a MIRRORED one. Empty for None,
-    for the historical unrotated rigid frame and for a fit that found nothing.
-
-    The mirror line (2026-10-12, plan_2026_10_12_reread_frame_mirror) is the one
-    Denis asked for: mirroring on a re-read is legal only when the SIDE changed,
-    and a legal mirror that nobody mentions is exactly the silent half of the
-    defect that mirrored `p5v_in`."""
-    if frame is None:
-        return []
-    warnings: list[str] = []
-    if not frame.is_rigid:
-        warnings.append(
-            _("the selection is not a rigid copy of this cell (worst deviation "
-              "{deviation} mm) — the geometry was re-read anyway")
-            .format(deviation=f"{frame.residual_mm:.3f}"))
-    if frame.rotation_deg:
-        warnings.append(
-            _("the instance is rotated {angle}° — the geometry was expressed in "
-              "the cell's own frame, anchor_xy is left unchanged")
-            .format(angle=f"{frame.rotation_deg:g}"))
-    if frame.mirror:
-        warnings.append(
-            _("the instance stands on the OTHER side of the board than the "
-              "cell's own layer — the geometry was re-read in a MIRRORED cell "
-              "frame (the cell was mirrored by this read)"))
-    return warnings
-
-
 def referencing_records_for_roles(cfg, roles: set, chosen_cluster=None,
                                   chosen_sheet=None) -> dict:
     """Ф2 (acceptance of cbc8bdc, Н4 п.4): which records OUTSIDE the cell
@@ -1109,19 +1015,12 @@ def build_refresh_plan(components: list[dict], vias: list[dict], tracks: list[di
     disappears).
 
 
-    cell_name (2026-10-12, plan_2026_10_12_reread_frame_mirror) — the cell's own
-    name, threaded into the frame's tree-node lookup: on a NON-RIGID cluster the
-    frame takes its rotation from the tree node that places the instance rather
-    than from the fit (kicadstamp/frame_node_pose.py). `None` (or a config that
-    is not loaded) keeps the fitted rotation, and the Log says it was guessed.
-
-    cell_layer (H.1.1) — the cell's own copper layer, threaded into the track
-    grouping (net/template + effective layer) so records and live tracks of the
-    same net but different layers are never paired. `None` keeps the historical
-    net-only behaviour (existing callers/tests unchanged). Since 2026-10-12
-    (plan_2026_10_12_reread_frame_mirror) the same value also constrains the
-    FRAME's mirror (see _cell_frame_for): with a KNOWN layer the mirror is the
-    instance's physical side, never the fit's choice.
+    cell_name/cell_layer (2026-10-12, plan_2026_10_12_reread_frame_mirror) — the
+    frame facts: the cell's own name (the tree-node lookup of a NON-RIGID frame,
+    kicadstamp/frame_node_pose.py) and its own copper layer. The layer also groups
+    tracks by effective layer (H.1.1: a record and a live track of one net never
+    pair across layers) and, when KNOWN, pins the frame's mirror to the instance's
+    physical side. `None` keeps every historical behaviour.
 
     Raises ValidationError (format_fatal_error, EVERY problem collected into
     one message — missing/extra roles AND every per-net/template/net:null
@@ -1142,7 +1041,7 @@ def build_refresh_plan(components: list[dict], vias: list[dict], tracks: list[di
             cell_layer=cell_layer, cell_name=cell_name,
             cluster=chosen_cluster, sheet=chosen_sheet, config=config,
             sheet_names=sheet_names))
-    warnings = _frame_warnings(frame) + node_lines
+    warnings = frame_warnings(frame) + node_lines
 
     # N (2026-09-11): the cell's NESTED clone_placements — same action, same
     # frame. The nested instance is identified by its OWN cell's roles through

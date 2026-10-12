@@ -8,13 +8,16 @@ refuses an ambiguous template, and a run that produced NO test failure ("miss")
 is a rig failure, not a kill.
 
 Mutations (name, file, old, new, expected):
-  M1  `_cell_frame_for` goes back to `fit_cell_frame(pairs)` — the fit chooses the
-      mirror again, exactly the defect. The К6–К9 frame cells and Denis's own case
-      (К16a) must fail.
+  M1  `frame_for_live_selection` goes back to `fit_cell_frame(pairs)` — the fit
+      chooses the mirror again, exactly the defect. The К6–К9 frame cells and
+      Denis's own case (К16a) must fail.
   M2  `follow_the_tree_node` computes the node's pose and then keeps the FITTED
       rotation — the frame no longer follows the node. К10 and К16b must fail.
-  M3  the mirror line is dropped from `_frame_warnings` — a legal mirror nobody
+  M3  the mirror line is dropped from `frame_warnings` — a legal mirror nobody
       mentions (rule 3 of the plan). The К6 wiring cell must fail.
+  M4  the Г3 condition comes back: the "guessed" line is emitted only when the
+      caller names the cell. The number-3 cell of
+      test_refresh_moved_slot_lands_in_new_offsets_and_warns must fail.
   K1  a cosmetic comment-only edit -> must SURVIVE (control: the rig is not
       trivially red).
 
@@ -38,13 +41,18 @@ _TAKE_MUT = "    return frame, lines  # mutation: the node's pose is not taken"
 _MIRROR_LINE = "    if frame.mirror:"
 _MIRROR_MUT = "    if False:  # mutation: the mirror line is never printed"
 
+_GATE_OFF = "    pose, reason = node_pose_for_instance("
+_GATE_ON = ("    if not context.cell_name:  # mutation: the Г3 gate comes back\n"
+            "        return frame, []\n"
+            "    pose, reason = node_pose_for_instance(")
+
 _COMMENT = "# kicadstamp/frame_node_pose.py"
 _COMMENT_MUT = "# kicadstamp/frame_node_pose.py (cosmetic control)"
 
 # (name, file, old, new, expected, node ids)
 MUTATIONS = [
     ("M1 the fit chooses the mirror again",
-     "kicadstamp/cell_geometry_refresh.py",
+     "kicadstamp/cell_frame.py",
      _FIT, _FIT_MUT, "killed",
      ["tests/trees/test_frame_node_pose.py",
       "tests/trees/test_cell_geometry_refresh.py"]),
@@ -53,10 +61,16 @@ MUTATIONS = [
      _TAKE, _TAKE_MUT, "killed",
      ["tests/trees/test_frame_node_pose.py"]),
     ("M3 the mirror line is never printed",
-     "kicadstamp/cell_geometry_refresh.py",
+     "kicadstamp/cell_frame.py",
      _MIRROR_LINE, _MIRROR_MUT, "killed",
      ["tests/trees/test_cell_geometry_refresh.py::"
       "test_the_plan_hands_the_cell_layer_to_the_frame"]),
+    ("M4 the guessed line needs a named cell again",
+     "kicadstamp/frame_node_pose.py",
+     _GATE_OFF, _GATE_ON, "killed",
+     ["tests/trees/test_frame_node_pose.py",
+      "tests/trees/test_cell_geometry_refresh.py::"
+      "test_refresh_moved_slot_lands_in_new_offsets_and_warns"]),
     ("K1 cosmetic comment",
      "kicadstamp/frame_node_pose.py",
      _COMMENT, _COMMENT_MUT, "survived",

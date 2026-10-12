@@ -157,15 +157,11 @@ def follow_the_tree_node(frame, context, adapter, roles):
     fitted rotation stays and the line says it was GUESSED, with the reason —
     never a silent coin toss.
 
-    The line needs an INSTANCE to be about: a caller that does not even name the
-    cell (an engine/probe call, not a re-read of a named instance) is left exactly
-    as it was — nothing to follow, and its silence is not a guess that was hidden.
-    The criterion is "the instance is known" (its name, and the address the node
-    lookup narrows by), never which path called here — the same shape as the
-    physical-side rule in cell_frame.mirror_for_layer."""
+    The line is said for EVERY non-rigid frame that has no node, whatever the
+    caller happens to know: "this read does not know the cell's name" is one of
+    node_pose_for_instance's own reasons, not a licence to stay quiet (Г3 of the
+    plan's acceptance — the reason is ALWAYS named)."""
     if frame is None or frame.is_rigid or context is None:
-        return frame, []
-    if not context.cell_name:
         return frame, []
     pose, reason = node_pose_for_instance(
         context.config, adapter, context.sheet_names or {},

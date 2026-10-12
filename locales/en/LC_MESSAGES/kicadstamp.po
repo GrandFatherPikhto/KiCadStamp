@@ -17500,11 +17500,18 @@ msgstr "KiCad rejected the move of {ref!r} — the board was not modified"
 msgid "footprint {ref!r} not found on the board"
 msgstr "footprint {ref!r} not found on the board"
 
-#: kicadstamp/cell_geometry_refresh.py:992
+#: kicadstamp/cell_frame.py:290
+#, python-brace-format
 msgid ""
-"the instance stands on the OTHER side of the board than the "
-"cell's own layer — the geometry was re-read in a MIRRORED cell "
-"frame (the cell was mirrored by this read)"
+"the instance stands on the other side of the board "
+"({side} vs the cell's {cell_layer}) — its geometry was "
+"un-mirrored into the cell's own frame"
+msgstr ""
+
+#: kicadstamp/cell_frame.py:296
+msgid ""
+"the instance is mirrored relative to the cell — its geometry "
+"was un-mirrored into the cell's own frame"
 msgstr ""
 
 #: kicadstamp/frame_node_pose.py:82

@@ -1376,15 +1376,16 @@ def test_the_plan_hands_the_cell_layer_to_the_frame():
     agreeing fit."""
     free = _refresh_spec(_MEASURED_270, 90.0, mirror=True)
     assert not any("not a rigid copy" in w for w in free.warnings), free.warnings
-    assert any("MIRRORED cell frame" in w for w in free.warnings), free.warnings
+    assert any("un-mirrored into the cell's own frame" in w
+               for w in free.warnings), free.warnings
     assert any("is rotated" in w for w in free.warnings), free.warnings
 
     constrained = _refresh_spec(_MEASURED_270, 90.0, mirror=True,
                                 cell_layer="F.Cu")
     assert any("not a rigid copy" in w for w in constrained.warnings), \
         constrained.warnings
-    assert not any("MIRRORED cell frame" in w for w in constrained.warnings), \
-        constrained.warnings
+    assert not any("un-mirrored into the cell's own frame" in w
+                   for w in constrained.warnings), constrained.warnings
 
 
 def test_a_rigid_rotated_copy_on_its_own_side_still_reads_to_its_own_offsets():
@@ -1452,10 +1453,19 @@ def test_refresh_moved_slot_lands_in_new_offsets_and_warns():
             continue
         assert geo[role]["offset_along_mm"] == pytest.approx(along, abs=1e-4)
         assert geo[role]["offset_across_mm"] == pytest.approx(across, abs=1e-4)
-    # Honest report: a non-rigid cluster (plus the rotation line).
-    assert len(plan.warnings) == 2
+    # Honest report: a non-rigid cluster, the rotation, AND (2026-10-12,
+    # plan_2026_10_12_reread_frame_mirror, Г3 of its acceptance) the line saying
+    # the rotation was GUESSED — said for EVERY non-rigid frame without a node,
+    # whatever the caller knows. The count changed 2 -> 3 by Denis's decision
+    # (12.10), and the new line is asserted BY CONTENT (its reason is named; this
+    # call carries no config, which is the reason frame_node_pose reports first —
+    # the no-cell-name reason has its own cell in test_frame_node_pose.py).
+    assert len(plan.warnings) == 3
     assert "not a rigid copy" in plan.warnings[0]
     assert "0.8" in plan.warnings[0]
+    guessed = [w for w in plan.warnings if "guessed" in w]
+    assert len(guessed) == 1
+    assert "no config is loaded" in guessed[0]
 
 
 def test_import_from_a_rotated_instance_uses_the_cell_frame():

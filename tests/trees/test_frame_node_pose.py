@@ -140,6 +140,23 @@ def test_no_node_keeps_the_fit_and_says_the_rotation_was_guessed():
     assert "no tree node places this instance" in lines[0]
 
 
+def test_a_non_rigid_frame_without_a_named_cell_still_says_it_guessed():
+    """К11b (Г3 of the plan's acceptance, plan_2026_10_12_reread_frame_mirror):
+    the "guessed" line does NOT depend on the caller naming the cell — an unnamed
+    cell is one of frame_node_pose's own REFUSALS, and its reason must be printed
+    like any other. A gate on `cell_name` here would swallow exactly the case the
+    line exists for."""
+    cfg = _cfg(_tree(nodes=[_node("p5v_in_power", rotation=90.0)]))
+    context = fnp.FrameReadContext(cell_layer="F.Cu", cell_name=None,
+                                   cluster="P5V_IN", sheet="Power", config=cfg,
+                                   sheet_names={})
+    frame, lines = fnp.follow_the_tree_node(_non_rigid_frame(), context, None,
+                                            ["C_IN_BULK"])
+    assert frame.rotation_deg == -180.0
+    assert len(lines) == 1 and "guessed" in lines[0]
+    assert "does not know the cell's name" in lines[0]
+
+
 def test_two_nodes_are_a_named_refusal_not_a_coin_toss():
     """К12 (plan_2026_10_12_reread_frame_mirror): TWO nodes place the same
     instance — the read may not pick one, so the fit stays and the Log names

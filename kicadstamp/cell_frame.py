@@ -52,6 +52,8 @@ from typing import Iterable
 
 from .domain.geometry import BoardLayer, Vector2
 from .geometry.clone_geometry import clone_rotation_from_component
+from .i18n import _
+from .utils.layers import layer_to_str
 from .utils.units import MM
 
 # Worst per-role deviation (mm) still considered a rigid copy of the cell.
@@ -206,6 +208,11 @@ class CellFrame:
     mirror: bool = False
     mount: tuple[float, float] = (0.0, 0.0)
     residual_mm: float = 0.0
+    # The PHYSICAL side of the instance and the cell's own layer, when the caller
+    # knew them (frame_for_live_selection): the mirror line names both. None =
+    # unknown — an engine caller that never had a layer.
+    side_layer: str | None = None
+    cell_layer: str | None = None
 
     @classmethod
     def from_reference(cls, *, rotation_deg: float, mirror: bool,
@@ -263,3 +270,92 @@ class CellFrame:
         with clone_geometry's own mirrored rule), normalised to (-180, 180]."""
         return clone_rotation_from_component(
             world_angle_deg, self.rotation_deg, self.mirror)
+
+
+def frame_for_live_selection(matched, footprints, role_to_ref, origin, mount,
+                             cell_layer=None) -> CellFrame:
+    """The ONE cell<->world frame for a LIVE selection (J.1): the origin is the
+    surrogate's live position offset back by the mount, the rotation is FITTED
+    from the stored offsets against the live deltas of EVERY matched role at once
+    (never a placement, never one component's angle), and the mirror — when the
+    caller knows the cell's layer — is the instance's PHYSICAL side
+    (mirror_for_layer), never the fit's choice.
+
+    Moved here from cell_geometry_refresh (2026-10-12, plan_2026_10_12_reread_
+    frame_mirror, Г1 of its acceptance): the frame belongs to THIS module, and
+    that giant only shrinks. `origin`/`mount` are the role match's own outputs
+    (_cell_selection_context); with no usable pair (a first extraction, a
+    single-component cell) the historical theta=0 / mirror=False frame is kept."""
+    placement_origin = Vector2.from_xy(
+        origin.x + int(round(mount[0] * MM)),
+        origin.y + int(round(mount[1] * MM)))
+    # The side of the INSTANCE: the surrogate's footprint IS the one standing on
+    # `placement_origin` (the origin was built from it), so no second lookup rule
+    # is invented here; the rule itself is the ONE host above. No known side ->
+    # None -> the fit stays free.
+    mirror: bool | None = None
+    side_layer: str | None = None
+    if cell_layer is not None:
+        for fp in footprints:
+            if fp.position.x == placement_origin.x \
+                    and fp.position.y == placement_origin.y:
+                mirror = mirror_for_layer(fp.layer, cell_layer, fallback=None)
+                if isinstance(fp.layer, BoardLayer):
+                    side_layer = layer_to_str(fp.layer)
+                break
+    ref_to_fp = {fp.ref: fp for fp in footprints}
+    pairs: list[tuple[float, float, float, float]] = []
+    for rec in matched:
+        fp = ref_to_fp.get(role_to_ref.get(rec.get("role")))
+        if fp is None:
+            continue
+        pairs.append((
+            float(rec.get("offset_along_mm", 0.0)) - mount[0],
+            float(rec.get("offset_across_mm", 0.0)) - mount[1],
+            (fp.position.x - placement_origin.x) / MM,
+            (fp.position.y - placement_origin.y) / MM))
+    fit = fit_cell_frame(pairs, mirror=mirror)
+    if fit is None:
+        return CellFrame(placement_origin=placement_origin,
+                         mount=(mount[0], mount[1]), side_layer=side_layer,
+                         cell_layer=cell_layer)
+    return CellFrame(placement_origin=placement_origin,
+                     rotation_deg=fit.rotation_deg, mirror=fit.mirror,
+                     mount=(mount[0], mount[1]), residual_mm=fit.residual_mm,
+                     side_layer=side_layer, cell_layer=cell_layer)
+
+
+def frame_warnings(frame: CellFrame | None) -> list[str]:
+    """The user-facing Log lines for a fitted frame — a non-rigid cluster, a
+    turned instance and/or a MIRRORED one. Empty for None, for the historical
+    unrotated rigid frame and for a fit that found nothing.
+
+    Moved here with frame_for_live_selection (2026-10-12, Г1 of the plan's
+    acceptance). The mirror line is the one Denis asked for, and its direction
+    matters: the re-read UN-MIRRORS the instance's geometry into the cell's own
+    frame — the CELL is not mirrored by the read."""
+    if frame is None:
+        return []
+    warnings: list[str] = []
+    if not frame.is_rigid:
+        warnings.append(
+            _("the selection is not a rigid copy of this cell (worst deviation "
+              "{deviation} mm) — the geometry was re-read anyway")
+            .format(deviation=f"{frame.residual_mm:.3f}"))
+    if frame.rotation_deg:
+        warnings.append(
+            _("the instance is rotated {angle}° — the geometry was expressed in "
+              "the cell's own frame, anchor_xy is left unchanged")
+            .format(angle=f"{frame.rotation_deg:g}"))
+    if frame.mirror:
+        if frame.side_layer and frame.cell_layer:
+            warnings.append(
+                _("the instance stands on the other side of the board "
+                  "({side} vs the cell's {cell_layer}) — its geometry was "
+                  "un-mirrored into the cell's own frame").format(
+                    side=frame.side_layer, cell_layer=frame.cell_layer))
+        else:
+            warnings.append(
+                _("the instance is mirrored relative to the cell — its geometry "
+                  "was un-mirrored into the cell's own frame"))
+    return warnings

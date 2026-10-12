@@ -373,6 +373,9 @@ read that cannot find exactly one such node (no node, two nodes, a tree embedded
 by a module, a mount node on the path) keeps the fit and says the rotation was
 GUESSED, with the reason.
 
+The DIRECTION matters: a mirrored re-read UN-MIRRORS the instance's geometry into
+the cell's own frame — the CELL is not mirrored by the read.
+
 ### Selecting a cell's instance and its enclosed copper (Config tree)
 
 The same Config-tree context menu that holds "Explode…" carries three selection

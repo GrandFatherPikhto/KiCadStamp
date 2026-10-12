@@ -18404,15 +18404,24 @@ msgstr "KiCad отклонил перемещение {ref!r} — плата н�
 msgid "footprint {ref!r} not found on the board"
 msgstr "футпринт {ref!r} не найден на плате"
 
-#: kicadstamp/cell_geometry_refresh.py:992
+#: kicadstamp/cell_frame.py:290
+#, python-brace-format
 msgid ""
-"the instance stands on the OTHER side of the board than the "
-"cell's own layer — the geometry was re-read in a MIRRORED cell "
-"frame (the cell was mirrored by this read)"
+"the instance stands on the other side of the board "
+"({side} vs the cell's {cell_layer}) — its geometry was "
+"un-mirrored into the cell's own frame"
 msgstr ""
-"инстанс стоит на ДРУГОЙ стороне платы, чем собственный слой "
-"шаблона — геометрия перечитана в ЗЕРКАЛЬНОЙ системе координат "
-"шаблона (шаблон отражён этим перечитыванием)"
+"инстанс стоит на другой стороне платы ({side} против слоя шаблона "
+"{cell_layer}) — его геометрия РАЗзеркалена в собственную систему "
+"координат шаблона"
+
+#: kicadstamp/cell_frame.py:296
+msgid ""
+"the instance is mirrored relative to the cell — its geometry "
+"was un-mirrored into the cell's own frame"
+msgstr ""
+"инстанс зеркален относительно шаблона — его геометрия РАЗзеркалена "
+"в собственную систему координат шаблона"
 
 #: kicadstamp/frame_node_pose.py:82
 msgid "no config is loaded, so no tree can place this instance"

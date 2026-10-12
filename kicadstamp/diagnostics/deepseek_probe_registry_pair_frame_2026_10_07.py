@@ -46,9 +46,9 @@ WHAT IS PRINTED, per cell (``fpga``, ``dac_buf``) and per its instances
 
 The frame is built by the VERY code path "Refresh geometry from selection" uses
 (``cell_geometry_refresh._cell_selection_context`` with the cell's own
-``anchor_role`` -> ``_cell_frame_for``) — the probe deliberately does NOT
-re-implement it: step 1 of the plan extracts the ONE public builder from there,
-and a second copy here would prove nothing.
+``anchor_role`` -> ``cell_frame.frame_for_live_selection``, where it moved on
+2026-10-12) — the probe deliberately does NOT re-implement it: a second copy here
+would prove nothing.
 
 READ-ONLY: it reads the config, the two registry files and the live board and
 writes NOTHING (no registry, no config, no board, nothing on disk). Run it on a
@@ -76,9 +76,8 @@ from kicadstamp.absent_copper_prune import (_cell_record_slots, _record_tail,
                                             own_instance_context,
                                             own_registry_entries)
 from kicadstamp.adapter_factory import create_board_adapter
-from kicadstamp.cell_frame import RIGID_TOLERANCE_MM
-from kicadstamp.cell_geometry_refresh import (_cell_frame_for,
-                                              _cell_selection_context)
+from kicadstamp.cell_frame import RIGID_TOLERANCE_MM, frame_for_live_selection
+from kicadstamp.cell_geometry_refresh import _cell_selection_context
 from kicadstamp.config import load_config
 from kicadstamp.constants import CELL_LEVEL_ROLE_PLACEHOLDER
 from kicadstamp.registry import load_registry_entries
@@ -316,9 +315,9 @@ def _report_instance(cell_name: str, cell, ctx: Ctx, cluster, sheet,
                    "offset_along_mm": float(s.offset_along_mm),
                    "offset_across_mm": float(s.offset_across_mm)}
                   for s in cell.components]
-    # The frame of "Refresh geometry from selection" — the SAME two calls the
-    # GUI makes (build_refresh_plan: _cell_selection_context -> _cell_frame_for),
-    # with the SAME origin_role (the cell's own anchor_role).
+    # The frame of "Refresh geometry from selection" — the SAME two calls the GUI
+    # makes (build_refresh_plan: _cell_selection_context ->
+    # cell_frame.frame_for_live_selection), with the SAME origin_role.
     frame = None
     try:
         role_to_ref, matched, origin, mount, problems = _cell_selection_context(
@@ -328,8 +327,8 @@ def _report_instance(cell_name: str, cell, ctx: Ctx, cluster, sheet,
             print("    role problems: " + " | ".join(
                 " ".join(str(p).split()) for p in problems))
         if origin is not None:
-            frame = _cell_frame_for(components, matched, footprints,
-                                    role_to_ref, origin, mount)
+            frame = frame_for_live_selection(matched, footprints, role_to_ref,
+                                             origin, mount)
     except Exception as e:  # noqa: BLE001 — a probe reports, never stops
         print(f"    FRAME NOT BUILT: {type(e).__name__}: "
               f"{' '.join(str(e).split())}")

@@ -230,10 +230,8 @@ def _footprint_relative_mirror(fp, cell, fallback: bool) -> bool:
     used when the board object carries no usable layer (a duck-typed test
     double): then the placement's OWN config mirror decides.
 
-    The comparison ITSELF is delegated to the ONE host of that rule,
-    cell_frame.mirror_for_layer (2026-10-12, plan_2026_10_12_reread_frame_mirror):
-    this wrapper keeps only the cell's documented 'F.Cu' default and the
-    duck-typed fallback, so the third copy of the comparison is gone."""
+    The comparison itself is DELEGATED to its ONE host, cell_frame.mirror_for_layer
+    (2026-10-12); only the cell's 'F.Cu' default and the duck-typed fallback stay."""
     return mirror_for_layer(getattr(fp, "layer", None),
                             getattr(cell, "layer", "F.Cu"), fallback)
 
