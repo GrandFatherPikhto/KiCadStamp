@@ -195,31 +195,30 @@ def coordinate_placement_effective_name(cp: "CoordinatePlacement") -> str:
 @dataclass
 class TemplateVia:
     """
-    Via slot in a cell — coordinates are ALWAYS along/across from the SPOKE
+    Via slot in a cell — coordinates are ALWAYS along/across from the cell's own
     origin (not from the component pad, even if the slot belongs to a specific
     component role) — same formula (local_to_absolute) as for the component
-    position. net=None means "use the rule net" (rule.net).
+    position. net=None LOADS (the grammar accepts it and validation.py
+    deliberately does not duplicate the check) but is a FATAL at apply for a
+    placed cell: clone_geometry has no rule net to fall back to.
 
-    CHANGED (KiCadStamp): previously power_via was the only field at the spoke
+    CHANGED (KiCadStamp): previously power_via was the only field at the cell
     level, while the GND via of a component was computed from the REAL pad of
     the already‑placed component (required reading the live board after commit).
     Now both concepts are the same slot — pure cell geometry, independent
     of the live board. There can be any number of lists at both levels
-    (spoke.vias and component.vias).
+    (cell.vias and component.vias).
 
     net_from_role — OPTIONAL live net resolution instead of a static net:
     the role whose real pad net this via should take, resolved at apply time
     (see net_from_role_resolver.py and
     net_resolution.resolve_net_from_role). Mutually exclusive with net — both
-    set at once is a load-time fatal; "both None" keeps the existing rule-net
-    convention (spoke_layout) / fatal-on-apply (clone_geometry). Honoured on
-    BOTH placement paths (2026-09-05, Bug 3 GND-duplication fix): ClonePlacement
-    and chains:/ManualSpoke each resolve the role's real pad net live BEFORE
-    geometry — so a cell's GND-assigned via (net_from_role + pad '2' of a
-    bypass role) is planned as GND, not as the enclosing chain's rail, and the
-    registry converges with the live board (no duplicate GND copy on a first
-    redraw). Formerly the spoke path ignored it and planned every via as the
-    chain net.
+    set at once is a load-time fatal; "both None" loads and then FAILS at apply
+    (clone_geometry: "via without net"). The role's real pad net is resolved
+    live BEFORE geometry (2026-09-05, Bug 3 GND-duplication fix) — so a cell's
+    GND-assigned via (net_from_role + pad '2' of a bypass role) is planned as
+    GND and the registry converges with the live board (no duplicate GND copy
+    on a first redraw).
     net_from_role_pad — OPTIONAL pad number for a multi-net role (LDO VIN/VOUT):
     the net of THIS pad is taken. Without it the role must carry exactly one
     non-rule net (lemma 2). Validation of the pad number is live/apply-time

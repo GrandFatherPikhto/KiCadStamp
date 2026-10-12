@@ -121,10 +121,22 @@ class TestApplyCloneGeometry:
         assert layout.vias[0].net == "/STM32F4xx_2/BOOT0"
 
     def test_via_without_net_raises_fatal(self):
-        """Нет rule_net, на который можно упасть, в отличие от ManualSpoke — via без net фатальна."""
+        """A net: null via in a placed cell is a LOUD fatal — there is no rule
+        net to inherit (inventory Б5г-3: the load accepts the record, the clone
+        path refuses it before any board write)."""
         tpl = Cell(name="bad", vias=[TemplateVia(offset_along_mm=0.0, offset_across_mm=0.0, net=None)])
         clone = ClonePlacement(cluster="x", cell="bad", xy=(0.0, 0.0))
-        with pytest.raises(ValidationError):
+        with pytest.raises(ValidationError, match="via without net"):
+            apply_clone_geometry(clone, tpl, {})
+
+    def test_track_without_net_raises_fatal(self):
+        """The other half of the net: null inventory, uncovered until now: a
+        net-less TRACK in a placed cell is fatal too (the same guard)."""
+        tpl = Cell(name="bad_track", tracks=[TemplateTrack(
+            start_along_mm=0.0, start_across_mm=0.0,
+            end_along_mm=1.0, end_across_mm=0.0, net=None)])
+        clone = ClonePlacement(cluster="x", cell="bad_track", xy=(0.0, 0.0))
+        with pytest.raises(ValidationError, match="track without net"):
             apply_clone_geometry(clone, tpl, {})
 
     def test_role_without_resolved_ref_is_skipped(self):

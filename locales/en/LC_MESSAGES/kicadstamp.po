@@ -3,7 +3,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version:  kicadstamp\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-12 12:33+0300\n"
+"POT-Creation-Date: 2026-10-12 12:44+0300\n"
 "PO-Revision-Date: 2026-07-27 12:00+0000\n"
 "Last-Translator: \n"
 "Language: en\n"
@@ -2080,7 +2080,7 @@ msgstr ""
 msgid "net_from_role {role}"
 msgstr ""
 
-#: gui/docks/cell_editor.py:219 kicadstamp/cell_geometry_refresh.py:510
+#: gui/docks/cell_editor.py:219 kicadstamp/cell_geometry_refresh.py:507
 msgid "(no net)"
 msgstr "(no net)"
 
@@ -7423,21 +7423,21 @@ msgstr ""
 "({default}); config/loader.py fatals on it for every command that reads "
 "the profile"
 
-#: kicadstamp/adopt_at_current_place.py:224
+#: kicadstamp/adopt_at_current_place.py:225
 #, python-brace-format
 msgid ""
 "Adopt at current place: the instance of cell {cell} on {cluster} could "
 "not resolve its roles ({reason}) — its copper is not adopted"
 msgstr ""
 
-#: kicadstamp/adopt_at_current_place.py:243
+#: kicadstamp/adopt_at_current_place.py:244
 #, python-brace-format
 msgid ""
 "Adopt at current place: no live cell frame for cell {cell} on {cluster} —"
 " its copper is not adopted"
 msgstr ""
 
-#: kicadstamp/adopt_at_current_place.py:249
+#: kicadstamp/adopt_at_current_place.py:250
 #, python-brace-format
 msgid ""
 "Adopt at current place: cell {cell} on {cluster} is not a rigid copy of "
@@ -7445,35 +7445,35 @@ msgid ""
 "trail may remain"
 msgstr ""
 
-#: kicadstamp/adopt_at_current_place.py:286
+#: kicadstamp/adopt_at_current_place.py:287
 #, python-brace-format
 msgid ""
 "Adopt at current place: {count} live {kind}(s) lie where record {key} "
 "puts its copper, but on another net ({net!r}) — not adopted"
 msgstr ""
 
-#: kicadstamp/adopt_at_current_place.py:294
+#: kicadstamp/adopt_at_current_place.py:295
 #, python-brace-format
 msgid ""
 "Adopt at current place: {count} live {kind}(s) lie where record {key} "
 "puts its copper — ambiguous, none taken"
 msgstr ""
 
-#: kicadstamp/adopt_at_current_place.py:307
+#: kicadstamp/adopt_at_current_place.py:308
 #, python-brace-format
 msgid ""
 "Adopt at current place: live {uuid} is claimed by {count} records "
 "({keys}) — none takes it"
 msgstr ""
 
-#: kicadstamp/adopt_at_current_place.py:327
+#: kicadstamp/adopt_at_current_place.py:328
 #, python-brace-format
 msgid ""
 "Adopt at current place: {count} record(s) bound to their live copper "
 "({vias} via(s), {tracks} track(s))"
 msgstr ""
 
-#: kicadstamp/adopt_at_current_place.py:350
+#: kicadstamp/adopt_at_current_place.py:351
 #, python-brace-format
 msgid ""
 "Adopt at current place: would adopt {count} record(s) (a real run writes "
@@ -7857,11 +7857,11 @@ msgstr "✅ All operations completed successfully"
 msgid "⚠️ Some operations failed – check the log."
 msgstr "⚠️ Some operations failed – check the log."
 
-#: kicadstamp/author.py:99
+#: kicadstamp/author.py:98
 msgid "format 3: cannot write the fragment — the graph root is not set"
 msgstr ""
 
-#: kicadstamp/author.py:100
+#: kicadstamp/author.py:99
 #, python-brace-format
 msgid ""
 "in {path}: pass graph_root — the root config the fragment will be "
@@ -7875,11 +7875,11 @@ msgid ""
 "{groups} group(s)."
 msgstr ""
 
-#: kicadstamp/cell_geometry_refresh.py:114
+#: kicadstamp/cell_geometry_refresh.py:113
 msgid "no zero-offset component to use as the refresh origin"
 msgstr "no zero-offset component to use as the refresh origin"
 
-#: kicadstamp/cell_geometry_refresh.py:115
+#: kicadstamp/cell_geometry_refresh.py:114
 msgid ""
 "cell has no component with offset_along_mm/offset_across_mm both equal to"
 " 0 (its local (0,0)) to act as the origin of the refresh — select a cell "
@@ -7889,12 +7889,12 @@ msgstr ""
 " 0 (its local (0,0)) to act as the origin of the refresh — select a cell "
 "whose origin component is at (0,0)"
 
-#: kicadstamp/cell_geometry_refresh.py:121
+#: kicadstamp/cell_geometry_refresh.py:120
 #, python-brace-format
 msgid "{n} zero-offset components — the refresh origin is ambiguous"
 msgstr "{n} zero-offset components — the refresh origin is ambiguous"
 
-#: kicadstamp/cell_geometry_refresh.py:123
+#: kicadstamp/cell_geometry_refresh.py:122
 #, python-brace-format
 msgid ""
 "exactly one component must sit at the cell's local (0,0); found {n} — fix"
@@ -7903,7 +7903,7 @@ msgstr ""
 "exactly one component must sit at the cell's local (0,0); found {n} — fix"
 " the cell so a single component has offset 0/0"
 
-#: kicadstamp/cell_geometry_refresh.py:397
+#: kicadstamp/cell_geometry_refresh.py:396
 #, python-brace-format
 msgid ""
 "template {pattern!r}: {n} record(s) in the cell, {m} live item(s) "
@@ -7912,24 +7912,22 @@ msgstr ""
 "template {pattern!r}: {n} record(s) in the cell, {m} live item(s) "
 "matching its shape"
 
-#: kicadstamp/cell_geometry_refresh.py:439
+#: kicadstamp/cell_geometry_refresh.py:438
 #, python-brace-format
 msgid "net {net!r}: {n} record(s) in the cell, {m} live item(s)"
 msgstr "net {net!r}: {n} record(s) in the cell, {m} live item(s)"
 
-#: kicadstamp/cell_geometry_refresh.py:461
-#: kicadstamp/cell_geometry_refresh.py:482
+#: kicadstamp/cell_geometry_refresh.py:460
+#: kicadstamp/cell_geometry_refresh.py:480
 #, python-brace-format
 msgid ""
-"rule-net (net: null — inherits the enclosing Rule's own net): {n} "
-"record(s) in the cell, {m} unclaimed live item(s) after resolving every "
-"named net"
+"net-less record(s) in the cell: {n} record(s), {m} unclaimed live item(s)"
+" after resolving every named net"
 msgstr ""
-"rule-net (net: null — inherits the enclosing Rule's own net): {n} "
-"record(s) in the cell, {m} unclaimed live item(s) after resolving every "
-"named net"
+"net-less record(s) in the cell: {n} record(s), {m} unclaimed live item(s) "
+"after resolving every named net"
 
-#: kicadstamp/cell_geometry_refresh.py:501
+#: kicadstamp/cell_geometry_refresh.py:498
 #, python-brace-format
 msgid ""
 "extra copper in selection: {desc} — not described by any "
@@ -7938,12 +7936,12 @@ msgstr ""
 "extra copper in selection: {desc} — not described by any "
 "net/template/net:null record of this cell"
 
-#: kicadstamp/cell_geometry_refresh.py:511
+#: kicadstamp/cell_geometry_refresh.py:508
 #, python-brace-format
 msgid "{kind} on {net}"
 msgstr "{kind} on {net}"
 
-#: kicadstamp/cell_geometry_refresh.py:617
+#: kicadstamp/cell_geometry_refresh.py:614
 #, python-brace-format
 msgid ""
 "{ref}: no {field!r} field — every selected component must have a Role for"
@@ -7952,7 +7950,7 @@ msgstr ""
 "{ref}: no {field!r} field — every selected component must have a Role for"
 " a {action}"
 
-#: kicadstamp/cell_geometry_refresh.py:623
+#: kicadstamp/cell_geometry_refresh.py:620
 #: kicadstamp/template_extraction.py:292
 #, python-brace-format
 msgid ""
@@ -7962,7 +7960,7 @@ msgstr ""
 "role {role!r} appears twice in selection: {ref1!r} and {ref2!r} — roles "
 "must be unique"
 
-#: kicadstamp/cell_geometry_refresh.py:636
+#: kicadstamp/cell_geometry_refresh.py:633
 #, python-brace-format
 msgid ""
 "role {role!r} is in the cell but not in the selection — {action} needs "
@@ -7971,7 +7969,7 @@ msgstr ""
 "role {role!r} is in the cell but not in the selection — {action} needs "
 "the whole cluster"
 
-#: kicadstamp/cell_geometry_refresh.py:640
+#: kicadstamp/cell_geometry_refresh.py:637
 #, python-brace-format
 msgid ""
 "role {role!r} is in the selection but not in the cell — {action} cannot "
@@ -7981,127 +7979,127 @@ msgstr ""
 "add components"
 
 # anchor mount-point step (2026-09-05)
-#: kicadstamp/cell_geometry_refresh.py:659
+#: kicadstamp/cell_geometry_refresh.py:656
 #, python-brace-format
 msgid "role {role!r} (the cell's anchor origin) is not a component of this cell"
 msgstr ""
 
 # anchor mount-point step (2026-09-05)
-#: kicadstamp/cell_geometry_refresh.py:665
+#: kicadstamp/cell_geometry_refresh.py:662
 #, python-brace-format
 msgid "role {role!r} (the cell's anchor origin)"
 msgstr ""
 
 # anchor mount-point step (2026-09-05)
-#: kicadstamp/cell_geometry_refresh.py:670
+#: kicadstamp/cell_geometry_refresh.py:667
 #, python-brace-format
 msgid "role {role!r} (the cell's zero-offset origin)"
 msgstr ""
 
 # anchor mount-point step (2026-09-05)
-#: kicadstamp/cell_geometry_refresh.py:676
+#: kicadstamp/cell_geometry_refresh.py:673
 #, python-brace-format
 msgid "{label} is not in the current selection"
 msgstr ""
 
 # anchor mount-point step (2026-09-05)
-#: kicadstamp/cell_geometry_refresh.py:681
+#: kicadstamp/cell_geometry_refresh.py:678
 #, python-brace-format
 msgid "footprint {ref!r} ({label}) not found in the selection"
 msgstr ""
 
-#: kicadstamp/cell_geometry_refresh.py:760
-#: kicadstamp/cell_geometry_refresh.py:1078
+#: kicadstamp/cell_geometry_refresh.py:757
+#: kicadstamp/cell_geometry_refresh.py:1068
 msgid "refresh"
 msgstr "refresh"
 
-#: kicadstamp/cell_geometry_refresh.py:817
+#: kicadstamp/cell_geometry_refresh.py:814
 #, python-brace-format
 msgid ""
 "nested {name!r} ({content}): xy ({x0}, {y0}) rot {r0}° mirror={m0} -> xy "
 "({x1}, {y1}) rot {r1}° mirror={m1}"
 msgstr ""
 
-#: kicadstamp/cell_geometry_refresh.py:849
+#: kicadstamp/cell_geometry_refresh.py:846
 msgid ""
 "the parent instance is mirrored — a composite cell cannot be mirrored, so"
 " the relative mirror of this nested placement is not defined"
 msgstr ""
 
-#: kicadstamp/cell_geometry_refresh.py:853
+#: kicadstamp/cell_geometry_refresh.py:850
 msgid ""
 "its cell shares a role name with the parent cell — the two instances "
 "cannot be told apart"
 msgstr ""
 
-#: kicadstamp/cell_geometry_refresh.py:862
+#: kicadstamp/cell_geometry_refresh.py:859
 #, python-brace-format
 msgid "cannot identify its live instance ({error})"
 msgstr ""
 
-#: kicadstamp/cell_geometry_refresh.py:865
+#: kicadstamp/cell_geometry_refresh.py:862
 msgid "no role of its cell could be resolved on the live board"
 msgstr ""
 
-#: kicadstamp/cell_geometry_refresh.py:867
+#: kicadstamp/cell_geometry_refresh.py:864
 msgid ""
 "its roles resolve to a component the parent cell already claims — "
 "ambiguous"
 msgstr ""
 
-#: kicadstamp/cell_geometry_refresh.py:873
+#: kicadstamp/cell_geometry_refresh.py:870
 msgid "none of its resolved components is on the live board"
 msgstr ""
 
-#: kicadstamp/cell_geometry_refresh.py:883
+#: kicadstamp/cell_geometry_refresh.py:880
 msgid "none of the resolved components is a role of its cell"
 msgstr ""
 
-#: kicadstamp/cell_geometry_refresh.py:930
+#: kicadstamp/cell_geometry_refresh.py:927
 #, python-brace-format
 msgid ""
 "the selection is not a rigid copy of this cell (worst deviation "
 "{deviation} mm) — the geometry was re-read anyway"
 msgstr ""
 
-#: kicadstamp/cell_geometry_refresh.py:935
+#: kicadstamp/cell_geometry_refresh.py:932
 #, python-brace-format
 msgid ""
 "the instance is rotated {angle}° — the geometry was expressed in the "
 "cell's own frame, anchor_xy is left unchanged"
 msgstr ""
 
-#: kicadstamp/cell_geometry_refresh.py:1097
+#: kicadstamp/cell_geometry_refresh.py:1087
 #, python-brace-format
 msgid "nested {name!r} is not a valid placement ({error}) — record left untouched"
 msgstr ""
 
-#: kicadstamp/cell_geometry_refresh.py:1103
+#: kicadstamp/cell_geometry_refresh.py:1093
 #, python-brace-format
 msgid ""
 "nested {name!r}: cell {cell!r} is not in the config — record left "
 "untouched"
 msgstr ""
 
-#: kicadstamp/cell_geometry_refresh.py:1116
+#: kicadstamp/cell_geometry_refresh.py:1106
 #, python-brace-format
 msgid "nested {name!r}: {reason} — record left untouched"
 msgstr ""
 
-#: kicadstamp/cell_geometry_refresh.py:1169
+#: kicadstamp/cell_geometry_refresh.py:1159
 #, python-brace-format
 msgid "records outside this cell reference the removed role {role!r}: {refs}"
 msgstr ""
 
-#: kicadstamp/cell_geometry_refresh.py:1216
+#: kicadstamp/cell_geometry_refresh.py:1206
 msgid "cannot refresh cell geometry from the current selection"
 msgstr "cannot refresh cell geometry from the current selection"
 
-#: kicadstamp/cell_geometry_refresh.py:1382
+#: kicadstamp/cell_geometry_refresh.py:1370
 msgid "import"
 msgstr "import"
 
-#: kicadstamp/cell_geometry_refresh.py:1408
+#: kicadstamp/cell_geometry_refresh.py:1396
 msgid "cannot import vias/tracks from the current selection"
 msgstr "cannot import vias/tracks from the current selection"
 
@@ -8121,51 +8119,53 @@ msgstr ""
 #: kicadstamp/cell_placement_copy.py:131
 #, python-brace-format
 msgid ""
-"{kind} has no net (net: null) — it can only inherit a chain's rule net, "
-"which a copied cell cannot assume"
+"{kind} has no net (net: null) — a net-less via/track is fatal at apply "
+"for a placed cell (clone_geometry), so a copy cannot transport it"
 msgstr ""
+"{kind} has no net (net: null) — a net-less via/track is fatal at apply for a "
+"placed cell (clone_geometry), so a copy cannot transport it"
 
-#: kicadstamp/cell_placement_copy.py:136
+#: kicadstamp/cell_placement_copy.py:137
 #, python-brace-format
 msgid ""
 "{kind} has a parametrized literal net {net!r} — instance params cannot be"
 " transported by a placement copy"
 msgstr ""
 
-#: kicadstamp/cell_placement_copy.py:138
+#: kicadstamp/cell_placement_copy.py:139
 #, python-brace-format
 msgid ""
 "{kind} has a literal net {net!r} that is rail-specific — not copyable as-"
 "is"
 msgstr ""
 
-#: kicadstamp/cell_placement_copy.py:234
+#: kicadstamp/cell_placement_copy.py:235
 msgid "cannot copy placement into a cell without components"
 msgstr ""
 
-#: kicadstamp/cell_placement_copy.py:235
+#: kicadstamp/cell_placement_copy.py:236
 msgid ""
 "the target cell (the one being edited) has no component slots — copy "
 "placement needs its roles to overlay the donor geometry and to resolve "
 "the copied copper's net_from_role"
 msgstr ""
 
-#: kicadstamp/cell_placement_copy.py:255
+#: kicadstamp/cell_placement_copy.py:256
 #, python-brace-format
 msgid ""
 "copper net_from_role references role {role!r}, but the target cell has no"
 " such component — copy would be unresolvable garbage"
 msgstr ""
 
-#: kicadstamp/cell_placement_copy.py:261
+#: kicadstamp/cell_placement_copy.py:262
 msgid "cannot copy placement from this cell as-is"
 msgstr ""
 
-#: kicadstamp/cell_placement_copy.py:285
+#: kicadstamp/cell_placement_copy.py:286
 msgid "nothing to copy from this cell"
 msgstr ""
 
-#: kicadstamp/cell_placement_copy.py:286
+#: kicadstamp/cell_placement_copy.py:287
 msgid ""
 "the source cell has no overlapping component roles to overlay and no "
 "vias/tracks to add — pick a donor whose geometry differs or that carries "
@@ -10611,19 +10611,19 @@ msgstr ""
 msgid "Write stored Role/Cluster values to the board"
 msgstr ""
 
-#: kicadstamp/registry.py:148
+#: kicadstamp/registry.py:157
 #, python-brace-format
 msgid "registry key: record {name!r} has no uuid"
 msgstr ""
 
-#: kicadstamp/registry.py:149
+#: kicadstamp/registry.py:158
 msgid ""
 "format 3 gives every record a uuid (checked at load and at write) — "
 "falling back to the name would split one registry into name- and uuid-"
 "keys, and prune would then delete the difference"
 msgstr ""
 
-#: kicadstamp/registry.py:223
+#: kicadstamp/registry.py:232
 #, python-brace-format
 msgid ""
 "The copper registry {path} was not lifted to the current schema — apply "
@@ -10640,7 +10640,7 @@ msgstr ""
 "profile. If the profile has no chains:, the lift could not write the file"
 " — reopen the profile, and check that the registry directory is writable"
 
-#: kicadstamp/registry.py:276 kicadstamp/registry.py:294
+#: kicadstamp/registry.py:285 kicadstamp/registry.py:303
 #, python-brace-format
 msgid ""
 "Failed to read registry {path}: {type}: {e} — treating registry as empty "
@@ -10649,7 +10649,7 @@ msgstr ""
 "Failed to read registry {path}: {type}: {e} — treating registry as empty "
 "(all vias will be created anew)"
 
-#: kicadstamp/registry.py:315 kicadstamp/registry.py:329
+#: kicadstamp/registry.py:324 kicadstamp/registry.py:338
 #, python-brace-format
 msgid ""
 "Failed to read track registry {path}: {type}: {e} — treating registry as "
@@ -10658,7 +10658,7 @@ msgstr ""
 "Failed to read track registry {path}: {type}: {e} — treating registry as "
 "empty (all tracks will be created anew)"
 
-#: kicadstamp/registry.py:474
+#: kicadstamp/registry.py:483
 #, python-brace-format
 msgid ""
 "  {key}: registry has an entry (uuid {uuid}), but no such item is on the "
@@ -10671,7 +10671,7 @@ msgstr ""
 "from git, or previous run crashed between registry write and board "
 "commit); recreating as if the entry never existed"
 
-#: kicadstamp/registry.py:485
+#: kicadstamp/registry.py:494
 #, python-brace-format
 msgid ""
 "  {key}: already correctly placed (checked against live item {uuid}), "
@@ -10680,7 +10680,7 @@ msgstr ""
 "  {key}: already correctly placed (checked against live item {uuid}), "
 "skipped"
 
-#: kicadstamp/registry.py:490
+#: kicadstamp/registry.py:499
 #, python-brace-format
 msgid ""
 "  {key}: position/parameters changed, deleting old item ({uuid}) and "
@@ -10689,7 +10689,7 @@ msgstr ""
 "  {key}: position/parameters changed, deleting old item ({uuid}) and "
 "creating a new one"
 
-#: kicadstamp/registry.py:510
+#: kicadstamp/registry.py:519
 #, python-brace-format
 msgid ""
 "  {key}: not processed in this run (--only filtered {anchor_id!r}), but "
@@ -10698,27 +10698,27 @@ msgstr ""
 "  {key}: not processed in this run (--only filtered {anchor_id!r}), but "
 "it is still in the config — NOT pruned"
 
-#: kicadstamp/registry.py:518
+#: kicadstamp/registry.py:527
 #, python-brace-format
 msgid "  prune: {key} no longer appears in config, deleting ({uuid})"
 msgstr "  prune: {key} no longer appears in config, deleting ({uuid})"
 
-#: kicadstamp/registry.py:650
+#: kicadstamp/registry.py:659
 #, python-brace-format
 msgid "  track for {owner}: already exists, skipped (positional pre-check)"
 msgstr "  track for {owner}: already exists, skipped (positional pre-check)"
 
-#: kicadstamp/registry.py:655
+#: kicadstamp/registry.py:664
 #, python-brace-format
 msgid "Skipped {count} tracks already present on the board (positional pre-check)"
 msgstr "Skipped {count} tracks already present on the board (positional pre-check)"
 
-#: kicadstamp/registry.py:703
+#: kicadstamp/registry.py:712
 #, python-brace-format
 msgid "  via for {owner}: already exists, skipped (positional pre-check)"
 msgstr "  via for {owner}: already exists, skipped (positional pre-check)"
 
-#: kicadstamp/registry.py:708
+#: kicadstamp/registry.py:717
 #, python-brace-format
 msgid "Skipped {count} vias already present on the board (positional pre-check)"
 msgstr "Skipped {count} vias already present on the board (positional pre-check)"
@@ -18583,4 +18583,11 @@ msgstr "Total spokes: {count}"
 
 #~ msgid "    via {ref}: ({x:.3f}, {y:.3f}) mm, net={net}"
 #~ msgstr "    via {ref}: ({x:.3f}, {y:.3f}) mm, net={net}"
+
+#~ msgid ""
+#~ "{kind} has no net (net: null) —"
+#~ " it can only inherit a chain's "
+#~ "rule net, which a copied cell "
+#~ "cannot assume"
+#~ msgstr ""
 

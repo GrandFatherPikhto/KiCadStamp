@@ -593,23 +593,27 @@ def test_net_null_matched_by_positional_elimination():
         assert "net" not in new
 
 
-def test_net_null_count_mismatch_fatal_rule_net():
+def test_net_null_count_mismatch_is_fatal():
+    """A net: null record with no positional counterpart is a collected fatal.
+    (Renamed from ..._fatal_rule_net: the message no longer claims the record
+    inherits a Rule's net — that reading went with the spokes.)"""
     components = [{"role": "ORIG"}]
     vias = [{"offset_along_mm": 0.0, "offset_across_mm": 0.0, "net": None}]
     footprints = [_fp("R-ORIG", "ORIG", 0.0, 0.0)]
     adapter = _FakeAdapter(roles={"R-ORIG": "ORIG"})
     with pytest.raises(ValidationError,
-                       match="rule-net.*1 record.*0 unclaimed live"):
+                       match="net-less.*1 record.*0 unclaimed live"):
         build_refresh_plan(components, vias, [], footprints, [], [], adapter)
 
 
-def test_net_null_never_touches_chains_or_entity():
-    """The module takes no cfg/Entity/chains anywhere — build_refresh_plan's
-    signature is (lists + footprints + raw items + adapter) only, so the
-    net:null elimination is structurally incapable of consulting a Rule/Chain.
+def test_net_null_needs_no_config_context():
+    """The module takes no cfg anywhere — build_refresh_plan's signature is
+    (lists + footprints + raw items + adapter) only, so the net:null
+    elimination is structurally incapable of consulting a placement record.
     Exercised by calling the public API with a net:null via; any accidental
-    Chain dependency would be an AttributeError/TypeError here, not a silent
-    wrong net."""
+    context dependency would be an AttributeError/TypeError here, not a silent
+    wrong net. (Renamed from ..._never_touches_chains_or_entity: chains are
+    gone, the structural property is what the cell is about.)"""
     components = [{"role": "ORIG"}]
     vias = [{"offset_along_mm": 0.0, "offset_across_mm": 0.0, "net": None}]
     footprints = [_fp("R-ORIG", "ORIG", 0.0, 0.0)]

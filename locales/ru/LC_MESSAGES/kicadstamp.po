@@ -3,7 +3,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version:  kicadstamp\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-12 12:33+0300\n"
+"POT-Creation-Date: 2026-10-12 12:44+0300\n"
 "PO-Revision-Date: 2026-07-27 12:00+0000\n"
 "Last-Translator: \n"
 "Language: ru\n"
@@ -2221,7 +2221,7 @@ msgstr "net_from_role {role}/{pad}"
 msgid "net_from_role {role}"
 msgstr "net_from_role {role}"
 
-#: gui/docks/cell_editor.py:219 kicadstamp/cell_geometry_refresh.py:510
+#: gui/docks/cell_editor.py:219 kicadstamp/cell_geometry_refresh.py:507
 msgid "(no net)"
 msgstr "(без цепи)"
 
@@ -7949,7 +7949,7 @@ msgstr ""
 "({default}); config/loader.py на нём фаталит для всех команд, читающих "
 "профиль"
 
-#: kicadstamp/adopt_at_current_place.py:224
+#: kicadstamp/adopt_at_current_place.py:225
 #, python-brace-format
 msgid ""
 "Adopt at current place: the instance of cell {cell} on {cluster} could "
@@ -7958,7 +7958,7 @@ msgstr ""
 "Усыновление на текущем месте: экземпляр ячейки {cell} на {cluster} не "
 "смог разрешить свои роли ({reason}) — его медь не усыновляется"
 
-#: kicadstamp/adopt_at_current_place.py:243
+#: kicadstamp/adopt_at_current_place.py:244
 #, python-brace-format
 msgid ""
 "Adopt at current place: no live cell frame for cell {cell} on {cluster} —"
@@ -7967,7 +7967,7 @@ msgstr ""
 "Усыновление на текущем месте: нет живого кадра ячейки {cell} на {cluster}"
 " — её медь не усыновляется"
 
-#: kicadstamp/adopt_at_current_place.py:249
+#: kicadstamp/adopt_at_current_place.py:250
 #, python-brace-format
 msgid ""
 "Adopt at current place: cell {cell} on {cluster} is not a rigid copy of "
@@ -7978,7 +7978,7 @@ msgstr ""
 "копия ячейки (худшее отклонение {deviation} мм) — её медь не "
 "усыновляется, след может остаться"
 
-#: kicadstamp/adopt_at_current_place.py:286
+#: kicadstamp/adopt_at_current_place.py:287
 #, python-brace-format
 msgid ""
 "Adopt at current place: {count} live {kind}(s) lie where record {key} "
@@ -7988,7 +7988,7 @@ msgstr ""
 "куда запись {key} кладёт свою медь, но на другой цепи ({net!r}) — не "
 "усыновлено"
 
-#: kicadstamp/adopt_at_current_place.py:294
+#: kicadstamp/adopt_at_current_place.py:295
 #, python-brace-format
 msgid ""
 "Adopt at current place: {count} live {kind}(s) lie where record {key} "
@@ -7997,7 +7997,7 @@ msgstr ""
 "Усыновление на текущем месте: {count} живых объектов «{kind}» лежат там, "
 "куда запись {key} кладёт свою медь — неоднозначно, ничего не взято"
 
-#: kicadstamp/adopt_at_current_place.py:307
+#: kicadstamp/adopt_at_current_place.py:308
 #, python-brace-format
 msgid ""
 "Adopt at current place: live {uuid} is claimed by {count} records "
@@ -8006,7 +8006,7 @@ msgstr ""
 "Усыновление на текущем месте: на живой объект {uuid} претендуют {count} "
 "записей ({keys}) — никто его не берёт"
 
-#: kicadstamp/adopt_at_current_place.py:327
+#: kicadstamp/adopt_at_current_place.py:328
 #, python-brace-format
 msgid ""
 "Adopt at current place: {count} record(s) bound to their live copper "
@@ -8015,7 +8015,7 @@ msgstr ""
 "Усыновление на текущем месте: {count} записей привязано к их живой меди "
 "({vias} via, {tracks} дорожек)"
 
-#: kicadstamp/adopt_at_current_place.py:350
+#: kicadstamp/adopt_at_current_place.py:351
 #, python-brace-format
 msgid ""
 "Adopt at current place: would adopt {count} record(s) (a real run writes "
@@ -8407,11 +8407,11 @@ msgstr "✅ Все операции выполнены успешно"
 msgid "⚠️ Some operations failed – check the log."
 msgstr "⚠️ Некоторые операции завершились с ошибками – проверьте лог."
 
-#: kicadstamp/author.py:99
+#: kicadstamp/author.py:98
 msgid "format 3: cannot write the fragment — the graph root is not set"
 msgstr "формат 3: нельзя записать фрагмент — корень графа не задан"
 
-#: kicadstamp/author.py:100
+#: kicadstamp/author.py:99
 #, python-brace-format
 msgid ""
 "in {path}: pass graph_root — the root config the fragment will be "
@@ -8429,11 +8429,11 @@ msgstr ""
 "Удалено лишних медных копий: {removed}; в группах ({groups}) оставлено по"
 " одной."
 
-#: kicadstamp/cell_geometry_refresh.py:114
+#: kicadstamp/cell_geometry_refresh.py:113
 msgid "no zero-offset component to use as the refresh origin"
 msgstr "нет zero-offset компонента для точки отсчёта рефреша"
 
-#: kicadstamp/cell_geometry_refresh.py:115
+#: kicadstamp/cell_geometry_refresh.py:114
 msgid ""
 "cell has no component with offset_along_mm/offset_across_mm both equal to"
 " 0 (its local (0,0)) to act as the origin of the refresh — select a cell "
@@ -8443,12 +8443,12 @@ msgstr ""
 "(его локальный (0,0)), который был бы точкой отсчёта рефреша — выберите "
 "шаблон, у которого компонент-начало стоит в (0,0)"
 
-#: kicadstamp/cell_geometry_refresh.py:121
+#: kicadstamp/cell_geometry_refresh.py:120
 #, python-brace-format
 msgid "{n} zero-offset components — the refresh origin is ambiguous"
 msgstr "{n} zero-offset компонентов — точка отсчёта рефреша неоднозначна"
 
-#: kicadstamp/cell_geometry_refresh.py:123
+#: kicadstamp/cell_geometry_refresh.py:122
 #, python-brace-format
 msgid ""
 "exactly one component must sit at the cell's local (0,0); found {n} — fix"
@@ -8457,7 +8457,7 @@ msgstr ""
 "ровно один компонент должен стоять в локальном (0,0) шаблона; найдено {n}"
 " — исправьте шаблон так, чтобы offset 0/0 был у одного компонента"
 
-#: kicadstamp/cell_geometry_refresh.py:397
+#: kicadstamp/cell_geometry_refresh.py:396
 #, python-brace-format
 msgid ""
 "template {pattern!r}: {n} record(s) in the cell, {m} live item(s) "
@@ -8466,24 +8466,22 @@ msgstr ""
 "шаблон {pattern!r}: {n} записей в шаблоне, {m} живых объектов подходящей "
 "формы"
 
-#: kicadstamp/cell_geometry_refresh.py:439
+#: kicadstamp/cell_geometry_refresh.py:438
 #, python-brace-format
 msgid "net {net!r}: {n} record(s) in the cell, {m} live item(s)"
 msgstr "цепь {net!r}: {n} записей в шаблоне, {m} живых объектов"
 
-#: kicadstamp/cell_geometry_refresh.py:461
-#: kicadstamp/cell_geometry_refresh.py:482
+#: kicadstamp/cell_geometry_refresh.py:460
+#: kicadstamp/cell_geometry_refresh.py:480
 #, python-brace-format
 msgid ""
-"rule-net (net: null — inherits the enclosing Rule's own net): {n} "
-"record(s) in the cell, {m} unclaimed live item(s) after resolving every "
-"named net"
+"net-less record(s) in the cell: {n} record(s), {m} unclaimed live item(s)"
+" after resolving every named net"
 msgstr ""
-"rule-net (net: null — наследует сеть объемлющего правила): {n} записей в "
-"шаблоне, {m} незанятых живых объектов после резолва всех именованных "
-"цепей"
+"записей без цепи (net: null) в шаблоне: {n}, незанятых живых объектов после "
+"резолва всех именованных цепей: {m}"
 
-#: kicadstamp/cell_geometry_refresh.py:501
+#: kicadstamp/cell_geometry_refresh.py:498
 #, python-brace-format
 msgid ""
 "extra copper in selection: {desc} — not described by any "
@@ -8492,12 +8490,12 @@ msgstr ""
 "лишняя медь в выделении: {desc} — не описана ни одной записью "
 "сети/шаблона/net:null этого шаблона"
 
-#: kicadstamp/cell_geometry_refresh.py:511
+#: kicadstamp/cell_geometry_refresh.py:508
 #, python-brace-format
 msgid "{kind} on {net}"
 msgstr "{kind} на {net}"
 
-#: kicadstamp/cell_geometry_refresh.py:617
+#: kicadstamp/cell_geometry_refresh.py:614
 #, python-brace-format
 msgid ""
 "{ref}: no {field!r} field — every selected component must have a Role for"
@@ -8506,7 +8504,7 @@ msgstr ""
 "{ref}: нет поля {field!r} — у каждого выбранного компонента должна быть "
 "роль для операции «{action}»"
 
-#: kicadstamp/cell_geometry_refresh.py:623
+#: kicadstamp/cell_geometry_refresh.py:620
 #: kicadstamp/template_extraction.py:292
 #, python-brace-format
 msgid ""
@@ -8516,7 +8514,7 @@ msgstr ""
 "роль {role!r} встречается дважды в выделении: {ref1!r} и {ref2!r} — роли "
 "должны быть уникальны"
 
-#: kicadstamp/cell_geometry_refresh.py:636
+#: kicadstamp/cell_geometry_refresh.py:633
 #, python-brace-format
 msgid ""
 "role {role!r} is in the cell but not in the selection — {action} needs "
@@ -8525,7 +8523,7 @@ msgstr ""
 "роль {role!r} есть в целле, но отсутствует в выделении — операция "
 "«{action}» требует весь кластер"
 
-#: kicadstamp/cell_geometry_refresh.py:640
+#: kicadstamp/cell_geometry_refresh.py:637
 #, python-brace-format
 msgid ""
 "role {role!r} is in the selection but not in the cell — {action} cannot "
@@ -8535,41 +8533,41 @@ msgstr ""
 "«{action}» не может добавить компоненты"
 
 # anchor mount-point step (2026-09-05)
-#: kicadstamp/cell_geometry_refresh.py:659
+#: kicadstamp/cell_geometry_refresh.py:656
 #, python-brace-format
 msgid "role {role!r} (the cell's anchor origin) is not a component of this cell"
 msgstr "роль {role!r} (якорный origin ячейки) — не компонент этой ячейки"
 
 # anchor mount-point step (2026-09-05)
-#: kicadstamp/cell_geometry_refresh.py:665
+#: kicadstamp/cell_geometry_refresh.py:662
 #, python-brace-format
 msgid "role {role!r} (the cell's anchor origin)"
 msgstr "роль {role!r} (якорный origin ячейки)"
 
 # anchor mount-point step (2026-09-05)
-#: kicadstamp/cell_geometry_refresh.py:670
+#: kicadstamp/cell_geometry_refresh.py:667
 #, python-brace-format
 msgid "role {role!r} (the cell's zero-offset origin)"
 msgstr "роль {role!r} (нулевой origin ячейки)"
 
 # anchor mount-point step (2026-09-05)
-#: kicadstamp/cell_geometry_refresh.py:676
+#: kicadstamp/cell_geometry_refresh.py:673
 #, python-brace-format
 msgid "{label} is not in the current selection"
 msgstr "{label} отсутствует в текущем выделении"
 
 # anchor mount-point step (2026-09-05)
-#: kicadstamp/cell_geometry_refresh.py:681
+#: kicadstamp/cell_geometry_refresh.py:678
 #, python-brace-format
 msgid "footprint {ref!r} ({label}) not found in the selection"
 msgstr "футпринт {ref!r} ({label}) не найден в выделении"
 
-#: kicadstamp/cell_geometry_refresh.py:760
-#: kicadstamp/cell_geometry_refresh.py:1078
+#: kicadstamp/cell_geometry_refresh.py:757
+#: kicadstamp/cell_geometry_refresh.py:1068
 msgid "refresh"
 msgstr "обновление"
 
-#: kicadstamp/cell_geometry_refresh.py:817
+#: kicadstamp/cell_geometry_refresh.py:814
 #, python-brace-format
 msgid ""
 "nested {name!r} ({content}): xy ({x0}, {y0}) rot {r0}° mirror={m0} -> xy "
@@ -8578,7 +8576,7 @@ msgstr ""
 "вложенное {name!r} ({content}): xy ({x0}, {y0}) поворот {r0}° mirror={m0}"
 " -> xy ({x1}, {y1}) поворот {r1}° mirror={m1}"
 
-#: kicadstamp/cell_geometry_refresh.py:849
+#: kicadstamp/cell_geometry_refresh.py:846
 msgid ""
 "the parent instance is mirrored — a composite cell cannot be mirrored, so"
 " the relative mirror of this nested placement is not defined"
@@ -8586,7 +8584,7 @@ msgstr ""
 "экземпляр-родитель отзеркален — составную ячейку зеркалить нельзя, "
 "поэтому относительное зеркало этого вложенного размещения не определено"
 
-#: kicadstamp/cell_geometry_refresh.py:853
+#: kicadstamp/cell_geometry_refresh.py:850
 msgid ""
 "its cell shares a role name with the parent cell — the two instances "
 "cannot be told apart"
@@ -8594,16 +8592,16 @@ msgstr ""
 "его ячейка делит имя роли с родительской ячейкой — два экземпляра "
 "невозможно различить"
 
-#: kicadstamp/cell_geometry_refresh.py:862
+#: kicadstamp/cell_geometry_refresh.py:859
 #, python-brace-format
 msgid "cannot identify its live instance ({error})"
 msgstr "не удалось опознать его живой экземпляр ({error})"
 
-#: kicadstamp/cell_geometry_refresh.py:865
+#: kicadstamp/cell_geometry_refresh.py:862
 msgid "no role of its cell could be resolved on the live board"
 msgstr "ни одна роль его ячейки не разрешилась на живой плате"
 
-#: kicadstamp/cell_geometry_refresh.py:867
+#: kicadstamp/cell_geometry_refresh.py:864
 msgid ""
 "its roles resolve to a component the parent cell already claims — "
 "ambiguous"
@@ -8611,15 +8609,15 @@ msgstr ""
 "его роли разрешаются в компонент, который уже занят родительской ячейкой "
 "— неоднозначно"
 
-#: kicadstamp/cell_geometry_refresh.py:873
+#: kicadstamp/cell_geometry_refresh.py:870
 msgid "none of its resolved components is on the live board"
 msgstr "ни одного из его разрешённых компонентов нет на живой плате"
 
-#: kicadstamp/cell_geometry_refresh.py:883
+#: kicadstamp/cell_geometry_refresh.py:880
 msgid "none of the resolved components is a role of its cell"
 msgstr "ни один из разрешённых компонентов не является ролью его ячейки"
 
-#: kicadstamp/cell_geometry_refresh.py:930
+#: kicadstamp/cell_geometry_refresh.py:927
 #, python-brace-format
 msgid ""
 "the selection is not a rigid copy of this cell (worst deviation "
@@ -8628,7 +8626,7 @@ msgstr ""
 "выделение не является жёсткой копией этого шаблона (максимальное "
 "отклонение {deviation} мм) — геометрия всё равно перечитана"
 
-#: kicadstamp/cell_geometry_refresh.py:935
+#: kicadstamp/cell_geometry_refresh.py:932
 #, python-brace-format
 msgid ""
 "the instance is rotated {angle}° — the geometry was expressed in the "
@@ -8637,37 +8635,37 @@ msgstr ""
 "инстанс повёрнут на {angle}° — геометрия выражена в собственной системе "
 "координат шаблона, anchor_xy не изменялся"
 
-#: kicadstamp/cell_geometry_refresh.py:1097
+#: kicadstamp/cell_geometry_refresh.py:1087
 #, python-brace-format
 msgid "nested {name!r} is not a valid placement ({error}) — record left untouched"
 msgstr "вложенное {name!r} — не валидное размещение ({error}); запись не тронута"
 
-#: kicadstamp/cell_geometry_refresh.py:1103
+#: kicadstamp/cell_geometry_refresh.py:1093
 #, python-brace-format
 msgid ""
 "nested {name!r}: cell {cell!r} is not in the config — record left "
 "untouched"
 msgstr "вложенное {name!r}: ячейки {cell!r} нет в конфиге — запись не тронута"
 
-#: kicadstamp/cell_geometry_refresh.py:1116
+#: kicadstamp/cell_geometry_refresh.py:1106
 #, python-brace-format
 msgid "nested {name!r}: {reason} — record left untouched"
 msgstr "вложенное {name!r}: {reason} — запись не тронута"
 
-#: kicadstamp/cell_geometry_refresh.py:1169
+#: kicadstamp/cell_geometry_refresh.py:1159
 #, python-brace-format
 msgid "records outside this cell reference the removed role {role!r}: {refs}"
 msgstr "записи вне этой ячейки ссылаются на удаляемую роль {role!r}: {refs}"
 
-#: kicadstamp/cell_geometry_refresh.py:1216
+#: kicadstamp/cell_geometry_refresh.py:1206
 msgid "cannot refresh cell geometry from the current selection"
 msgstr "не удаётся обновить геометрию шаблона по текущему выделению"
 
-#: kicadstamp/cell_geometry_refresh.py:1382
+#: kicadstamp/cell_geometry_refresh.py:1370
 msgid "import"
 msgstr "импорт"
 
-#: kicadstamp/cell_geometry_refresh.py:1408
+#: kicadstamp/cell_geometry_refresh.py:1396
 msgid "cannot import vias/tracks from the current selection"
 msgstr "не удаётся импортировать via/track из текущего выделения"
 
@@ -8687,13 +8685,13 @@ msgstr "via компонента {role!r}"
 #: kicadstamp/cell_placement_copy.py:131
 #, python-brace-format
 msgid ""
-"{kind} has no net (net: null) — it can only inherit a chain's rule net, "
-"which a copied cell cannot assume"
+"{kind} has no net (net: null) — a net-less via/track is fatal at apply "
+"for a placed cell (clone_geometry), so a copy cannot transport it"
 msgstr ""
-"{kind} не имеет цепи (net: null) — он может только наследовать rule-цепь "
-"цепочки, чего скопированный шаблон не может предполагать"
+"{kind} без цепи (net: null) — дорожка/переход без цепи фатальна при apply "
+"для размещённого шаблона (clone_geometry), поэтому копия не может её перенести"
 
-#: kicadstamp/cell_placement_copy.py:136
+#: kicadstamp/cell_placement_copy.py:137
 #, python-brace-format
 msgid ""
 "{kind} has a parametrized literal net {net!r} — instance params cannot be"
@@ -8702,7 +8700,7 @@ msgstr ""
 "{kind} имеет параметризованную литеральную цепь {net!r} — параметры "
 "инстанса нельзя перенести копированием расстановки"
 
-#: kicadstamp/cell_placement_copy.py:138
+#: kicadstamp/cell_placement_copy.py:139
 #, python-brace-format
 msgid ""
 "{kind} has a literal net {net!r} that is rail-specific — not copyable as-"
@@ -8711,11 +8709,11 @@ msgstr ""
 "{kind} имеет литеральную цепь {net!r}, специфичную для рельсы — как есть "
 "не копируется"
 
-#: kicadstamp/cell_placement_copy.py:234
+#: kicadstamp/cell_placement_copy.py:235
 msgid "cannot copy placement into a cell without components"
 msgstr "нельзя скопировать расстановку в шаблон без компонентов"
 
-#: kicadstamp/cell_placement_copy.py:235
+#: kicadstamp/cell_placement_copy.py:236
 msgid ""
 "the target cell (the one being edited) has no component slots — copy "
 "placement needs its roles to overlay the donor geometry and to resolve "
@@ -8725,7 +8723,7 @@ msgstr ""
 "копирования расстановки нужны его роли, чтобы наложить геометрию донора и"
 " резолвить net_from_role копируемой меди"
 
-#: kicadstamp/cell_placement_copy.py:255
+#: kicadstamp/cell_placement_copy.py:256
 #, python-brace-format
 msgid ""
 "copper net_from_role references role {role!r}, but the target cell has no"
@@ -8734,15 +8732,15 @@ msgstr ""
 "медь net_from_role ссылается на роль {role!r}, но в целевом шаблоне нет "
 "такого компонента — копия была бы неразрешимым мусором"
 
-#: kicadstamp/cell_placement_copy.py:261
+#: kicadstamp/cell_placement_copy.py:262
 msgid "cannot copy placement from this cell as-is"
 msgstr "нельзя скопировать расстановку из этого шаблона как есть"
 
-#: kicadstamp/cell_placement_copy.py:285
+#: kicadstamp/cell_placement_copy.py:286
 msgid "nothing to copy from this cell"
 msgstr "нечего копировать из этого шаблона"
 
-#: kicadstamp/cell_placement_copy.py:286
+#: kicadstamp/cell_placement_copy.py:287
 msgid ""
 "the source cell has no overlapping component roles to overlay and no "
 "vias/tracks to add — pick a donor whose geometry differs or that carries "
@@ -11283,12 +11281,12 @@ msgstr "у двух символов этого refdes значения разн
 msgid "Write stored Role/Cluster values to the board"
 msgstr "Записать значения Role/Cluster из хранилища на плату"
 
-#: kicadstamp/registry.py:148
+#: kicadstamp/registry.py:157
 #, python-brace-format
 msgid "registry key: record {name!r} has no uuid"
 msgstr "ключ реестра: у записи {name!r} нет uuid"
 
-#: kicadstamp/registry.py:149
+#: kicadstamp/registry.py:158
 msgid ""
 "format 3 gives every record a uuid (checked at load and at write) — "
 "falling back to the name would split one registry into name- and uuid-"
@@ -11298,7 +11296,7 @@ msgstr ""
 "— откат к имени расколол бы один реестр на именные и uuid-ключи, и prune "
 "удалил бы разницу"
 
-#: kicadstamp/registry.py:223
+#: kicadstamp/registry.py:232
 #, python-brace-format
 msgid ""
 "The copper registry {path} was not lifted to the current schema — apply "
@@ -11315,7 +11313,7 @@ msgstr ""
 "chains: нет, подъём не смог записать файл — откройте профиль заново и "
 "проверьте, можно ли писать в каталог реестра"
 
-#: kicadstamp/registry.py:276 kicadstamp/registry.py:294
+#: kicadstamp/registry.py:285 kicadstamp/registry.py:303
 #, python-brace-format
 msgid ""
 "Failed to read registry {path}: {type}: {e} — treating registry as empty "
@@ -11324,7 +11322,7 @@ msgstr ""
 "Не удалось прочитать реестр {path}: {type}: {e} — считаю реестр пустым "
 "(все via будут созданы заново)"
 
-#: kicadstamp/registry.py:315 kicadstamp/registry.py:329
+#: kicadstamp/registry.py:324 kicadstamp/registry.py:338
 #, python-brace-format
 msgid ""
 "Failed to read track registry {path}: {type}: {e} — treating registry as "
@@ -11333,7 +11331,7 @@ msgstr ""
 "Не удалось прочитать реестр треков {path}: {type}: {e} — считаю реестр "
 "пустым (все треки будут созданы заново)"
 
-#: kicadstamp/registry.py:474
+#: kicadstamp/registry.py:483
 #, python-brace-format
 msgid ""
 "  {key}: registry has an entry (uuid {uuid}), but no such item is on the "
@@ -11346,7 +11344,7 @@ msgstr ""
 " git, или прошлый прогон упал между записью в реестр и коммитом на "
 "плату); пересоздаю, как будто записи не было"
 
-#: kicadstamp/registry.py:485
+#: kicadstamp/registry.py:494
 #, python-brace-format
 msgid ""
 "  {key}: already correctly placed (checked against live item {uuid}), "
@@ -11355,7 +11353,7 @@ msgstr ""
 "  {key}: уже стоит правильно (проверено по живому элементу {uuid}), "
 "пропуск"
 
-#: kicadstamp/registry.py:490
+#: kicadstamp/registry.py:499
 #, python-brace-format
 msgid ""
 "  {key}: position/parameters changed, deleting old item ({uuid}) and "
@@ -11364,7 +11362,7 @@ msgstr ""
 "  {key}: позиция/параметры изменились, удаляю старый элемент ({uuid}) и "
 "создаю новый"
 
-#: kicadstamp/registry.py:510
+#: kicadstamp/registry.py:519
 #, python-brace-format
 msgid ""
 "  {key}: not processed in this run (--only filtered {anchor_id!r}), but "
@@ -11373,29 +11371,29 @@ msgstr ""
 "  {key}: не обработан в этом прогоне (--only отфильтровал {anchor_id!r}),"
 " но он есть в конфиге — НЕ удаляется"
 
-#: kicadstamp/registry.py:518
+#: kicadstamp/registry.py:527
 #, python-brace-format
 msgid "  prune: {key} no longer appears in config, deleting ({uuid})"
 msgstr "  prune: {key} больше нет в конфиге, удаляю ({uuid})"
 
-#: kicadstamp/registry.py:650
+#: kicadstamp/registry.py:659
 #, python-brace-format
 msgid "  track for {owner}: already exists, skipped (positional pre-check)"
 msgstr "  дорожка для {owner}: уже существует, пропущено (позиционная проверка)"
 
-#: kicadstamp/registry.py:655
+#: kicadstamp/registry.py:664
 #, python-brace-format
 msgid "Skipped {count} tracks already present on the board (positional pre-check)"
 msgstr ""
 "Пропущено {count} дорожек, уже присутствующих на плате (позиционная "
 "проверка)"
 
-#: kicadstamp/registry.py:703
+#: kicadstamp/registry.py:712
 #, python-brace-format
 msgid "  via for {owner}: already exists, skipped (positional pre-check)"
 msgstr "  via для {owner}: уже существует, пропущено (позиционная проверка)"
 
-#: kicadstamp/registry.py:708
+#: kicadstamp/registry.py:717
 #, python-brace-format
 msgid "Skipped {count} vias already present on the board (positional pre-check)"
 msgstr "Пропущено {count} via, уже присутствующих на плате (позиционная проверка)"
@@ -19582,4 +19580,15 @@ msgstr "Всего спиц: {count}"
 
 #~ msgid "    via {ref}: ({x:.3f}, {y:.3f}) mm, net={net}"
 #~ msgstr "    via {ref}: ({x:.3f}, {y:.3f}) мм, цепь={net}"
+
+#~ msgid ""
+#~ "{kind} has no net (net: null) —"
+#~ " it can only inherit a chain's "
+#~ "rule net, which a copied cell "
+#~ "cannot assume"
+#~ msgstr ""
+#~ "{kind} не имеет цепи (net: null) —"
+#~ " он может только наследовать rule-цепь "
+#~ "цепочки, чего скопированный шаблон не "
+#~ "может предполагать"
 

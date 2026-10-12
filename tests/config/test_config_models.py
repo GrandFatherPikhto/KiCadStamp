@@ -74,9 +74,12 @@ class TestViaNetFromRole:
         with pytest.raises(ValidationError, match="without via.net_from_role"):
             load_config(str(p))
 
-    def test_net_null_still_loads_rule_net_convention(self, tmp_path):
-        """Regression guard: net: null (both None) must stay valid — it is the
-        ManualSpoke rule-net convention (spoke_layout via.net or rule_net)."""
+    def test_net_null_still_loads_and_only_apply_refuses_it(self, tmp_path):
+        """Regression guard (inventory Б5г-3): net: null (both None) must stay
+        VALID AT LOAD — the grammar accepts it and validation.py deliberately
+        does not duplicate the check; the refusal is the apply-time fatal in
+        clone_geometry (there is no rule net to inherit). Renamed from the
+        ManualSpoke rule-net convention it used to stand for."""
         p = _write(tmp_path, "t.sexp", _via_cell(
             {"offset_along_mm": 1.0}))  # net omitted == default None
         cfg, _ = load_config(str(p))

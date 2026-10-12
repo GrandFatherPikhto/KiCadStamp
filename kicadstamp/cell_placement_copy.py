@@ -128,8 +128,9 @@ def _copper_net_ok(record: dict, kind: str) -> tuple[bool, str]:
         return True, f"net_from_role={role!r}" + (f"/pad:{pad}" if pad else "")
     net = record.get("net")
     if net is None:
-        return False, _("{kind} has no net (net: null) — it can only inherit a "
-                        "chain's rule net, which a copied cell cannot assume").format(kind=kind)
+        return False, _("{kind} has no net (net: null) — a net-less via/track is "
+                        "fatal at apply for a placed cell (clone_geometry), so a "
+                        "copy cannot transport it").format(kind=kind)
     if net in RULE_NETS:
         return True, f"net: {net} (rule net)"
     if "{" in str(net):

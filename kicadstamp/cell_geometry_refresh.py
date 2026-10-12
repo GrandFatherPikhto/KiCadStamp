@@ -30,10 +30,10 @@ Matching identity:
          which the cell cannot know.
       2. Concrete nets (net_from_role resolved live, or a plain literal) —
          exact-string grouping.
-      3. net: null records (rule-net convention, no stored net at all) —
-         pure POSITIONAL elimination against whatever live items remain
-         unclaimed after tiers 1-2 (no net lookup whatsoever; their net stays
-         null).
+      3. net: null records (no stored net at all — a leftover of the retired
+         rule-net convention) — pure POSITIONAL elimination against whatever
+         live items remain unclaimed after tiers 1-2 (no net lookup
+         whatsoever; their net stays null).
       4. Any live item left unclaimed after 1-3 is extra copper not described
          by the cell -> collected fatal.
   Within each matching group of size > 1, a greedy nearest-neighbour by the
@@ -452,13 +452,12 @@ def _match_copper(records: list[dict], live_items: list[Any], frame: CellFrame,
     # NAMED net; net:null records have no name at all, so if their count equals
     # the leftover count they are the leftover's counterparts (matched by
     # position only, no net involved — their net stays null). With a known cell
-    # layer the elimination runs PER LAYER, so an F.Cu rule-net record cannot
+    # layer the elimination runs PER LAYER, so an F.Cu net-less record cannot
     # swallow a B.Cu leftover (H.1.1).
     if net_null:
         if cell_layer is None:
             if len(net_null) != len(pool) and missing_is_fatal:
-                problems.append(_("rule-net (net: null — inherits the enclosing "
-                                  "Rule's own net): {n} record(s) in the cell, "
+                problems.append(_("net-less record(s) in the cell: {n} record(s), "
                                   "{m} unclaimed live item(s) after resolving every "
                                   "named net")
                                 .format(n=len(net_null), m=len(pool)))
@@ -478,8 +477,7 @@ def _match_copper(records: list[dict], live_items: list[Any], frame: CellFrame,
                                        key=lambda kv: kv[0] or ""):
                 layer_pool = [i for i in pool if _live_layer(i) == layer]
                 if len(group) != len(layer_pool) and missing_is_fatal:
-                    problems.append(_("rule-net (net: null — inherits the enclosing "
-                                      "Rule's own net): {n} record(s) in the cell, "
+                    problems.append(_("net-less record(s) in the cell: {n} record(s), "
                                       "{m} unclaimed live item(s) after resolving every "
                                       "named net")
                                     .format(n=len(group), m=len(layer_pool)))
