@@ -160,42 +160,48 @@ def test_tree_instance_copy_keeps_the_original_uuid_without_the_gate(monkeypatch
 
 # ── sheet_templates copies ──────────────────────────────────────────────────
 
-def _st_data(sheets, uuid=TPL_UUID, cluster="K"):
+def _st_data(sheets, uuid=TPL_UUID, name="K"):
+    """12.10 (Ч1в-4b): the live instantiation carrier is `coordinate_placements:`
+    — a template's retired `clone_placements:` block is a FATAL after Ч1 (plan
+    §П8), and `CoordinatePlacement` is the only record a template may
+    instantiate. The template's OWN uuid T seeds the copy uuid; the shared
+    `anchor_point_uuid` names a point the expansion does NOT copy (Р-У5.4)."""
     return {"sheet_templates": {"tpl": {
         "uuid": uuid,
         "sheets": sheets,
-        "clone_placements": [{"cluster": cluster, "cell": "c",
-                              "cell_uuid": CELL_UUID, "xy": [0.0, 0.0]}]}}}
+        "coordinate_placements": [{"name": name, "cluster": "C0", "role": "R1",
+                                   "x_mm": 1.0, "y_mm": 2.0,
+                                   "anchor_point_uuid": CELL_UUID}]}}}
 
 
 def test_sheet_template_copy_uuid_is_derived_and_per_sheet(format3):
     out = expand_sheet_templates(_st_data(["S1", "S2"]))
-    got = [cp["uuid"] for cp in out["clone_placements"]]
-    assert got == [derived_uuid(f"{TPL_UUID}|clone_placements|K|sheet:S1"),
-                   derived_uuid(f"{TPL_UUID}|clone_placements|K|sheet:S2")]
+    got = [cp["uuid"] for cp in out["coordinate_placements"]]
+    assert got == [derived_uuid(f"{TPL_UUID}|coordinate_placements|K|sheet:S1"),
+                   derived_uuid(f"{TPL_UUID}|coordinate_placements|K|sheet:S2")]
     assert got[0] != got[1]
     assert TPL_UUID not in got
-    assert out["clone_placements"][0]["name"] == "S1_K"
-    assert out["clone_placements"][0]["cell_uuid"] == CELL_UUID  # shared target kept
+    assert out["coordinate_placements"][0]["name"] == "S1_K"
+    assert out["coordinate_placements"][0]["anchor_point_uuid"] == CELL_UUID  # shared target kept
 
 
 def test_sheet_template_single_sheet_also_gets_a_uuid(format3):
     out = expand_sheet_templates(_st_data(["Only"]))
-    assert out["clone_placements"][0]["uuid"] == derived_uuid(
-        f"{TPL_UUID}|clone_placements|K|sheet:Only")
+    assert out["coordinate_placements"][0]["uuid"] == derived_uuid(
+        f"{TPL_UUID}|coordinate_placements|K|sheet:Only")
 
 
 def test_sheet_template_uuid_is_deterministic(format3):
     one = expand_sheet_templates(_st_data(["S1"]))
     two = expand_sheet_templates(_st_data(["S1"]))
-    assert one["clone_placements"][0]["uuid"] == two["clone_placements"][0]["uuid"]
+    assert one["coordinate_placements"][0]["uuid"] == two["coordinate_placements"][0]["uuid"]
 
 
 def test_sheet_template_copy_has_no_uuid_without_the_gate(monkeypatch):
     # Gate cell (У3.5 К3): subject is the FORMAT-2 branch (no gate), so it pins.
     monkeypatch.setattr(format_version, "CURRENT_FORMAT", 2)
     out = expand_sheet_templates(_st_data(["S1", "S2"]))
-    assert all("uuid" not in cp for cp in out["clone_placements"])
+    assert all("uuid" not in cp for cp in out["coordinate_placements"])
 
 
 # ── 4/1 across LOADS (the real loader, format 3) ────────────────────────────

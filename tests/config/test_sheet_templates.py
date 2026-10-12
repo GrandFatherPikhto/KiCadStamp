@@ -42,10 +42,15 @@ def _write(tmp_path, name, data) -> Path:
 # ── len(sheets) >= 2: identity always generated, Cluster tag untouched ───────
 
 def test_multi_sheet_generates_identity_and_substitutes(tmp_path):
-    """3 sheets -> 3 coordinate_placements + 3 clone_placements. Explicit
-    identity fields are OVERWRITTEN with f"{sheet}_{base}"; clone name:
-    (Cluster tag) is preserved as-is; sheet:/anchor_sheet: self and $SHEET in
-    params:/nets: are substituted per sheet."""
+    """3 sheets -> 3 coordinate_placements. Explicit identity fields are
+    OVERWRITTEN with f"{sheet}_{base}"; sheet:/anchor_sheet: self and $SHEET in
+    params:/nets: are substituted per sheet.
+
+    2026-10-12 (Ч1в-4b): the CLONE half of this cell is class А — a template may
+    only instantiate `coordinate_placements:` after Ч1 (its retired
+    `clone_placements:` block is a FATAL, plan §П8), and no live template record
+    carries `params:`/`nets:` (`CoordinatePlacement` has neither). The live half
+    (identity prefix + self/$SHEET substitution) is asserted below."""
     root = _write(tmp_path, "root.sexp", {
         **_minimal_cell(),
         "sheet_templates": {
@@ -56,15 +61,6 @@ def test_multi_sheet_generates_identity_and_substitutes(tmp_path):
                      "sheet": "self", "x_mm": 9.0, "y_mm": 0.0,
                      "rotation_deg": 270.0,
                      "anchor_role": "AD_DAC", "anchor_sheet": "self"},
-                ],
-                "clone_placements": [
-                    {"cluster": "PIF_AVDD", "cell": "c", "sheet": "self",
-                     "xy": [2.0, 1.0], "rotation_deg": 90.0,
-                     "anchor_role": "AD_DAC", "anchor_pad": "18",
-                     "anchor_cluster": "AD_DAC", "anchor_sheet": "self",
-                     "params": {"FB_PI_FLT": "/$SHEET/DAC/+3V3_AVDD"},
-                     "nets": {"C_IN_BULK": "+3V3",
-                              "C_OUT_BULK": "/$SHEET/DAC/+3V3_AVDD"}},
                 ],
             },
         },
@@ -79,39 +75,33 @@ def test_multi_sheet_generates_identity_and_substitutes(tmp_path):
     assert coord["Channel_1_op_amp"].sheet == "Channel_1"
     assert coord["Channel_1_op_amp"].anchor_sheet == "Channel_1"
 
-    clones = {cp.name: cp for cp in cfg.clone_placements}
-    assert set(clones) == {"Channel_0_PIF_AVDD", "Channel_1_PIF_AVDD", "Channel_2_PIF_AVDD"}
-    # cluster (the Cluster tag) is identical across copies — never touched.
-    assert clones["Channel_0_PIF_AVDD"].cluster == "PIF_AVDD"
-    assert clones["Channel_1_PIF_AVDD"].cluster == "PIF_AVDD"
-    assert clones["Channel_0_PIF_AVDD"].sheet == "Channel_0"
-    assert clones["Channel_0_PIF_AVDD"].anchor_sheet == "Channel_0"
-    assert clones["Channel_1_PIF_AVDD"].params["FB_PI_FLT"] == "/Channel_1/DAC/+3V3_AVDD"
-    assert clones["Channel_2_PIF_AVDD"].nets["C_OUT_BULK"] == "/Channel_2/DAC/+3V3_AVDD"
-    assert clones["Channel_0_PIF_AVDD"].nets["C_IN_BULK"] == "+3V3"
+    assert cfg.clone_placements == [], (
+        "a template may only instantiate coordinate_placements: after Ч1")
 
 
 # ── len(sheets) == 1: identity literal, no prefix ────────────────────────────
 
 def test_single_sheet_identity_is_literal(tmp_path):
     """1 sheet -> identity taken literally from the template (the byte-identical
-    regression contract: CH0_PIF_AVDD must survive untouched)."""
+    regression contract: CH0_PIF_AVDD must survive untouched). 12.10 (Ч1в-4b):
+    the carrier is the LIVE `coordinate_placements:` instantiation."""
     root = _write(tmp_path, "root.sexp", {
         **_minimal_cell(),
         "sheet_templates": {
             "channel": {
                 "sheets": ["Channel_0"],
-                "clone_placements": [
-                    {"cluster": "PIF_AVDD", "name": "CH0_PIF_AVDD", "cell": "c",
-                     "sheet": "self", "xy": [2.0, 1.0], "anchor_role": "AD_DAC"},
+                "coordinate_placements": [
+                    {"name": "CH0_PIF_AVDD", "cluster": "PIF_AVDD", "role": "R1",
+                     "sheet": "self", "x_mm": 2.0, "y_mm": 1.0,
+                     "anchor_role": "AD_DAC"},
                 ],
             },
         },
     })
 
     cfg, _ = load_config(str(root))
-    assert len(cfg.clone_placements) == 1
-    cp = cfg.clone_placements[0]
+    assert len(cfg.coordinate_placements) == 1
+    cp = cfg.coordinate_placements[0]
     assert cp.cluster == "PIF_AVDD"
     assert cp.name == "CH0_PIF_AVDD"
     assert cp.sheet == "Channel_0"

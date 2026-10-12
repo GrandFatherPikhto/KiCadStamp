@@ -3,10 +3,14 @@
 the SAME Config (plan §4).
 
 The graph is deliberately small but covers the reference FORMS the loader knows
-(record fields, chain spokes, points -> points, a cell's nested clone, a tree
-node, a tree anchor point, a tree_instances anchor point, sheet_templates'
-nested placements) plus an `include:`. The stub `mint_format3`/`lie_hints` live
-in tests/fakes/format3.py and are never imported by the product.
+(record fields, points -> points, a cell's nested clone, a tree node, a tree
+anchor point, a tree_instances anchor point, sheet_templates' nested
+coordinate_placements) plus an `include:`. The stub `mint_format3`/`lie_hints`
+live in tests/fakes/format3.py and are never imported by the product.
+
+12.10 (Ч1в-4b): the root clone_placements record and the template's
+clone_placements block are class А (retired after Ч1) — the live carriers are
+the root coordinate_placements record and the template's coordinate_placements.
 
 Comparison is `dataclasses.asdict` with the identity fields removed: every
 `uuid`/`*_uuid` key and the `folders` table. Everything else must be byte-equal,
@@ -37,9 +41,6 @@ def _root_data() -> dict:
         "entities": [{"name": "E1", "cell": "Cell/A"},
                      {"name": "E2", "imprint": "imp1"}],
         "imprints": [{"name": "imp1", "components": [{"ref": "C1"}]}],
-        "clone_placements": [{"cluster": "K1", "cell": "Cell/A",
-                              "anchor_point": "P/A", "name": "cp1",
-                              "xy": [0.0, 0.0]}],
         "coordinate_placements": [{"cluster": "CL", "role": "R1", "name": "c1",
                                    "anchor_point": "P/A"}],
         "thermal_via_arrays": [{"name": "tva1", "anchor_point": "P/A",
@@ -52,8 +53,9 @@ def _root_data() -> dict:
                             "anchor": {"point": "P/B"}}],
         "sheet_templates": {"tpl": {
             "sheets": ["S2"],
-            "clone_placements": [{"cluster": "K2", "cell": "Cell/B",
-                                  "anchor_point": "P/B", "xy": [0.0, 0.0]}]}},
+            "coordinate_placements": [{"cluster": "K2", "role": "R9",
+                                       "anchor_point": "P/B",
+                                       "x_mm": 0.0, "y_mm": 0.0}]}},
     }
 
 

@@ -16,8 +16,9 @@ FULL_DATA = {
     "layer": "B.Cu",
     "cells": {"c1": {"layer": "B.Cu", "comment": "cell note", "components": []}},
     "points": {"p1": {"anchor_role": "LDO1", "comment": "point note"}},
-    "clone_placements": [{"cluster": "CH0", "cell": "c1", "xy": [0.0, 0.0],
-                          "comment": "clone note"}],
+    # 12.10 (Ч1в-4b): the clone_placements carrier is class А (its section is
+    # retired after Ч1) and is dropped — comment: is still read on every LIVE
+    # top-level record below.
     "coordinate_placements": [{"cluster": "CH0", "role": "R_FILT",
                                "x_mm": 1.0, "y_mm": 2.0, "rotation_deg": 0.0,
                                "comment": "coord note"}],
@@ -51,7 +52,6 @@ def test_comment_read_for_every_entity(tmp_path):
     cfg = _load(FULL_DATA, tmp_path)
     assert cfg.cells["c1"].comment == "cell note"
     assert cfg.points["p1"].comment == "point note"
-    assert cfg.clone_placements[0].comment == "clone note"
     assert cfg.coordinate_placements[0].comment == "coord note"
     assert cfg.thermal_via_arrays[0].comment == "tva note"
     assert cfg.net_traces[0].comment == "trace note"
@@ -61,7 +61,6 @@ def test_absent_comment_defaults_to_none(tmp_path):
     cfg = _load(NO_COMMENT_DATA, tmp_path)
     assert cfg.cells["c1"].comment is None
     assert cfg.points["p1"].comment is None
-    assert cfg.clone_placements[0].comment is None
     assert cfg.coordinate_placements[0].comment is None
     assert cfg.thermal_via_arrays[0].comment is None
     assert cfg.net_traces[0].comment is None

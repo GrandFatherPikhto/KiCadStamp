@@ -16,8 +16,11 @@ from kicadstamp.exceptions import ValidationError
 MINIMAL_DATA = {
     "layer": "B.Cu",
     "place_components": False,
-    "clone_placements": [
-        {"name": "CH0", "cluster": "CH0", "cell": "dac_buf", "xy": [1.2, -1.5]},
+    # 12.10 (Ч1в-4b): the root clone_placements section is retired after Ч1; the
+    # list-section load coverage rides the LIVE coordinate_placements carrier.
+    "coordinate_placements": [
+        {"name": "CH0", "cluster": "CH0", "role": "R1",
+         "x_mm": 1.2, "y_mm": -1.5, "rotation_deg": 0.0},
     ],
     "cells": {
         "dac_buf": {"layer": "B.Cu", "components": [
@@ -62,9 +65,10 @@ def test_sexp_profile_loads(tmp_path):
 
     assert cfg_sexp.layer == "B.Cu"
     assert cfg_sexp.place_components is False
-    assert [c.cluster for c in cfg_sexp.clone_placements] == ["CH0"]
-    assert cfg_sexp.clone_placements[0].cell == "dac_buf"
-    assert cfg_sexp.clone_placements[0].xy == (1.2, -1.5)
+    assert [c.cluster for c in cfg_sexp.coordinate_placements] == ["CH0"]
+    assert cfg_sexp.coordinate_placements[0].role == "R1"
+    assert (cfg_sexp.coordinate_placements[0].x_mm,
+            cfg_sexp.coordinate_placements[0].y_mm) == (1.2, -1.5)
     assert cfg_sexp.cells["dac_buf"].layer == "B.Cu"
     assert cfg_sexp.cells["dac_buf"].components[0].role == "DAC_BUF"
 
@@ -76,24 +80,24 @@ def test_sexp_include_graph(tmp_path):
     # mint the SAME name in both, which the include merge fatals on; a format-3
     # record needs a name, so the source gives one.
     _write(tmp_path, "sub.sexp", dict_to_sexp({
-        "clone_placements": [
-            {"name": "SUB_CL", "cluster": "SUB_CL", "cell": "fpga_pwr_bank",
-             "xy": [1.2, 2.0]},
+        "coordinate_placements": [
+            {"name": "SUB_CP", "cluster": "SUB_CP", "role": "R1",
+             "x_mm": 1.2, "y_mm": 2.0, "rotation_deg": 0.0},
         ],
     }, format_number=2))
     _write(tmp_path, "root.sexp", dict_to_sexp({
         "layer": "B.Cu",
         "cells": {"fpga_pwr_bank": {}},
-        "clone_placements": [
-            {"name": "ROOT_CL", "cluster": "ROOT_CL", "cell": "fpga_pwr_bank",
-             "xy": [1.2, -1.5]},
+        "coordinate_placements": [
+            {"name": "ROOT_CP", "cluster": "ROOT_CP", "role": "R1",
+             "x_mm": 1.2, "y_mm": -1.5, "rotation_deg": 0.0},
         ],
         "include": ["sub.sexp"],
     }, format_number=2))
 
     cfg, _ = load_config(str(tmp_path / "root.sexp"))
     # both list sections merged: root's own first, then the include's
-    assert [c.cluster for c in cfg.clone_placements] == ["ROOT_CL", "SUB_CL"]
+    assert [c.name for c in cfg.coordinate_placements] == ["ROOT_CP", "SUB_CP"]
 
 
 def test_mixed_include_graph_sexp_json(tmp_path):
@@ -102,19 +106,20 @@ def test_mixed_include_graph_sexp_json(tmp_path):
     2026-08-28, so a mixed graph mixes only the two supported formats)."""
     import json
     _write(tmp_path, "sub.json", json.dumps({
-        "clone_placements": [{"name": "CH0", "cluster": "CH0", "cell": "dac_buf",
-                              "xy": [0.0, 0.0]}],
+        "coordinate_placements": [{"name": "CH0", "cluster": "CH0", "role": "R1",
+                                   "x_mm": 0.0, "y_mm": 0.0, "rotation_deg": 0.0}],
     }))
     _write(tmp_path, "root.sexp", dict_to_sexp({
         "cells": {"dac_buf": {}},
-        "clone_placements": [
-            {"name": "ROOT", "cluster": "ROOT", "cell": "dac_buf", "xy": [1.0, 1.0]},
+        "coordinate_placements": [
+            {"name": "ROOT", "cluster": "ROOT", "role": "R1",
+             "x_mm": 1.0, "y_mm": 1.0, "rotation_deg": 0.0},
         ],
         "include": ["sub.json"],
     }, format_number=2))
 
     cfg, _ = load_config(str(tmp_path / "root.sexp"))
-    assert [c.cluster for c in cfg.clone_placements] == ["ROOT", "CH0"]
+    assert [c.name for c in cfg.coordinate_placements] == ["ROOT", "CH0"]
 
 
 def test_walk_include_tree_reads_sexp(tmp_path):
@@ -123,12 +128,12 @@ def test_walk_include_tree_reads_sexp(tmp_path):
     from kicadstamp.config.includes import walk_include_tree
 
     _write(tmp_path, "sub.sexp", dict_to_sexp({
-        "clone_placements": [{"name": "SUB", "cluster": "SUB", "cell": "c",
-                              "xy": [0.0, 0.0]}],
+        "coordinate_placements": [{"name": "SUB", "cluster": "SUB", "role": "R1",
+                                   "x_mm": 0.0, "y_mm": 0.0, "rotation_deg": 0.0}],
     }, format_number=2))
     _write(tmp_path, "root.sexp", dict_to_sexp({
-        "clone_placements": [{"name": "ROOT", "cluster": "ROOT", "cell": "c",
-                              "xy": [1.0, 1.0]}],
+        "coordinate_placements": [{"name": "ROOT", "cluster": "ROOT", "role": "R1",
+                                   "x_mm": 1.0, "y_mm": 1.0, "rotation_deg": 0.0}],
         "include": ["sub.sexp"],
     }, format_number=2))
 
@@ -137,8 +142,8 @@ def test_walk_include_tree_reads_sexp(tmp_path):
     assert len(tree.children) == 1
     assert tree.children[0].path.name == "sub.sexp"
     # each node carries only its OWN directly-declared sections
-    assert [r["cluster"] for r in tree.sections["clone_placements"]] == ["ROOT"]
-    assert [r["cluster"] for r in tree.children[0].sections["clone_placements"]] == ["SUB"]
+    assert [r["cluster"] for r in tree.sections["coordinate_placements"]] == ["ROOT"]
+    assert [r["cluster"] for r in tree.children[0].sections["coordinate_placements"]] == ["SUB"]
 
 
 def test_broken_sexp_invalid_top_level_raises_validation_error(tmp_path):

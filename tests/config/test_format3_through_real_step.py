@@ -27,23 +27,28 @@ either present and carried, or the cell is vacuous):
   -----------------  ----------------------------------------------------------
   include:           the graph is >1 file; a reference in the root resolves to a
                      record in the included file (Р-1 seed WITHOUT the path)
-  cells/points       the anchor records every other form points at
-  entities           a tree-placed entity -> a materialized clone, keyed `name:`
-  clone_placements   absolute / anchor_ref / anchor_role / anchor_point / nested
+  cells              `leaf`/`lvl1`/`lvl2` in the root and `subcell` in the
+                     INCLUDED file (E3's cross-file cell reference)
+  entities           a tree-placed entity -> a materialized clone, keyed `name:`;
+                     a SECOND entity on a composite cell -> a path-composed
+                     nested `name:` key
   thermal_via_arrays a `thermal:` keyed matrix
   net_traces         a `net:` keyed trace
-  trees              the tree that places the entity
-  tree_instances     two generated copies of one entity (DIFFERENT keys)
-  sheet_templates    generated copies, DISTINCT keys: `one` keeps anchor_point
-                     P1 but SHIFTED (its own point:P1:3.0000:0.0000, not
-                     cpoint's), `many` is ABSOLUTE -> name:S4_csheet2 /
-                     name:S5_csheet2
+  trees              the tree that places all three entities
+  tree_instances     two generated copies of each entity (DIFFERENT keys)
+
+12.10 (Ч1в-4b) — the Placer is retired, so the graph lost its root
+``clone_placements:`` section (its absolute/anchor_ref/anchor_role/anchor_point/
+nested forms and the two ``sheet_templates`` copies are class А: they died with
+the section) and every placement now arrives through ``entities:`` +
+``trees:``. The live registry form space is therefore name:/thermal:/net: —
+``anchor:``/``role:``/``point:`` are unreachable once the section is closed
+(nothing the loader still builds carries ``anchor_*``).
 
 Before the lift (phase 1) the cell also asserts the SET of registry anchor parts
-carries EVERY form above as its OWN binding (Н1, 04.10.2026): a copy that slips
-onto another form's key — the three ``sheet_templates`` copies used to collapse
-onto ``cpoint``'s ``point:P1:0.0000:0.0000``, so losing the whole section in the
-step was invisible — leaves its own form missing and reddens HERE, in the cell.
+carries EVERY live form above as its OWN binding (Н1, 04.10.2026): a copy that
+slips onto another form's key leaves its own form missing and reddens HERE, in
+the cell.
 
 The apply is the REGISTRY path only (reconcile + create + ``record_created``),
 exactly as the У5.4 main cell: the positional pre-check is an independent
@@ -140,34 +145,32 @@ def _root_data() -> dict:
             "lvl1": {"clone_placements": [
                 {"name": "inner1", "cell": "lvl2", "xy": [1.0, 0.0]}]},
         },
-        "points": {"P1": {"anchor_ref": "U1"}},
-        "entities": [{"name": "E", "cell": "leaf"}],
+        # E on the leaf cell -> `name:E`; E2 on the composite cell -> the
+        # path-composed `name:E2/inner1/inner2` (both live after Ч1в-4b); E3's
+        # cell lives in the INCLUDED file, so include: stays load-bearing (the
+        # Р-1 seed carries no file path).
+        "entities": [{"name": "E", "cell": "leaf"},
+                     {"name": "E2", "cell": "lvl1"},
+                     {"name": "E3", "cell": "subcell"}],
         "trees": [{"name": "etree",
                    "anchor": {"role": "FPGA", "anchor_sheet": "FPGA",
                               "anchor_cluster": "FPGA"},
-                   "nodes": [{"ref": "E", "kind": "placement", "xy": [0.0, 0.0]}]}],
+                   "nodes": [{"ref": "E", "kind": "placement", "xy": [0.0, 0.0]},
+                             {"ref": "E2", "kind": "placement", "xy": [2.0, 0.0]},
+                             {"ref": "E3", "kind": "placement", "xy": [4.0, 0.0]}]}],
         "tree_instances": [
             {"template": "etree", "name": "ti1", "sheet": "S1"},
             {"template": "etree", "name": "ti2", "sheet": "S2"},
         ],
-        "clone_placements": [
-            {"name": "cabs", "cluster": "cabs", "cell": "leaf", "xy": [0.0, 0.0]},
-            {"name": "cref", "cluster": "cref", "cell": "leaf", "xy": [0.0, 0.0],
-             "anchor_ref": "U1"},
-            {"name": "crole", "cluster": "crole", "cell": "leaf", "xy": [0.0, 0.0],
-             "anchor_role": "FPGA", "anchor_sheet": "FPGA", "anchor_cluster": "FPGA"},
-            {"name": "cpoint", "cluster": "cpoint", "cell": "leaf", "xy": [0.0, 0.0],
-             "anchor_point": "P1"},
-            {"name": "cnest", "cluster": "cnest", "cell": "lvl1", "xy": [0.0, 0.0]},
-            # cross-file: both the cell and the point live in sub.sexp — the Р-1
-            # seed carries no file path, so this reference resolves without a walk.
-            {"name": "csub", "cluster": "csub", "cell": "subcell",
-             "anchor_point": "P2", "xy": [0.0, 0.0]},
-        ],
         # NO ``chains`` section: a profile that still carries one has its registry
         # DELIBERATELY left untouched by the lift (Д2 доделка п.1), so it could not
         # witness "the whole graph lifts and the second apply is empty" — that
-        # subject now belongs to the chain-free forms below.
+        # subject belongs to the chain-free forms below.
+        #
+        # NO root ``clone_placements:`` either: the section is retired (Ч1) and its
+        # former coverage — anchor:/role:/point: keys, the nested `cnest` path, the
+        # two `sheet_templates` copies — moved onto entities/trees, which is the
+        # LIVE producer of every registry form the graph still has.
         "thermal_via_arrays": [{"name": "tva1", "anchor_ref": "U1", "pad": "1",
                                 "net": "GND", "rows": 1, "cols": 1, "margin_mm": 0.0,
                                 "pattern": "grid", "drill_mm": 0.3, "diameter_mm": 0.6}],
@@ -176,27 +179,12 @@ def _root_data() -> dict:
                         "tracks": [{"start_along_mm": 0.0, "start_across_mm": 0.0,
                                     "end_along_mm": 2.0, "end_across_mm": 0.0,
                                     "width_mm": 0.25, "net": "GND", "layer": "F.Cu"}]}],
-        "sheet_templates": {
-            # Н1: `one` keeps the anchor_point reference (exercised INSIDE the
-            # section) but is SHIFTED to [3.0, 0.0], so its key is its own —
-            # not cpoint's point:P1:0.0000:0.0000.
-            "one": {"sheets": ["S3"],
-                    "clone_placements": [{"name": "csheet1", "cluster": "csheet1",
-                                          "cell": "leaf", "anchor_point": "P1",
-                                          "xy": [3.0, 0.0]}]},
-            # `many` copies are ABSOLUTE (no anchor_point): multi-sheet naming
-            # gives S4_csheet2 / S5_csheet2, two DISTINCT `name:` keys — the
-            # derived copy UUIDs also ride through the lift.
-            "many": {"sheets": ["S4", "S5"],
-                     "clone_placements": [{"name": "csheet2", "cluster": "csheet2",
-                                           "cell": "leaf", "xy": [0.0, 0.0]}]},
-        },
     }
 
 
 def _sub_data() -> dict:
-    """The included file — a cell and a point the ROOT references (the Р-1
-    cross-file case), so the include: is load-bearing, not decoration."""
+    """The included file — the `subcell` the ROOT's entity E3 references (the
+    Р-1 cross-file case), so the include: is load-bearing, not decoration."""
     return {
         "cells": {
             "subcell": {
@@ -204,7 +192,6 @@ def _sub_data() -> dict:
                           "net": "GND", "drill_mm": 0.3, "diameter_mm": 0.6}],
             },
         },
-        "points": {"P2": {"anchor_ref": "U1"}},
     }
 
 
@@ -224,13 +211,11 @@ def _write_graph(tmp_path: Path) -> Path:
 # ── the whole-graph command plan (every form at once) ───────────────────────
 
 def _all_commands(cfg, adapter):
-    """Every command the profile produces: all clone_placements (hand-written,
-    entity-materialized, tree_instances- and sheet_templates-generated), the
-    matrix and the net traces. Combined so the second apply is the WHOLE graph's,
-    not one form's."""
+    """Every command the profile produces: every entity-materialized placement
+    (hand-written, tree_instances-generated), the matrix and the net traces.
+    Combined so the second apply is the WHOLE graph's, not one form's."""
     vias, tracks = [], []
-    clones = list(cfg.clone_placements) + materialize_entity_placements(
-        adapter, cfg, {})
+    clones = list(materialize_entity_placements(adapter, cfg, {}))
     _p, v, t = ClonePositionCalculator(adapter, cfg, {}).compute_raw_positions(clones)
     vias += v
     tracks += t
@@ -321,11 +306,12 @@ def _form_is_bound(parts: set, form: str) -> bool:
 
 def _assert_every_form_is_bound(commands) -> None:
     """Н1 (04.10.2026): the union of the two registries' anchor parts must carry
-    EVERY form the fixture declares, each as its OWN binding. Two forms that
-    share one key leave one unbound and redden HERE, in the through cell — the
-    old ``csheet1`` / ``S4_csheet2`` / ``S5_csheet2`` copies all sat on
-    ``cpoint``'s ``point:P1:0.0000:0.0000``, so losing the whole
-    ``sheet_templates`` block in the step was invisible."""
+    EVERY LIVE form the fixture declares, each as its OWN binding. Two forms that
+    share one key leave one unbound and redden HERE, in the through cell.
+
+    12.10 (Ч1в-4b): the form set shrank with the Placer — anchor:/role:/point:
+    and the sheet_templates copies are unreachable now (no live builder emits
+    them); name: (direct + nested at depth 2), thermal: and net: remain."""
     parts = _anchor_parts(commands)
     assert parts, "no registry key was planned — the form check would be vacuous"
 
@@ -333,24 +319,13 @@ def _assert_every_form_is_bound(commands) -> None:
         "name:E",                     # the tree-placed entity itself
         "name:E__ti1",                # tree_instances copy 1 (its own key)
         "name:E__ti2",                # tree_instances copy 2 (its own key)
-        "name:cabs",                  # absolute clone_placement
-        "name:cnest/inner1/inner2",   # nested cell, path-composed at depth
-        "name:S4_csheet2",            # sheet_template `many`, absolute, sheet S4
-        "name:S5_csheet2",            # sheet_template `many`, absolute, sheet S5
-        "point:P1",                   # cpoint — anchor_point at origin
-        "point:P2",                   # csub — cross-file point
-        "anchor:U1",                  # cref — anchor_ref
-        "role:FPGA",                  # crole — anchor_role
+        "name:E2/inner1/inner2",      # 2nd entity on a composite cell: nested
+                                      # path-composed at depth
+        "name:E3",                    # 3rd entity: its cell is in the included
+                                      # file (cross-file reference)
         "thermal:tva1",               # thermal_via_arrays matrix
         "net:nt1",                    # net_traces trace
     ) if not _form_is_bound(parts, form)]
-
-    # The `one` sheet_template keeps `anchor_point P1` but is SHIFTED to
-    # [3.0, 0.0]: either key proves the copy survived the step AND stayed
-    # distinct from `cpoint`.
-    if not (any(p == "name:csheet1" for p in parts)
-            or any(p.startswith("point:P1:3") for p in parts)):
-        missing.append("name:csheet1 | point:P1:3")
 
     assert not missing, (
         "the declared form(s) "

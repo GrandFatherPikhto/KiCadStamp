@@ -102,29 +102,34 @@ def test_rename_cluster_and_anchor_cluster_flat(tmp_path):
 
 
 def test_rename_refs_key_not_value(tmp_path):
+    # 12.10 (Ч1в-4b): the carrier is a nested Cell.clone_placements entry — the
+    # LIVE record that carries refs:/nets: (the root clone_placements section is
+    # retired after Ч1). Same visitor, same assertion.
     root = {
-        "clone_placements": [
-            {"cluster": "PIF", "cell": "one", "xy": [0.0, 0.0],
-             "refs": {"LDO": "U5"}},
-        ],
+        "cells": {
+            "one": {"clone_placements": [
+                {"name": "inner", "cell": "leaf", "refs": {"LDO": "U5"}}]},
+        },
     }
     mutated, report, unmatched = _plan(
         tmp_path, root, renames={"Role": {"LDO": "LDO_V2"}})
-    refs = mutated[str(tmp_path / "root.sexp")]["clone_placements"][0]["refs"]
+    refs = mutated[str(tmp_path / "root.sexp")]["cells"]["one"][
+        "clone_placements"][0]["refs"]
     assert refs == {"LDO_V2": "U5"}  # refdes value untouched
     assert unmatched == []
 
 
 def test_rename_nets_key(tmp_path):
     root = {
-        "clone_placements": [
-            {"cluster": "PIF", "cell": "one", "xy": [0.0, 0.0],
-             "nets": {"C_IN": "+3V3"}},
-        ],
+        "cells": {
+            "one": {"clone_placements": [
+                {"name": "inner", "cell": "leaf", "nets": {"C_IN": "+3V3"}}]},
+        },
     }
     mutated, report, unmatched = _plan(
         tmp_path, root, renames={"Role": {"C_IN": "C_IN_V2"}})
-    nets = mutated[str(tmp_path / "root.sexp")]["clone_placements"][0]["nets"]
+    nets = mutated[str(tmp_path / "root.sexp")]["cells"]["one"][
+        "clone_placements"][0]["nets"]
     assert nets == {"C_IN_V2": "+3V3"}  # net value untouched
     assert unmatched == []
 
@@ -134,8 +139,9 @@ def test_hierarchical_cluster_not_renamed_exact_match_only(tmp_path):
     rename tool is exact-value only (same as the schematic side): renaming
     'Channel_1' must NOT rewrite 'Channel_1/sub'."""
     root = {
-        "clone_placements": [
-            {"cluster": "Channel_1/sub", "cell": "one", "xy": [0.0, 0.0]},
+        "coordinate_placements": [
+            {"cluster": "Channel_1/sub", "role": "R1",
+             "x_mm": 0.0, "y_mm": 0.0, "rotation_deg": 0.0},
         ],
     }
     mutated, report, unmatched = _plan(
@@ -145,26 +151,25 @@ def test_hierarchical_cluster_not_renamed_exact_match_only(tmp_path):
     assert unmatched == ["Cluster: 'Channel_1'"]
 
 
-def test_clone_placement_cluster_renamed_name_not(tmp_path):
-    """clone_placements[].cluster IS the Cluster TAG (2026-08-24 split, like
-    coordinate_placements[].cluster); its `name` is the save/--only identity
-    and must NOT be rewritten by a Cluster rename."""
+def test_coordinate_placement_cluster_renamed_name_not(tmp_path):
+    """coordinate_placements[].cluster IS the Cluster TAG (2026-08-24 split);
+    its `name` is the save/--only identity and must NOT be rewritten by a
+    Cluster rename. 12.10 (Ч1в-4b): carried by the LIVE coordinate section.
+    """
     root = {
-        "clone_placements": [
-            {"cluster": "PIF_P5V", "name": "ch0_pif", "cell": "one",
-             "xy": [0.0, 0.0]},
-        ],
         "coordinate_placements": [
-            {"cluster": "DAC", "role": "R1", "name": "channel0_r1",
+            {"cluster": "PIF_P5V", "role": "R1", "name": "ch0_pif",
+             "x_mm": 1.0, "y_mm": 1.0, "rotation_deg": 0.0},
+            {"cluster": "DAC", "role": "R2", "name": "channel0_r1",
              "x_mm": 0.0, "y_mm": 0.0, "rotation_deg": 0.0},
         ],
     }
     mutated, report, unmatched = _plan(
         tmp_path, root, renames={"Cluster": {"PIF_P5V": "PIF_P5V_V2"}})
     root_data = mutated[str(tmp_path / "root.sexp")]
-    assert root_data["clone_placements"][0]["cluster"] == "PIF_P5V_V2"
-    assert root_data["clone_placements"][0]["name"] == "ch0_pif"  # identity untouched
-    assert root_data["coordinate_placements"][0]["name"] == "channel0_r1"
+    assert root_data["coordinate_placements"][0]["cluster"] == "PIF_P5V_V2"
+    assert root_data["coordinate_placements"][0]["name"] == "ch0_pif"  # identity untouched
+    assert root_data["coordinate_placements"][1]["name"] == "channel0_r1"
     assert unmatched == []
 
 

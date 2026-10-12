@@ -22,21 +22,23 @@ def _write(tmp_path, name, data) -> Path:
     return p
 
 
-def test_include_merges_clone_placements_and_rules(tmp_path):
-    # Explicit names: under format 3 a nameless record is minted a name on lift,
-    # so two nameless records across files would collide on the minted name.
-    _write(tmp_path, "sub.sexp", {**MINIMAL, "clone_placements": [
-        {"name": "from_sub", "cluster": "from_sub", "cell": "one_role",
-         "xy": [1.0, 2.0]}]})
+def test_include_merges_a_list_section_and_cells(tmp_path):
+    """A list section and cells: both split across include: files and merge.
+
+    12.10 (Ч1в-4b): the carrier is net_traces — a LIVE named list section; the
+    root clone_placements carrier is retired after Ч1. Explicit names: under
+    format 3 a nameless record is minted a name on lift, so two nameless records
+    across files would collide on the minted name."""
+    _write(tmp_path, "sub.sexp", {**MINIMAL, "net_traces": [
+        {"name": "from_sub", "net": "/S/GND", "anchor_role": "R1"}]})
 
     root = _write(tmp_path, "root.sexp", {
         "include": ["sub.sexp"],
-        "clone_placements": [
-            {"name": "from_root", "cluster": "from_root", "cell": "one_role",
-             "xy": [0.0, 0.0]}]})
+        "net_traces": [
+            {"name": "from_root", "net": "/S/GND", "anchor_role": "R1"}]})
 
     cfg, _ = load_config(str(root))
-    names = {cp.cluster for cp in cfg.clone_placements}
+    names = {nt.name for nt in cfg.net_traces}
     assert names == {"from_root", "from_sub"}
     assert "one_role" in cfg.cells
 
@@ -228,14 +230,16 @@ def test_dict_section_used_as_list_is_fatal(tmp_path):
 
 
 def test_nested_include_is_merged(tmp_path):
-    _write(tmp_path, "c.sexp", {**MINIMAL, "clone_placements": [
-        {"cluster": "from_c", "cell": "one_role", "xy": [0.0, 0.0]}]})
+    # 12.10 (Ч1в-4b): carrier moved to the LIVE coordinate_placements section.
+    _write(tmp_path, "c.sexp", {**MINIMAL, "coordinate_placements": [
+        {"name": "from_c", "cluster": "from_c", "role": "R1",
+         "x_mm": 0.0, "y_mm": 0.0, "rotation_deg": 0.0}]})
     _write(tmp_path, "b.sexp", {"include": ["c.sexp"]})
 
     root = _write(tmp_path, "root.sexp", {"include": ["b.sexp"]})
 
     cfg, _ = load_config(str(root))
-    assert [cp.cluster for cp in cfg.clone_placements] == ["from_c"]
+    assert [cp.name for cp in cfg.coordinate_placements] == ["from_c"]
 
 
 # ── walk_include_tree() — structure-preserving, GUI Config tree (2026-08-03) ──

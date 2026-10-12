@@ -20,21 +20,21 @@ def _write(tmp_path, name, data, fmt=2):
     return p
 
 
-def _cells_and_clone(cell_ref, **anchor):
-    """A minimal graph: one cell, one clone_placement naming it (possibly with a
-    typo) plus an optional anchor_point reference."""
-    placement = {"cluster": "cp1", "cell": cell_ref, "xy": [1.0, 2.0]}
-    placement.update(anchor)
+def _cells_and_entity(cell_ref):
+    """A minimal graph: one cell, one entity naming it (possibly with a typo).
+
+    12.10 (Ч1в-4b): the `cell:` reference carrier is the LIVE entity — a
+    clone_placement's `cell:` went with its retired root section."""
     return {
         "cells": {"pi_filter": {"components": [{"role": "R"}]}},
-        "clone_placements": [placement],
+        "entities": [{"name": "E1", "cell": cell_ref}],
     }
 
 
 def test_a_cell_reference_typo_gets_the_same_hint(tmp_path):
     """The suggestion is NOT a points-only special case: a `cell:` typo (target
     section `cells:`) gets the very same hint — the rule lives in ONE place."""
-    f = _write(tmp_path, "root.sexp", _cells_and_clone("pi_filte"))
+    f = _write(tmp_path, "root.sexp", _cells_and_entity("pi_filte"))
     with pytest.raises(ValidationError) as e:
         load_config(str(f))
     text = str(e.value)
@@ -48,9 +48,9 @@ def test_a_hint_far_from_every_name_is_shown_without_a_suggestion(tmp_path):
     f = _write(tmp_path, "root.sexp", {
         "points": {"fpga_center": {"anchor_role": "FPGA"}},
         "cells": {"pi_filter": {"components": [{"role": "R"}]}},
-        "clone_placements": [{"cluster": "cp1", "cell": "pi_filter",
-                              "xy": [1.0, 2.0],
-                              "anchor_point": "zzz_nothing_like_it"}],
+        "coordinate_placements": [{"cluster": "cp1", "role": "R1",
+                                   "x_mm": 1.0, "y_mm": 2.0,
+                                   "anchor_point": "zzz_nothing_like_it"}],
     })
     with pytest.raises(ValidationError) as e:
         load_config(str(f))
@@ -65,10 +65,10 @@ def test_a_reference_without_a_name_hint_reads_as_before(tmp_path):
     suggestion — the previous refusal, unchanged."""
     f = _write(tmp_path, "root.sexp", {
         "cells": {"pi_filter": {"components": [{"role": "R"}], "uuid": "U-C1"}},
-        "clone_placements": [{"name": "cp1", "uuid": "U-CP", "cluster": "cp1",
-                              "cell": "pi_filter", "cell_uuid": "U-C1",
-                              "xy": [1.0, 2.0],
-                              "anchor_point": "", "anchor_point_uuid": "U-GONE"}],
+        "coordinate_placements": [{"name": "cp1", "uuid": "U-CP", "cluster": "cp1",
+                                   "role": "R1", "x_mm": 1.0, "y_mm": 2.0,
+                                   "anchor_point": "",
+                                   "anchor_point_uuid": "U-GONE"}],
     }, fmt=3)
     with pytest.raises(ValidationError) as e:
         load_config(str(f))
@@ -85,11 +85,10 @@ def test_a_valid_name_never_repairs_a_dangling_uuid(tmp_path):
     f = _write(tmp_path, "root.sexp", {
         "points": {"fpga_center": {"anchor_role": "FPGA", "uuid": "U-PT"}},
         "cells": {"pi_filter": {"components": [{"role": "R"}], "uuid": "U-C1"}},
-        "clone_placements": [{"name": "cp1", "uuid": "U-CP", "cluster": "cp1",
-                              "cell": "pi_filter", "cell_uuid": "U-C1",
-                              "xy": [1.0, 2.0],
-                              "anchor_point": "fpga_center",
-                              "anchor_point_uuid": "U-GONE"}],
+        "coordinate_placements": [{"name": "cp1", "uuid": "U-CP", "cluster": "cp1",
+                                   "role": "R1", "x_mm": 1.0, "y_mm": 2.0,
+                                   "anchor_point": "fpga_center",
+                                   "anchor_point_uuid": "U-GONE"}],
     }, fmt=3)
     with pytest.raises(ValidationError) as e:
         load_config(str(f))
