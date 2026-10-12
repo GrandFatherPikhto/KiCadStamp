@@ -1,7 +1,7 @@
 # tests/test_profile_copy.py
 """Direct unit tests for kicadstamp/config/profile_copy.py — copying
-Cell/Entity/Rule from another profile BY VALUE (plan_2026_08_31_copy_cell_
-entity_from_profile.md): the closure of dependencies lands in the target, name
+Cell/Entity from another profile BY VALUE (plan_2026_08_31_copy_cell_entity_
+from_profile.md): the closure of dependencies lands in the target, name
 collisions are a clear refusal that leaves the target file untouched, and a
 missing source/name/dependency is an explicit ValidationError. All fixtures
 are synthetic .sexp/.json files (Denis's live profile is never touched)."""
@@ -241,8 +241,6 @@ def test_copy_entity_missing_name_is_explicit_error(tmp_path):
 
     assert "not found" in str(exc.value)
 
-
-# ── copy_rule ──────────────────────────────────────────────────────────────
 
 # ── copy_items (multi-select) ───────────────────────────────────────────────
 

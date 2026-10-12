@@ -1,13 +1,13 @@
 # gui/docks/profile_import.py
 """Edit > Import from profile... (2026-08-31, plan_2026_08_31_copy_cell_
-entity_from_profile.md) — copy one or more Cell/Entity/Chain from ANOTHER
+entity_from_profile.md) — copy one or more Cell/Entity from ANOTHER
 profile into the CURRENT project BY VALUE (no include: link, no live
 reference). The actual copy + dependency closure + collision logic lives in the
 core module kicadstamp/config/profile_copy.py; this file is the thin picker
 dialog:
 
   1. choose a source .sexp/.json file,
-  2. see every Cell/Entity/Chain in it (name + a recognizable descriptor),
+  2. see every Cell/Entity in it (name + a recognizable descriptor),
   3. tick the records to import (multi-select, one checkbox per row) and copy
      them all into the current project root in one atomic pass.
 
@@ -32,11 +32,10 @@ from ._common import ERROR_STYLE as _ERROR_STYLE, show_message
 
 logger = logging.getLogger(__name__)
 
-_KIND_LABEL = {"cell": _("Cell"), "entity": _("Entity"), "chain": _("Chain")}
-# section -> kind label, for the collision list (cells/points have no entry in
+_KIND_LABEL = {"cell": _("Cell"), "entity": _("Entity")}
+# section -> kind label, for the collision list (cells has no entry in
 # _KIND_LABEL).
-_SECTION_LABEL = {"cells": _("Cell"), "points": _("Point"),
-                  "entities": _("Entity"), "chains": _("Chain")}
+_SECTION_LABEL = {"cells": _("Cell"), "entities": _("Entity")}
 
 
 class _Cancelled(Exception):
@@ -45,16 +44,14 @@ class _Cancelled(Exception):
 
 def _summary_many(items: List[dict], result: dict, source_name: str) -> str:
     """Human-readable multi-line success message: the imported records + the
-    total dependency cells/points the backend copied for them."""
+    total dependency cells the backend copied for them."""
     lines = [_("Imported from {path}:").format(path=source_name)]
     for item in items:
         lines.append(_("  {kind} {name!r}").format(
             kind=_KIND_LABEL[item["kind"]], name=item["name"]))
     n_cells = len(result["cells"])
-    n_points = len(result["points"])
-    if n_cells or n_points:
-        lines.append(_("({cells} cell(s), {points} point(s) copied)")
-                     .format(cells=n_cells, points=n_points))
+    if n_cells:
+        lines.append(_("({cells} cell(s) copied)").format(cells=n_cells))
     return "\n".join(lines)
 
 
@@ -130,7 +127,7 @@ class ProfileImportDialog(QDialog):
         if not self._rows:
             QMessageBox.information(
                 self, _("Import from profile..."),
-                _("No importable entries (Cell/Entity/Chain) in this file."))
+                _("No importable entries (Cell/Entity) in this file."))
 
     def _populate_table(self) -> None:
         self.table.setRowCount(len(self._rows))
@@ -198,8 +195,7 @@ class ProfileImportDialog(QDialog):
         except (ValidationError, OSError) as e:
             QMessageBox.warning(self, _("Import failed"), str(e))
             return
-        if not (result["cells"] or result["points"]
-                or result["entities"] or result["chains"]):
+        if not (result["cells"] or result["entities"]):
             # every selected record already exists and was kept as-is
             QMessageBox.information(
                 self, _("Import from profile..."),

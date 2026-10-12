@@ -1,5 +1,5 @@
 # kicadstamp/config/profile_copy.py
-"""Copy Cell/Entity/Chain from another profile into the current one BY VALUE
+"""Copy Cell/Entity from another profile into the current one BY VALUE
 (2026-08-31, plan_2026_08_31_copy_cell_entity_from_profile.md) — a fully
 independent copy, unlike `include:` which keeps a live reference to the other
 file. After the copy, edits in the source never affect the target.
@@ -12,21 +12,17 @@ from_profile.md):
     source's include: graph.
   * Closes DEPENDENCIES: a composite Cell references other Cells through
     `clone_placements[].cell` (Cell.clone_placements/CellPlacement in
-    config/models.py); a Chain references Cells through each `spoke.cell`
-    (ManualSpoke) and a `points:` entry through `anchor_point`. Copying one
-    record without its closure would leave a broken reference in the target,
-    so every transitive dependency is copied too (cycle-safe via a visited
-    set). Points are part of the Chain closure because `anchor_point` is a
-    config-graph reference (unlike nets, which are plain strings) — a Chain
-    imported without its point would make the target UNLOADABLE (loader.py's
-    _check_anchor_point is a load-time fatal).
+    config/models.py); an Entity references its Cell through `entity.cell`.
+    Copying one record without its closure would leave a broken reference in
+    the target, so every transitive dependency is copied too (cycle-safe via a
+    visited set).
   * COLLISION check is done for EVERY name in the closure (plus the record's
     own name) against the TARGET's whole include: graph BEFORE anything is
     written — the file is never left partially written, and a duplicate is a
     clear ValidationError, not a silent overwrite.
   * WRITE reuses the existing config_writer primitives: merge_write() for the
-    dict sections (cells:/points:), upsert_list_entry() for the list sections
-    (entities:/rules:) — after the collision pre-check those are pure appends.
+    dict section (cells:), upsert_list_entry() for the list section
+    (entities:) — after the collision pre-check those are pure appends.
 
 Electrical fields (nets:/params:/net_overrides:/sheet:) are copied as-is,
 without adaptation — the other board's nets almost certainly won't match the
@@ -48,12 +44,10 @@ from .includes import _load_config_file, resolve_includes, walk_include_tree
 
 # Dict sections (keyed by name) vs list sections (each entry carries its own
 # identity field) — same split as config/includes.py's _DICT_SECTIONS.
-_DICT_SECTIONS = ("cells", "points")
-# section -> identity of one list-section entry; rules: falls back to net: when
-# name: is absent (config/models.py's rule_effective_name), the rest are name-only.
+_DICT_SECTIONS = ("cells",)
+# section -> identity of one list-section entry (name: is its identity).
 _LIST_IDENTITY = {
     "entities": lambda e: e.get("name"),
-    "chains": lambda e: e.get("name") or e.get("net"),
 }
 
 
@@ -122,46 +116,6 @@ def _collect_cell_closure(source_data: dict, root_cell: str) -> list:
     return ordered
 
 
-def _collect_point_closure(source_data: dict, root_point: str) -> list:
-    """Ordered list of every `points:` name that must be copied to keep
-    `root_point` loadable: root first, then every Point transitively chained
-    through `anchor_point` (points chain to other points, see
-    config/points.py). Needed for Chain import — a Chain's anchor_point is a
-    config-graph reference, and loader.py's _check_anchor_point is a
-    load-time fatal on a missing point. Cycle-safe BFS, same shape as
-    _collect_cell_closure."""
-    points = source_data.get("points") or {}
-    if root_point not in points:
-        raise ValidationError(format_fatal_error(
-            _("point {name!r} not found in import source").format(name=root_point),
-            [_("known points in the source: {names}").format(
-                names=sorted(points.keys()) if points else _("(none)"))]))
-
-    ordered: list = []
-    visited: set = set()
-    queue = [root_point]
-    while queue:
-        name = queue.pop(0)
-        if name in visited:
-            continue
-        visited.add(name)
-        ordered.append(name)
-        raw = points.get(name)
-        if not isinstance(raw, dict):
-            continue
-        dep = raw.get("anchor_point")
-        if not dep:
-            continue
-        if dep not in points:
-            raise ValidationError(format_fatal_error(
-                _("point {dep!r} chained from {name!r} is missing from the import source")
-                .format(dep=dep, name=name),
-                [_("a broken source profile cannot be imported — fix the source first")]))
-        if dep not in visited:
-            queue.append(dep)
-    return ordered
-
-
 def _target_files(target_root: Path) -> list:
     """Every physical file in the target's include: graph (root first, then
     includes in walk order), deduped by resolved path — used by the collision
@@ -183,10 +137,9 @@ def _target_files(target_root: Path) -> list:
 
 def _target_has_entry(target_root: Path, section: str, name: str) -> bool:
     """True if `name` already exists in `section` anywhere in the target's
-    include: graph. Dict sections (cells:/points:) are keyed by name; list
-    sections (entities:/rules:) match each entry by its identity field (name,
-    or net: fallback for rules: — the SAME identity rule_effective_name uses,
-    so an imported entry can never silently collide with an existing one)."""
+    include: graph. Dict sections (cells:) are keyed by name; list sections
+    (entities:) match each entry by its identity field (name) — so an imported
+    entry can never silently collide with an existing one."""
     for path in _target_files(target_root):
         data = cached_file_read(path, _load_config_file)
         if section in _DICT_SECTIONS:
@@ -225,7 +178,7 @@ def _write_dict_section(target_path: Path, section: str, entries: dict) -> None:
 
 
 def _append_list_entry(target_path: Path, section: str, entry: dict) -> None:
-    """Append one list-section entry (entities:/rules:) via upsert_list_entry
+    """Append one list-section entry (entities:) via upsert_list_entry
     — after the collision pre-check the identity can never match an existing
     entry, so this is a pure append, reusing the tested config_writer
     primitive instead of a hand-rolled read-append-write."""
@@ -236,13 +189,12 @@ def _append_list_entry(target_path: Path, section: str, entry: dict) -> None:
 # ── Public entry points ─────────────────────────────────────────────────────
 
 def list_importable(source_path) -> list:
-    """Every Cell/Entity/Chain in the source profile, as picker rows for the
-    GUI import dialog: [{"kind": "cell"|"entity"|"chain", "name": ..., "info": ...}].
+    """Every Cell/Entity in the source profile, as picker rows for the GUI
+    import dialog: [{"kind": "cell"|"entity", "name": ..., "info": ...}].
     `name` is what the matching copy_* function takes (dict key for cells,
-    entity name, chain effective identity); `info` is a short recognizable
-    descriptor (component/nested counts for a cell, cell: for an entity, spoke
-    count for a rule). Raises the same clear ValidationError as copy_* on a
-    missing/unreadable source."""
+    entity name); `info` is a short recognizable descriptor (component/nested
+    counts for a cell, cell: for an entity). Raises the same clear
+    ValidationError as copy_* on a missing/unreadable source."""
     source = _load_source(source_path)
     out: list = []
 
@@ -263,33 +215,24 @@ def list_importable(source_path) -> list:
             out.append({"kind": "entity", "name": entry["name"],
                         "info": _("cell {cell}").format(cell=entry.get("cell", ""))})
 
-    for entry in (source.get("chains") or []):
-        if not isinstance(entry, dict):
-            continue
-        ident = entry.get("name") or entry.get("net")
-        if not ident:
-            continue
-        out.append({"kind": "chain", "name": ident,
-                    "info": _("{n} spokes").format(n=len(entry.get("spokes") or []))})
     return out
 
 
 def copy_items(source_path, items, target_path, target_root: Optional[Path] = None,
                on_collision: Optional[Callable[[dict], Optional[str]]] = None) -> dict:
-    """Copy several Cell/Entity/Chain records from source_path into target_path
+    """Copy several Cell/Entity records from source_path into target_path
     by value in ONE atomic pass (2026-08-31, multi-select in the import
-    dialog). `items` is a list of {"kind": "cell"|"entity"|"chain", "name":
+    dialog). `items` is a list of {"kind": "cell"|"entity", "name":
     <identity>} rows — exactly what list_importable() produces. The dependency
     closures of ALL selected records are merged into ONE set and the collision
     check runs on the UNION before anything is written, so two records that
-    share a Cell (e.g. an Entity and a Chain on the same cell) import cleanly
-    instead of the second one tripping on the first one's just-written cell.
+    share a Cell (e.g. two Entities on the same cell) import cleanly instead of
+    the second one tripping on the first one's just-written cell.
 
-    Collision handling (Denis, 2026-08-31 — "перезаписать или оставить, как
-    есть"):
+    Collision handling (Denis, 2026-08-31 — overwrite or keep existing):
       * `on_collision` is a callback receiving the FULL collision summary
-        {"cells": [...], "points": [...], "entities": [...], "chains": [...]}
-        (names that already exist in the target's include: graph) and returns:
+        {"cells": [...], "entities": [...]} (names that already exist in the
+        target's include: graph) and returns:
           - "overwrite" -> every colliding name is replaced by the source
             version (merge_write replaces dict keys, upsert_list_entry replaces
             list entries in place);
@@ -300,21 +243,17 @@ def copy_items(source_path, items, target_path, target_root: Optional[Path] = No
         and CLI-style use), ANY collision is a clear ValidationError and
         nothing is written (the original fail-loud behaviour).
 
-    Returns {"cells": [...], "points": [...], "entities": [...], "rules": [...]}
-    — the names actually written per section (cells/points root-first; with
-    "skip", colliding names are excluded). Raises a clear ValidationError on:
-    missing/unreadable source, a missing record/name, a missing dependency in
-    the source, or (default policy) ANY name collision in the target."""
+    Returns {"cells": [...], "entities": [...]} — the names actually written
+    per section (cells root-first; with "skip", colliding names are excluded).
+    Raises a clear ValidationError on: missing/unreadable source, a missing
+    record/name, a missing dependency in the source, or (default policy) ANY
+    name collision in the target."""
     source = _load_source(source_path)
     cells_data = source.get("cells") or {}
-    points_data = source.get("points") or {}
     entities = source.get("entities") or []
-    chains = source.get("chains") or []
 
     cells_to_write: dict = {}
-    points_to_write: dict = {}
     entities_to_write: list = []
-    chains_to_write: list = []
 
     for item in items:
         kind = item.get("kind")
@@ -335,44 +274,22 @@ def copy_items(source_path, items, target_path, target_root: Optional[Path] = No
                 for n in _collect_cell_closure(source, raw["cell"]):
                     cells_to_write.setdefault(n, cells_data[n])
             entities_to_write.append(raw)
-        elif kind == "chain":
-            raw = next((c for c in chains if isinstance(c, dict)
-                        and ((c.get("name") or c.get("net")) == name)), None)
-            if raw is None:
-                raise ValidationError(format_fatal_error(
-                    _("chain {name!r} not found in import source").format(name=name),
-                    [_("known chains in the source: {names}").format(
-                        names=sorted((c.get("name") or c.get("net"))
-                                     for c in chains if isinstance(c, dict))
-                        if chains else _("(none)"))]))
-            for spoke in (raw.get("spokes") or []):
-                if isinstance(spoke, dict) and spoke.get("cell"):
-                    for n in _collect_cell_closure(source, spoke["cell"]):
-                        cells_to_write.setdefault(n, cells_data[n])
-            if raw.get("anchor_point"):
-                for n in _collect_point_closure(source, raw["anchor_point"]):
-                    points_to_write.setdefault(n, points_data[n])
-            chains_to_write.append(raw)
         else:
             raise ValidationError(format_fatal_error(
                 _("unknown import kind {kind!r}").format(kind=kind),
-                [_("kind must be 'cell', 'entity' or 'chain'")]))
+                [_("kind must be 'cell' or 'entity'")]))
 
     root = Path(target_root) if target_root is not None else Path(target_path)
     collisions = {
         "cells": [n for n in cells_to_write if _target_has_entry(root, "cells", n)],
-        "points": [n for n in points_to_write if _target_has_entry(root, "points", n)],
         "entities": [e["name"] for e in entities_to_write
                      if _target_has_entry(root, "entities", e["name"])],
-        "chains": [(c.get("name") or c.get("net")) for c in chains_to_write
-                   if _target_has_entry(root, "chains", c.get("name") or c.get("net"))],
     }
     if any(collisions.values()):
         if on_collision is None:
             # Default policy: fail loudly on the first collision, nothing written.
             section, name = next((s, names[0]) for s, names in collisions.items() if names)
-            label = {"cells": _("cell"), "points": _("point"),
-                     "entities": _("entity"), "chains": _("chain")}[section]
+            label = {"cells": _("cell"), "entities": _("entity")}[section]
             _check_no_collision(root, section, [name], label)
         decision = on_collision(collisions)
         if decision is None:
@@ -382,12 +299,8 @@ def copy_items(source_path, items, target_path, target_root: Optional[Path] = No
         if decision == "skip":
             for n in collisions["cells"]:
                 cells_to_write.pop(n, None)
-            for n in collisions["points"]:
-                points_to_write.pop(n, None)
             entities_to_write = [e for e in entities_to_write
                                  if e["name"] not in collisions["entities"]]
-            chains_to_write = [c for c in chains_to_write
-                               if (c.get("name") or c.get("net")) not in collisions["chains"]]
         elif decision != "overwrite":
             raise ValidationError(format_fatal_error(
                 _("invalid collision decision {decision!r}").format(decision=decision),
@@ -404,11 +317,8 @@ def copy_items(source_path, items, target_path, target_root: Optional[Path] = No
     # that has not been copied yet. The gate keeps the product byte-identical.
     with format3_stamp_disabled():
         _write_dict_section(target, "cells", cells_to_write)
-        _write_dict_section(target, "points", points_to_write)
         for entry in entities_to_write:
             _append_list_entry(target, "entities", entry)
-        for entry in chains_to_write:
-            _append_list_entry(target, "chains", entry)
 
     # Verify the RESULT loads (plan §5, У4.2): if the copied profile does not
     # load, the copy is considered failed, loudly. Only when we know the target
@@ -427,9 +337,7 @@ def copy_items(source_path, items, target_path, target_root: Optional[Path] = No
 
     return {
         "cells": list(cells_to_write),
-        "points": list(points_to_write),
         "entities": [e["name"] for e in entities_to_write],
-        "chains": [(c.get("name") or c.get("net")) for c in chains_to_write],
     }
 
 
@@ -454,16 +362,3 @@ def copy_entity(source_path, entity_name, target_path, target_root: Optional[Pat
     return result["cells"]
 
 
-def copy_chain(source_path, chain_identity, target_path, target_root: Optional[Path] = None) -> list:
-    """Copy one Chain (matched by effective identity — name: or net:) plus its
-    Cell closure (every spoke.cell, transitively) and its points closure
-    (anchor_point, transitively), by value — a thin single-record wrapper over
-    copy_items(). Electrical fields are copied verbatim. Returns the ordered
-    list of copied dependency names (cells then points)."""
-    result = copy_items(source_path, [{"kind": "chain", "name": chain_identity}],
-                        target_path, target_root)
-    return result["cells"] + result["points"]
-
-
-# Backward-compat alias for the 2026-09-01 Rule -> Chain rename.
-copy_rule = copy_chain
