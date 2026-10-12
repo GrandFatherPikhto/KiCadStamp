@@ -3,7 +3,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version:  kicadstamp\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-12 12:44+0300\n"
+"POT-Creation-Date: 2026-10-12 14:43+0300\n"
 "PO-Revision-Date: 2026-07-27 12:00+0000\n"
 "Last-Translator: \n"
 "Language: en\n"
@@ -5549,17 +5549,17 @@ msgstr "No changes — the selected records already exist in the target profile.
 msgid "Project"
 msgstr "Project"
 
-#: gui/docks/rename.py:317 gui/docks/rename.py:353
+#: gui/docks/rename.py:315 gui/docks/rename.py:351
 #, python-brace-format
 msgid "{name!r} not found in {section}: of {path}"
 msgstr "{name!r} not found in {section}: of {path}"
 
-#: gui/docks/rename.py:320 gui/docks/rename.py:360
+#: gui/docks/rename.py:318 gui/docks/rename.py:358
 #, python-brace-format
 msgid "{name!r} already exists in {section}: of {path}"
 msgstr "{name!r} already exists in {section}: of {path}"
 
-#: gui/docks/rename.py:416
+#: gui/docks/rename.py:414
 #, python-brace-format
 msgid "{name!r} already exists in {section}: somewhere in this include: graph"
 msgstr "{name!r} already exists in {section}: somewhere in this include: graph"
@@ -7924,8 +7924,8 @@ msgid ""
 "net-less record(s) in the cell: {n} record(s), {m} unclaimed live item(s)"
 " after resolving every named net"
 msgstr ""
-"net-less record(s) in the cell: {n} record(s), {m} unclaimed live item(s) "
-"after resolving every named net"
+"net-less record(s) in the cell: {n} record(s), {m} unclaimed live item(s)"
+" after resolving every named net"
 
 #: kicadstamp/cell_geometry_refresh.py:498
 #, python-brace-format
@@ -8122,8 +8122,8 @@ msgid ""
 "{kind} has no net (net: null) — a net-less via/track is fatal at apply "
 "for a placed cell (clone_geometry), so a copy cannot transport it"
 msgstr ""
-"{kind} has no net (net: null) — a net-less via/track is fatal at apply for a "
-"placed cell (clone_geometry), so a copy cannot transport it"
+"{kind} has no net (net: null) — a net-less via/track is fatal at apply "
+"for a placed cell (clone_geometry), so a copy cannot transport it"
 
 #: kicadstamp/cell_placement_copy.py:137
 #, python-brace-format
@@ -9550,34 +9550,34 @@ msgstr ""
 msgid "{path} is not valid {kind}: {error}"
 msgstr "{path} is not valid {kind}: {error}"
 
-#: kicadstamp/config_writer.py:416 kicadstamp/config_writer.py:477
+#: kicadstamp/config_writer.py:416 kicadstamp/config_writer.py:476
 #, python-brace-format
 msgid "{section}: in {path} is not a list — refusing to touch it"
 msgstr "{section}: in {path} is not a list — refusing to touch it"
 
-#: kicadstamp/config_writer.py:499
+#: kicadstamp/config_writer.py:498
 #, python-brace-format
 msgid ""
 "cannot save {name!r} in {section}: the name is already used by another "
 "record — rename that record first, or choose another name"
 msgstr ""
 
-#: kicadstamp/config_writer.py:600 kicadstamp/config_writer.py:719
+#: kicadstamp/config_writer.py:599 kicadstamp/config_writer.py:718
 #, python-brace-format
 msgid "trees: in {path} is not a list — refusing to touch it"
 msgstr "trees: in {path} is not a list — refusing to touch it"
 
-#: kicadstamp/config_writer.py:724
+#: kicadstamp/config_writer.py:723
 #, python-brace-format
 msgid "tree {name!r} not found in {path}"
 msgstr ""
 
-#: kicadstamp/config_writer.py:731
+#: kicadstamp/config_writer.py:730
 #, python-brace-format
 msgid "tree {name!r} has no node {ref!r} to append under"
 msgstr ""
 
-#: kicadstamp/config_writer.py:864
+#: kicadstamp/config_writer.py:863
 #, python-brace-format
 msgid "include: in {path} is not a list — refusing to touch it"
 msgstr "include: in {path} is not a list — refusing to touch it"
@@ -16303,12 +16303,12 @@ msgstr "via without net in cell {cell!r} ({name!r})"
 #: kicadstamp/geometry/clone_geometry.py:72
 #, python-brace-format
 msgid ""
-"via at (along={along}, across={across}) has no net — a cloned cell has no "
-"default net to fall back to, so every via in it must have a net "
+"via at (along={along}, across={across}) has no net — a cloned cell has no"
+" default net to fall back to, so every via in it must have a net "
 "explicitly set"
 msgstr ""
-"via at (along={along}, across={across}) has no net — a cloned cell has no "
-"default net to fall back to, so every via in it must have a net "
+"via at (along={along}, across={across}) has no net — a cloned cell has no"
+" default net to fall back to, so every via in it must have a net "
 "explicitly set"
 
 #: kicadstamp/geometry/clone_geometry.py:99
@@ -17597,997 +17597,228 @@ msgstr "Generated: {path}"
 msgid "Total spokes: {count}"
 msgstr "Total spokes: {count}"
 
-#~ msgid "no config record places {cell} — nothing to explode"
-#~ msgstr ""
 
-#~ msgid "Refresh geometry"
-#~ msgstr ""
 
-#~ msgid "Refresh geometry from selection"
-#~ msgstr "Refresh geometry from selection"
 
-#~ msgid "Add copper"
-#~ msgstr ""
 
-#~ msgid "Select this cell's instance on the board"
-#~ msgstr ""
 
-#~ msgid "Move foreign clusters aside and re-read this cell"
-#~ msgstr ""
 
-#~ msgid ""
-#~ "Selected the {count} identified footprint(s)"
-#~ " of this cell on the board —"
-#~ " ready for “Refresh geometry”."
-#~ msgstr ""
 
-#~ msgid ""
-#~ "Selected {count} footprint(s) of cluster "
-#~ "{cluster!r} on the board — ready "
-#~ "for “Refresh geometry”."
-#~ msgstr ""
 
-#~ msgid "Instance:"
-#~ msgstr ""
 
-#~ msgid "R3"
-#~ msgstr ""
 
-#~ msgid "Subtract copper"
-#~ msgstr ""
 
-#~ msgid "Subtract selected copper"
-#~ msgstr ""
 
-#~ msgid ""
-#~ "tree_instance: template {template!r} net "
-#~ "{ref!r} is not a {old_sheet!r}-sheet net"
-#~ " path"
-#~ msgstr ""
 
-#~ msgid ""
-#~ "a net_trace node's net must be a"
-#~ " board net path '/{sheet}/{group}/{signal}' "
-#~ "whose leading sheet segment equals the"
-#~ " template tree's anchor sheet — only"
-#~ " that copper belongs to this template"
-#~ " and is rewritten per instance"
-#~ msgstr ""
 
-#~ msgid ""
-#~ "tree_instance: template {template!r} net_trace "
-#~ "node {ref!r} needs the template's anchor"
-#~ " sheet"
-#~ msgstr ""
 
-#~ msgid ""
-#~ "a net_trace node's net is rewritten "
-#~ "by replacing its leading sheet segment"
-#~ " (a legacy record has no name: "
-#~ "and carries literal net paths), so "
-#~ "the template tree's role anchor must "
-#~ "carry a sheet (anchor.sheet) naming the"
-#~ " template's own sheet"
-#~ msgstr ""
 
-#~ msgid ""
-#~ "net_traces {name}: the record is not "
-#~ "in {path} — its pieces were left"
-#~ " as they are"
-#~ msgstr ""
 
-#~ msgid ""
-#~ "net_traces {name}: a tree_instances copy "
-#~ "is not 1:1 with the template — "
-#~ "left as it is, tell the developer"
-#~ msgstr ""
 
-#~ msgid "Select this cell's components on the board"
-#~ msgstr ""
 
-#~ msgid "Select this cell's instance with its recorded copper"
-#~ msgstr ""
 
-#~ msgid "{chain} — pad {pad}"
-#~ msgstr ""
 
-#~ msgid "Pick a chain in the Config tree first."
-#~ msgstr "Pick a chain in the Config tree first."
 
-#~ msgid "Deleted net {name!r}. Backed up: {backups}."
-#~ msgstr "Deleted net {name!r}. Backed up: {backups}."
 
-#~ msgid "the board is busy — press “Refresh” in a moment"
-#~ msgstr ""
 
-#~ msgid "extracting the spoke"
-#~ msgstr ""
 
-#~ msgid "Spoke on pad {pad} written to chain {chain} (cell {cell})"
-#~ msgstr ""
 
-#~ msgid "{summary} — the spoke that was there was replaced"
-#~ msgstr ""
 
-#~ msgid "Add net..."
-#~ msgstr "Add net..."
 
-#~ msgid "Add spoke..."
-#~ msgstr "Add spoke..."
 
-#~ msgid "Extract spoke..."
-#~ msgstr ""
 
-#~ msgid "Delete net..."
-#~ msgstr "Delete net..."
 
-#~ msgid ""
-#~ "(Cluster, Sheet) set the working context"
-#~ " for the other tabs — they "
-#~ "decide which placed instance of this "
-#~ "cell is edited."
-#~ msgstr ""
 
-#~ msgid ""
-#~ "Fill Role (+ Pad) and Cluster from"
-#~ " ONE selected component or pad of "
-#~ "this cell on the live board."
-#~ msgstr ""
 
-#~ msgid ""
-#~ "Places a marker at the cell's "
-#~ "current anchor (or the bbox centre "
-#~ "when there is no anchor). Drag it"
-#~ " with KiCad's own tools, then “Read"
-#~ " position” stores the point as "
-#~ "anchor_xy and clears any Role/Pad "
-#~ "anchor. Requires the cell to be "
-#~ "placed on the chosen Cluster."
-#~ msgstr ""
 
-#~ msgid ""
-#~ "No live board — “Read from "
-#~ "selection” needs KiCad. Pick Role/Pad "
-#~ "and Cluster by hand instead."
-#~ msgstr ""
 
-#~ msgid ""
-#~ "{selected} of {total} components of "
-#~ "cluster {cluster!r} selected — Source "
-#~ "filled; “Update cell from selection” "
-#~ "will need all of them"
-#~ msgstr ""
 
-#~ msgid "Marker: pick the working Cluster first (Source tab)."
-#~ msgstr ""
 
-#~ msgid "Bulk-set Cell for net"
-#~ msgstr "Bulk-set Cell for net"
 
-#~ msgid "New Cell:"
-#~ msgstr "New Cell:"
 
-#~ msgid "Pick a net."
-#~ msgstr "Pick a net."
 
-#~ msgid "No chains on net {net!r}."
-#~ msgstr "No chains on net {net!r}."
 
-#~ msgid "{name} in {file} (pads: {pads})"
-#~ msgstr "{name} in {file} (pads: {pads})"
 
-#~ msgid ""
-#~ "Will set cell {cell!r} on {n} chain(s) / {m} spoke(s) of net {net!r}:\n"
-#~ "{lines}"
-#~ msgstr ""
-#~ "Will set cell {cell!r} on {n} chain(s) / {m} spoke(s) of net {net!r}:\n"
-#~ "{lines}"
 
-#~ msgid "optional — defaults to net for --only"
-#~ msgstr "optional — defaults to net for --only"
 
-#~ msgid "pad number on the chain's own anchor"
-#~ msgstr "pad number on the chain's own anchor"
 
-#~ msgid "chain anchor"
-#~ msgstr "chain anchor"
 
-#~ msgid "Cell is required."
-#~ msgstr "Cell is required."
 
-#~ msgid "Radius: {text!r} is not a number."
-#~ msgstr "Radius: {text!r} is not a number."
 
-#~ msgid "Polar mode needs both Radius and Angle."
-#~ msgstr "Polar mode needs both Radius and Angle."
 
-#~ msgid "Shift X: {text!r} is not a number."
-#~ msgstr "Shift X: {text!r} is not a number."
 
-#~ msgid "Shift Y: {text!r} is not a number."
-#~ msgstr "Shift Y: {text!r} is not a number."
 
-#~ msgid "Rotation: {text!r} is not a number."
-#~ msgstr "Rotation: {text!r} is not a number."
 
-#~ msgid "{context} {name!r} in {path}"
-#~ msgstr "{context} {name!r} in {path}"
 
-#~ msgid "Pad saved"
-#~ msgstr "Pad saved"
 
-#~ msgid "Pad saved:"
-#~ msgstr "Pad saved:"
 
-#~ msgid "Bulk-set Cell needs both a net and a cell."
-#~ msgstr "Bulk-set Cell needs both a net and a cell."
 
-#~ msgid "{name} in {file}: {err}"
-#~ msgstr "{name} in {file}: {err}"
 
-#~ msgid "{name} in {file}"
-#~ msgstr "{name} in {file}"
 
-#~ msgid "Bulk-set Cell: wrote {n_ok} chain(s); FAILED {n_failed} — {failed}"
-#~ msgstr "Bulk-set Cell: wrote {n_ok} chain(s); FAILED {n_failed} — {failed}"
 
-#~ msgid "Bulk-set Cell: wrote {n} chain(s) on net {net!r}."
-#~ msgstr "Bulk-set Cell: wrote {n} chain(s) on net {net!r}."
 
 # chains navigation (S2b, 2026-09-05)
-#~ msgid "Back"
-#~ msgstr ""
 
 # chains navigation (S2b, 2026-09-05)
-#~ msgid "Chains"
-#~ msgstr ""
 
 # chains navigation (S2b, 2026-09-05)
-#~ msgid "Anchor: {key} — chains"
-#~ msgstr ""
 
 # chains navigation (S2b, 2026-09-05)
-#~ msgid "{name} ({pads} spokes)"
-#~ msgstr ""
 
 # chains navigation (S2b, 2026-09-05)
-#~ msgid "Chain: {name} — pads"
-#~ msgstr ""
 
-#~ msgid "Spokes"
-#~ msgstr "Spokes"
 
-#~ msgid "Add chain..."
-#~ msgstr "Add chain..."
 
-#~ msgid "Redraw chains..."
-#~ msgstr "Redraw chains..."
 
-#~ msgid "Redraw chain"
-#~ msgstr "Redraw chain"
 
-#~ msgid "Bulk set Cell for net..."
-#~ msgstr "Bulk set Cell for net..."
 
-#~ msgid "Redraw spoke"
-#~ msgstr "Redraw spoke"
 
-#~ msgid "Delete pad..."
-#~ msgstr "Delete pad..."
 
-#~ msgid "Delete pad {pad!r}"
-#~ msgstr "Delete pad {pad!r}"
 
-#~ msgid "Delete pad {pad!r} from chain {name!r} in {file}?"
-#~ msgstr "Delete pad {pad!r} from chain {name!r} in {file}?"
 
-#~ msgid "Deleted pad {pad!r} from chain {name!r}."
-#~ msgstr "Deleted pad {pad!r} from chain {name!r}."
 
-#~ msgid "spoke of chain"
-#~ msgstr ""
 
-#~ msgid "cell {name!r} is placed by chain(s) {names}"
-#~ msgstr ""
 
-#~ msgid "{name} ({count})"
-#~ msgstr ""
 
-#~ msgid ""
-#~ "this cell's instance stands MIRRORED, "
-#~ "and a spoke has no mirror field"
-#~ " — extract the cell as a NEW"
-#~ " one from this pair instead"
-#~ msgstr ""
 
-#~ msgid ""
-#~ "chain {name} is anchored to a "
-#~ "point — a spoke needs a "
-#~ "component's pads, so it is not "
-#~ "offered"
-#~ msgstr ""
 
-#~ msgid "chain {name} anchor unresolved — {error}"
-#~ msgstr ""
 
-#~ msgid "chain {name} anchor {ref} has no pad on the net"
-#~ msgstr ""
 
-#~ msgid "Write failed: {error} — nothing was written (the config was restored)"
-#~ msgstr "Write failed: {error} — nothing was written (the config was restored)"
 
-#~ msgid ""
-#~ "Write failed: {error} — the cell "
-#~ "{cell!r} WAS written, the spoke was "
-#~ "NOT; the config is half-updated"
-#~ msgstr ""
-#~ "Write failed: {error} — the cell "
-#~ "{cell!r} WAS written, the spoke was "
-#~ "NOT; the config is half-updated"
 
-#~ msgid "Write failed: {error} — the config may be half-updated"
-#~ msgstr "Write failed: {error} — the config may be half-updated"
 
-#~ msgid ""
-#~ "the board selection changed since this"
-#~ " dialog was read ({was} -> {now}) "
-#~ "— nothing was written; read the "
-#~ "selection again and repeat"
-#~ msgstr ""
 
-#~ msgid ""
-#~ "the cell {cell!r} could not be "
-#~ "extracted from the selection — nothing"
-#~ " was written"
-#~ msgstr ""
 
-#~ msgid "Extract spoke"
-#~ msgstr ""
 
-#~ msgid "Origin role:"
-#~ msgstr ""
 
-#~ msgid "Origin pad:"
-#~ msgstr ""
 
-#~ msgid "Chain:"
-#~ msgstr ""
 
-#~ msgid "Anchor pad:"
-#~ msgstr ""
 
-#~ msgid "Components may swap"
-#~ msgstr ""
 
-#~ msgid "reading the board…"
-#~ msgstr ""
 
-#~ msgid "role(s) {roles} repeat inside cluster {cluster} — extracting as a spoke"
-#~ msgstr ""
 
-#~ msgid ""
-#~ "the roles are unique inside cluster "
-#~ "{cluster} — this is an ordinary "
-#~ "cluster: use “Extract cluster…”"
-#~ msgstr ""
 
-#~ msgid "new: {name}"
-#~ msgstr ""
 
-#~ msgid "{name} — unusable: {why}"
-#~ msgstr ""
 
-#~ msgid "automatic (the cell's own origin)"
-#~ msgstr ""
 
-#~ msgid "{net} — chain {name} (anchor {ref})"
-#~ msgstr ""
 
-#~ msgid "new chain on {net} — anchor {ref} [{role}]"
-#~ msgstr ""
 
-#~ msgid "spoke here (cell {cell})"
-#~ msgstr ""
 
-#~ msgid "component centre"
-#~ msgstr ""
 
-#~ msgid "pad {pad}"
-#~ msgstr ""
 
-#~ msgid ""
-#~ "nothing to extract as a spoke here"
-#~ " — use “Extract cluster…” for this"
-#~ " selection"
-#~ msgstr ""
 
-#~ msgid "pick a chain and a pad"
-#~ msgstr ""
 
-#~ msgid "give the new cell a name"
-#~ msgstr ""
 
-#~ msgid "Replace the spoke on pad {pad} (cell {cell})"
-#~ msgstr ""
 
-#~ msgid "pad {pad} already has a spoke — tick “Replace” to overwrite it"
-#~ msgstr ""
 
-#~ msgid "{name} — refs {refs}"
-#~ msgstr ""
 
-#~ msgid "{name} — {cluster} on {sheet}"
-#~ msgstr ""
 
-#~ msgid "{name} — not placed"
-#~ msgstr ""
 
-#~ msgid "Manual…"
-#~ msgstr ""
 
-#~ msgid ""
-#~ "cell {cell!r} updated from entity "
-#~ "{entity!r} ({cluster} on {sheet}) — the"
-#~ " change applies to every entity of"
-#~ " the cell"
-#~ msgstr ""
 
-#~ msgid "Sheet (optional)"
-#~ msgstr ""
 
-#~ msgid "Cluster of the placed cell"
-#~ msgstr ""
-
-#~ msgid ""
-#~ "(Cluster, Sheet) set the working context"
-#~ " for the identification — they decide"
-#~ " which placed instance of this cell"
-#~ " is pinned."
-#~ msgstr ""
-
-#~ msgid "Identity save failed: {error}"
-#~ msgstr ""
 
-#~ msgid "Cell {name!r}: placement identity stored."
-#~ msgstr ""
-
-#~ msgid "Cell {name!r}"
-#~ msgstr ""
-
-#~ msgid "Identification needs a project root — open a project first."
-#~ msgstr ""
-
-#~ msgid "Identification: failed to load the project config: {error}"
-#~ msgstr ""
-
-#~ msgid "No live board connection — connect to KiCad."
-#~ msgstr ""
-
-#~ msgid "Fill from selection failed: {message}"
-#~ msgstr ""
-
-#~ msgid ""
-#~ "no live board read yet — connect"
-#~ " to KiCad (or press Refresh) before"
-#~ " typing refs by hand"
-#~ msgstr ""
-
-#~ msgid ""
-#~ "the refs {refs} are not in the "
-#~ "last board read — press Refresh, "
-#~ "or check the refdes"
-#~ msgstr ""
-
-#~ msgid ""
-#~ "identified as a SPOKE: role {role!r} "
-#~ "occurs {count} times in cluster "
-#~ "{cluster!r} — this pair is pinned: "
-#~ "{refs}"
-#~ msgstr ""
-
-#~ msgid ""
-#~ "{selected} of {total} components of "
-#~ "cluster {cluster!r} selected — the "
-#~ "instance was pinned from what was "
-#~ "selected"
-#~ msgstr ""
-
-#~ msgid "identified {cell!r} on cluster {cluster!r}: {refs}"
-#~ msgstr ""
-
-#~ msgid ""
-#~ "the cluster has no component for "
-#~ "these role(s) of the cell: {roles} "
-#~ "— they stay unpinned until a pair"
-#~ " is tagged"
-#~ msgstr ""
-
-#~ msgid ""
-#~ "refdes of the identified instance — "
-#~ "filled by “Fill from selection”, "
-#~ "editable by hand"
-#~ msgstr ""
-
-#~ msgid "role → refdes of the identified instance: {pairs}"
-#~ msgstr ""
-
-#~ msgid "Identified instance"
-#~ msgstr ""
-
-#~ msgid ""
-#~ "The placed instance of this cell: "
-#~ "every action of this page uses the"
-#~ " address of the chosen Entity. "
-#~ "“Manual…” keeps the hand-typed "
-#~ "Sheet/Cluster/refs."
-#~ msgstr ""
-
-#~ msgid ""
-#~ "With an Entity chosen, Sheet/Cluster/refs "
-#~ "are its address and are read-only"
-#~ " here — edit them in the "
-#~ "entity's own form. “Manual…” hands the"
-#~ " three fields back to you."
-#~ msgstr ""
-
-#~ msgid "Fill from selection"
-#~ msgstr ""
-
-#~ msgid ""
-#~ "Identify ONE placed instance of this "
-#~ "cell from the components selected on "
-#~ "the board: fills Sheet, Cluster and "
-#~ "the refs of that pair (a spoke "
-#~ "is identified by one pair)."
-#~ msgstr ""
-
-#~ msgid "C43, C44"
-#~ msgstr ""
-
-#~ msgid "Refs:"
-#~ msgstr ""
-
-#~ msgid ""
-#~ "The refdes of the identified components,"
-#~ " in the order of the cell's "
-#~ "roles — editable by hand (comma or"
-#~ " space separated). They are checked "
-#~ "against the board every time they "
-#~ "are used; a changed or missing "
-#~ "component is reported as a stale "
-#~ "identification."
-#~ msgstr ""
-
-#~ msgid ""
-#~ "Subtract needs an entity's address — "
-#~ "open this from an ENTITY leaf of"
-#~ " the Config tree (a CELL leaf "
-#~ "names no instance)."
-#~ msgstr ""
-
-#~ msgid ""
-#~ "Update from selection needs an entity's"
-#~ " address — open this from an "
-#~ "ENTITY leaf of the Config tree (a"
-#~ " CELL leaf names no instance)."
-#~ msgstr ""
-
-#~ msgid ""
-#~ "Import from selection needs an entity's"
-#~ " address — open this from an "
-#~ "ENTITY leaf of the Config tree (a"
-#~ " CELL leaf names no instance)."
-#~ msgstr ""
-
-#~ msgid "create an entity to edit this cell"
-#~ msgstr ""
-
-#~ msgid ""
-#~ "Selected {cell} on {where}: {components} "
-#~ "component(s), {pieces} copper piece(s); not"
-#~ " taken: {foreign} reaching a foreign "
-#~ "pad, {dangling} dangling (one pad); "
-#~ "trimmed {pruned} hanging element(s)"
-#~ msgstr ""
-
-#~ msgid ""
-#~ "the cell is placed by a chain "
-#~ "— geometry is not searched (registry "
-#~ "only)"
-#~ msgstr ""
-
-#~ msgid "optional — a cell is cloned by its cluster"
-#~ msgstr ""
-
-#~ msgid "optional — narrows role resolution / the twin target"
-#~ msgstr ""
-
-#~ msgid ""
-#~ "No cluster — the entity is created"
-#~ " without a tag, so it cannot be"
-#~ " cloned by cluster."
-#~ msgstr ""
-
-#~ msgid "Extract spoke cell from current selection"
-#~ msgstr "Extract spoke cell from current selection"
-
-#~ msgid ""
-#~ "nothing is selected on the board —"
-#~ " select the pair of components of "
-#~ "ONE spoke (with its copper, if you"
-#~ " want the copper in the cell)"
-#~ msgstr ""
-
-#~ msgid ""
-#~ "no Role on {refs} — every "
-#~ "component of the pair must be "
-#~ "tagged with a Role"
-#~ msgstr ""
-
-#~ msgid ""
-#~ "the selection spans several clusters "
-#~ "({clusters}) — a spoke belongs to "
-#~ "ONE cluster"
-#~ msgstr ""
-
-#~ msgid ""
-#~ "no Cluster on {refs} — the spoke's"
-#~ " cluster is the one the pair "
-#~ "stands in"
-#~ msgstr ""
-
-#~ msgid "no component pool for cluster {cluster}"
-#~ msgstr ""
-
-#~ msgid ""
-#~ "No free pair left in cluster "
-#~ "{cluster} for one more spoke ({pairs}"
-#~ " pairs, {spokes} spokes)"
-#~ msgstr ""
-
-#~ msgid "On redraw this spoke will get {refs}"
-#~ msgstr ""
-
-#~ msgid ""
-#~ "On redraw this spoke will get "
-#~ "{got}, NOT the selected pair: {selected}"
-#~ " is already taken by the spoke "
-#~ "on pad {pad} of chain {chain}. The"
-#~ " selected pair will be moved off "
-#~ "this pad."
-#~ msgstr ""
-
-#~ msgid ""
-#~ "On redraw this spoke will get "
-#~ "{got}, NOT the selected pair: {selected}"
-#~ " is not claimed by any chain on"
-#~ " this net — the selected pair "
-#~ "will be moved off this pad."
-#~ msgstr ""
-
-#~ msgid ""
-#~ "pad {pad} already has a spoke "
-#~ "(cell {cell}) — replacing it needs "
-#~ "the explicit “Replace” confirmation"
-#~ msgstr ""
-
-#~ msgid "chain (net {net!r}): anchor {anchor!r} not found on board"
-#~ msgstr "chain (net {net!r}): anchor {anchor!r} not found on board"
-
-#~ msgid "spoke (pad {pad}, net {net!r}): cell {cell!r} not found in cells"
-#~ msgstr "spoke (pad {pad}, net {net!r}): cell {cell!r} not found in cells"
-
-#~ msgid "spoke (cell {cell!r}, net {net!r}): {anchor!r} has no pad {pad!r}"
-#~ msgstr "spoke (cell {cell!r}, net {net!r}): {anchor!r} has no pad {pad!r}"
-
-#~ msgid "spoke references a non‑existent cell or pad"
-#~ msgstr "spoke references a non‑existent cell or pad"
-
-#~ msgid "Cell/pad checks for spokes: all references valid"
-#~ msgstr "Cell/pad checks for spokes: all references valid"
-
-#~ msgid " (cluster {cluster!r})"
-#~ msgstr " (cluster {cluster!r})"
-
-#~ msgid ""
-#~ "net {net!r}, role {role!r}{cluster}: need "
-#~ "{needed}, found {available} (check the "
-#~ "Role and Cluster fields in the "
-#~ "schematic and the actual net connection)"
-#~ msgstr ""
-#~ "net {net!r}, role {role!r}{cluster}: need "
-#~ "{needed}, found {available} (check the "
-#~ "Role and Cluster fields in the "
-#~ "schematic and the actual net connection)"
-
-#~ msgid "not enough components for cell roles"
-#~ msgstr "not enough components for cell roles"
-
-#~ msgid "Role pool sufficiency checks passed"
-#~ msgstr "Role pool sufficiency checks passed"
-
-#~ msgid " (no cluster)"
-#~ msgstr " (no cluster)"
-
-#~ msgid ""
-#~ "chains {a!r} and {b!r} on net "
-#~ "{net!r} both consume role {role!r} from"
-#~ " the same component pool{cluster_hint}"
-#~ msgstr ""
-#~ "chains {a!r} and {b!r} on net "
-#~ "{net!r} both consume role {role!r} from"
-#~ " the same component pool{cluster_hint}"
-
-#~ msgid "chains on the same net compete for the same component pool"
-#~ msgstr "chains on the same net compete for the same component pool"
-
-#~ msgid ""
-#~ "fix: give a distinguishing cluster: to"
-#~ " the spokes of one of them, so"
-#~ " each chain takes components from its"
-#~ " own pool — see Chain's docstring "
-#~ "(Cluster is the standard mechanism for"
-#~ " splitting several chains on one "
-#~ "net); a chain redrawn alone (Redraw "
-#~ "/ --only) will otherwise silently take"
-#~ " components meant for its neighbour"
-#~ msgstr ""
-#~ "fix: give a distinguishing cluster: to"
-#~ " the spokes of one of them, so"
-#~ " each chain takes components from its"
-#~ " own pool — see Chain's docstring "
-#~ "(Cluster is the standard mechanism for"
-#~ " splitting several chains on one "
-#~ "net); a chain redrawn alone (Redraw "
-#~ "/ --only) will otherwise silently take"
-#~ " components meant for its neighbour"
-
-#~ msgid "Candidate-pool collision checks passed"
-#~ msgstr "Candidate-pool collision checks passed"
-
-#~ msgid "unknown fields in spoke (pad {pad!r}) of rule (net {net!r})"
-#~ msgstr "unknown fields in spoke (pad {pad!r}) of rule (net {net!r})"
-
-#~ msgid "spoke (pad {pad!r}) of rule (net {net!r})"
-#~ msgstr "spoke (pad {pad!r}) of rule (net {net!r})"
-
-#~ msgid "unknown fields in chain (net {net!r})"
-#~ msgstr "unknown fields in chain (net {net!r})"
-
-#~ msgid "anchor_ref and anchor_role together in chain (net {net!r})"
-#~ msgstr "anchor_ref and anchor_role together in chain (net {net!r})"
-
-#~ msgid "anchor_sheet without anchor_role in chain (net {net!r})"
-#~ msgstr "anchor_sheet without anchor_role in chain (net {net!r})"
-
-#~ msgid ""
-#~ "anchor_point together with anchor_ref/anchor_role"
-#~ " in chain (net {net!r})"
-#~ msgstr ""
-#~ "anchor_point together with anchor_ref/anchor_role"
-#~ " in chain (net {net!r})"
-
-#~ msgid "chain (net {net!r}) without anchor_ref/anchor_role/anchor_point"
-#~ msgstr "chain (net {net!r}) without anchor_ref/anchor_role/anchor_point"
-
-#~ msgid ""
-#~ "a spoke chain must have an anchor"
-#~ " – anchor_ref: <ref> (component whose "
-#~ "pads are listed in spokes), anchor_role:"
-#~ " <ROLE> (survives re‑annotation), or "
-#~ "anchor_point: <name from points:>"
-#~ msgstr ""
-#~ "a spoke chain must have an anchor"
-#~ " – anchor_ref: <ref> (component whose "
-#~ "pads are listed in spokes), anchor_role:"
-#~ " <ROLE> (survives re‑annotation), or "
-#~ "anchor_point: <name from points:>"
-
-#~ msgid ""
-#~ "{count} chains resolve to the same "
-#~ "--only identity {name!r} (anchors: {anchors})"
-#~ msgstr ""
-#~ "{count} chains resolve to the same "
-#~ "--only identity {name!r} (anchors: {anchors})"
-
-#~ msgid ""
-#~ "give at least one of them an "
-#~ "explicit name: to disambiguate (e.g. "
-#~ "name: {name}_a) – --only cannot tell "
-#~ "them apart otherwise"
-#~ msgstr ""
-#~ "give at least one of them an "
-#~ "explicit name: to disambiguate (e.g. "
-#~ "name: {name}_a) – --only cannot tell "
-#~ "them apart otherwise"
-
-#~ msgid "Chain {name!r} (net {net!r}): retired=true, skipped entirely"
-#~ msgstr "Chain {name!r} (net {net!r}): retired=true, skipped entirely"
-
-#~ msgid ""
-#~ "Chain {name!r}: skip=true, skipped this "
-#~ "run (existing via/tracks stay protected)"
-#~ msgstr ""
-#~ "Chain {name!r}: skip=true, skipped this "
-#~ "run (existing via/tracks stay protected)"
-
-#~ msgid "Chain {name!r}: spoke on pad {pad} skip=true, skipped this run"
-#~ msgstr "Chain {name!r}: spoke on pad {pad} skip=true, skipped this run"
-
-#~ msgid ""
-#~ "Chain {name!r}: no non-skipped spokes"
-#~ " left, skipped this run (existing "
-#~ "via/tracks stay protected)"
-#~ msgstr ""
-#~ "Chain {name!r}: no non-skipped spokes"
-#~ " left, skipped this run (existing "
-#~ "via/tracks stay protected)"
-
-#~ msgid "Chain {name!r}: no spokes match --cluster {paths}, chain dropped"
-#~ msgstr "Chain {name!r}: no spokes match --cluster {paths}, chain dropped"
-
-#~ msgid "dependency cycle among chains/clone_placements"
-#~ msgstr "dependency cycle among chains/clone_placements"
-
-#~ msgid "Planner initialised: layer={layer}, anchors in chains: {anchors}"
-#~ msgstr "Planner initialised: layer={layer}, anchors in chains: {anchors}"
-
-#~ msgid "chains is empty — no ManualSpoke components/vias/tracks planned"
-#~ msgstr "chains is empty — no ManualSpoke components/vias/tracks planned"
-
-#~ msgid "place_components=False – component moves are not planned"
-#~ msgstr "place_components=False – component moves are not planned"
-
-#~ msgid "rule {name!r}: spoke cell {cell!r} not found, produces nothing"
-#~ msgstr "rule {name!r}: spoke cell {cell!r} not found, produces nothing"
-
-#~ msgid ""
-#~ "no clone_placements:/chains:/coordinate_placements: entry"
-#~ " produces a component with role "
-#~ "{role!r} — this anchor points outside"
-#~ " the config. For an external (non-"
-#~ "kicadstamp-managed) component use anchor_ref:"
-#~ " instead of anchor_role:"
-#~ msgstr ""
-#~ "no clone_placements:/chains:/coordinate_placements: entry"
-#~ " produces a component with role "
-#~ "{role!r} — this anchor points outside"
-#~ " the config. For an external (non-"
-#~ "kicadstamp-managed) component use anchor_ref:"
-#~ " instead of anchor_role:"
-
-#~ msgid "Nothing to apply"
-#~ msgstr "Nothing to apply"
-
-#~ msgid "Skipped mismatches"
-#~ msgstr "Skipped mismatches"
-
-#~ msgid "Chain"
-#~ msgstr "Chain"
-
-#~ msgid ""
-#~ "Write this via/track net as null "
-#~ "instead of its literal name (e.g. "
-#~ "'+3V3') — at apply time a "
-#~ "ManualSpoke-placed cell's via/track with "
-#~ "net: null inherits the enclosing Chain's"
-#~ " own net (spoke_layout.py's 'via.net or "
-#~ "rule_net'), so this makes the cell "
-#~ "reusable across Chains on different "
-#~ "nets. Only needed for ManualSpoke-reused"
-#~ " cells — net_from_role cells need "
-#~ "none of this. Can be repeated. "
-#~ "Fatal if the same net is also "
-#~ "in --param/--net-template."
-#~ msgstr ""
-#~ "Write this via/track net as null "
-#~ "instead of its literal name (e.g. "
-#~ "'+3V3') — at apply time a "
-#~ "ManualSpoke-placed cell's via/track with "
-#~ "net: null inherits the enclosing Chain's"
-#~ " own net (spoke_layout.py's 'via.net or "
-#~ "rule_net'), so this makes the cell "
-#~ "reusable across Chains on different "
-#~ "nets. Only needed for ManualSpoke-reused"
-#~ " cells — net_from_role cells need "
-#~ "none of this. Can be repeated. "
-#~ "Fatal if the same net is also "
-#~ "in --param/--net-template."
-
-#~ msgid "point {name!r} not found in import source"
-#~ msgstr "point {name!r} not found in import source"
-
-#~ msgid "known points in the source: {names}"
-#~ msgstr "known points in the source: {names}"
-
-#~ msgid "point {dep!r} chained from {name!r} is missing from the import source"
-#~ msgstr "point {dep!r} chained from {name!r} is missing from the import source"
-
-#~ msgid "a broken source profile cannot be imported — fix the source first"
-#~ msgstr "a broken source profile cannot be imported — fix the source first"
-
-#~ msgid "{n} spokes"
-#~ msgstr "{n} spokes"
-
-#~ msgid "chain {name!r} not found in import source"
-#~ msgstr "chain {name!r} not found in import source"
-
-#~ msgid "known chains in the source: {names}"
-#~ msgstr "known chains in the source: {names}"
-
-#~ msgid "chain"
-#~ msgstr "chain"
-
-#~ msgid "{kind} with net_from_role not resolved in cell {cell!r}"
-#~ msgstr "{kind} with net_from_role not resolved in cell {cell!r}"
-
-#~ msgid ""
-#~ "{kind} has net_from_role={role!r}{pad_txt}, but "
-#~ "it was not resolved before geometry "
-#~ "— internal consistency: the caller must"
-#~ " resolve every net_from_role prior to "
-#~ "apply_spoke_geometry (mirror "
-#~ "ClonePositionCalculator._resolve_role_nets)"
-#~ msgstr ""
-#~ "{kind} has net_from_role={role!r}{pad_txt}, but "
-#~ "it was not resolved before geometry "
-#~ "— internal consistency: the caller must"
-#~ " resolve every net_from_role prior to "
-#~ "apply_spoke_geometry (mirror "
-#~ "ClonePositionCalculator._resolve_role_nets)"
-
-#~ msgid "chain (net {net!r})"
-#~ msgstr "chain (net {net!r})"
-
-#~ msgid "chain (net {net!r}): anchor_point {point!r} has no footprint"
-#~ msgstr "chain (net {net!r}): anchor_point {point!r} has no footprint"
-
-#~ msgid ""
-#~ "this should have been caught at "
-#~ "load time (config/loader.py) — please "
-#~ "report"
-#~ msgstr ""
-#~ "this should have been caught at "
-#~ "load time (config/loader.py) — please "
-#~ "report"
-
-#~ msgid "Spoke on pad {pad}: cell {cell!r} not found in cells, spoke skipped"
-#~ msgstr "Spoke on pad {pad}: cell {cell!r} not found in cells, spoke skipped"
-
-#~ msgid "{anchor} has no pad {pad}, spoke skipped"
-#~ msgstr "{anchor} has no pad {pad}, spoke skipped"
-
-#~ msgid "spoke on pad {pad}"
-#~ msgstr ""
-
-#~ msgid "  spoke‑level via (pad {pad}): ({x:.3f}, {y:.3f}) mm, net={net}"
-#~ msgstr "  spoke‑level via (pad {pad}): ({x:.3f}, {y:.3f}) mm, net={net}"
-
-#~ msgid ""
-#~ "  spoke‑level track (pad {pad}): "
-#~ "({sx:.3f}, {sy:.3f}) -> ({ex:.3f}, {ey:.3f})"
-#~ " mm, net={net}, layer={layer}"
-#~ msgstr ""
-#~ "  spoke‑level track (pad {pad}): "
-#~ "({sx:.3f}, {sy:.3f}) -> ({ex:.3f}, {ey:.3f})"
-#~ " mm, net={net}, layer={layer}"
-
-#~ msgid ""
-#~ "  {ref} (role {role}, pad {pad}): "
-#~ "position ({x:.3f}, {y:.3f}) mm, angle "
-#~ "{angle:.1f}°"
-#~ msgstr ""
-#~ "  {ref} (role {role}, pad {pad}): "
-#~ "position ({x:.3f}, {y:.3f}) mm, angle "
-#~ "{angle:.1f}°"
-
-#~ msgid "    via {ref}: ({x:.3f}, {y:.3f}) mm, net={net}"
-#~ msgstr "    via {ref}: ({x:.3f}, {y:.3f}) mm, net={net}"
-
-#~ msgid ""
-#~ "{kind} has no net (net: null) —"
-#~ " it can only inherit a chain's "
-#~ "rule net, which a copied cell "
-#~ "cannot assume"
-#~ msgstr ""
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 

@@ -3,7 +3,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version:  kicadstamp\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-12 12:44+0300\n"
+"POT-Creation-Date: 2026-10-12 14:43+0300\n"
 "PO-Revision-Date: 2026-07-27 12:00+0000\n"
 "Last-Translator: \n"
 "Language: ru\n"
@@ -5946,17 +5946,17 @@ msgstr "Ничего не изменено — выбранные записи �
 msgid "Project"
 msgstr "Проект"
 
-#: gui/docks/rename.py:317 gui/docks/rename.py:353
+#: gui/docks/rename.py:315 gui/docks/rename.py:351
 #, python-brace-format
 msgid "{name!r} not found in {section}: of {path}"
 msgstr "{name!r} не найден в {section}: файла {path}"
 
-#: gui/docks/rename.py:320 gui/docks/rename.py:360
+#: gui/docks/rename.py:318 gui/docks/rename.py:358
 #, python-brace-format
 msgid "{name!r} already exists in {section}: of {path}"
 msgstr "{name!r} уже существует в {section}: файла {path}"
 
-#: gui/docks/rename.py:416
+#: gui/docks/rename.py:414
 #, python-brace-format
 msgid "{name!r} already exists in {section}: somewhere in this include: graph"
 msgstr "{name!r} уже существует в {section}: где-то в графе include:"
@@ -8478,8 +8478,8 @@ msgid ""
 "net-less record(s) in the cell: {n} record(s), {m} unclaimed live item(s)"
 " after resolving every named net"
 msgstr ""
-"записей без цепи (net: null) в шаблоне: {n}, незанятых живых объектов после "
-"резолва всех именованных цепей: {m}"
+"записей без цепи (net: null) в шаблоне: {n}, незанятых живых объектов "
+"после резолва всех именованных цепей: {m}"
 
 #: kicadstamp/cell_geometry_refresh.py:498
 #, python-brace-format
@@ -8688,8 +8688,9 @@ msgid ""
 "{kind} has no net (net: null) — a net-less via/track is fatal at apply "
 "for a placed cell (clone_geometry), so a copy cannot transport it"
 msgstr ""
-"{kind} без цепи (net: null) — дорожка/переход без цепи фатальна при apply "
-"для размещённого шаблона (clone_geometry), поэтому копия не может её перенести"
+"{kind} без цепи (net: null) — дорожка/переход без цепи фатальна при apply"
+" для размещённого шаблона (clone_geometry), поэтому копия не может её "
+"перенести"
 
 #: kicadstamp/cell_placement_copy.py:137
 #, python-brace-format
@@ -10194,12 +10195,12 @@ msgstr ""
 msgid "{path} is not valid {kind}: {error}"
 msgstr "{path} не является корректным {kind}: {error}"
 
-#: kicadstamp/config_writer.py:416 kicadstamp/config_writer.py:477
+#: kicadstamp/config_writer.py:416 kicadstamp/config_writer.py:476
 #, python-brace-format
 msgid "{section}: in {path} is not a list — refusing to touch it"
 msgstr "{section}: в {path} не является списком — не трогаю"
 
-#: kicadstamp/config_writer.py:499
+#: kicadstamp/config_writer.py:498
 #, python-brace-format
 msgid ""
 "cannot save {name!r} in {section}: the name is already used by another "
@@ -10208,22 +10209,22 @@ msgstr ""
 "не удаётся сохранить {name!r} в {section}: это имя уже занято другой "
 "записью — переименуйте её или выберите другое имя"
 
-#: kicadstamp/config_writer.py:600 kicadstamp/config_writer.py:719
+#: kicadstamp/config_writer.py:599 kicadstamp/config_writer.py:718
 #, python-brace-format
 msgid "trees: in {path} is not a list — refusing to touch it"
 msgstr "trees: в {path} не является списком — не трогаю"
 
-#: kicadstamp/config_writer.py:724
+#: kicadstamp/config_writer.py:723
 #, python-brace-format
 msgid "tree {name!r} not found in {path}"
 msgstr "дерево {name!r} не найдено в {path}"
 
-#: kicadstamp/config_writer.py:731
+#: kicadstamp/config_writer.py:730
 #, python-brace-format
 msgid "tree {name!r} has no node {ref!r} to append under"
 msgstr "у дерева {name!r} нет узла {ref!r}, под который добавить"
 
-#: kicadstamp/config_writer.py:864
+#: kicadstamp/config_writer.py:863
 #, python-brace-format
 msgid "include: in {path} is not a list — refusing to touch it"
 msgstr "include: в {path} не является списком — не трогаю"
@@ -17178,8 +17179,8 @@ msgstr "via без цепи в шаблоне {cell!r} ({name!r})"
 #: kicadstamp/geometry/clone_geometry.py:72
 #, python-brace-format
 msgid ""
-"via at (along={along}, across={across}) has no net — a cloned cell has no "
-"default net to fall back to, so every via in it must have a net "
+"via at (along={along}, across={across}) has no net — a cloned cell has no"
+" default net to fall back to, so every via in it must have a net "
 "explicitly set"
 msgstr ""
 "переход (along={along}, across={across}) без цепи — у клонированного "
@@ -18501,1094 +18502,224 @@ msgstr "Сгенерировано: {path}"
 msgid "Total spokes: {count}"
 msgstr "Всего спиц: {count}"
 
-#~ msgid "no config record places {cell} — nothing to explode"
-#~ msgstr "ни одна запись конфига не ставит {cell} — разносить нечего"
 
-#~ msgid "Refresh geometry"
-#~ msgstr "Перечитать геометрию"
 
-#~ msgid "Refresh geometry from selection"
-#~ msgstr "Обновить геометрию по выделению"
 
-#~ msgid "Add copper"
-#~ msgstr "Добавить медь"
 
-#~ msgid "Select this cell's instance on the board"
-#~ msgstr "Выделить экземпляр этой ячейки на плате"
 
-#~ msgid "Move foreign clusters aside and re-read this cell"
-#~ msgstr "Отодвинуть чужие кластеры в сторону и перечитать ячейку"
 
-#~ msgid ""
-#~ "Selected the {count} identified footprint(s)"
-#~ " of this cell on the board —"
-#~ " ready for “Refresh geometry”."
-#~ msgstr ""
-#~ "На плате выделено {count} идентифицированных"
-#~ " компонент(ов) этой ячейки — готово "
-#~ "для «Перечитать геометрию»."
 
-#~ msgid ""
-#~ "Selected {count} footprint(s) of cluster "
-#~ "{cluster!r} on the board — ready "
-#~ "for “Refresh geometry”."
-#~ msgstr ""
-#~ "На плате выделено {count} футпринтов "
-#~ "кластера {cluster!r} — кластер готов для"
-#~ " «Перечитать геометрию»."
 
-#~ msgid "Instance:"
-#~ msgstr "Экземпляр:"
 
-#~ msgid "R3"
-#~ msgstr "Р3"
 
-#~ msgid "Subtract copper"
-#~ msgstr "Вычесть медь"
 
-#~ msgid "Subtract selected copper"
-#~ msgstr "Вычесть выделенное"
 
-#~ msgid ""
-#~ "tree_instance: template {template!r} net "
-#~ "{ref!r} is not a {old_sheet!r}-sheet net"
-#~ " path"
-#~ msgstr ""
-#~ "tree_instance: сеть {ref!r} шаблона "
-#~ "{template!r} — не путь сети листа "
-#~ "{old_sheet!r}"
 
-#~ msgid ""
-#~ "a net_trace node's net must be a"
-#~ " board net path '/{sheet}/{group}/{signal}' "
-#~ "whose leading sheet segment equals the"
-#~ " template tree's anchor sheet — only"
-#~ " that copper belongs to this template"
-#~ " and is rewritten per instance"
-#~ msgstr ""
-#~ "сеть узла net_trace должна быть путём"
-#~ " сети платы '/{sheet}/{group}/{signal}', ведущий"
-#~ " сегмент которого равен sheet role-якоря"
-#~ " шаблонного дерева — только такая "
-#~ "медь принадлежит этому шаблону и "
-#~ "переписывается под каждый экземпляр"
 
-#~ msgid ""
-#~ "tree_instance: template {template!r} net_trace "
-#~ "node {ref!r} needs the template's anchor"
-#~ " sheet"
-#~ msgstr ""
-#~ "tree_instance: узлу net_trace {ref!r} шаблона"
-#~ " {template!r} нужен sheet role-якоря "
-#~ "шаблона"
 
-#~ msgid ""
-#~ "a net_trace node's net is rewritten "
-#~ "by replacing its leading sheet segment"
-#~ " (a legacy record has no name: "
-#~ "and carries literal net paths), so "
-#~ "the template tree's role anchor must "
-#~ "carry a sheet (anchor.sheet) naming the"
-#~ " template's own sheet"
-#~ msgstr ""
-#~ "сеть узла net_trace переписывается заменой "
-#~ "ведущего сегмента (листа) — у старой "
-#~ "записи нет name:, а на меди лежат"
-#~ " буквальные имена сетей, — поэтому "
-#~ "role-якорь шаблонного дерева обязан нести "
-#~ "sheet (anchor.sheet) с именем собственного "
-#~ "листа шаблона"
 
-#~ msgid ""
-#~ "net_traces {name}: the record is not "
-#~ "in {path} — its pieces were left"
-#~ " as they are"
-#~ msgstr "net_traces {name}: записи нет в {path} — куски оставлены как есть"
 
-#~ msgid ""
-#~ "net_traces {name}: a tree_instances copy "
-#~ "is not 1:1 with the template — "
-#~ "left as it is, tell the developer"
-#~ msgstr ""
-#~ "net_traces {name}: копия tree_instances не "
-#~ "1:1 с шаблоном — оставлено как "
-#~ "есть, скажите разработчику"
 
-#~ msgid "Select this cell's components on the board"
-#~ msgstr "Выделить компоненты этой ячейки на плате"
 
-#~ msgid "Select this cell's instance with its recorded copper"
-#~ msgstr "Выделить экземпляр ячейки вместе с записанной медью"
 
-#~ msgid "{chain} — pad {pad}"
-#~ msgstr "{chain} — пад {pad}"
 
-#~ msgid "Pick a chain in the Config tree first."
-#~ msgstr "Сначала выберите цепь в дереве Config."
 
-#~ msgid "Deleted net {name!r}. Backed up: {backups}."
-#~ msgstr "Удалена цепь {name!r}. Резервная копия: {backups}."
 
-#~ msgid "the board is busy — press “Refresh” in a moment"
-#~ msgstr "плата занята — нажмите «Refresh» через момент"
 
-#~ msgid "extracting the spoke"
-#~ msgstr "извлекаю спицу"
 
-#~ msgid "Spoke on pad {pad} written to chain {chain} (cell {cell})"
-#~ msgstr "Спица на паде {pad} записана в цепочку {chain} (ячейка {cell})"
 
-#~ msgid "{summary} — the spoke that was there was replaced"
-#~ msgstr "{summary} — спица, что была на этом паде, заменена"
 
-#~ msgid "Add net..."
-#~ msgstr "Добавить сеть..."
 
-#~ msgid "Add spoke..."
-#~ msgstr "Добавить спицу..."
 
-#~ msgid "Extract spoke..."
-#~ msgstr "Извлечь спицу…"
 
-#~ msgid "Delete net..."
-#~ msgstr "Удалить сеть..."
 
-#~ msgid "Marker: pick the working Cluster first (Source tab)."
-#~ msgstr "Маркер: сначала выберите рабочий Кластер (таб «Источник»)."
 
-#~ msgid "Bulk-set Cell for net"
-#~ msgstr "Пакетная замена Cell для сети"
 
-#~ msgid "New Cell:"
-#~ msgstr "Новая Cell:"
 
-#~ msgid "Pick a net."
-#~ msgstr "Выберите сеть."
 
-#~ msgid "No chains on net {net!r}."
-#~ msgstr "Нет цепей на сети {net!r}."
 
-#~ msgid "{name} in {file} (pads: {pads})"
-#~ msgstr "{name} в {file} (пады: {pads})"
 
-#~ msgid ""
-#~ "Will set cell {cell!r} on {n} chain(s) / {m} spoke(s) of net {net!r}:\n"
-#~ "{lines}"
-#~ msgstr ""
-#~ "Будет изменена cell {cell!r}: цепей — {n}, спиц — {m} (сеть {net!r}):\n"
-#~ "{lines}"
 
-#~ msgid "optional — defaults to net for --only"
-#~ msgstr "необязательно — по умолчанию цепь для --only"
 
-#~ msgid "pad number on the chain's own anchor"
-#~ msgstr "номер пада на собственном якоре цепи"
 
-#~ msgid "chain anchor"
-#~ msgstr "Якорь цепи"
 
-#~ msgid "Cell is required."
-#~ msgstr "Требуется шаблон."
 
-#~ msgid "Radius: {text!r} is not a number."
-#~ msgstr ""
 
-#~ msgid "Polar mode needs both Radius and Angle."
-#~ msgstr ""
 
-#~ msgid "Shift X: {text!r} is not a number."
-#~ msgstr ""
 
-#~ msgid "Shift Y: {text!r} is not a number."
-#~ msgstr ""
 
-#~ msgid "Rotation: {text!r} is not a number."
-#~ msgstr ""
 
-#~ msgid "{context} {name!r} in {path}"
-#~ msgstr "{context} {name!r} в {path}"
 
-#~ msgid "Pad saved"
-#~ msgstr "Пад сохранён"
 
-#~ msgid "Pad saved:"
-#~ msgstr "Пад сохранён:"
 
-#~ msgid "Bulk-set Cell needs both a net and a cell."
-#~ msgstr "Для пакетной замены Cell нужны и сеть, и cell."
 
-#~ msgid "{name} in {file}: {err}"
-#~ msgstr "{name} в {file}: {err}"
 
-#~ msgid "{name} in {file}"
-#~ msgstr "{name} в {file}"
 
-#~ msgid "Bulk-set Cell: wrote {n_ok} chain(s); FAILED {n_failed} — {failed}"
-#~ msgstr ""
-#~ "Пакетная замена Cell: записано цепей "
-#~ "{n_ok}; НЕ УДАЛОСЬ {n_failed} — {failed}"
 
-#~ msgid "Bulk-set Cell: wrote {n} chain(s) on net {net!r}."
-#~ msgstr "Пакетная замена Cell: записано цепей {n} на сети {net!r}."
 
 # chains navigation (S2b, 2026-09-05)
-#~ msgid "Back"
-#~ msgstr "Назад"
 
 # chains navigation (S2b, 2026-09-05)
-#~ msgid "Chains"
-#~ msgstr "Цепи"
 
 # chains navigation (S2b, 2026-09-05)
-#~ msgid "Anchor: {key} — chains"
-#~ msgstr "Якорь: {key} — цепи"
 
 # chains navigation (S2b, 2026-09-05)
-#~ msgid "{name} ({pads} spokes)"
-#~ msgstr "{name} ({pads} спиц)"
 
 # chains navigation (S2b, 2026-09-05)
-#~ msgid "Chain: {name} — pads"
-#~ msgstr "Цепь: {name} — пады"
-
-#~ msgid "Spokes"
-#~ msgstr "Спицы"
-
-#~ msgid "Add chain..."
-#~ msgstr "Добавить цепь..."
-
-#~ msgid "Redraw chains..."
-#~ msgstr ""
-
-#~ msgid "Redraw chain"
-#~ msgstr "Перерисовать цепь"
-
-#~ msgid "Bulk set Cell for net..."
-#~ msgstr "Пакетно задать Cell для сети…"
-
-#~ msgid "Redraw spoke"
-#~ msgstr "Перерисовать спицу"
-
-#~ msgid "Delete pad..."
-#~ msgstr "Удалить пад..."
-
-#~ msgid "Delete pad {pad!r}"
-#~ msgstr "Удалить пад {pad!r}"
-
-#~ msgid "Delete pad {pad!r} from chain {name!r} in {file}?"
-#~ msgstr ""
-
-#~ msgid "Deleted pad {pad!r} from chain {name!r}."
-#~ msgstr ""
-
-#~ msgid "spoke of chain"
-#~ msgstr "спица цепочки"
-
-#~ msgid "cell {name!r} is placed by chain(s) {names}"
-#~ msgstr "ячейку {name!r} ставят цепочки: {names}"
-
-#~ msgid "{name} ({count})"
-#~ msgstr "{name} ({count})"
-
-#~ msgid ""
-#~ "this cell's instance stands MIRRORED, "
-#~ "and a spoke has no mirror field"
-#~ " — extract the cell as a NEW"
-#~ " one from this pair instead"
-#~ msgstr ""
-#~ "экземпляр этой ячейки стоит ЗЕРКАЛЬНО, а"
-#~ " у спицы нет поля зеркала — "
-#~ "извлеките ячейку как НОВУЮ из этой "
-#~ "пары"
-
-#~ msgid ""
-#~ "chain {name} is anchored to a "
-#~ "point — a spoke needs a "
-#~ "component's pads, so it is not "
-#~ "offered"
-#~ msgstr ""
-#~ "цепочка {name} привязана к точке — "
-#~ "спице нужны пады компонента, поэтому она"
-#~ " не предлагается"
-
-#~ msgid "chain {name} anchor unresolved — {error}"
-#~ msgstr "якорь цепочки {name} не разрешился — {error}"
-
-#~ msgid "chain {name} anchor {ref} has no pad on the net"
-#~ msgstr "у якоря {ref} цепочки {name} нет пада на этой цепи"
-
-#~ msgid "Write failed: {error} — nothing was written (the config was restored)"
-#~ msgstr "Запись не удалась: {error} — ничего не записано (конфиг восстановлен)"
-
-#~ msgid ""
-#~ "Write failed: {error} — the cell "
-#~ "{cell!r} WAS written, the spoke was "
-#~ "NOT; the config is half-updated"
-#~ msgstr ""
-#~ "Запись не удалась: {error} — ячейка "
-#~ "{cell!r} ЗАПИСАНА, спица — НЕТ; конфиг"
-#~ " в половинчатом состоянии"
-
-#~ msgid "Write failed: {error} — the config may be half-updated"
-#~ msgstr ""
-#~ "Запись не удалась: {error} — конфиг "
-#~ "может остаться в половинчатом состоянии"
-
-#~ msgid ""
-#~ "the board selection changed since this"
-#~ " dialog was read ({was} -> {now}) "
-#~ "— nothing was written; read the "
-#~ "selection again and repeat"
-#~ msgstr ""
-#~ "выделение на плате изменилось с момента"
-#~ " чтения диалога ({was} -> {now}) —"
-#~ " ничего не записано; прочитайте выделение"
-#~ " заново и повторите"
 
-#~ msgid ""
-#~ "the cell {cell!r} could not be "
-#~ "extracted from the selection — nothing"
-#~ " was written"
-#~ msgstr "ячейку {cell!r} не удалось извлечь из выделения — ничего не записано"
 
-#~ msgid "Extract spoke"
-#~ msgstr "Извлечь спицу"
 
-#~ msgid "Origin role:"
-#~ msgstr "Роль начала:"
 
-#~ msgid "Origin pad:"
-#~ msgstr "Пад начала:"
 
-#~ msgid "Chain:"
-#~ msgstr "Цепочка:"
 
-#~ msgid "Anchor pad:"
-#~ msgstr "Пэд якоря:"
 
-#~ msgid "Components may swap"
-#~ msgstr "Компоненты могут поменяться местами"
 
-#~ msgid "reading the board…"
-#~ msgstr "читаю плату…"
 
-#~ msgid "role(s) {roles} repeat inside cluster {cluster} — extracting as a spoke"
-#~ msgstr "роль(и) {roles} повторяются в кластере {cluster} — извлекаю как спицу"
 
-#~ msgid ""
-#~ "the roles are unique inside cluster "
-#~ "{cluster} — this is an ordinary "
-#~ "cluster: use “Extract cluster…”"
-#~ msgstr ""
-#~ "роли в кластере {cluster} уникальны —"
-#~ " это обычный кластер: используйте «Извлечь"
-#~ " кластер…»"
 
-#~ msgid "new: {name}"
-#~ msgstr "новая: {name}"
 
-#~ msgid "{name} — unusable: {why}"
-#~ msgstr "{name} — непригодна: {why}"
 
-#~ msgid "automatic (the cell's own origin)"
-#~ msgstr "автоматически (начало самой ячейки)"
 
-#~ msgid "{net} — chain {name} (anchor {ref})"
-#~ msgstr "{net} — цепочка {name} (якорь {ref})"
 
-#~ msgid "new chain on {net} — anchor {ref} [{role}]"
-#~ msgstr "новая цепочка на {net} — якорь {ref} [{role}]"
 
-#~ msgid "spoke here (cell {cell})"
-#~ msgstr "спица здесь (ячейка {cell})"
 
-#~ msgid "component centre"
-#~ msgstr "центр компонента"
 
-#~ msgid "pad {pad}"
-#~ msgstr "пад {pad}"
-
-#~ msgid ""
-#~ "nothing to extract as a spoke here"
-#~ " — use “Extract cluster…” for this"
-#~ " selection"
-#~ msgstr ""
-#~ "здесь нечего извлекать как спицу — "
-#~ "для этого выделения используйте «Извлечь "
-#~ "кластер…»"
-
-#~ msgid "pick a chain and a pad"
-#~ msgstr "выберите цепочку и пад"
-
-#~ msgid "give the new cell a name"
-#~ msgstr "задайте имя новой ячейке"
-
-#~ msgid "Replace the spoke on pad {pad} (cell {cell})"
-#~ msgstr "Заменить спицу на паде {pad} (ячейка {cell})"
-
-#~ msgid "pad {pad} already has a spoke — tick “Replace” to overwrite it"
-#~ msgstr ""
-#~ "на паде {pad} уже есть спица — "
-#~ "поставьте галочку «Replace», чтобы "
-#~ "перезаписать"
-
-#~ msgid "{name} — refs {refs}"
-#~ msgstr "{name} — ссылки {refs}"
-
-#~ msgid "{name} — {cluster} on {sheet}"
-#~ msgstr "{name} — {cluster} на {sheet}"
-
-#~ msgid "{name} — not placed"
-#~ msgstr "{name} — не размещена"
-
-#~ msgid "Manual…"
-#~ msgstr "Вручную…"
-
-#~ msgid ""
-#~ "cell {cell!r} updated from entity "
-#~ "{entity!r} ({cluster} on {sheet}) — the"
-#~ " change applies to every entity of"
-#~ " the cell"
-#~ msgstr ""
-#~ "ячейка {cell!r} обновлена из сущности "
-#~ "{entity!r} ({cluster} на {sheet}) — "
-#~ "изменение применится ко всем сущностям "
-#~ "ячейки"
-
-#~ msgid "Sheet (optional)"
-#~ msgstr "Лист (необязательно)"
-
-#~ msgid "Cluster of the placed cell"
-#~ msgstr "Кластер размещённой ячейки"
-
-#~ msgid ""
-#~ "(Cluster, Sheet) set the working context"
-#~ " for the identification — they decide"
-#~ " which placed instance of this cell"
-#~ " is pinned."
-#~ msgstr ""
-
-#~ msgid "Identity save failed: {error}"
-#~ msgstr "Не удалось сохранить идентичность: {error}"
-
-#~ msgid "Cell {name!r}: placement identity stored."
-#~ msgstr "Ячейка {name!r}: идентичность размещения сохранена."
-
-#~ msgid "Cell {name!r}"
-#~ msgstr "Ячейка {name!r}"
-
-#~ msgid "Identification needs a project root — open a project first."
-#~ msgstr "Для идентификации нужен корень проекта — сначала откройте проект."
-
-#~ msgid "Identification: failed to load the project config: {error}"
-#~ msgstr "Идентификация: не удалось загрузить конфиг проекта: {error}"
-
-#~ msgid "No live board connection — connect to KiCad."
-#~ msgstr ""
-
-#~ msgid "Fill from selection failed: {message}"
-#~ msgstr "Заполнение по выделению не удалось: {message}"
-
-#~ msgid ""
-#~ "no live board read yet — connect"
-#~ " to KiCad (or press Refresh) before"
-#~ " typing refs by hand"
-#~ msgstr ""
-#~ "живая плата ещё не прочитана — "
-#~ "подключитесь к KiCad (или нажмите "
-#~ "«Обновить»), прежде чем вписывать рефы "
-#~ "руками"
-
-#~ msgid ""
-#~ "the refs {refs} are not in the "
-#~ "last board read — press Refresh, "
-#~ "or check the refdes"
-#~ msgstr ""
-#~ "рефов {refs} нет в последнем чтении "
-#~ "платы — нажмите «Обновить» или проверьте"
-#~ " реф"
-
-#~ msgid ""
-#~ "identified as a SPOKE: role {role!r} "
-#~ "occurs {count} times in cluster "
-#~ "{cluster!r} — this pair is pinned: "
-#~ "{refs}"
-#~ msgstr ""
-#~ "идентифицировано как СПИЦА: роль {role!r} "
-#~ "встречается в кластере {cluster!r} {count} "
-#~ "раз — эта пара закреплена: {refs}"
-
-#~ msgid ""
-#~ "{selected} of {total} components of "
-#~ "cluster {cluster!r} selected — the "
-#~ "instance was pinned from what was "
-#~ "selected"
-#~ msgstr ""
-
-#~ msgid "identified {cell!r} on cluster {cluster!r}: {refs}"
-#~ msgstr "идентифицирована ячейка {cell!r} в кластере {cluster!r}: {refs}"
-
-#~ msgid ""
-#~ "the cluster has no component for "
-#~ "these role(s) of the cell: {roles} "
-#~ "— they stay unpinned until a pair"
-#~ " is tagged"
-#~ msgstr ""
-#~ "в кластере нет компонента для этих "
-#~ "ролей ячейки: {roles} — они останутся"
-#~ " незакреплёнными, пока не будет размечена"
-#~ " пара"
-
-#~ msgid ""
-#~ "refdes of the identified instance — "
-#~ "filled by “Fill from selection”, "
-#~ "editable by hand"
-#~ msgstr ""
-#~ "рефы идентифицированного экземпляра — "
-#~ "заполняются кнопкой «Заполнить по выделению»,"
-#~ " можно править руками"
-
-#~ msgid "role → refdes of the identified instance: {pairs}"
-#~ msgstr "роль → рефы идентифицированного экземпляра: {pairs}"
-
-#~ msgid "Identified instance"
-#~ msgstr "Идентифицированный экземпляр"
-
-#~ msgid ""
-#~ "The placed instance of this cell: "
-#~ "every action of this page uses the"
-#~ " address of the chosen Entity. "
-#~ "“Manual…” keeps the hand-typed "
-#~ "Sheet/Cluster/refs."
-#~ msgstr ""
-#~ "Размещённый экземпляр этой ячейки: каждое "
-#~ "действие страницы берёт адрес выбранной "
-#~ "сущности. «Manual…» оставляет поля "
-#~ "лист/кластер/refs, введённые вручную."
-
-#~ msgid ""
-#~ "With an Entity chosen, Sheet/Cluster/refs "
-#~ "are its address and are read-only"
-#~ " here — edit them in the "
-#~ "entity's own form. “Manual…” hands the"
-#~ " three fields back to you."
-#~ msgstr ""
-#~ "С выбранной сущностью лист/кластер/refs — "
-#~ "её адрес, и здесь они только для"
-#~ " чтения: правьте их в форме сущности."
-#~ " «Manual…» возвращает эти три поля "
-#~ "вам."
-
-#~ msgid "Fill from selection"
-#~ msgstr "Заполнить по выделению"
-
-#~ msgid ""
-#~ "Identify ONE placed instance of this "
-#~ "cell from the components selected on "
-#~ "the board: fills Sheet, Cluster and "
-#~ "the refs of that pair (a spoke "
-#~ "is identified by one pair)."
-#~ msgstr ""
-#~ "Определить ОДИН поставленный экземпляр этой"
-#~ " ячейки по выделенным на плате "
-#~ "компонентам: заполняет «Лист», «Кластер» и "
-#~ "рефы этой пары (спица идентифицируется "
-#~ "одной парой)."
-
-#~ msgid "C43, C44"
-#~ msgstr "C43, C44"
-
-#~ msgid "Refs:"
-#~ msgstr "Рефы:"
-
-#~ msgid ""
-#~ "The refdes of the identified components,"
-#~ " in the order of the cell's "
-#~ "roles — editable by hand (comma or"
-#~ " space separated). They are checked "
-#~ "against the board every time they "
-#~ "are used; a changed or missing "
-#~ "component is reported as a stale "
-#~ "identification."
-#~ msgstr ""
-#~ "Рефы идентифицированных компонентов, в порядке"
-#~ " ролей ячейки — можно править руками"
-#~ " (через запятую или пробел). Они "
-#~ "проверяются по плате при каждом "
-#~ "использовании; изменившийся или пропавший "
-#~ "компонент сообщается как устаревшая "
-#~ "идентификация."
-
-#~ msgid ""
-#~ "Subtract needs an entity's address — "
-#~ "open this from an ENTITY leaf of"
-#~ " the Config tree (a CELL leaf "
-#~ "names no instance)."
-#~ msgstr ""
-
-#~ msgid ""
-#~ "Update from selection needs an entity's"
-#~ " address — open this from an "
-#~ "ENTITY leaf of the Config tree (a"
-#~ " CELL leaf names no instance)."
-#~ msgstr ""
-
-#~ msgid ""
-#~ "Import from selection needs an entity's"
-#~ " address — open this from an "
-#~ "ENTITY leaf of the Config tree (a"
-#~ " CELL leaf names no instance)."
-#~ msgstr ""
-
-#~ msgid "create an entity to edit this cell"
-#~ msgstr "создайте сущность, чтобы править эту ячейку"
-
-#~ msgid ""
-#~ "the cell is placed by a chain "
-#~ "— geometry is not searched (registry "
-#~ "only)"
-#~ msgstr "ячейку ставит цепочка — по геометрии не ищется (только реестр)"
-
-#~ msgid "optional — a cell is cloned by its cluster"
-#~ msgstr "необязательно — ячейка клонируется по своему кластеру"
-
-#~ msgid "optional — narrows role resolution / the twin target"
-#~ msgstr "необязательно — сужает резолв ролей / цель твина"
-
-#~ msgid ""
-#~ "No cluster — the entity is created"
-#~ " without a tag, so it cannot be"
-#~ " cloned by cluster."
-#~ msgstr ""
-#~ "Кластер не задан — сущность создаётся"
-#~ " без тега, поэтому её нельзя "
-#~ "клонировать по кластеру."
-
-#~ msgid "Extract spoke cell from current selection"
-#~ msgstr "Извлечь шаблон спицы из текущего выделения"
-
-#~ msgid ""
-#~ "nothing is selected on the board —"
-#~ " select the pair of components of "
-#~ "ONE spoke (with its copper, if you"
-#~ " want the copper in the cell)"
-#~ msgstr ""
-#~ "на плате ничего не выделено — "
-#~ "выделите пару компонентов ОДНОЙ спицы "
-#~ "(вместе с её медью, если медь "
-#~ "должна попасть в ячейку)"
-
-#~ msgid ""
-#~ "no Role on {refs} — every "
-#~ "component of the pair must be "
-#~ "tagged with a Role"
-#~ msgstr "у {refs} нет роли — каждый компонент пары должен быть размечен ролью"
-
-#~ msgid ""
-#~ "the selection spans several clusters "
-#~ "({clusters}) — a spoke belongs to "
-#~ "ONE cluster"
-#~ msgstr ""
-#~ "выделение захватывает несколько кластеров "
-#~ "({clusters}) — спица принадлежит ОДНОМУ "
-#~ "кластеру"
-
-#~ msgid ""
-#~ "no Cluster on {refs} — the spoke's"
-#~ " cluster is the one the pair "
-#~ "stands in"
-#~ msgstr ""
-#~ "у {refs} нет поля Cluster — "
-#~ "кластером спицы считается тот, в котором"
-#~ " стоит пара"
-
-#~ msgid "no component pool for cluster {cluster}"
-#~ msgstr "для кластера {cluster} нет пула компонентов"
-
-#~ msgid ""
-#~ "No free pair left in cluster "
-#~ "{cluster} for one more spoke ({pairs}"
-#~ " pairs, {spokes} spokes)"
-#~ msgstr ""
-#~ "в кластере {cluster} не осталось "
-#~ "свободной пары для ещё одной спицы "
-#~ "({pairs} пар, {spokes} спиц)"
-
-#~ msgid "On redraw this spoke will get {refs}"
-#~ msgstr "на перерисовке эта спица получит {refs}"
-
-#~ msgid ""
-#~ "On redraw this spoke will get "
-#~ "{got}, NOT the selected pair: {selected}"
-#~ " is already taken by the spoke "
-#~ "on pad {pad} of chain {chain}. The"
-#~ " selected pair will be moved off "
-#~ "this pad."
-#~ msgstr ""
-#~ "на перерисовке эта спица получит {got},"
-#~ " а НЕ выделенную пару: {selected} уже"
-#~ " занята спицей на паде {pad} цепочки"
-#~ " {chain}. Выделенная пара уедет с "
-#~ "этого пада."
-
-#~ msgid ""
-#~ "On redraw this spoke will get "
-#~ "{got}, NOT the selected pair: {selected}"
-#~ " is not claimed by any chain on"
-#~ " this net — the selected pair "
-#~ "will be moved off this pad."
-#~ msgstr ""
-#~ "на перерисовке эта спица получит {got},"
-#~ " а НЕ выделенную пару: {selected} не"
-#~ " занята ни одной цепочкой на этой "
-#~ "цепи — выделенная пара уедет с "
-#~ "этого пада."
-
-#~ msgid ""
-#~ "pad {pad} already has a spoke "
-#~ "(cell {cell}) — replacing it needs "
-#~ "the explicit “Replace” confirmation"
-#~ msgstr ""
-#~ "на паде {pad} уже есть спица "
-#~ "(ячейка {cell}) — для замены нужна "
-#~ "явная галочка «Replace»"
-
-#~ msgid "chain (net {net!r}): anchor {anchor!r} not found on board"
-#~ msgstr "цепейо (цепь {net!r}): якорь {anchor!r} не найден на плате"
-
-#~ msgid "spoke (pad {pad}, net {net!r}): cell {cell!r} not found in cells"
-#~ msgstr "спица (пад {pad}, цепь {net!r}): шаблон {cell!r} не найден в cells"
-
-#~ msgid "spoke (cell {cell!r}, net {net!r}): {anchor!r} has no pad {pad!r}"
-#~ msgstr "спица (шаблон {cell!r}, цепь {net!r}): у {anchor!r} нет пада {pad!r}"
-
-#~ msgid "spoke references a non‑existent cell or pad"
-#~ msgstr "спица ссылается на несуществующий шаблон или пад"
-
-#~ msgid "Cell/pad checks for spokes: all references valid"
-#~ msgstr "Проверки шаблонов/падов для спиц: все ссылки корректны"
-
-#~ msgid " (cluster {cluster!r})"
-#~ msgstr " (кластер {cluster!r})"
-
-#~ msgid ""
-#~ "net {net!r}, role {role!r}{cluster}: need "
-#~ "{needed}, found {available} (check the "
-#~ "Role and Cluster fields in the "
-#~ "schematic and the actual net connection)"
-#~ msgstr ""
-#~ "цепь {net!r}, роль {role!r}{cluster}: нужно"
-#~ " {needed}, найдено {available} (проверьте "
-#~ "поля Role и Cluster в схеме и "
-#~ "реальное подключение к цепи)"
-
-#~ msgid "not enough components for cell roles"
-#~ msgstr "не хватает компонентов для ролей шаблона"
-
-#~ msgid "Role pool sufficiency checks passed"
-#~ msgstr "Проверка достаточности пулов по ролям: всё сходится"
-
-#~ msgid " (no cluster)"
-#~ msgstr " (без кластера)"
-
-#~ msgid ""
-#~ "chains {a!r} and {b!r} on net "
-#~ "{net!r} both consume role {role!r} from"
-#~ " the same component pool{cluster_hint}"
-#~ msgstr ""
-#~ "цепи {a!r} и {b!r} на сети {net!r}"
-#~ " обе потребляют роль {role!r} из "
-#~ "одного и того же пула "
-#~ "компонентов{cluster_hint}"
-
-#~ msgid "chains on the same net compete for the same component pool"
-#~ msgstr "цепи на одной сети конкурируют за один и тот же пул компонентов"
-
-#~ msgid ""
-#~ "fix: give a distinguishing cluster: to"
-#~ " the spokes of one of them, so"
-#~ " each chain takes components from its"
-#~ " own pool — see Chain's docstring "
-#~ "(Cluster is the standard mechanism for"
-#~ " splitting several chains on one "
-#~ "net); a chain redrawn alone (Redraw "
-#~ "/ --only) will otherwise silently take"
-#~ " components meant for its neighbour"
-#~ msgstr ""
-#~ "исправление: задайте различающий cluster: "
-#~ "спицам одного из них, чтобы каждое "
-#~ "цепейо брало компоненты из своего пула"
-#~ " — см. докстринг Chain (Cluster — "
-#~ "штатный механизм разделения нескольких цепей"
-#~ " на одной сети); цепейо, перерисовываемое"
-#~ " в одиночку (Redraw / --only), иначе"
-#~ " молча заберёт компоненты, предназначенные "
-#~ "соседу"
-
-#~ msgid "Candidate-pool collision checks passed"
-#~ msgstr "Проверка столкновений пула кандидатов пройдена"
-
-#~ msgid "unknown fields in spoke (pad {pad!r}) of rule (net {net!r})"
-#~ msgstr "неизвестные поля в спице (пад {pad!r}) правила (цепь {net!r})"
-
-#~ msgid "spoke (pad {pad!r}) of rule (net {net!r})"
-#~ msgstr "спица (пад {pad!r}) правила (цепь {net!r})"
-
-#~ msgid "unknown fields in chain (net {net!r})"
-#~ msgstr "неизвестные поля в цепейе (цепь {net!r})"
-
-#~ msgid "anchor_ref and anchor_role together in chain (net {net!r})"
-#~ msgstr "anchor_ref и anchor_role одновременно в цепейе (цепь {net!r})"
-
-#~ msgid "anchor_sheet without anchor_role in chain (net {net!r})"
-#~ msgstr "anchor_sheet без anchor_role в цепейе (цепь {net!r})"
-
-#~ msgid ""
-#~ "anchor_point together with anchor_ref/anchor_role"
-#~ " in chain (net {net!r})"
-#~ msgstr "anchor_point вместе с anchor_ref/anchor_role в цепейе (цепь {net!r})"
-
-#~ msgid "chain (net {net!r}) without anchor_ref/anchor_role/anchor_point"
-#~ msgstr "цепейо (цепь {net!r}) без anchor_ref/anchor_role/anchor_point"
-
-#~ msgid ""
-#~ "a spoke chain must have an anchor"
-#~ " – anchor_ref: <ref> (component whose "
-#~ "pads are listed in spokes), anchor_role:"
-#~ " <ROLE> (survives re‑annotation), or "
-#~ "anchor_point: <name from points:>"
-#~ msgstr ""
-#~ "цепейо спицы должно иметь якорь — "
-#~ "anchor_ref: <ref> (компонент, пады которого"
-#~ " перечислены в спицах), anchor_role: <ROLE>"
-#~ " (переживает переаннотацию) или anchor_point: "
-#~ "<имя из points:>"
-
-#~ msgid ""
-#~ "{count} chains resolve to the same "
-#~ "--only identity {name!r} (anchors: {anchors})"
-#~ msgstr ""
-#~ "{count} цепей(а) резолвятся в одну и "
-#~ "ту же --only-идентичность {name!r} (якоря: "
-#~ "{anchors})"
-
-#~ msgid ""
-#~ "give at least one of them an "
-#~ "explicit name: to disambiguate (e.g. "
-#~ "name: {name}_a) – --only cannot tell "
-#~ "them apart otherwise"
-#~ msgstr ""
-#~ "задайте явный name: хотя бы одному "
-#~ "из них, чтобы различить (например, name:"
-#~ " {name}_a) – иначе --only не сможет"
-#~ " их отличить"
-
-#~ msgid "Chain {name!r} (net {net!r}): retired=true, skipped entirely"
-#~ msgstr "Цепь {name!r} (цепь {net!r}): retired=true, пропущено целиком"
-
-#~ msgid ""
-#~ "Chain {name!r}: skip=true, skipped this "
-#~ "run (existing via/tracks stay protected)"
-#~ msgstr ""
-#~ "Цепь {name!r}: skip=true, пропущено в "
-#~ "этом прогоне (существующие via/треки остаются"
-#~ " защищёнными)"
-
-#~ msgid "Chain {name!r}: spoke on pad {pad} skip=true, skipped this run"
-#~ msgstr "Цепь {name!r}: спица на паде {pad} skip=true, пропущена в этом прогоне"
-
-#~ msgid ""
-#~ "Chain {name!r}: no non-skipped spokes"
-#~ " left, skipped this run (existing "
-#~ "via/tracks stay protected)"
-#~ msgstr ""
-#~ "Цепь {name!r}: не осталось непропущенных "
-#~ "спиц, пропущено в этом прогоне "
-#~ "(существующие via/треки остаются защищёнными)"
-
-#~ msgid "Chain {name!r}: no spokes match --cluster {paths}, chain dropped"
-#~ msgstr ""
-#~ "Цепь {name!r}: ни одна спица не "
-#~ "подошла под --cluster {paths}, цепейо "
-#~ "отброшено"
-
-#~ msgid ""
-#~ "(Phase 0 moves are NOT applied in"
-#~ " a dry run — the Chain/ClonePlacement"
-#~ " moves below are still planned from"
-#~ " their CURRENT positions, not from "
-#~ "the post-Phase-0 board a real "
-#~ "apply would produce)"
-#~ msgstr ""
-
-#~ msgid "dependency cycle among chains/clone_placements"
-#~ msgstr "цикл зависимостей среди chains/clone_placements"
-
-#~ msgid "Planner initialised: layer={layer}, anchors in chains: {anchors}"
-#~ msgstr "Планировщик инициализирован: layer={layer}, якорей в chains: {anchors}"
-
-#~ msgid "chains is empty — no ManualSpoke components/vias/tracks planned"
-#~ msgstr "chains пуст — компоненты/via/треки ManualSpoke не планируются"
-
-#~ msgid "place_components=False – component moves are not planned"
-#~ msgstr "place_components=False – перемещения компонентов не планируются"
-
-#~ msgid "rule {name!r}: spoke cell {cell!r} not found, produces nothing"
-#~ msgstr "rule {name!r}: шаблон спицы {cell!r} не найден, ничего не производит"
-
-#~ msgid ""
-#~ "no clone_placements:/chains:/coordinate_placements: entry"
-#~ " produces a component with role "
-#~ "{role!r} — this anchor points outside"
-#~ " the config. For an external (non-"
-#~ "kicadstamp-managed) component use anchor_ref:"
-#~ " instead of anchor_role:"
-#~ msgstr ""
-
-#~ msgid "Nothing to apply"
-#~ msgstr "Нечего применять"
-
-#~ msgid "Skipped mismatches"
-#~ msgstr "Пропущено рассинхронов"
-
-#~ msgid "Chain"
-#~ msgstr "Цепь"
-
-#~ msgid ""
-#~ "Write this via/track net as null "
-#~ "instead of its literal name (e.g. "
-#~ "'+3V3') — at apply time a "
-#~ "ManualSpoke-placed cell's via/track with "
-#~ "net: null inherits the enclosing Chain's"
-#~ " own net (spoke_layout.py's 'via.net or "
-#~ "rule_net'), so this makes the cell "
-#~ "reusable across Chains on different "
-#~ "nets. Only needed for ManualSpoke-reused"
-#~ " cells — net_from_role cells need "
-#~ "none of this. Can be repeated. "
-#~ "Fatal if the same net is also "
-#~ "in --param/--net-template."
-#~ msgstr ""
-#~ "Записывать цепь этой via/track как null"
-#~ " вместо её литерального имени (например,"
-#~ " '+3V3') — при применении via/track "
-#~ "ячейки, размещённой ManualSpoke, с net: "
-#~ "null наследует цепь охватывающего Chain "
-#~ "(spoke_layout.py 'via.net or chain_net'), "
-#~ "поэтому ячейка переиспользуется между "
-#~ "Chain'ами с разными цепями. Нужен только"
-#~ " для ячеек, переиспользуемых через "
-#~ "ManualSpoke — ячейкам с net_from_role "
-#~ "это не нужно. Можно повторять. Фатал,"
-#~ " если та же цепь есть и в "
-#~ "--param/--net-template."
-
-#~ msgid "point {name!r} not found in import source"
-#~ msgstr "точка {name!r} не найдена в источнике импорта"
-
-#~ msgid "known points in the source: {names}"
-#~ msgstr "известные точки в источнике: {names}"
-
-#~ msgid "point {dep!r} chained from {name!r} is missing from the import source"
-#~ msgstr ""
-#~ "точка {dep!r}, на которую цепочкой "
-#~ "ссылается {name!r}, отсутствует в источнике"
-#~ " импорта"
-
-#~ msgid "a broken source profile cannot be imported — fix the source first"
-#~ msgstr ""
-#~ "битый исходный профиль нельзя импортировать"
-#~ " — сначала исправьте источник"
-
-#~ msgid "{n} spokes"
-#~ msgstr "спиц: {n}"
-
-#~ msgid "chain {name!r} not found in import source"
-#~ msgstr "цепь {name!r} не найдена в источнике импорта"
-
-#~ msgid "known chains in the source: {names}"
-#~ msgstr "известные цепи в источнике: {names}"
-
-#~ msgid "kind must be 'cell', 'entity' or 'chain'"
-#~ msgstr ""
-
-#~ msgid "chain"
-#~ msgstr ""
-
-#~ msgid "{kind} with net_from_role not resolved in cell {cell!r}"
-#~ msgstr "{kind} с net_from_role не разрешён в ячейке {cell!r}"
-
-#~ msgid ""
-#~ "{kind} has net_from_role={role!r}{pad_txt}, but "
-#~ "it was not resolved before geometry "
-#~ "— internal consistency: the caller must"
-#~ " resolve every net_from_role prior to "
-#~ "apply_spoke_geometry (mirror "
-#~ "ClonePositionCalculator._resolve_role_nets)"
-#~ msgstr ""
-#~ "{kind} имеет net_from_role={role!r}{pad_txt}, но "
-#~ "не был разрешён до геометрии — "
-#~ "внутренняя несогласованность: вызывающий код "
-#~ "должен разрешить каждый net_from_role до "
-#~ "apply_spoke_geometry (зеркало "
-#~ "ClonePositionCalculator._resolve_role_nets)"
-
-#~ msgid "chain (net {net!r})"
-#~ msgstr "цепь (net {net!r})"
-
-#~ msgid "chain (net {net!r}): anchor_point {point!r} has no footprint"
-#~ msgstr "цепейо (цепь {net!r}): у anchor_point {point!r} нет футпринта"
-
-#~ msgid ""
-#~ "this should have been caught at "
-#~ "load time (config/loader.py) — please "
-#~ "report"
-#~ msgstr ""
-#~ "это должно было быть поймано при "
-#~ "загрузке (config/loader.py) — пожалуйста, "
-#~ "сообщите"
-
-#~ msgid "Spoke on pad {pad}: cell {cell!r} not found in cells, spoke skipped"
-#~ msgstr "Спица на паде {pad}: шаблон {cell!r} не найден в cells, спица пропущена"
-
-#~ msgid "{anchor} has no pad {pad}, spoke skipped"
-#~ msgstr "{anchor}: нет пада {pad}, спица пропущена"
-
-#~ msgid "spoke on pad {pad}"
-#~ msgstr "спица на паде {pad}"
-
-#~ msgid "  spoke‑level via (pad {pad}): ({x:.3f}, {y:.3f}) mm, net={net}"
-#~ msgstr "  via уровня спицы (пад {pad}): ({x:.3f}, {y:.3f}) мм, цепь={net}"
-
-#~ msgid ""
-#~ "  spoke‑level track (pad {pad}): "
-#~ "({sx:.3f}, {sy:.3f}) -> ({ex:.3f}, {ey:.3f})"
-#~ " mm, net={net}, layer={layer}"
-#~ msgstr ""
-#~ "  трек уровня спицы (пад {pad}): "
-#~ "({sx:.3f}, {sy:.3f}) -> ({ex:.3f}, {ey:.3f})"
-#~ " мм, цепь={net}, слой={layer}"
-
-#~ msgid ""
-#~ "  {ref} (role {role}, pad {pad}): "
-#~ "position ({x:.3f}, {y:.3f}) mm, angle "
-#~ "{angle:.1f}°"
-#~ msgstr ""
-#~ "  {ref} (роль {role}, пад {pad}): "
-#~ "позиция ({x:.3f}, {y:.3f}) мм, угол "
-#~ "{angle:.1f}°"
-
-#~ msgid "    via {ref}: ({x:.3f}, {y:.3f}) mm, net={net}"
-#~ msgstr "    via {ref}: ({x:.3f}, {y:.3f}) мм, цепь={net}"
-
-#~ msgid ""
-#~ "{kind} has no net (net: null) —"
-#~ " it can only inherit a chain's "
-#~ "rule net, which a copied cell "
-#~ "cannot assume"
-#~ msgstr ""
-#~ "{kind} не имеет цепи (net: null) —"
-#~ " он может только наследовать rule-цепь "
-#~ "цепочки, чего скопированный шаблон не "
-#~ "может предполагать"
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
