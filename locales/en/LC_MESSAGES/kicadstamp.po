@@ -17568,3 +17568,64 @@ msgid ""
 "the cluster was rearranged; the frame follows the tree "
 "node {where} ({node}°), the fit suggested {fit}°"
 msgstr ""
+
+#: kicadstamp/refdes_duplicates.py
+msgid "position not read"
+msgstr ""
+
+#: kicadstamp/refdes_duplicates.py
+#, python-brace-format
+msgid "at {x:.3f}, {y:.3f} mm"
+msgstr ""
+
+#: kicadstamp/refdes_duplicates.py
+#, python-brace-format
+msgid "{ref!r} stands on the board {count} times — the record is refused, nothing of it is moved:"
+msgstr ""
+
+#: kicadstamp/refdes_duplicates.py
+msgid " — NOT linked to the schematic"
+msgstr ""
+
+#: kicadstamp/refdes_duplicates.py
+#, python-brace-format
+msgid "  copy {index}/{count}: uuid {uuid}, {position}{orphan}"
+msgstr ""
+
+#: kicadstamp/refdes_duplicates.py
+msgid "  delete the orphan (Update PCB from Schematic with “Delete footprints with no symbols”) or re-annotate; nothing of this record was moved."
+msgstr ""
+
+#: kicadstamp/refdes_duplicates.py
+#, python-brace-format
+msgid "{ref} is on the board twice (one is not linked to the schematic)"
+msgstr ""
+
+#: kicadstamp/refdes_duplicates.py
+#, python-brace-format
+msgid "{ref} is on the board twice (both copies are linked to the schematic)"
+msgstr ""
+
+#: kicadstamp/refdes_duplicates.py
+#, python-brace-format
+msgid "{ref} is not linked to the schematic"
+msgstr ""
+
+#: kicadstamp/refdes_duplicates.py
+#, python-brace-format
+msgid "Refused (duplicate refdes on the board): {labels}"
+msgstr ""
+
+#: kicadstamp/refdes_duplicates.py
+msgid "(no uuid)"
+msgstr ""
+
+#: kicadstamp/apply_duplicate_guard.py
+#, python-brace-format
+msgid "move of {ref}"
+msgstr ""
+
+#: kicadstamp/apply_duplicate_guard.py
+#, python-brace-format
+msgid "imprint {name}"
+msgstr ""

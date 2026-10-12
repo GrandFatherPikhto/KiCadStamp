@@ -9,6 +9,12 @@ never cleaned up on this particular board (renamed from
 list_phantom_duplicate_footprints.py, 2026-08-07 — it does more than list
 now).
 
+The "which refdes stands on the board more than once" question is NOT answered
+here any more: it is the product rule of ``kicadstamp.refdes_duplicates``
+(2026-10-12, plan_2026_10_12_duplicate_refdes_guard — the pipeline's door guard
+and this report must never disagree about what a duplicate is). This script
+keeps only what is ITS OWN: the safe-deletion criterion and the deletion.
+
 Input:
     None (connects to the live board).
 
@@ -44,43 +50,76 @@ from collections import defaultdict
 from kipy import KiCad
 from kipy.board_types import Field
 
+from kicadstamp.refdes_duplicates import duplicate_refdes_groups
+
+
+class _KipyRecord:
+    """One raw kipy footprint in the duck-typed shape the product detector
+    (``kicadstamp.refdes_duplicates``) reads: ``ref``, ``uuid``, ``position`` and
+    the RAW ``sheet_path`` — the ONE chain reader accepts both the domain and
+    the kipy shape, so nothing is duplicated here."""
+
+    __slots__ = ("ref", "uuid", "position", "sheet_path")
+
+    def __init__(self, fp):
+        ref_field = getattr(fp, "reference_field", None)
+        text = getattr(ref_field, "text", None)
+        self.ref = text.value if text is not None else None
+        ident = getattr(fp, "id", None)
+        self.uuid = getattr(ident, "value", None)
+        self.position = getattr(fp, "position", None)
+        self.sheet_path = getattr(fp, "sheet_path", None)
+
+
+def _role_cluster(fp) -> tuple:
+    """(Role, Cluster) as typed on the live footprint — both None when absent."""
+    role = cluster = None
+    for item in fp.texts_and_fields:
+        if isinstance(item, Field):
+            if item.name == "Role":
+                role = item.text.value if item.text else None
+            elif item.name == "Cluster":
+                cluster = item.text.value if item.text else None
+    return role, cluster
+
 
 def find_phantoms(footprints):
     """Returns (to_delete, irregular): to_delete is a list of (ref, fp) safe
     to remove per the module docstring's criterion; irregular is a list of
     (ref, count, unique_positions, populated_count) for refs that have
     duplicates but don't match the exact expected shape — reported, never
-    touched."""
-    by_ref = defaultdict(list)
-    for fp in footprints:
-        ref = fp.reference_field.text.value if fp.reference_field else None
-        if ref is None:
-            continue
-        role = cluster = None
-        for item in fp.texts_and_fields:
-            if isinstance(item, Field):
-                if item.name == "Role":
-                    role = item.text.value if item.text else None
-                elif item.name == "Cluster":
-                    cluster = item.text.value if item.text else None
-        by_ref[ref].append((fp, role, cluster))
+    touched.
 
-    dupes = {ref: entries for ref, entries in by_ref.items() if len(entries) > 1}
+    The duplicate refdes set itself comes from the PRODUCT detector
+    (``duplicate_refdes_groups``) — this function asks it and only classifies
+    what it finds."""
+    entries = [(_KipyRecord(fp), fp) for fp in footprints]
+    duplicates = duplicate_refdes_groups([record for record, _ in entries])
+
+    by_ref = defaultdict(list)
+    for record, fp in entries:
+        if record.ref in duplicates:
+            by_ref[record.ref].append((record, fp))
+
     to_delete = []
     irregular = []
 
-    for ref, entries in sorted(dupes.items()):
-        positions = {(fp.position.x, fp.position.y) for fp, _, _ in entries}
-        populated = [(fp, role, cluster) for fp, role, cluster in entries if (role or cluster)]
-        empty = [(fp, role, cluster) for fp, role, cluster in entries if not (role or cluster)]
-        if len(positions) == 1 and len(populated) == 1 and len(empty) == len(entries) - 1:
+    for ref, members in sorted(by_ref.items()):
+        positions = {(record.position.x, record.position.y)
+                     for record, _fp in members}
+        labelled = [(record, fp, _role_cluster(fp)) for record, fp in members]
+        populated = [(fp, role, cluster) for _rec, fp, (role, cluster) in labelled
+                     if (role or cluster)]
+        empty = [(fp, role, cluster) for _rec, fp, (role, cluster) in labelled
+                 if not (role or cluster)]
+        if len(positions) == 1 and len(populated) == 1 and len(empty) == len(members) - 1:
             keep_fp, keep_role, keep_cluster = populated[0]
             print(f"{ref}: keep 1 (Role={keep_role!r} Cluster={keep_cluster!r}, "
                   f"id={keep_fp.id.value}), delete {len(empty)} phantom(s)")
             for fp, _, _ in empty:
                 to_delete.append((ref, fp))
         else:
-            irregular.append((ref, len(entries), len(positions), len(populated)))
+            irregular.append((ref, len(members), len(positions), len(populated)))
 
     return to_delete, irregular
 

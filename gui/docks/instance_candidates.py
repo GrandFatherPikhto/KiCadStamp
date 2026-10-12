@@ -45,13 +45,18 @@ from typing import Callable, Iterable, Optional, Sequence
 
 from kicadstamp.cluster_matching import cluster_prefix_match
 from kicadstamp.i18n import _
+from kicadstamp.refdes_duplicates import (duplicate_refdes_groups,
+                                          duplicate_short_reason,
+                                          orphan_short_reason,
+                                          refdes_duplicate_of)
 from kicadstamp.sheet_names import sheet_in_path
 
 from .reead import sheet_of
 
 __all__ = [
     "Part", "InstanceCandidate", "CellSpec", "CellCandidate", "CellChoices",
-    "role_mismatch_reason", "cell_role_order", "instance_candidates",
+    "role_mismatch_reason", "duplicate_or_orphan_reason",
+    "cell_role_order", "instance_candidates",
     "cell_candidates", "choose_cells", "cell_row_label", "others_line",
     "others_tooltip", "instances_others_line", "instances_others_tooltip",
     "parse_instance_label", "INSTANCE_LABEL_SEP", "INSTANCE_LABEL_SEPS",
@@ -85,6 +90,16 @@ class Part:
     role: Optional[str] = None
     cluster: Optional[str] = None
     sheet: tuple = ()
+    # False when the footprint is an ORPHAN (no sheet-path chain: it is not
+    # linked to the schematic) — the batch dialog then names the orphan instead
+    # of offering the instance. None = UNKNOWN (a hand-built record): unknown is
+    # never called an orphan on a guess (plan_2026_10_12_duplicate_refdes_guard;
+    # the rule itself lives in kicadstamp.refdes_duplicates).
+    # compare=False on purpose: Part equality is about the IDENTITY of a board
+    # part (uuid/ref/role/cluster/sheet), and that is what the existing callers
+    # compare Part values for; the schematic link is a side annotation, so a
+    # footprint read before vs after this field existed stays equal.
+    on_schematic: Optional[bool] = dataclasses.field(default=None, compare=False)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -213,6 +228,26 @@ class CellChoices:
         return self.state in ("orphan_graph", "orphan_board")
 
 
+def duplicate_or_orphan_reason(members: Iterable, duplicates: dict) -> str:
+    """The reason a DUPLICATED refdes (or a lone ORPHAN) gives an instance —
+    the plan's "R5 is on the board twice (one is not linked to the schematic)"
+    instead of the bare "role CAP: 0 of 1" (plan_2026_10_12_duplicate_refdes_guard).
+
+    The detector itself is ``kicadstamp.refdes_duplicates`` — the SAME product
+    rule the apply pipeline's door guard uses, never a copy here. A duplicate
+    wins over a lone orphan, and both are reported by the first refdes in sorted
+    order, so one instance always answers the same way."""
+    duplicate = refdes_duplicate_of(
+        (getattr(m, "ref", None) for m in (members or ())), duplicates)
+    if duplicate is not None:
+        return duplicate_short_reason(duplicate, duplicates[duplicate])
+    for part in (members or ()):
+        ref = getattr(part, "ref", None)
+        if ref and getattr(part, "on_schematic", None) is False:
+            return orphan_short_reason(str(ref))
+    return ""
+
+
 def role_mismatch_reason(instance_roles: Counter,
                          cell_roles: Counter) -> str:
     """The ONE "does this role multiset fit" rule — empty when it fits.
@@ -264,8 +299,13 @@ def instance_candidates(parts: Iterable[Part],
     RETURNED, not dropped, so the caller can count them.
     """
     want = _role_counts(cell_roles)
+    parts = list(parts or ())
+    # The whole snapshot, so a duplicate refdes is seen wherever its other copy
+    # sits — including outside this instance (the same product detector the
+    # pipeline's door guard calls: kicadstamp.refdes_duplicates).
+    duplicates = duplicate_refdes_groups(parts)
     groups: dict = {}
-    for part in parts or ():
+    for part in parts:
         if not part.cluster:
             continue
         groups.setdefault((part.cluster, sheet_of(part.sheet)), []).append(part)
@@ -273,7 +313,10 @@ def instance_candidates(parts: Iterable[Part],
     out: list[InstanceCandidate] = []
     for (cluster, sheet), members in groups.items():
         got = _role_counts(m.role for m in members)
-        reason = role_mismatch_reason(got, want)
+        # A duplicate refdes (or a lone orphan) is named INSTEAD of the bare
+        # role shortfall — that IS the refusal the user has to act on.
+        reason = (duplicate_or_orphan_reason(members, duplicates)
+                  or role_mismatch_reason(got, want))
         entity_name = taken(cluster, sheet) if taken is not None else None
         refs = tuple(sorted(str(m.ref) for m in members if m.ref))
         out.append(InstanceCandidate(
@@ -435,6 +478,21 @@ def instance_parts(parts: Iterable[Part], cluster: str,
     return members
 
 
+def _on_schematic_of(fp) -> Optional[bool]:
+    """``True``/``False``/``None`` for a footprint's link to the schematic.
+
+    The reader is the project's ONE chain reader, in its "is it KNOWN?" form
+    (``sheet_path_uuids_if_known``): an object that carries NO chain at all is
+    UNKNOWN (None) — a test double is not an orphan — while an object whose chain
+    is EMPTY is a real orphan (the board bug's own shape).
+
+    The reader is imported HERE (not at module level) so this module stays
+    Qt-free at import time, exactly like the snapshot converter below."""
+    from kicadstamp.field_overrides import sheet_path_uuids_if_known
+    chain = sheet_path_uuids_if_known(fp)
+    return None if chain is None else bool(chain)
+
+
 def snapshot_parts(snapshot: Iterable, sheet_names: Optional[dict] = None
                    ) -> list:
     """The board snapshot as :class:`Part` records — THE one door converter.
@@ -462,5 +520,10 @@ def snapshot_parts(snapshot: Iterable, sheet_names: Optional[dict] = None
             role=getattr(s, "role", None),
             cluster=getattr(s, "cluster", None),
             sheet=tuple(getattr(s, "sheet", None) or ()),
+            # No footprint read at all -> UNKNOWN (None), never an orphan: the
+            # same "never refuse on a guess" rule the detector follows. An empty
+            # chain IS an orphan (the board bug's own shape) — the reader keeps
+            # "no chain at all" apart from "an empty chain".
+            on_schematic=_on_schematic_of(fp),
         ))
     return out

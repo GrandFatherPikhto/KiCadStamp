@@ -51,7 +51,11 @@ from .constants import DEFAULT_TIMEOUT_MS
 from .placement.executor import BatchExecutor
 from .imprint_apply import execute_imprint_plans, plan_all_imprints
 from .exceptions import PlacerError
-from .trees import _walk_nodes as _walk_tree_nodes
+from .apply_duplicate_guard import (guard_duplicate_moves,
+                                    guard_duplicate_plans,
+                                    guard_duplicate_refdes)
+from .apply_filters import (_component_node_names, _filter_materialized_entities,
+                            _live_items_after_deletion, _split_comma_values)
 from .validation import run_all_checks, check_config_structure
 from .registry import (PlacementRegistry, registry_paths_for_config,
                        TrackRegistry, default_operation_log_dir_for_config,
@@ -65,17 +69,12 @@ logger = logging.getLogger(__name__)
 
 
 # ── Filtering helpers (pure cfg mutation, no adapter) ─────────────────────────
-
-
-def _split_comma_values(raw: list[str] | None) -> list[str]:
-    """--only/--cluster accept both repeating the flag and comma‑separated
-    values within one occurrence (e.g. --only a,b --only c -> [a, b, c])."""
-    if not raw:
-        return []
-    result = []
-    for item in raw:
-        result.extend(part.strip() for part in item.split(",") if part.strip())
-    return result
+# The PURE helpers of this module now live in kicadstamp/apply_filters.py (rule
+# 45, 2026-10-12: the duplicate-refdes guard had to be wired into the pipeline,
+# so the growth was paid for by moving these out) and are imported above:
+# _split_comma_values / _component_node_names / _filter_materialized_entities /
+# _live_items_after_deletion. They stay importable from THIS module on purpose —
+# every existing caller and guard imports them from kicadstamp.apply_pipeline.
 
 
 # Backward-compat alias (2026-09-15, plan_2026_09_14_materialize_only_wanted_
@@ -337,22 +336,6 @@ def apply_cluster_filter(cfg, cluster_paths: list[str], _logger=None) -> "Config
                                net_traces=matched_nets)
 
 
-def _component_node_names(cfg) -> set[str]:
-    """The refs of every kind "component" tree node (plan_2026_09_17 Э3).
-
-    A component node's ref is a LOCAL NAME, so it is not a record in any config
-    section — but it IS an --only identity, because its transient
-    CoordinatePlacement carries exactly that name. Recognising it here keeps
-    `--only <node name>` (the per-node Redraw button's own call) from being
-    rejected as "not found" before the record even exists."""
-    names: set[str] = set()
-    for tree in (getattr(cfg, "trees", None) or []):
-        for node in _walk_tree_nodes(tree.nodes):
-            if node.kind == "component":
-                names.add(node.ref)
-    return names
-
-
 # ── Compute helper ────────────────────────────────────────────────────────────
 
 def _compute_all_anchor_ids(cfg) -> set[str]:
@@ -387,67 +370,6 @@ def _compute_all_anchor_ids(cfg) -> set[str]:
     # 'net:' prefix — see the startswith list there).
     ids |= {net_trace_anchor_id(nt) for nt in cfg.net_traces if not nt.retired}
     return ids
-
-
-def _filter_materialized_entities(clones, only: list[str] | None,
-                                  cluster: list[str] | None) -> list:
-    """Apply --only/--cluster to materialized Entity placements (phase 4.1
-    fix). Entity placements are materialized from the FULL cfg (link_trees
-    runs over ALL trees/entities — see materialize_entity_placements), so
-    --only/--cluster must NOT cut cfg.entities in apply_only_filter/
-    apply_cluster_filter first (that would make link_trees fatal on a tree
-    node whose entity was filtered away). Instead the materialized clones are
-    narrowed HERE by the same axes as regular clone_placements:
-    --only by the clone's effective name (== Entity.name), --cluster by the
-    clone's cluster tag (== Entity.cluster)."""
-    if not clones:
-        return clones
-    if only:
-        wanted = set(only)
-        clones = [c for c in clones
-                  if clone_placement_effective_name(c) in wanted]
-    if cluster:
-        clones = [c for c in clones if _matches_any_cluster(c.cluster, cluster)]
-    return clones
-
-
-# _filter_materialized_coordinates lived here until Э4/Т4.4 of
-# plan_2026_09_16_commit_document_and_pending_direction: it narrowed the
-# transient component-node records by --only/--cluster, and
-# materialize_component_nodes (which CREATES them) already did exactly the same
-# with the same two axes — the same predicate, the same effective name. A
-# mutation disabling this pass changed nothing observable, which is what "dead
-# weight" means here. The materializer's own narrowing is the one kept: it is
-# where the records are born (its docstring promises the narrowing there), it is
-# what tests/test_component_nodes.py exercises, and it is where the identity map
-# of Т4.1 is narrowed together with the records, so the map cannot describe a
-# record the run dropped.
-
-
-def _live_items_after_deletion(live_items, deleted_uuids):
-    """The live board items with the just-deleted UUIDs removed.
-
-    Phases 2 (vias) and 3 (tracks) each fetch the live list ONCE and feed it to
-    three consumers: reconcile() (whose to_delete also carries pruned keys),
-    adapter.remove_by_ids(), and the positional pre-check (filter_existing_vias
-    / filter_existing_tracks). After the deletion that pre-deletion list is
-    stale: it still counts the just-deleted copper as present on the board, so
-    a command whose registry KEY changed while its geometry did not — renaming
-    a cell or a thermal via array, reordering vias inside a cell — is skipped
-    as "already exists" right after its copper was deleted, and the apply
-    leaves the board empty until the next run (the next apply then sees no live
-    copper and finally creates it).
-
-    The positional pre-check must see the board AFTER remove_by_ids(); this is
-    the ONE place that computes that view, shared by both phases so they cannot
-    drift apart.
-
-    2026-10-02, plan_2026_10_02_stale_live_list_after_prune.md.
-    """
-    if not deleted_uuids:
-        return live_items
-    deleted = set(deleted_uuids)
-    return [item for item in live_items if item.uuid not in deleted]
 
 
 # ── Pipeline ──────────────────────────────────────────────────────────────────
@@ -531,6 +453,10 @@ class ApplyPipeline:
         # built in _resolve_order over the FULL cfg, executed by _execute and
         # reported by _dry_run. [] when there are no imprint Entities.
         self._scheme_plans: list = []
+        # The duplicate-refdes door guard's report lines (one per refused entry
+        # kind) — filled in run(), shown by the dry run. [] when nothing was
+        # refused, which is the normal case (plan_2026_10_12_duplicate_refdes_guard).
+        self._duplicate_report: list[str] = []
 
     # ── Pipeline steps ──────────────────────────────────────────────────────
 
@@ -691,6 +617,11 @@ class ApplyPipeline:
                                 position_overrides=self.position_overrides,
                                 identity_by_name=self._component_identities)
                            if self.cfg.coordinate_placements else [])
+        # The SAME door guard a real run applies (one detector, not a second
+        # copy): a Phase-0 move whose refdes stands twice is refused here too, or
+        # the report would preview a move a real apply refuses.
+        coordinate_moves, coordinate_refused = guard_duplicate_moves(
+            self.adapter, coordinate_moves)
         # NOTE (2026-08-12, Group 2 review): a dry run does NOT apply Phase 0 —
         # build_coordinate_moves only COMPUTES MoveCommands, nothing moves on
         # the board — so Phase 1 below necessarily resolves ClonePlacement
@@ -709,6 +640,8 @@ class ApplyPipeline:
         lines: list[str] = []
         lines.append("\n=== DRY RUN ===")
         lines.append(_("Order: {order}").format(order=" -> ".join(it.label for it in self.items)))
+        lines.extend(self._duplicate_report)
+        lines.extend(coordinate_refused)
         lines.extend(adoption_lines)
         if coordinate_moves:
             lines.append(_("Coordinate placements (Phase 0, before the order above):"))
@@ -873,6 +806,11 @@ class ApplyPipeline:
                 points=self.cfg.points, sheet_names=self.sheet_names,
                 position_overrides=self.position_overrides,
                 identity_by_name=self._component_identities)
+            # The SAME door guard the dependency-order items ride (one
+            # detector): a coordinate placement whose refdes stands twice is
+            # refused here, before its move is planned out.
+            coordinate_moves, _coordinate_refused = guard_duplicate_moves(
+                self.adapter, coordinate_moves)
             logger.info(_("Coordinate placements: {count} moves").format(count=len(coordinate_moves)))
             coordinate_failed = executor.execute_moves(
                 coordinate_moves,
@@ -1075,6 +1013,17 @@ class ApplyPipeline:
         self._connect_adapter()
         self._validate()
         self._resolve_order()
+        # ONE door for a duplicated refdes (plan_2026_10_12_duplicate_refdes_guard):
+        # a record whose RESOLVED refdes (Item.produces / anchor_ref) stands on
+        # the live board twice is refused WHOLE, before a single move is planned
+        # — so it contributes neither moves nor copper. Apply, Redraw and --only
+        # all funnel through run(), so all three pass through the same detector.
+        # Imprint plans ride the same door (their record is atomic too).
+        self.items, self._duplicate_report = guard_duplicate_refdes(
+            self.adapter, self.items)
+        self._scheme_plans, scheme_report = guard_duplicate_plans(
+            self.adapter, self._scheme_plans)
+        self._duplicate_report.extend(scheme_report)
         self._create_planner()
 
         if self.dry_run:

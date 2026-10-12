@@ -18485,3 +18485,64 @@ msgid ""
 msgstr ""
 "раскладка переставлена; рамка следует за узлом дерева {where} ({node}°), "
 "подгонка предлагала {fit}°"
+
+#: kicadstamp/refdes_duplicates.py
+msgid "position not read"
+msgstr "позиция не прочитана"
+
+#: kicadstamp/refdes_duplicates.py
+#, python-brace-format
+msgid "at {x:.3f}, {y:.3f} mm"
+msgstr "на {x:.3f}, {y:.3f} мм"
+
+#: kicadstamp/refdes_duplicates.py
+#, python-brace-format
+msgid "{ref!r} stands on the board {count} times — the record is refused, nothing of it is moved:"
+msgstr "{ref!r} стоит на плате {count} раз(а) — запись отказана, ничего из неё не перемещено:"
+
+#: kicadstamp/refdes_duplicates.py
+msgid " — NOT linked to the schematic"
+msgstr " — НЕ связан со схемой"
+
+#: kicadstamp/refdes_duplicates.py
+#, python-brace-format
+msgid "  copy {index}/{count}: uuid {uuid}, {position}{orphan}"
+msgstr "  копия {index}/{count}: uuid {uuid}, {position}{orphan}"
+
+#: kicadstamp/refdes_duplicates.py
+msgid "  delete the orphan (Update PCB from Schematic with “Delete footprints with no symbols”) or re-annotate; nothing of this record was moved."
+msgstr "  удалите сироту (Update PCB from Schematic с «Delete footprints with no symbols») или переаннотируйте; ничего из этой записи не перемещено."
+
+#: kicadstamp/refdes_duplicates.py
+#, python-brace-format
+msgid "{ref} is on the board twice (one is not linked to the schematic)"
+msgstr "{ref} на плате дважды (один не связан со схемой)"
+
+#: kicadstamp/refdes_duplicates.py
+#, python-brace-format
+msgid "{ref} is on the board twice (both copies are linked to the schematic)"
+msgstr "{ref} на плате дважды (обе копии связаны со схемой)"
+
+#: kicadstamp/refdes_duplicates.py
+#, python-brace-format
+msgid "{ref} is not linked to the schematic"
+msgstr "{ref} не связан со схемой"
+
+#: kicadstamp/refdes_duplicates.py
+#, python-brace-format
+msgid "Refused (duplicate refdes on the board): {labels}"
+msgstr "Отказано (дубль refdes на плате): {labels}"
+
+#: kicadstamp/refdes_duplicates.py
+msgid "(no uuid)"
+msgstr "(нет uuid)"
+
+#: kicadstamp/apply_duplicate_guard.py
+#, python-brace-format
+msgid "move of {ref}"
+msgstr "перемещение {ref}"
+
+#: kicadstamp/apply_duplicate_guard.py
+#, python-brace-format
+msgid "imprint {name}"
+msgstr "импринт {name}"

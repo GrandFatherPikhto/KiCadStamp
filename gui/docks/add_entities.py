@@ -42,6 +42,7 @@ from PyQt6.QtWidgets import (QDialog, QDialogButtonBox, QHBoxLayout, QLabel,
 
 from kicadstamp.i18n import _
 
+from .instance_candidates import instances_others_tooltip
 from ..ui_utils import persist_dialog_size, restore_dialog_size
 
 # Column order: checkbox | name | cluster | sheet | state.
@@ -168,8 +169,14 @@ class AddEntitiesDialog(QDialog):
         if self._skipped:
             self._counter.setText(_("{count} instances lack roles").format(
                 count=len(self._skipped)))
+            # The counter's reasons, one per line: a non-fitting instance is not
+            # LOST here — its reason is what the user acts on, and since
+            # plan_2026_10_12_duplicate_refdes_guard a duplicated refdes (or a
+            # lone orphan) is named instead of the bare "role CAP: 0 of 1".
+            self._counter.setToolTip(instances_others_tooltip(self._skipped))
         else:
             self._counter.setText("")
+            self._counter.setToolTip("")
 
     def _check_item(self, cand) -> QTableWidgetItem:
         item = QTableWidgetItem()

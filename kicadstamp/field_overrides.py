@@ -174,6 +174,20 @@ def _warn_foreign_shape(footprint) -> None:
         "will skip it", type_name)
 
 
+def sheet_path_uuids_if_known(footprint) -> tuple[str, ...] | None:
+    """The chain when the object's SHAPE carries one, ``None`` when the shape is
+    FOREIGN (see ``_footprint_uuid_chain``).
+
+    The difference matters to ONE caller class: an empty chain means "this
+    footprint is not linked to the schematic" (an ORPHAN), while a foreign shape
+    means "cannot be judged at all". ``sheet_path_uuids_of`` collapses both into
+    ``()`` — correct for every reader that only wants a symbol uuid, wrong for a
+    reader that would then call a test double an orphan
+    (plan_2026_10_12_duplicate_refdes_guard). Same ONE reader underneath, no
+    warning here: the caller asking "is it KNOWN?" is not making a mistake."""
+    return _footprint_uuid_chain(footprint)
+
+
 def sheet_path_uuids_of(footprint) -> tuple[str, ...]:
     """The footprint's FULL sheet-path uuid chain as plain strings — the
     hierarchical-sheet identity (the same chain ``gui/schema_model.py`` keys the
