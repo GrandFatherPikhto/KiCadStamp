@@ -193,18 +193,20 @@ def test_rename_dict_entry_raises_on_collision(tmp_path):
 
 # ── rename_list_entry ─────────────────────────────────────────────────────
 
-def test_rename_list_entry_renames_clone_placement_by_name(tmp_path):
+def test_rename_list_entry_renames_a_named_record_by_its_name(tmp_path):
+    """Вердикт Claude 12.10 (Ч1в-2): механизм переименования списочной записи
+    жив, носитель — живая списочная секция, берём `net_traces:` (у неё своё
+    действующее имя `name:` с запасным ключом `net:`)."""
     path = _write(tmp_path / "config.sexp", {
-        "cells": {"ldo": {}},
-        "clone_placements": [{"name": "spoke_1", "cell": "ldo"},
-                             {"name": "spoke_2", "cell": "ldo"}]})
+        "net_traces": [{"name": "spoke_1", "net": "+3V3"},
+                       {"name": "spoke_2", "net": "GND"}]})
 
-    rename_list_entry(path, "clone_placements", "spoke_1", "spoke_1_renamed")
+    rename_list_entry(path, "net_traces", "spoke_1", "spoke_1_renamed")
 
     data = _load(path)
-    names = [e["name"] for e in data["clone_placements"]]
+    names = [e["name"] for e in data["net_traces"]]
     assert names == ["spoke_1_renamed", "spoke_2"]
-    assert data["clone_placements"][0]["cell"] == "ldo"  # other fields untouched
+    assert data["net_traces"][0]["net"] == "+3V3"  # other fields untouched
 
 
 def test_rename_list_entry_gives_a_nameless_net_trace_an_explicit_name(tmp_path, pin_format2):
@@ -271,7 +273,7 @@ def test_rename_references_rewrites_every_matching_field_recursively(tmp_path, p
     alone is not a format-3 operation (the real rename_entry flow renames the
     RECORD, keeping the uuid). Pinned to 2."""
     path = _write(tmp_path / "config.sexp", {
-        "clone_placements": [{"name": "spoke_1", "cell": "old_cell"}],
+        "entities": [{"name": "spoke_1", "cell": "old_cell"}],
         "cells": {
             "outer_cell": {"clone_placements": [{"cell": "old_cell", "xy": [0.0, 0.0]}]},
             "unrelated_cell": {"components": [{"role": "SOME_ROLE"}]},  # NOT touched
@@ -282,7 +284,7 @@ def test_rename_references_rewrites_every_matching_field_recursively(tmp_path, p
 
     assert changed == [path]
     data = _load(path)
-    assert data["clone_placements"][0]["cell"] == "new_cell"
+    assert data["entities"][0]["cell"] == "new_cell"
     assert data["cells"]["outer_cell"]["clone_placements"][0]["cell"] == "new_cell"
     assert data["cells"]["unrelated_cell"]["components"][0] == {"role": "SOME_ROLE"}
 
@@ -292,10 +294,10 @@ def test_rename_references_leaves_unaffected_files_unwritten(tmp_path):
     # format-3 writer resolves the reference (a dangling one is refused).
     matching = _write(tmp_path / "matching.sexp", {
         "cells": {"old": {}, "new": {}},
-        "clone_placements": [{"name": "a", "cell": "old"}]})
+        "entities": [{"name": "a", "cell": "old"}]})
     unrelated = _write(tmp_path / "unrelated.sexp", {
         "cells": {"something_else": {}},
-        "clone_placements": [{"name": "b", "cell": "something_else"}]})
+        "entities": [{"name": "b", "cell": "something_else"}]})
 
     changed = rename_references([matching, unrelated], "cell", "old", "new")
 
@@ -308,7 +310,7 @@ def test_rename_entry_cascades_a_cell_rename_across_the_graph(tmp_path):
     _write(tmp_path / "cells.sexp", {"cells": {"old_cell": {"components": []}}})
     root = _write(tmp_path / "root.sexp", {
         "include": ["cells.sexp"],
-        "clone_placements": [{"name": "spoke_1", "cell": "old_cell"}],
+        "entities": [{"name": "spoke_1", "cell": "old_cell"}],
     })
 
     # The cascade touches TWO files, so the format-3 stamp must resolve the
@@ -322,19 +324,20 @@ def test_rename_entry_cascades_a_cell_rename_across_the_graph(tmp_path):
 
     assert {p.name for p in changed} == {"cells.sexp", "root.sexp"}
     assert "new_cell" in _load(tmp_path / "cells.sexp")["cells"]
-    assert _load(root)["clone_placements"][0]["cell"] == "new_cell"
+    assert _load(root)["entities"][0]["cell"] == "new_cell"
 
 
 def test_rename_entry_does_not_cascade_for_a_non_referenced_section(tmp_path):
-    """clone_placements:/thermal_via_arrays:/extract_profiles:/
-    clone_profiles: are never referenced by name from elsewhere in the config
-    graph (see gui/docks/rename.py's module docstring) — only the one file
-    the entry itself lives in should ever be touched."""
+    """net_traces:/thermal_via_arrays:/extract_profiles:/clone_profiles: are
+    never referenced by name from elsewhere in the config graph (see
+    gui/docks/rename.py's CASCADE_FIELD) — only the one file the entry itself
+    lives in should ever be touched. 12.10 (Ч1в-2): the carrier is the LIVE
+    `net_traces:` record, not the retired `clone_placements:`."""
     root = _write(tmp_path / "root.sexp", {
         "cells": {"ldo": {}},
-        "clone_placements": [{"name": "spoke_1", "cell": "ldo"}]})
+        "net_traces": [{"name": "spoke_1", "net": "+3V3"}]})
 
-    changed = rename_entry(root, root, "clone_placements", "spoke_1", "spoke_1_renamed")
+    changed = rename_entry(root, root, "net_traces", "spoke_1", "spoke_1_renamed")
 
     assert changed == [root]
 
@@ -463,7 +466,7 @@ def test_rename_list_entry_does_not_corrupt_the_cache_on_write_failure(tmp_path,
     import gui.docks.rename as rename_mod
 
     path = _write(tmp_path / "config.sexp", {
-        "clone_placements": [{"name": "spoke_1", "cell": "ldo"}]})
+        "net_traces": [{"name": "spoke_1", "net": "+3V3"}]})
 
     rename_mod.read_data(path)  # warm the cache (HIT inside rename_list_entry)
 
@@ -473,14 +476,14 @@ def test_rename_list_entry_does_not_corrupt_the_cache_on_write_failure(tmp_path,
     monkeypatch.setattr(rename_mod, "write_data", _boom)
 
     try:
-        rename_mod.rename_list_entry(path, "clone_placements", "spoke_1", "spoke_1_renamed")
+        rename_mod.rename_list_entry(path, "net_traces", "spoke_1", "spoke_1_renamed")
         assert False, "expected OSError"
     except OSError:
         pass
 
     cached = rename_mod.read_data(path)
-    assert cached["clone_placements"][0]["name"] == "spoke_1"
-    assert cached["clone_placements"][0]["cell"] == "ldo"
+    assert cached["net_traces"][0]["name"] == "spoke_1"
+    assert cached["net_traces"][0]["net"] == "+3V3"
 
 
 @pytest.fixture(autouse=True)

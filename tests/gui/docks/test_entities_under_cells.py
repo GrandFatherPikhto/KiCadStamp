@@ -160,11 +160,15 @@ def test_unused_cell_without_entity_is_marked(main_window, tmp_path):
 
 
 def test_cell_placed_without_entity_is_marked_as_placed(main_window, tmp_path):
-    """С8 (вторая клетка таблицы): вид «ставится БЕЗ сущности» — по графу
-    (clone_placement), и подсказка называет, кто ставит."""
+    """С8 (вторая клетка таблицы): вид «ставится БЕЗ сущности» — по графу, и
+    подсказка называет, кто ставит. 12.10 (Ч1в-2): ставит ЖИВОЙ постановщик —
+    ВЛОЖЕННАЯ запись составной ячейки (`Cell.clone_placements`, она остаётся
+    после ухода Placer), а не корневая `clone_placements:`."""
     root = tmp_path / "root.sexp"
-    write_config(root, {"cells": {"c": {"components": [{"role": "R"}]}},
-                        "clone_placements": [{"name": "ch1", "cell": "c"}]})
+    write_config(root, {
+        "cells": {"c": {"components": [{"role": "R"}]},
+                  "outer": {"components": [{"role": "R"}],
+                            "clone_placements": [{"name": "ch1", "cell": "c"}]}}})
     dock = _dock(main_window, root)
     cell = find_child(category(file_item(dock.tree, root), "cells"), "c")
 
@@ -173,7 +177,7 @@ def test_cell_placed_without_entity_is_marked_as_placed(main_window, tmp_path):
         dock, QStyle.StandardPixmap.SP_MessageBoxInformation), (
         "синее «i» — именно Information")
     tip = cell.toolTip(0)
-    assert "placed by" in tip and "ch1" in tip, tip
+    assert "placed by" in tip and "nested placement in cell: outer" in tip, tip
 
 
 def test_a_placer_that_places_one_cell_twice_shows_a_single_counted_mention(
@@ -491,8 +495,10 @@ def test_a_placed_cell_without_entity_keeps_only_the_cell_items(
     У КОГО — без исключения «одна сущность»: адрес экземпляра живёт под листом
     сущности, где он назван."""
     root = tmp_path / "root.sexp"
-    write_config(root, {"cells": {"c": {"components": [{"role": "R"}]}},
-                        "clone_placements": [{"name": "ch1", "cell": "c"}]})
+    write_config(root, {
+        "cells": {"c": {"components": [{"role": "R"}]},
+                  "outer": {"components": [{"role": "R"}],
+                            "clone_placements": [{"name": "ch1", "cell": "c"}]}}})
     dock = _dock(main_window, root)
     cell = find_child(category(file_item(dock.tree, root), "cells"), "c")
     labels = [label for label, _ in context_menu_actions(dock, cell, monkeypatch)]
@@ -513,9 +519,11 @@ def _diamond_root(tmp_path) -> Path:
     достижима двумя ветками — тот самый ромб."""
     write_config(tmp_path / "shared.sexp",
                  {"cells": {"c": {"components": [{"role": "R"}]},
-                            "c2": {"components": [{"role": "R"}]}},
-                  "entities": [{"name": "e1", "cell": "c"}],
-                  "clone_placements": [{"name": "ch", "cell": "c2"}]})
+                            "c2": {"components": [{"role": "R"}]},
+                            "c_outer": {"components": [{"role": "R"}],
+                                        "clone_placements": [
+                                            {"name": "ch", "cell": "c2"}]}},
+                  "entities": [{"name": "e1", "cell": "c"}]})
     write_config(tmp_path / "a.sexp", {"include": ["shared.sexp"]})
     write_config(tmp_path / "b.sexp", {"include": ["shared.sexp"]})
     root = tmp_path / "root.sexp"
@@ -540,7 +548,8 @@ def test_a_diamond_include_shows_the_entity_and_the_placer_once(
         "под ячейкой — ОДИН лист сущности; два значит, что файл собран дважды")
 
     placed = find_child(cells, "c2")
-    assert placed.toolTip(0).count("clone placement: ch") == 1, placed.toolTip(0)
+    assert placed.toolTip(0).count(
+        "nested placement in cell: c_outer") == 1, placed.toolTip(0)
 
 
 def test_the_selection_of_an_entity_from_another_file_survives_refresh(

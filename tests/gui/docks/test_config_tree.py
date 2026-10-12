@@ -52,12 +52,17 @@ CELL_WITH_ENTITY = {**MINIMAL_CELL,
 # A root with EVERY recognized section present (one leaf each) — used by the
 # context-menu filtering tests (2026-08-13, plan context_menu_by_section) so
 # every category/leaf exists in the same tree.
+# 2026-10-12 (plan_2026_10_08_remove_placer, Ч1в-2): the retired
+# `clone_placements:` root section is REPLACED by the live carrier of the same
+# property — an `entities:` record referencing a cell by name (`cell:`), which
+# is what the cascade tests below need; a retired section in this fixture makes
+# the whole file FATAL to load under the refusal patch.
 ALL_SECTIONS = {
     "cells": {"my_cell": {}},
     "extract_profiles": {"my_profile": {"params": {}}},
     "clone_profiles": {"my_clone": {"params": {}}},
     "thermal_via_arrays": [{"name": "my_tva"}],
-    "clone_placements": [{"name": "my_placement", "cell": "my_cell"}],
+    "entities": [{"name": "my_entity", "cell": "my_cell"}],
     "coordinate_placements": [{"name": "my_coord", "cluster": "CHAN", "role": "R"}],
     "points": {"my_point": {"xy": [1.0, 2.0]}},
 }
@@ -514,9 +519,14 @@ def test_rename_cell_updates_the_dict_key_and_refreshes_the_tree(main_window, tm
 
 
 def test_rename_cell_cascades_a_reference_in_another_file(main_window, tmp_path, monkeypatch):
+    """Свойство — «переименование ячейки каскадом правит ссылающуюся запись в
+    ДРУГОМ файле». 12.10 (Ч1в-2): носитель `clone_placements:` отказан — берём
+    ЖИВУЮ запись с тем же полем `cell:` (`entities:`), каскад ищет по полю, а не
+    по секции (`rename.CASCADE_FIELD`)."""
     _write(tmp_path / "cells.sexp", MINIMAL_CELL)
     root = tmp_path / "root.sexp"
-    _write(root, {"include": ["cells.sexp"], "clone_placements": [{"name": "spoke_1", "cell": "one_role"}]})
+    _write(root, {"include": ["cells.sexp"],
+                  "entities": [{"name": "one_role_e", "cell": "one_role"}]})
     dock = ConfigTreeDock(main_window)
     dock.set_root_file(root)
 
@@ -534,8 +544,7 @@ def test_rename_cell_cascades_a_reference_in_another_file(main_window, tmp_path,
 
     dock._on_rename(tmp_path / "cells.sexp", "cells", "one_role")
 
-    assert _load(root)["clone_placements"][0]["cell"] == \
-        "renamed_cell"
+    assert _load(root)["entities"][0]["cell"] == "renamed_cell"
     assert len(shown) == 1 and "root.sexp" in shown[0]  # summary names the other changed file
 
 
@@ -1143,8 +1152,10 @@ def test_delete_declined_leaves_the_file_untouched(main_window, tmp_path, monkey
 
 def test_delete_with_a_reference_asks_about_cascade_and_removes_both_on_yes(
         main_window, tmp_path, monkeypatch):
+    """Носитель ссылки — живая запись с полем `cell:` (`entities:`, 12.10 Ч1в-2)."""
     root = tmp_path / "root.sexp"
-    _write(root, {**MINIMAL_CELL, "clone_placements": [{"name": "spoke_1", "cell": "one_role"}]})
+    _write(root, {**MINIMAL_CELL,
+                  "entities": [{"name": "one_role_e", "cell": "one_role"}]})
     dock = ConfigTreeDock(main_window)
     dock.set_root_file(root)
 
@@ -1159,14 +1170,15 @@ def test_delete_with_a_reference_asks_about_cascade_and_removes_both_on_yes(
 
     data = _load(root)
     assert data["cells"] == {}
-    assert data["clone_placements"] == []  # cascade removed the referencing spoke too
-    assert len(shown) == 1 and "spoke_1" in shown[0]  # dialog listed the reference
+    assert data["entities"] == []  # cascade removed the referencing entity too
+    assert len(shown) == 1 and "one_role_e" in shown[0]  # dialog listed the reference
 
 
 def test_delete_with_a_reference_declined_cancels_the_whole_delete(
         main_window, tmp_path, monkeypatch):
     root = tmp_path / "root.sexp"
-    _write(root, {**MINIMAL_CELL, "clone_placements": [{"name": "spoke_1", "cell": "one_role"}]})
+    _write(root, {**MINIMAL_CELL,
+                  "entities": [{"name": "one_role_e", "cell": "one_role"}]})
     dock = ConfigTreeDock(main_window)
     dock.set_root_file(root)
 
@@ -1177,7 +1189,7 @@ def test_delete_with_a_reference_declined_cancels_the_whole_delete(
 
     data = _load(root)
     assert "one_role" in data["cells"]  # nothing removed at all
-    assert data["clone_placements"][0]["cell"] == "one_role"
+    assert data["entities"][0]["cell"] == "one_role"
     assert not list(tmp_path.glob("root.sexp.bak.*"))
 
 

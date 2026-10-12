@@ -58,9 +58,11 @@ def test_backup_file_two_calls_produce_two_distinct_files(tmp_path):
 
 # ── find_references ──────────────────────────────────────────────────────
 
-def test_find_references_finds_a_clone_placement_referencing_a_cell(tmp_path):
+def test_find_references_finds_an_entity_referencing_a_cell(tmp_path):
+    """Носитель — живая запись с полем `cell:` (`entities:`; 12.10 Ч1в-2:
+    `clone_placements:` отказана, каскад ищет по ПОЛЮ, не по секции)."""
     path = _write(tmp_path / "config.sexp", {
-        "clone_placements": [{"name": "spoke_1", "cell": "target_cell"}]})
+        "entities": [{"name": "spoke_1", "cell": "target_cell"}]})
 
     refs = find_references([path], "cell", "target_cell")
 
@@ -79,12 +81,15 @@ def test_find_references_finds_a_point_chained_to_another_point(tmp_path):
     assert refs == {path: ["chained"]}
 
 
-def test_find_references_finds_a_clone_placement_anchored_on_a_point(tmp_path):
+def test_find_references_finds_a_thermal_via_array_anchored_on_a_point(tmp_path):
     """A record anchored on a point is reported by its own identity, so the
-    point cannot be deleted while the record still names it."""
+    point cannot be deleted while the record still names it. 12.10 (Ч1в-2):
+    the carrier is the LIVE `thermal_via_arrays:` record (its own
+    `anchor_point:`), not the retired `clone_placements:`."""
     path = _write(tmp_path / "config.sexp", {
         "points": {"base": {"xy": [0, 0]}},
-        "clone_placements": [{"name": "cp1", "cell": "c", "anchor_point": "base"}]})
+        "thermal_via_arrays": [
+            {"name": "cp1", "net": "+3V3", "anchor_point": "base", "pad": "1"}]})
 
     refs = find_references([path], "anchor_point", "base")
 
@@ -159,28 +164,28 @@ def test_delete_entry_without_cascade_is_refused_under_format3(tmp_path):
     unconditionally; that premise is unreachable under format 3."""
     path = _write(tmp_path / "config.sexp", {
         "cells": {"target_cell": {}},
-        "clone_placements": [{"name": "spoke_1", "cell": "target_cell"}],
+        "entities": [{"name": "spoke_1", "cell": "target_cell"}],
     })
 
     if current_format() >= 3:
         with pytest.raises(OSError, match="spoke_1"):
             delete_entry(path, path, "cells", "target_cell", cascade=False)
         data = _load(path)
-        assert "target_cell" in data["cells"]                       # file untouched
-        assert data["clone_placements"][0]["cell"] == "target_cell"  # reference intact
+        assert "target_cell" in data["cells"]                  # file untouched
+        assert data["entities"][0]["cell"] == "target_cell"    # reference intact
     else:
         delete_entry(path, path, "cells", "target_cell", cascade=False)
         data = _load(path)
         assert "target_cell" not in data["cells"]
-        assert data["clone_placements"][0]["cell"] == "target_cell"  # left as-is
+        assert data["entities"][0]["cell"] == "target_cell"    # left as-is
 
 
 # ── delete_entry: cascade ────────────────────────────────────────────────
 
-def test_delete_entry_cascade_removes_referencing_clone_placement(tmp_path):
+def test_delete_entry_cascade_removes_referencing_entity(tmp_path):
     path = _write(tmp_path / "config.sexp", {
         "cells": {"target_cell": {}, "other_cell": {}},
-        "clone_placements": [
+        "entities": [
             {"name": "spoke_1", "cell": "target_cell"},
             {"name": "spoke_2", "cell": "other_cell"},
         ],
@@ -190,7 +195,7 @@ def test_delete_entry_cascade_removes_referencing_clone_placement(tmp_path):
 
     data = _load(path)
     assert "target_cell" not in data["cells"]
-    names = [e["name"] for e in data["clone_placements"]]
+    names = [e["name"] for e in data["entities"]]
     assert names == ["spoke_2"]
     assert report["cascade_files"] == [path]
 
@@ -199,13 +204,13 @@ def test_delete_entry_cascade_across_the_include_graph(tmp_path):
     _write(tmp_path / "cells.sexp", {"cells": {"target_cell": {}}})
     root = _write(tmp_path / "root.sexp", {
         "include": ["cells.sexp"],
-        "clone_placements": [{"name": "spoke_1", "cell": "target_cell"}],
+        "entities": [{"name": "spoke_1", "cell": "target_cell"}],
     })
 
     report = delete_entry(root, tmp_path / "cells.sexp", "cells", "target_cell", cascade=True)
 
     assert "target_cell" not in _load(tmp_path / "cells.sexp")["cells"]
-    assert _load(root)["clone_placements"] == []
+    assert _load(root)["entities"] == []
     assert {p.name for p in report["backups"]} == {"cells.sexp", "root.sexp"}
     assert {p.name for p in report["cascade_files"]} == {"root.sexp"}
 
@@ -225,7 +230,7 @@ def test_delete_entry_cascade_removes_a_point_chained_to_the_deleted_point(tmp_p
 def test_delete_entry_never_backs_up_the_same_file_twice(tmp_path):
     path = _write(tmp_path / "config.sexp", {
         "cells": {"target_cell": {}},
-        "clone_placements": [{"name": "spoke_1", "cell": "target_cell"}],
+        "entities": [{"name": "spoke_1", "cell": "target_cell"}],
     })
 
     report = delete_entry(path, path, "cells", "target_cell", cascade=True)
@@ -258,9 +263,9 @@ def test_delete_cascade_in_one_file_leaves_no_reference_and_the_graph_reloads(tm
     reference was pruned) failed on exactly this shape."""
     path = _write(tmp_path / "config.sexp", {
         "cells": {"target_cell": {}, "other_cell": {}},
-        "clone_placements": [
-            {"name": "spoke_1", "cluster": "CH0", "cell": "target_cell", "xy": [0.0, 0.0]},
-            {"name": "spoke_2", "cluster": "CH0", "cell": "other_cell", "xy": [0.0, 0.0]},
+        "entities": [
+            {"name": "spoke_1", "cluster": "CH0", "cell": "target_cell"},
+            {"name": "spoke_2", "cluster": "CH0", "cell": "other_cell"},
         ],
     })
 
@@ -268,8 +273,8 @@ def test_delete_cascade_in_one_file_leaves_no_reference_and_the_graph_reloads(tm
 
     data = _load(path)
     assert without_identity(data["cells"]) == {"other_cell": {}}
-    assert [e["name"] for e in data["clone_placements"]] == ["spoke_2"]
-    assert _reload(path).clone_placements[0].name == "spoke_2"
+    assert [e["name"] for e in data["entities"]] == ["spoke_2"]
+    assert _reload(path).entities[0].name == "spoke_2"
 
 
 def test_delete_cascade_across_two_files_leaves_no_reference_and_the_graph_reloads(tmp_path):
@@ -279,16 +284,15 @@ def test_delete_cascade_across_two_files_leaves_no_reference_and_the_graph_reloa
     _write(tmp_path / "cells.sexp", {"cells": {"target_cell": {}}})
     root = _write(tmp_path / "root.sexp", {
         "include": ["cells.sexp"],
-        "clone_placements": [{"name": "spoke_1", "cluster": "CH0",
-                              "cell": "target_cell", "xy": [0.0, 0.0]}],
+        "entities": [{"name": "spoke_1", "cluster": "CH0", "cell": "target_cell"}],
     })
 
     report = delete_entry(root, tmp_path / "cells.sexp", "cells", "target_cell", cascade=True)
 
     assert "target_cell" not in _load(tmp_path / "cells.sexp")["cells"]
-    assert _load(root)["clone_placements"] == []
+    assert _load(root)["entities"] == []
     assert {p.name for p in report["cascade_files"]} == {"root.sexp"}
-    assert _reload(root).clone_placements == []
+    assert _reload(root).entities == []
 
 
 def test_delete_cascade_writes_the_referencing_file_before_the_deleted_records_file(
@@ -303,8 +307,7 @@ def test_delete_cascade_writes_the_referencing_file_before_the_deleted_records_f
     _write(tmp_path / "cells.sexp", {"cells": {"target_cell": {}}})
     root = _write(tmp_path / "root.sexp", {
         "include": ["cells.sexp"],
-        "clone_placements": [{"name": "spoke_1", "cluster": "CH0",
-                              "cell": "target_cell", "xy": [0.0, 0.0]}],
+        "entities": [{"name": "spoke_1", "cluster": "CH0", "cell": "target_cell"}],
     })
     entry = tmp_path / "cells.sexp"
 
@@ -331,8 +334,7 @@ def test_delete_cascade_writes_a_file_that_holds_record_and_reference_once(
 
     path = _write(tmp_path / "config.sexp", {
         "cells": {"target_cell": {}},
-        "clone_placements": [{"name": "spoke_1", "cluster": "CH0",
-                              "cell": "target_cell", "xy": [0.0, 0.0]}],
+        "entities": [{"name": "spoke_1", "cluster": "CH0", "cell": "target_cell"}],
     })
 
     calls = []
@@ -358,25 +360,26 @@ def test_collect_graph_files_still_used_the_same_way_delete_entry_expects(tmp_pa
     assert {p.name for p in collect_graph_files(root)} == {"root.sexp", "sub.sexp"}
 
 
-def test_delete_entry_removes_clone_placement_by_name(tmp_path):
+def test_delete_entry_removes_a_named_record_by_name_not_by_its_raw_tag(tmp_path):
     """Delete goes through the same entry_effective_name as the tree shows —
-    a clone_placement with name must be removed by that identity, not by its
-    raw Cluster tag."""
+    a record WITH `name:` must be removed by that identity, not by a raw tag on
+    it. 12.10 (Ч1в-2): the carrier is the LIVE `net_traces:` record (its own
+    `name:` with a `net:` fallback), not the retired `clone_placements:`."""
     path = _write(tmp_path / "config.sexp", {
-        "clone_placements": [
-            {"cluster": "PIF_AVDD", "name": "CH0_PIF_AVDD", "cell": "ldo"},
+        "net_traces": [
+            {"name": "CH0_PIF_AVDD", "net": "+3V3", "anchor_role": "MCU"},
         ]})
 
     # Matched by name -> removed.
-    delete_entry(None, path, "clone_placements", "CH0_PIF_AVDD", cascade=False)
-    assert _load(path)["clone_placements"] == []
+    delete_entry(None, path, "net_traces", "CH0_PIF_AVDD", cascade=False)
+    assert _load(path)["net_traces"] == []
 
-    # Matched by raw Cluster tag -> NOT found (identity is name now).
-    _write(path, {"clone_placements": [
-        {"cluster": "PIF_AVDD", "name": "CH0_PIF_AVDD", "cell": "ldo"},
+    # Matched by the raw net field -> NOT found (identity is name now).
+    _write(path, {"net_traces": [
+        {"name": "CH0_PIF_AVDD", "net": "+3V3", "anchor_role": "MCU"},
     ]})
-    delete_entry(None, path, "clone_placements", "PIF_AVDD", cascade=False)
-    assert len(_load(path)["clone_placements"]) == 1
+    delete_entry(None, path, "net_traces", "+3V3", cascade=False)
+    assert len(_load(path)["net_traces"]) == 1
 
 
 @pytest.fixture(autouse=True)

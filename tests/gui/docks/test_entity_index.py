@@ -195,10 +195,12 @@ def test_cell_placed_by_clone_placement_and_nested(tmp_path):
 
 def test_cell_referenced_by_name_only_is_not_placed(tmp_path):
     """Ссылка без `*_uuid` (сырая запись) цель не называет — «кто ставит» по
-    ней не строится: и тут, и на стороне сущностей правило одно — UUID."""
+    ней не строится: и тут, и на стороне сущностей правило одно — UUID.
+    12.10 (Ч1в-2): носитель — живой ВЛОЖЕННЫЙ постановщик (`Cell.clone_placements`)."""
     idx, _ = _index(tmp_path, {
-        "cells": {"c_a": _cell(CELL_A)},
-        "clone_placements": [{"name": "cp", "cell": "c_a"}],
+        "cells": {"c_a": _cell(CELL_A),
+                  "c_outer": {**_cell(CELL_B),
+                              "clone_placements": [{"name": "cp", "cell": "c_a"}]}},
     })
     assert idx.placed_by_cell(CELL_A) == ()
 
@@ -249,9 +251,11 @@ def test_a_diamond_include_is_collected_once(tmp_path):
     Мутация: снять пропуск по `node.path` из `_iter_nodes` — этот сторож
     краснеет (сущность и постановщик придут по два раза)."""
     _write(tmp_path / "shared.sexp", {
-        "cells": {"c_a": _cell(CELL_A)},
+        "cells": {"c_a": _cell(CELL_A),
+                  "c_outer": {**_cell(CELL_B),
+                              "clone_placements": [{"name": "ch", "cell": "c_a",
+                                                    "cell_uuid": CELL_A}]}},
         "entities": [_entity("e1", cell="c_a", cell_uuid=CELL_A)],
-        "clone_placements": [{"name": "ch", "cell": "c_a", "cell_uuid": CELL_A}],
     })
     _write(tmp_path / "a.sexp", {"include": ["shared.sexp"]})
     _write(tmp_path / "b.sexp", {"include": ["shared.sexp"]})

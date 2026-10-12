@@ -868,11 +868,12 @@ def test_cleanup_all_overlays_sync_removes_every_persisted_uuid(qapp,
 
 def test_the_anchor_writes_the_cell_template_not_the_placement(main_window,
                                                                tmp_path):
-    """The anchor tabs edit cells: (the TEMPLATE), never a clone_placements
-    record."""
+    """The anchor tabs edit cells: (the TEMPLATE), never a PLACEMENT record.
+    12.10 (Ч1в-2): the carrier is the LIVE `entities:` record (linked by
+    `cell:`), not the retired `clone_placements:` — the cell's own property
+    (anchor goes into the CELL, not into the record) is unchanged."""
     data = _cell_data()
-    data["clone_placements"] = [{"name": "cell1", "cell": "cell1",
-                                 "cluster": "CL1"}]
+    data["entities"] = [{"name": "cell1_e", "cell": "cell1", "cluster": "CL1"}]
     tab, target = _anchor(main_window, tmp_path, data)
 
     tab._role_combo.setCurrentText("C1")
@@ -880,7 +881,7 @@ def test_the_anchor_writes_the_cell_template_not_the_placement(main_window,
 
     written = sexp_to_dict(target.read_text(encoding="utf-8"))
     assert written["cells"]["cell1"]["anchor_role"] == "C1"
-    assert "anchor_role" not in written["clone_placements"][0]
+    assert "anchor_role" not in written["entities"][0]
 
 
 # ── Step-4 wiring: the Anchor tab lives on the ENTITY page ────────────────
