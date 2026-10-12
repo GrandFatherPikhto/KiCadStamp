@@ -362,7 +362,7 @@ python -m kicadstamp.diagnostics.diagnostic_keepout <config.sexp>
 **Output:**
 - A list of keepout rectangles with coordinates.
 - Status (INSIDE/CLEAR) for each component.
-- Status for each via (spoke and component).
+- Status for each via (cell and component).
 
 **Dependencies:**
 `kicadstamp.config`, `kicadstamp.kicad.adapter`, `kicadstamp.placement.planner`, `kicadstamp.geometry.keepout`.
@@ -515,7 +515,7 @@ python -m kicadstamp.diagnostics.probe_create_one_via --remove <uuid>
 ### `transform_template.py`
 
 **Purpose:**
-Transforms a spoke template file: first shifts the origin to a specified element (a via or a component
+REMOVED (2026-10): the spoke-era diagnostic went with the `chains:`/spoke mechanism. It used to transform a spoke template file: first shifting the origin to a specified element (a via or a component
 of the template), then rotates and/or mirrors the whole template around that new origin.
 
 **Usage:**
