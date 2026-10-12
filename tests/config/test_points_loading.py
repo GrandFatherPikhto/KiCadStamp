@@ -16,7 +16,7 @@ from kicadstamp.exceptions import ValidationError
 
 
 def _cfg(points=None, cells=None, clone_placements=None,
-         thermal_via_arrays=None) -> dict:
+         thermal_via_arrays=None, coordinate_placements=None) -> dict:
     """Base config dict with the standard minimal sections (layer/cells);
     each optional section overrides the base default when given."""
     data = {"layer": "B.Cu", "cells": {}}
@@ -24,6 +24,8 @@ def _cfg(points=None, cells=None, clone_placements=None,
         data["points"] = points
     if cells is not None:
         data["cells"] = cells
+    if coordinate_placements is not None:
+        data["coordinate_placements"] = coordinate_placements
     if clone_placements is not None:
         data["clone_placements"] = clone_placements
     if thermal_via_arrays is not None:
@@ -224,12 +226,17 @@ class TestAnchorPointOnConsumers:
         with pytest.raises(ValidationError, match="anchor_point together with anchor_ref/anchor_role"):
             load_config(str(config_file))
 
-    def test_clone_placement_anchor_point_with_anchor_pad_is_fatal(self, tmp_path):
+    def test_coordinate_placement_anchor_point_with_anchor_pad_is_fatal(self, tmp_path):
+        """12.10 (Ч1в-4b): the mutual-exclusion rule is the CONSUMER's, so it
+        needs a live consumer carrying BOTH fields — `thermal_via_arrays` has no
+        `anchor_pad` at all, `coordinate_placements` does. The coordinate section
+        is the carrier here (its fate is open, step В2: if В2 removes it, this
+        cell becomes class А with the section — named, not forgotten)."""
         config_file = _write(tmp_path, "point.sexp", _cfg(
             points={"fpga_center": {"anchor_role": "FPGA"}},
-            cells={"one_role": {"components": [{"role": "THE_ROLE"}]}},
-            clone_placements=[{"cluster": "cp1", "cell": "one_role",
-                               "anchor_pad": "1", "anchor_point": "fpga_center"}]))
+            coordinate_placements=[{"name": "c1", "cluster": "CL", "role": "R",
+                                    "anchor_pad": "1",
+                                    "anchor_point": "fpga_center"}]))
         with pytest.raises(ValidationError, match="anchor_point together with anchor_pad"):
             load_config(str(config_file))
 
@@ -289,9 +296,8 @@ class TestAnchorPointOnConsumers:
 class TestAnchorPointCrossReference:
     def test_unknown_anchor_point_name_is_fatal(self, tmp_path):
         config_file = _write(tmp_path, "point.sexp", _cfg(
-            cells={"one_role": {"components": [{"role": "THE_ROLE"}]}},
-            clone_placements=[{"cluster": "cp1", "cell": "one_role",
-                               "anchor_point": "does_not_exist"}]))
+            thermal_via_arrays=[{"name": "fpga_thermal", "pad": "145",
+                                 "anchor_point": "does_not_exist"}]))
         # Refusal check: format 2 "not found in points", format 3 the dangling
         # reference UUID ("not in points") — the same refusal.
         with pytest.raises(ValidationError,
@@ -306,9 +312,8 @@ class TestAnchorPointCrossReference:
         format-2 refusal used). No pin to format 2 any more."""
         config_file = _write(tmp_path, "point.sexp", _cfg(
             points={"fpga_center": {"anchor_role": "FPGA"}},
-            cells={"one_role": {"components": [{"role": "THE_ROLE"}]}},
-            clone_placements=[{"cluster": "cp1", "cell": "one_role",
-                               "anchor_point": "fpga_centre"}]))
+            thermal_via_arrays=[{"name": "fpga_thermal", "pad": "145",
+                                 "anchor_point": "fpga_centre"}]))
         with pytest.raises(ValidationError) as e:
             load_config(str(config_file))
         assert "did you mean 'fpga_center'" in str(e.value)

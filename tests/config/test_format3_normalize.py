@@ -68,22 +68,13 @@ def _f_entity_imprint(hint):
             lambda cfg: cfg.entities[0].imprint)
 
 
-def _f_clone_cell(hint):
-    return ({"cells": _cells(),
-             "clone_placements": [{"cluster": "K", "cell": hint,
-                                   "cell_uuid": _u("cell:A"), "xy": [0.0, 0.0],
-                                   "name": "cp", "uuid": _u("cp:1")}]},
-            lambda cfg: cfg.clone_placements[0].cell)
-
-
-def _f_clone_anchor_point(hint):
-    return ({"cells": _cells(), "points": _points(),
-             "clone_placements": [{"cluster": "K", "cell": TARGET,
-                                   "cell_uuid": _u("cell:A"),
-                                   "anchor_point": hint,
-                                   "anchor_point_uuid": _u("point:A"),
-                                   "name": "cp", "uuid": _u("cp:1")}]},
-            lambda cfg: cfg.clone_placements[0].anchor_point)
+# 2026-10-12 (Ч1в-4b): the two builders that used the OWNERLESS root
+# `clone_placements:` record are gone with it — class А. The RULE they carried
+# ("a lying hint never reaches a consumer; the UUID decides" and "no UUID is a
+# fatal") stays covered by the live carriers below: an Entity's `cell:` /
+# `imprint:`, a nested `CellPlacement`'s `cell:`, a `coordinate_placement`'s /
+# `thermal_via_array`'s / `point`'s / tree anchor's `anchor_point:`, and the
+# tree node's `ref:`.
 
 
 def _f_coordinate_anchor_point(hint):
@@ -151,27 +142,10 @@ def _f_tree_instance_anchor_point(hint):
             lambda cfg: cfg.tree_instances[0].anchor["point"])
 
 
-def _f_sheet_clone_cell(hint):
-    return ({"cells": _cells(),
-             "sheet_templates": {"tpl": {
-                 "uuid": _u("tpl:clonecell"),
-                 "sheets": ["S"],
-                 "clone_placements": [{"cluster": "K", "cell": hint,
-                                       "cell_uuid": _u("cell:A"),
-                                       "xy": [0.0, 0.0]}]}}},
-            lambda cfg: cfg.clone_placements[0].cell)
-
-
-def _f_sheet_clone_anchor_point(hint):
-    return ({"cells": _cells(), "points": _points(),
-             "sheet_templates": {"tpl": {
-                 "uuid": _u("tpl:cloneanchor"),
-                 "sheets": ["S"],
-                 "clone_placements": [{"cluster": "K", "cell": TARGET,
-                                       "cell_uuid": _u("cell:A"),
-                                       "anchor_point": hint,
-                                       "anchor_point_uuid": _u("point:A")}]}}},
-            lambda cfg: cfg.clone_placements[0].anchor_point)
+# 2026-10-12 (Ч1в-4b): the two sheet-template builders are gone as well — after
+# Ч1 a template may only instantiate `coordinate_placements:` (its retired
+# `clone_placements:` block is a FATAL, plan §П8). The LIVE template form
+# (`sheet_coordinate_anchor_point` below) keeps the rule covered.
 
 
 def _f_sheet_coordinate_anchor_point(hint):
@@ -188,8 +162,6 @@ def _f_sheet_coordinate_anchor_point(hint):
 _FORMS = {
     "entity_cell": _f_entity_cell,
     "entity_imprint": _f_entity_imprint,
-    "clone_cell": _f_clone_cell,
-    "clone_anchor_point": _f_clone_anchor_point,
     "coordinate_anchor_point": _f_coordinate_anchor_point,
     "tva_anchor_point": _f_tva_anchor_point,
     "point_anchor_point": _f_point_anchor_point,
@@ -197,8 +169,6 @@ _FORMS = {
     "tree_node_ref": _f_tree_node_ref,
     "tree_anchor_point": _f_tree_anchor_point,
     "tree_instance_anchor_point": _f_tree_instance_anchor_point,
-    "sheet_clone_cell": _f_sheet_clone_cell,
-    "sheet_clone_anchor_point": _f_sheet_clone_anchor_point,
     "sheet_coordinate_anchor_point": _f_sheet_coordinate_anchor_point,
 }
 

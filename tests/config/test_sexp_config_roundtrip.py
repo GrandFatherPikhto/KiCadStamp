@@ -119,18 +119,11 @@ def test_default_values_are_omitted():
 
 
 # ── the list sections ────────────────────────────────────────────────────
-
-def test_clone_placements_section():
-    _roundtrip({
-        "clone_placements": [
-            {
-                "cluster": "CH0", "cell": "dac_buf", "xy": [0.0, 0.0],
-                "rotation_deg": 90.0, "sheet": "Channel_0",
-                "anchor_role": "FPGA", "name": "ch0",
-                "params": {"CH": "0"},
-            },
-        ],
-    })
+# 2026-10-12 (Ч1в-4b): `test_clone_placements_section` is GONE with the section
+# — class А. Its subject ("this SECTION round-trips bijectively") dies with the
+# section; every LIVE list/dict section keeps its own cell below
+# (thermal_via_arrays / coordinate_placements / net_traces / entities /
+# sheet_templates / imprints).
 
 
 def test_thermal_via_arrays_section():
@@ -192,9 +185,8 @@ def test_comment_field_roundtrip_all_sections():
         "points": {
             "ldo_vin": {"anchor_role": "LDO1", "comment": "point note"},
         },
-        "clone_placements": [
-            {"cluster": "CH0", "cell": "dac_buf", "xy": [0.0, 0.0],
-             "comment": "clone note"},
+        "entities": [
+            {"name": "e_comment", "cell": "dac_buf", "comment": "entity note"},
         ],
         "coordinate_placements": [
             {"cluster": "CH0", "role": "R_FILT", "x_mm": 1.0, "y_mm": 2.0,
@@ -211,7 +203,7 @@ def test_comment_field_roundtrip_all_sections():
     # non-None comments survive verbatim in every section ...
     assert back["cells"]["dac_buf"]["comment"] == "cell note"
     assert back["points"]["ldo_vin"]["comment"] == "point note"
-    assert back["clone_placements"][0]["comment"] == "clone note"
+    assert back["entities"][0]["comment"] == "entity note"
     assert back["coordinate_placements"][0]["comment"] == "coord note"
     assert back["thermal_via_arrays"][0]["comment"] == "tva note"
     assert back["net_traces"][0]["comment"] == "trace note"
@@ -393,19 +385,24 @@ def test_nested_dict_in_free_form_root_field():
 
 def test_params_with_numeric_values():
     """params is dict[str, Any] — values may be numbers/bools, each pair's
-    value serialized by its own type (FORK-E)."""
+    value serialized by its own type (FORK-E). 12.10 (Ч1в-4b): the carrier is
+    the LIVE `entities:` record (it has its own `params:`), not the retired
+    `clone_placements:`."""
     _roundtrip({
-        "clone_placements": [
-            {"cluster": "CH0", "cell": "dac_buf", "xy": [0.0, 0.0],
+        "entities": [
+            {"name": "e_params", "cell": "dac_buf",
              "params": {"CH": "0", "gain": 6, "bypass": True}},
         ],
     })
 
 
 def test_nested_dict_fields_nets_net_overrides_refs():
+    """12.10 (Ч1в-4b): the TOP-level carrier is the live `entities:` record
+    (nets/net_overrides/refs are its own dict fields); the nested `CellPlacement`
+    inside a cell is alive as before."""
     _roundtrip({
-        "clone_placements": [
-            {"cluster": "CH0", "cell": "dac_buf", "xy": [0.0, 0.0],
+        "entities": [
+            {"name": "e_dicts", "cell": "dac_buf",
              "nets": {"VIN": "+5V"},
              "net_overrides": {"VIN": "+3V3"},
              "refs": {"C_IN_BULK": "C20"}},
@@ -426,9 +423,7 @@ def test_nested_dict_fields_nets_net_overrides_refs():
 
 def test_include_string_entries():
     _roundtrip({
-        "clone_placements": [
-            {"name": "CL", "cluster": "CL", "cell": "c1", "xy": [0.5, 0.5]},
-        ],
+        "entities": [{"name": "E", "cell": "c1"}],
         "include": ["sub1.sexp", "sub2.sexp"],
     })
 
@@ -480,24 +475,26 @@ def test_fatal_invalid_top_level_node():
 
 
 def test_fatal_unknown_key_in_record():
+    # 12.10 (Ч1в-4b): the carrier is a LIVE section — the parser rule is the
+    # record's, not the section's.
     _match(
-        "(kicadstamp-config (clone_placements (clone_placement (cluster \"CH0\") "
+        "(kicadstamp-config (entities (entity (name \"E\") "
         "(cell \"dac_buf\") (bogus 1))))",
         r"unknown key")
 
 
 def test_fatal_unquoted_string_in_string_field():
-    # (cluster CH0) — bare atom where a quoted string is required
+    # (name E) — bare atom where a quoted string is required
     _match(
-        "(kicadstamp-config (clone_placements (clone_placement (cluster CH0) "
+        "(kicadstamp-config (entities (entity (name E) "
         "(cell \"dac_buf\"))))",
         r"expected a quoted string, got a bare atom")
 
 
 def test_fatal_wrong_atom_count_in_tuple():
+    # `pivot` is a [x, y] pair on the LIVE imprints: record.
     _match(
-        "(kicadstamp-config (clone_placements "
-        "(clone_placement (cluster \"CH0\") (cell \"dac_buf\") (xy 1.0))))",
+        "(kicadstamp-config (imprints (imprint (name \"p\") (pivot 1.0))))",
         r"expected exactly 2 numbers")
 
 
@@ -529,9 +526,8 @@ def test_fatal_quoted_string_where_bool_expected():
 
 def test_fatal_wrong_pair_shape():
     _match(
-        "(kicadstamp-config (clone_placements "
-        "(clone_placement (cluster \"CH0\") (cell \"dac_buf\") (xy 0.0 0.0) "
-        "(params (\"a\" \"b\" \"c\")))))",
+        "(kicadstamp-config (entities (entity (name \"E\") "
+        "(cell \"dac_buf\") (params (\"a\" \"b\" \"c\")))))",
         r"expected a key-value pair")
 
 
