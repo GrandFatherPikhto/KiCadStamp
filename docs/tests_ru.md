@@ -63,7 +63,7 @@ tests/
 ├── fixtures/            # данные на диске (снимки профилей), читаются по пути
 ├── config/              # kicadstamp/config/*, писатель s-expr, валидация
 ├── domain/              # kicadstamp/domain/* (DTO платы и геометрии)
-├── geometry/            # пады, якоря ячеек, раскладка спиц, keepout
+├── geometry/            # пады, якоря ячеек, примитивы along/across, keepout
 ├── placement/           # сервисы размещения, исполнитель, реестр, undo, persistence
 ├── pipeline/            # apply_pipeline.py и двухфазное выполнение
 ├── trees/               # trees, link_trees, tree_position, ячейки, размещение сущностей
@@ -72,7 +72,7 @@ tests/
 ├── imprint/             # imprint_*.py
 ├── overrides/           # переопределения полей и хранилище
 ├── net/                 # разрешение цепей, net traces, internode copper
-├── extraction/          # шаблоны, спицы, писатель извлечения
+├── extraction/          # шаблоны (ячейки), писатель извлечения
 ├── cli/                 # точки входа CLI, author_cli, конвертеры из tools/
 ├── kicad/               # IPC-адаптер, adapter_factory, explore, pynng safety
 ├── mcp/                 # mcp_server/*
@@ -359,18 +359,18 @@ pytest tests/integration_tests/ -v -s -m integration
 | `test_clone_geometry.py` | Геометрию `ClonePlacement`: преобразование локальных координат в абсолютные, углы компонентов, via и треки, зеркалирование (`mirror`), разрешение цепей через `params` и `net_overrides`. Проверяет фатальность via без `net`. |
 | `test_clone_ignore_selection.py` | Флаг `ignore_selection`: временное снятие выделения при обработке клона. |
 | `test_clone_placement_config.py` | Загрузку `ClonePlacement` из s-expr, проверку полей `cluster`, `cell`, `xy`, `rotation_deg`, `nets`, `params`, `net_overrides`, `retired`/`skip`/`ignore_selection`, `layer`/`mirror`, якорных полей. |
-| `test_clone_placement_integration.py` | Сквозной тест `PlacementPlanner` с `ClonePlacement` (моки): совместная работа с `chains` (ManualSpoke) и клонами в одном прогоне, проверка `registry_key` для via. |
+| `test_clone_placement_integration.py` | Сквозной тест `PlacementPlanner` с `ClonePlacement` (моки): работа клонов в одном прогоне, проверка `registry_key` для via (спицевая половина ушла вместе со спицами). |
 | `test_clone_role_resolver.py` | Разрешение ролей для `ClonePlacement` двумя режимами: по выделению (`resolve_roles_by_selection`) и по цепям (`resolve_roles_by_nets`), включая плейсхолдеры, `net_overrides`, обработку неоднозначности и близость к якорю. |
 | `test_clone_selection_conflict.py` | Проверку, что в конфиге не более одного `ClonePlacement` в режиме «по выделению» (`check_single_selection_based_clone`), а также работу `clone_uses_selection_mode` с учётом `by_selection`, `nets`, `params`. |
-| `test_config_includes.py` | Директиву `include:`: объединение `clone_placements`/`chains`/`templates` из нескольких файлов, обнаружение дубликатов, циклов и алмазов, отключённые include, неподдерживаемые ключи, неверное использование dict/list. |
+| `test_config_includes.py` | Директиву `include:`: объединение `clone_placements`/`entities`/`cells` из нескольких файлов, обнаружение дубликатов, циклов и алмазов, отключённые include, неподдерживаемые ключи, неверное использование dict/list. |
 | `test_dependency_order.py` | Разрешение порядка выполнения: отключённые клоны пропускаются, без зависимостей сохраняется исходный порядок, producer упорядочен перед consumer, self-якорь не цикл, настоящий цикл вызывает `ValidationError`. |
 | `test_execute_vias_owner_ref.py` | Корректность `owner_ref` в JSON-логах (каждая via получает свой владелец) и вызов `registry.record_created` с цепейьным UUID. |
 | `test_explore.py` | Хелперы запросов к плате только на чтение: `get_footprints_by_role`, `get_footprint_field`. |
-| `test_full_pipeline_templates.py` | Сквозной тест конвейера с шаблонами (моки): расчёт позиций и via для `ManualSpoke`, распределение компонентов по ролям, проверка `registry_key`. |
+| `test_full_pipeline_templates.py` | УДАЛЁН (2026-10) вместе со спицами; тот же конвейер покрыт клетками клон-размещений. |
 | `test_i18n.py` | Доступность функции `_()`, настройка gettext, проверка импорта во всех исходных файлах. |
 | `test_kicad.py` | Наличие всех методов интерфейса `IBoardAdapter` в `KiCadBoardAdapter`, импорт и конструктор (без реального IPC). |
-| `test_manual_position_calculator.py` | Логику `ManualPositionCalculator`: построение пула, расчёт позиций, планирование via для `chains`. |
-| `test_naming.py` | Доступоры `chain_effective_name`/`thermal_via_array_effective_name`, загрузка `name:` из s-expr, проверка обязательности имён (фатальность при отсутствии и при повторе имени внутри `thermal_via_arrays:`), опциональность Chain.name, значения по умолчанию retired/skip. |
+| `test_manual_position_calculator.py` | УДАЛЁН (2026-10): спицевый калькулятор снят. Живые копии правил слота/слоя — `TestComponentSlotLayer` в `test_clone_position_calculator.py`. |
+| `test_naming.py` | Доступоры `thermal_via_array_effective_name` и остальные `*_effective_name`, загрузка `name:` из s-expr, проверка обязательности имён (отсутствие и повтор внутри `thermal_via_arrays:`), значения по умолчанию retired/skip у термомассива. |
 | `test_net_resolution.py` | Разрешение цепей с плейсхолдерами: подстановка из `params`, применение `net_overrides`, ошибки при отсутствии параметров. |
 | `test_pad_projection.py` | Предсказание позиции пада после перемещения/поворота (без флипа и с флипом), инвариантность `local_pad_offset` к углу. |
 | `test_registry_integration.py` | Полный цикл реестра (создание, обновление, prune) на моках, включая сверку с реальными via. |
@@ -382,8 +382,8 @@ pytest tests/integration_tests/ -v -s -m integration
 | `test_two_phase_execution.py` | Двухфазное выполнение (moves → refresh → vias) на моках – гарантирует, что via планируются после перемещений и имеют корректный `registry_key`. |
 | `test_undo_layer.py` | Сохранение и восстановление слоя компонента при undo (`original_layer` в JSON-логе). |
 | `test_unique_roles.py` | Проверка уникальности ролей внутри шаблона (фатальная ошибка при дублировании). |
-| `test_unknown_keys_validation.py` | Проверку `check_unknown_keys` для секций конфига: неизвестные ключи на верхнем уровне, внутри `clone_placements`, `chains`, `thermal_via_arrays`, `templates`. |
-| `test_validation.py` | Предварительные проверки конфигурации: существование шаблонов и падов, достаточность компонентов по ролям, уникальность якорей клонов, резолв цепей via/треков, режим выделения для клонов. |
+| `test_unknown_keys_validation.py` | Проверку `check_unknown_keys` для секций конфига: неизвестные ключи на верхнем уровне, внутри `clone_placements`, `entities`, `thermal_via_arrays`, `cells`. |
+| `test_validation.py` | Предварительные проверки конфигурации: уникальность якорей клонов, резолв цепей via/треков, режим выделения для клонов (спицевые проверки шаблонов/падов и пула ушли). |
 
 ---
 
