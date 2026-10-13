@@ -717,6 +717,18 @@ reaches the disk until **Save**, which replaces the whole root `trees:` section 
 config_writer chokepoint (a fresh `.bak` is made first); linking/validation runs at Save via
 `kicadstamp.link_trees`.
 
+**UPDATE 2026-10-13 (plan `plan_2026_10_13_single_slot_rotation.md`):** the read — and the re-read
+frame behind "Refresh geometry from selection" — derives a cell's rotation by FITTING the stored offsets
+against the live deltas of every matched role; a cell with fewer than TWO usable slots had no pair at
+all, so the frame fell back to 0° SILENTLY (Denis: "угол поворота детали не считывается
+(conn_lcd_mcu), 270° пришлось прописать руками"). Such a cell now recovers the rotation from its ONE
+component's live angle through the SAME inverse of the placement formula the Redraw uses
+(`cell_frame.single_slot_rotation` → `clone_geometry.clone_rotation_from_component`), with the side from
+the layer rule — so Redraw → Read current position gives the node's own rotation back (the project's
+(-180, 180] convention, so a 270° instance reads as -90°). When the angle cannot be taken (no live
+footprint, or the board side is unknown) the frame keeps 0° and the Log SAYS so. Two or more parts keep
+the fit unchanged.
+
 **UPDATE 2026-10-08 (plan `plan_2026_10_08_tree_node_ref_apply.md`, «Решение по п.3»):** a node's
 **Apply** checks, BEFORE touching anything, everything the next config LOAD (and the writer stamp)
 would refuse, and refuses with the LOADER's own text in the Log plus a red line under the form —

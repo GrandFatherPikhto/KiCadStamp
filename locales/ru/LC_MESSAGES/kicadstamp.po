@@ -17998,3 +17998,7 @@ msgstr "Если это внешний (живущий только на пла�
 msgid "Record {ref!r} {where} — a record has exactly one position source; move the node, or embed tree {tree!r} as a Tree node."
 msgstr "Запись {ref!r} {where} — у записи ровно один источник положения; перенесите узел или встройте дерево {tree!r} как узел (дерево)."
 
+#: kicadstamp/cell_frame.py
+msgid "the rotation of the cell's single component could not be determined (no live footprint, or the board side is unknown) — 0° is used, which may be wrong for a turned instance"
+msgstr "поворот единственной детали ячейки определить не удалось (живого футпринта нет или сторона платы неизвестна) — принят 0°, что может быть неверно для повёрнутого экземпляра"
+

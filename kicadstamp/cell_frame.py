@@ -42,10 +42,20 @@ against the cell's own `layer`, and a fit is merely CONSTRAINED by it. Every
 reader of a live cluster must ask this one function instead of spelling the
 comparison out (three copies drifted into the re-read defect of 2026-10-12).
 
+The THIRD rule (2026-10-13, plan_2026_10_13_single_slot_rotation):
+`fit_cell_frame` is for a cell with at least TWO usable slots. With fewer, nothing
+can be fitted, and `single_slot_rotation` recovers the placement's own rotation
+from the ONE component's live angle — the SAME inverse of the placement formula
+(`clone_geometry.clone_rotation_from_component`), never a second copy of it. The
+"never from one component's angle" caution above is about a MULTI-part cell, where
+a symmetric part's angle is ambiguous by 180°; a single component has nothing to
+disagree with.
+
 Pure: no board access, no Qt, no config objects — mm floats in and out.
 """
 from __future__ import annotations
 
+import logging
 import math
 from dataclasses import dataclass
 from typing import Iterable
@@ -55,6 +65,8 @@ from .geometry.clone_geometry import clone_rotation_from_component
 from .i18n import _
 from .utils.layers import layer_to_str
 from .utils.units import MM
+
+logger = logging.getLogger(__name__)
 
 # Worst per-role deviation (mm) still considered a rigid copy of the cell.
 RIGID_TOLERANCE_MM = 0.05
@@ -102,6 +114,28 @@ def mirror_for_layer(fp_layer, cell_layer,
     if not isinstance(fp_layer, BoardLayer) or not isinstance(cell_layer, str):
         return fallback
     return (fp_layer == BoardLayer.BL_B_Cu) != (cell_layer == "B.Cu")
+
+
+def single_slot_rotation(live_angle_deg: float, slot_angle_deg: float,
+                         mirror: bool) -> float:
+    """The placement's own rotation recovered from the ONE component of a cell
+    that has fewer than TWO usable slots (2026-10-13, plan_2026_10_13_single_slot_
+    rotation — Denis: "Read current position" reported 0 for a part he had to turn
+    by hand).
+
+    A cell frame is normally FITTED from the stored offsets against the live
+    deltas of every matched role — deliberately NOT from one component's angle,
+    because a symmetric two-pin part's angle is ambiguous by 180° (see the module
+    docstring). A cell with ONE usable slot has nothing to disagree WITH: its live
+    angle is the only and exact source.
+
+    The MATH is not written here: it is `clone_geometry.
+    clone_rotation_from_component`, the ONE inverse of the placement's own
+    `comp_angle` (apply_clone_geometry), so a single-slot read and a placement can
+    never drift apart. `mirror` must come from `mirror_for_layer` (this module's
+    other rule) and must be KNOWN: the mirrored branch of the formula is
+    different, so a caller that cannot tell the side must not call this at all."""
+    return clone_rotation_from_component(live_angle_deg, slot_angle_deg, mirror)
 
 
 @dataclass(frozen=True)
@@ -315,8 +349,27 @@ def frame_for_live_selection(matched, footprints, role_to_ref, origin, mount,
             (fp.position.x - placement_origin.x) / MM,
             (fp.position.y - placement_origin.y) / MM))
     fit = fit_cell_frame(pairs, mirror=mirror)
+    # Fewer than TWO matched slots -> no pair to fit, and the ONE component's live
+    # angle is the only exact source (the rule and its math live in
+    # single_slot_rotation). It needs a KNOWN side: without one the frame keeps
+    # today's theta=0, said out loud instead of silently (plan rule 4).
+    single_rot: float | None = None
+    if fit is None and len(matched) == 1:
+        only = matched[0]
+        single_fp = ref_to_fp.get(role_to_ref.get(only.get("role")))
+        if single_fp is None or mirror is None:
+            logger.warning(_(
+                "the rotation of the cell's single component could not be "
+                "determined (no live footprint, or the board side is unknown) — "
+                "0° is used, which may be wrong for a turned instance"))
+        else:
+            single_rot = single_slot_rotation(
+                float(single_fp.angle_deg),
+                float(only.get("angle_deg", 0.0)), bool(mirror))
     if fit is None:
         return CellFrame(placement_origin=placement_origin,
+                         rotation_deg=single_rot if single_rot is not None else 0.0,
+                         mirror=bool(mirror) if single_rot is not None else False,
                          mount=(mount[0], mount[1]), side_layer=side_layer,
                          cell_layer=cell_layer)
     return CellFrame(placement_origin=placement_origin,

@@ -745,11 +745,15 @@ def cell_frame_from_live(components, footprints, adapter, origin_role=None):
 
 def cell_slot_dicts(cell) -> list[dict]:
     """A loaded ``Cell``'s slots in the list-of-dicts shape the frame and the
-    cell readers take (role + the two STORED offsets) — the frame needs nothing
-    else, and the GUI already holds exactly this shape."""
+    cell readers take (role + the two STORED offsets + the slot's own
+    ``angle_deg``) — the frame needs the angle to recover a SINGLE-slot
+    instance's rotation (2026-10-13, plan_2026_10_13_single_slot_rotation:
+    cell_frame.single_slot_rotation), and a caller that carries no angle gets
+    0.0 from the reader, which is exactly today's behaviour."""
     return [{"role": getattr(slot, "role", None),
              "offset_along_mm": float(getattr(slot, "offset_along_mm", 0.0)),
-             "offset_across_mm": float(getattr(slot, "offset_across_mm", 0.0))}
+             "offset_across_mm": float(getattr(slot, "offset_across_mm", 0.0)),
+             "angle_deg": float(getattr(slot, "angle_deg", 0.0))}
             for slot in (getattr(cell, "components", None) or ())]
 
 

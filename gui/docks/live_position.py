@@ -24,7 +24,8 @@ from collections import Counter
 from dataclasses import dataclass
 
 from kicadstamp.cell_frame import (CellFrame, fit_cell_frame, mirror_for_layer,
-                                   reference_relative_pairs)
+                                   reference_relative_pairs,
+                                   single_slot_rotation)
 from kicadstamp.cluster_matching import cluster_prefix_match
 from kicadstamp.config import clone_placement_effective_name
 from kicadstamp.constants import CLUSTER_FIELD_NAME, ROLE_FIELD_NAME
@@ -550,8 +551,27 @@ def _live_cluster_frame(adapter, cell, cluster: str, sheet: str, sheet_names,
              live.position.x / MM, live.position.y / MM)
             for role, live in role_to_fp.items() if role in slot_by_role]),
         mirror=mirror)
+    # ONE resolved component (2026-10-13, plan_2026_10_13_single_slot_rotation —
+    # Denis: "Read current position" reported 0 for a part he had to turn by
+    # hand): with fewer than TWO resolved slots there is no pair to fit against,
+    # and that component's live angle is the only, exact source — the rule and its
+    # math live in the ONE owner (cell_frame.single_slot_rotation, which delegates
+    # to the placement's own inverse formula). A MULTI-part cell keeps the fit: a
+    # symmetric part's angle is ambiguous by 180° there, geometry is not.
+    single_rot: float | None = None
+    if fit is None and len(role_to_fp) == 1:
+        # `only_slot` is always found: role_to_fp only ever carries roles
+        # resolved FROM the cell's own slots, and an unresolved one already
+        # raised a named refusal above — so this reader has no silent "0°" path.
+        only_role, only_fp = next(iter(role_to_fp.items()))
+        only_slot = slot_by_role.get(only_role)
+        if only_slot is not None:
+            single_rot = single_slot_rotation(
+                float(only_fp.angle_deg), float(only_slot.angle_deg),
+                bool(mirror))
     frame = CellFrame.from_reference(
-        rotation_deg=fit.rotation_deg if fit is not None else 0.0,
+        rotation_deg=(fit.rotation_deg if fit is not None
+                      else (single_rot if single_rot is not None else 0.0)),
         mirror=mirror, mount=(ax_mm, ay_mm), stored_ref=reference[:2],
         live_ref_mm=reference[2:],
         residual_mm=fit.residual_mm if fit is not None else 0.0)

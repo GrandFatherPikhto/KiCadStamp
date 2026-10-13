@@ -17076,3 +17076,7 @@ msgstr "If this is an external (live-board-only) refdes, add (kind mount)"
 msgid "Record {ref!r} {where} — a record has exactly one position source; move the node, or embed tree {tree!r} as a Tree node."
 msgstr "Record {ref!r} {where} — a record has exactly one position source; move the node, or embed tree {tree!r} as a Tree node."
 
+#: kicadstamp/cell_frame.py
+msgid "the rotation of the cell's single component could not be determined (no live footprint, or the board side is unknown) — 0° is used, which may be wrong for a turned instance"
+msgstr "the rotation of the cell's single component could not be determined (no live footprint, or the board side is unknown) — 0° is used, which may be wrong for a turned instance"
+
