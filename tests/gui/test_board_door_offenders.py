@@ -123,7 +123,7 @@ def test_the_extract_entry_does_not_read_the_board_unsigned(
 class _PresenceOnlyConnection:
     """Answers the presence question and DIES if the door is opened anyway: a
     presence check must not read `board` — the Т5-2 idiom, applied to the Extract
-    entry (Ш4) and to the Instantiate-from-selection continuation (Т2-1)."""
+    entry (Ш4)."""
 
     def __init__(self, is_connected=False):
         self.is_connected = is_connected
@@ -153,46 +153,6 @@ def test_the_extract_presence_check_does_not_open_the_door(
     real_main_window._dock_hub._extract_tree_from_selection_now()
 
     assert warnings, "the flow must report the missing connection"
-
-
-# ── Т2-1 (plan_2026_09_22_live_adapter_class) — the Instantiate continuation ──
-# `_anchor_base_then` (the "from selection" half of Instantiate from Cell) asked
-# "is there a board?" BY READING THE DOOR and handed nothing through that read:
-# the base read itself runs on the WORKER, which builds its own adapter
-# (run_anchor_base_mm_worker). The presence question is the connection's now.
-
-def test_the_instantiate_continuation_does_not_read_the_board_unsigned(
-        real_main_window, tmp_path, armed_door, monkeypatch):
-    """Т2-1 — with the door ARMED the continuation refuses nothing: it asks the
-    connection whether a board is there and goes on to its worker. The stand-in's
-    `board` RAISES when read, so a door read fails the test outright.
-
-    The root comes first (a continuation without a config refuses for that reason,
-    not for the board's) and the modal is recorded rather than shown, so a
-    regression fails on the assert instead of waiting for a click.
-
-    Mutation check: restore `self._live_adapter() is None` and this fails — the
-    door refuses first, and the stand-in would raise anyway."""
-    import gui.docks.trees_dock as td_mod
-
-    root = tmp_path / "root.sexp"
-    root.write_text(dict_to_sexp({"cells": {}, "trees": []}, format_number=2), encoding="utf-8")
-    dock = real_main_window._dock_hub.trees_dock
-    dock.set_root_file(root)
-
-    started = []
-    warnings = []
-    monkeypatch.setattr(td_mod, "start_long_op",
-                        lambda *a, **k: started.append(a) or None)
-    monkeypatch.setattr(td_mod.QMessageBox, "warning",
-                        lambda *a, **k: warnings.append(a) or None)
-    real_main_window.connection = _PresenceOnlyConnection(is_connected=True)
-
-    dock._anchor_base_then((1.0, 2.0), "cell1", "ENT_A", "CL", "",
-                           SimpleNamespace(name="probe_tree"))
-
-    assert warnings == [], "the presence check refused a connection that is there"
-    assert started, "the continuation must reach its worker"
 
 
 # ── Т2-2 (plan_2026_09_22_live_adapter_class) — the three handoff reads ──────
@@ -460,6 +420,48 @@ def test_a_move_deferred_by_a_busy_socket_still_happens(
 
     assert dock._in_list(moved, mount_b.children) and moved not in tree.nodes, \
         "the deferred attempt must complete the move the user asked for"
+def test_the_rehang_sign_names_the_whole_board_refresh(
+        real_main_window, monkeypatch):
+    """Кj — the reason the door's sign carries must say that an Entity-typed
+    parent pays ONE whole-board `adapter.refresh_board()` from the UI thread: the
+    cost the snapshot does NOT remove is the cost the sign has to name.
+
+    Mutation check: drop the refresh sentence from the reason and this fails
+    (m20 of the mutation run) while every other cell stays green — the resolve
+    itself is unaffected, which is exactly why the naming needs its own cell."""
+    import gui.docks.trees_dock as td_mod
+
+    reasons: list = []
+
+    @contextmanager
+    def _spy(*, reason):
+        reasons.append(reason)
+        yield
+
+    monkeypatch.setattr(td_mod, "ui_thread_board_read", _spy)
+    monkeypatch.setattr(td_mod, "_reparented_offset",
+                        lambda *a, **k: (None, None, 0.0))
+    dock = real_main_window._dock_hub.trees_dock
+    real_main_window.connection.board = SimpleNamespace(adapter=object())
+
+    dock._rehang_offset_or_ask(
+        SimpleNamespace(name="probe_tree"),
+        SimpleNamespace(ref="R_DEBUG", kind="external"), None, None)
+
+    assert reasons, "the re-hang resolve must go through the door's sign"
+    text = reasons[0]
+    assert "refresh_board" in text, (
+        "the sign must NAME the whole-board refresh it covers, not only the two "
+        "resolves — signing a cost without naming it was refused", text)
+    assert "Entity" in text, (
+        "…and say WHICH parent pays it (the Entity-typed one, the typical node)",
+        text)
+    assert "full-board" in text, (
+        "…AND name the full-board re-read that refresh FORCES on the next line: a "
+        "call count is not what the board costs, because the adapter caches and "
+        "refresh_board() empties that cache (Кk of the acceptance) — a reason that "
+        "mentions refresh_board alone would read as if the cost were a round trip "
+        "and nothing else", text)
 
 
 def test_a_move_still_busy_on_the_retry_tells_the_user(
@@ -504,226 +506,6 @@ def test_a_move_still_busy_on_the_retry_tells_the_user(
     # (`len(scheduled) == 1`) plus the helper's own sentinel in
     # tests/gui/test_snapshot_freshness.py.
     assert len(scheduled) == 1
-
-
-# ── Т2-6 (plan_2026_09_22_live_adapter_class) — the tab-2 extraction ──────────
-# "Instantiate from Cell…" tab 2 used to read the door and then run a whole-board
-# extraction inline: `adapter = self._live_adapter()  # lazy: tab 1 stays usable
-# offline` followed by `if adapter is None:`, both in `_instantiate_from_cell_now`.
-# It now asks the CONNECTION for presence (the Т5-2 idiom) and the read happens on
-# a WORKER that builds its OWN adapter — so the UI half has no adapter read at all.
-
-def test_the_new_cell_extraction_does_not_read_the_board_unsigned(
-        real_main_window, tmp_path, monkeypatch, qapp):
-    """Т2-6 — with the door ARMED, driving the tab-2 continuation reads nothing
-    unsigned. The worker is stubbed here (its own thread and the shared-socket
-    token are pinned in tests/gui/test_ui_thread_board_reads.py), so what this
-    cell adds is the DOOR: the continuation must not reach for the adapter object
-    at all.
-
-    The continuation is `_extract_new_cell_then` — a function the fix CREATED, so
-    this cell cannot vouch for the place the read used to stand: that was
-    `_instantiate_from_cell_now`, one level up, and it has its own cell below
-    (Кm of plan_2026_09_22_door_guard_aim_and_socket_close —
-    test_instantiate_tab_2_does_not_read_the_board_unsigned).
-
-    Mutation check: mutation m22 restores the pre-Т2-6 inline extraction (the door
-    read included) INSIDE `_extract_new_cell_then`, and this fails with the
-    refusal."""
-    import gui.docks.trees_dock as trees_mod
-    from tests.gui.conftest import _pump
-
-    root = tmp_path / "root.sexp"
-    root.write_text(dict_to_sexp({"trees": [
-        {"name": "t", "anchor": {"origin": True}, "nodes": []}]}, format_number=2), encoding="utf-8")
-    dock = trees_mod.TreesDock(real_main_window)
-    dock.set_root_file(root)                     # built BEFORE the door is armed
-    tree = dock._trees[0]
-    real_main_window.connection.board = SimpleNamespace(adapter=object())
-    # Т2-8 closed the gap this comment used to point at: the tab rebuild's forms no
-    # longer read the board unsigned, so the stub that hid them is gone — this cell
-    # now drives the real rebuild and still measures the extraction path.
-    started: list = []
-    monkeypatch.setattr(
-        trees_mod, "run_extract_new_cell_worker",
-        lambda payload: started.append(payload)
-        or {"cell": {"new_cell": {"components": [{"role": "R1"}]}}})
-    _arm_the_door(monkeypatch)
-
-    dock._extract_new_cell_then(
-        SimpleNamespace(cluster="CL", sheet=""), [], absolute=False,
-        origin_role=None, origin_pad=None, cell_name="new_cell",
-        entity_name="ENT_A", cluster="CL", sheet="", tree=tree, selected=[],
-        from_selection=False, manual_xy=(1.0, 2.0))
-    _pump(qapp, lambda: not real_main_window.connection.long_op_active)
-
-    assert started, "the extraction must go to its worker"
-    assert started[0]["cluster"].cluster == "CL", \
-        "the detected cluster must travel in the payload"
-
-
-# ── Кm (plan_2026_09_22_door_guard_aim_and_socket_close) — the place the defect
-# REALLY lived ────────────────────────────────────────────────────────────────
-# The Т2-6 cell above drives `_extract_new_cell_then`, which commit e4ddc5a
-# CREATED. The read the fix removed stood one level up, in
-# `_instantiate_from_cell_now` — verbatim, from
-# `git show e4ddc5a -- gui/docks/trees_dock.py`:
-#     adapter = self._live_adapter()  # lazy: tab 1 stays usable offline
-#     if adapter is None:
-# Nothing watched that place, so the defect could be put back in silence: the proof
-# is the mutation of the acceptance, which passed EVERY watchdog. That is why this
-# cell exists and why its mutation's pattern is taken from the diff, not from memory.
-
-def test_instantiate_tab_2_does_not_read_the_board_unsigned(
-        real_main_window, tmp_path, monkeypatch, qapp):
-    """Кm (plan_2026_09_22_door_guard_aim_and_socket_close) — with the door ARMED,
-    driving "Instantiate from Cell…" TAB 2 through its REAL entry reads nothing
-    unsigned, and the flow still reaches its worker.
-
-    It drives `_instantiate_from_cell_now` itself, because that is where the
-    pre-Т2-6 read lived: the presence check opened the door
-    (`adapter = self._live_adapter()`) and the extraction behind it ran inline on
-    the UI thread. The Т2-6 cell above drives only the continuation the fix created
-    and says nothing about this place.
-
-    Every seam the flow crosses is stubbed BELOW the door, so the only thing that can
-    refuse is the door itself: the modal dialog (its answers are plain data), the
-    fully-selected-cluster detection (exactly ONE cluster, so the dialog's own gate
-    is passed) and the tab-2 worker. NOT stubbed, on purpose: the tab rebuild. A
-    `_rebuild_tabs` stub stood here until Т2-8 and is gone — the forms the rebuild
-    builds take their own adapter at their own read points now — so this cell
-    drives the REAL rebuild and still measures the door. Measured, not assumed
-    (Т5 of plan_2026_09_24_kq_pytest_qt): with m42 restored it is exactly this
-    rebuild that refuses first, naming gui/docks/trees_dock.py:2896.
-
-    Mutation check: put the removed lines back —
-    `adapter = self._live_adapter()  # lazy: tab 1 stays usable offline` followed by
-    `if adapter is None:` in `_instantiate_from_cell_now` (the pattern is the `-`
-    half of the diff of the commit that removed them) — and this fails with the
-    door's refusal naming gui/docks/trees_dock.py."""
-    import gui.docks.instantiate_cell_dialog as dialog_mod
-    import gui.docks.reead as reead_mod
-    import gui.docks.trees_dock as trees_mod
-    from PyQt6.QtWidgets import QDialog
-    from tests.gui.conftest import _pump
-
-    root = tmp_path / "root.sexp"
-    root.write_text(dict_to_sexp({"trees": [
-        {"name": "t", "anchor": {"origin": True}, "nodes": []}]}, format_number=2), encoding="utf-8")
-    dock = trees_mod.TreesDock(real_main_window)
-    dock.set_root_file(root)                     # built BEFORE the door is armed
-    real_main_window.connection.board = SimpleNamespace(adapter=object())
-    # Т2-8: the `_rebuild_tabs` stub that stood here is gone — the forms the rebuild
-    # builds take their adapter at their own points now, under their own signs.
-
-    class _NewCellDialog:
-        """The modal of "Instantiate from Cell…", answered on TAB 2: `exec()`
-        returns Accepted so the flow goes on, and every answer the flow reads comes
-        back as plain data — no widget is ever shown."""
-
-        def __init__(self, *args, **kwargs):
-            pass
-
-        def exec(self):
-            return QDialog.DialogCode.Accepted
-
-        def entity_name(self):
-            return "ENT_A"
-
-        def result_cell(self):
-            return "new_cell"
-
-        def cluster(self):
-            return "CL"
-
-        def sheet(self):
-            return ""
-
-        def is_new_cell(self):
-            return True
-
-        def origin_override(self):
-            return None, None
-
-        def absolute_origin(self):
-            return False
-
-        def from_selection(self):
-            return False
-
-        def manual_xy(self):
-            return (1.0, 2.0)
-
-    monkeypatch.setattr(dialog_mod, "InstantiateCellDialog", _NewCellDialog)
-    # Exactly ONE fully selected cluster: the dialog only enables OK in that case,
-    # and the real detection needs live snapshot items this cell does not model.
-    monkeypatch.setattr(reead_mod, "fully_selected_clusters",
-                        lambda *a, **k: [SimpleNamespace(cluster="CL", sheet="")])
-    started: list = []
-    monkeypatch.setattr(
-        trees_mod, "run_extract_new_cell_worker",
-        lambda payload: started.append(payload)
-        or {"cell": {"new_cell": {"components": [{"role": "R1"}]}}})
-    _arm_the_door(monkeypatch)
-
-    dock._instantiate_from_cell_now([])          # must not raise
-    _pump(qapp, lambda: not real_main_window.connection.long_op_active)
-
-    assert started, "the flow must reach its worker"
-    assert started[0]["cluster"].cluster == "CL", \
-        "the detected cluster must travel in the payload"
-    assert started[0]["cell_name"] == "new_cell"
-
-
-# ── Кj (plan_2026_09_22_live_adapter_class) — the sign NAMES the refresh ─────
-# `_live_cluster_frame` refreshes the board before it reads (bug of 2026-09-10)
-# and the re-hang reaches it from the UI THREAD, so covering that call with a sign
-# is not enough: the sign has to NAME its price. The acceptance was exact about it
-# — "либо он уходит из этого пути, либо знак обязан называть его ценой отдельной
-# строкой"; "подписать и не назвать" is what it refused.
-
-def test_the_rehang_sign_names_the_whole_board_refresh(
-        real_main_window, monkeypatch):
-    """Кj — the reason the door's sign carries must say that an Entity-typed
-    parent pays ONE whole-board `adapter.refresh_board()` from the UI thread: the
-    cost the snapshot does NOT remove is the cost the sign has to name.
-
-    Mutation check: drop the refresh sentence from the reason and this fails
-    (m20 of the mutation run) while every other cell stays green — the resolve
-    itself is unaffected, which is exactly why the naming needs its own cell."""
-    import gui.docks.trees_dock as td_mod
-
-    reasons: list = []
-
-    @contextmanager
-    def _spy(*, reason):
-        reasons.append(reason)
-        yield
-
-    monkeypatch.setattr(td_mod, "ui_thread_board_read", _spy)
-    monkeypatch.setattr(td_mod, "_reparented_offset",
-                        lambda *a, **k: (None, None, 0.0))
-    dock = real_main_window._dock_hub.trees_dock
-    real_main_window.connection.board = SimpleNamespace(adapter=object())
-
-    dock._rehang_offset_or_ask(
-        SimpleNamespace(name="probe_tree"),
-        SimpleNamespace(ref="R_DEBUG", kind="external"), None, None)
-
-    assert reasons, "the re-hang resolve must go through the door's sign"
-    text = reasons[0]
-    assert "refresh_board" in text, (
-        "the sign must NAME the whole-board refresh it covers, not only the two "
-        "resolves — signing a cost without naming it was refused", text)
-    assert "Entity" in text, (
-        "…and say WHICH parent pays it (the Entity-typed one, the typical node)",
-        text)
-    assert "full-board" in text, (
-        "…AND name the full-board re-read that refresh FORCES on the next line: a "
-        "call count is not what the board costs, because the adapter caches and "
-        "refresh_board() empties that cache (Кk of the acceptance) — a reason that "
-        "mentions refresh_board alone would read as if the cost were a round trip "
-        "and nothing else", text)
 
 
 # ── Т2-3 (plan numbering, plan_2026_09_22_live_adapter_class) — PointsDock ───

@@ -377,102 +377,6 @@ def create_cell_and_entity_for_cluster(
         ent["sheet"] = c.sheet
     return ent
 
-
-def extract_new_cell_for_instantiation(
-    adapter, c: ReReadCluster, cell_name: str,
-    selection_footprints, selection_raw_items,
-    absolute: bool,
-    origin_role: Optional[str] = None,
-    origin_pad: Optional[str] = None,
-) -> Optional[dict]:
-    """Build a NEW Cell dict {cell_name: {...}} for the "Instantiate from
-    Cell..." dialog's second tab ("Extract new cell from selection", 2026-09-04,
-    plan instantiate_new_cell_from_selection).
-
-    origin_role/origin_pad — optional MANUAL override of the automatic
-    zero-slot detection (2026-09-04, restores the pad-origin picker the retired
-    ExtractDock had before Phase F, plan extract_origin_pad_restore). None
-    (default) keeps today's automatic behavior unchanged. Applied ONLY in the
-    absolute=False branch — in absolute=True they are ignored (the "Absolute"
-    geometry mode has its own explicit origin via selected_center_mm, see design
-    §1.1.2 in cell_internal_anchor.md).
-
-    STRICT full-selection semantics (Denis's 2026-09-04 decision): `c` is a
-    ReReadCluster returned by fully_selected_clusters — ONLY a FULLY selected
-    cluster is ever extracted here. A partial selection is never captured
-    silently (the fpga_oscill cell that was born without its via/track because
-    the selection was partial — plan_2026_09_03_fpga_oscill_missing_copper_and_
-    cell_import.md): the dialog only offers this path for a fully-selected
-    cluster and refuses otherwise.
-
-    The Cell is built with the SAME extract_template_from_selection call
-    create_cell_and_entity_for_cluster uses (cluster_raw_items + an origin), the
-    only difference being the origin choice of the "geometry mode":
-      - absolute=False (default): origin_component_role = a unique zero-slot
-        component role among the selection (cluster_origin_role) narrowed by
-        c.cluster/c.sheet — the ordinary portable-cell convention (works with
-        ANY node placement);
-      - absolute=True: origin = the geometric center of the selected footprints
-        (Vector2.from_xy_mm(selected_center_mm)) — the SAME point the caller's
-        "Take from selection" mode uses for the node's own xy, so the total
-        position reproduces the live one exactly (no double-offset, see design
-        §1.1.2). Correct ONLY paired with "Take from selection" node
-        positioning — the dialog says so in the UI; this function does not
-        enforce it.
-
-    Returns None (logs a warning) on a failed extraction — the same "one bad
-    cluster must not crash the caller" contract as create_cell_and_entity_for_
-    cluster. Never writes to disk itself."""
-    items = cluster_raw_items(c, selection_raw_items)
-    origin_kwargs: dict = {}
-    if absolute:
-        center = selected_center_mm(selection_footprints)
-        if center is None:
-            logging.warning(
-                "Cell %r for cluster %r: no footprint positions in the "
-                "selection — the absolute origin (selection center) is "
-                "unavailable", cell_name, c.cluster)
-            return None
-        origin_kwargs = {"origin": Vector2.from_xy_mm(*center)}
-    else:
-        if origin_pad and not origin_role:
-            raise ValueError("origin_pad requires origin_role")
-        role = origin_role or cluster_origin_role(c, selection_footprints)
-        if role:
-            origin_kwargs = dict(
-                origin_component_role=role,
-                origin_component_cluster=c.cluster,
-                origin_component_sheet=c.sheet)
-            if origin_pad:
-                origin_kwargs["origin_component_pad"] = origin_pad
-    try:
-        return extract_template_from_selection(
-            adapter, cell_name, items=items, **origin_kwargs)
-    except Exception as e:  # noqa: BLE001 — one bad cluster must not crash the caller
-        logging.warning("Cell %r for cluster %r not generated: %s",
-                        cell_name, c.cluster, e)
-        return None
-
-
-# ── Placement-Entity builders (2026-09-03, plan instantiate_from_entity; P6) ──
-# Pure, Qt-free logic for the actions that stage a NEW placement Entity +
-# (separately) the tree node that places it:
-#   * "Instantiate from Cell…" (2026-09-03) — reuse an EXISTING Cell: pick a
-#     Cell (the group's internal layout), name a new Entity for the new
-#     physical cluster (cluster/sheet), place a placement node into the
-#     current tree. Roles are NOT pinned from selection — components of the new
-#     cluster may not be placed/selected yet, so they resolve at Apply by
-#     cluster/sheet (the same path the template Entity uses). Selection is only
-#     an OPTIONAL positioning aid: the geometric center of a single-cluster
-#     selection gives the node's offset from the tree anchor.
-#   * "Place Imprint…" (P6, plan_2026_09_05_scheme_list.md §6) — place a
-#     recorded Imprint snapshot: a NEW imprint-based Entity (refdes-
-#     literal clone of a recorded snapshot) + a placement node appended as a
-#     child of an EXISTING tree node (never a new tree).
-# Both share _entity_payload: an Entity is {name} + a geometry-source
-# reference (cell+cluster / imprint) + optional sheet, and NEVER carries
-# position (the tree node owns xy/rotation).
-
 def _entity_payload(name: str, source: dict, sheet: Optional[str] = None) -> dict:
     """The shared entities: payload of the placement builders — {name} + the
     geometry-source reference fields (`source`) + optional sheet. Deliberately
@@ -484,17 +388,6 @@ def _entity_payload(name: str, source: dict, sheet: Optional[str] = None) -> dic
     if sheet:
         ent["sheet"] = sheet
     return ent
-
-
-def build_instantiated_entity(cell_name: str, name: str, cluster: str,
-                              sheet: Optional[str] = None) -> dict:
-    """The entities: dict for a NEW physical instance reusing an EXISTING Cell:
-    {name, cell, cluster, sheet?}. Deliberately NO refs/by_selection — the new
-    cluster's roles are resolved at Apply by (Cluster, Sheet), NOT pinned from a
-    selection (which may not exist yet). Never generates a new Cell (that is
-    create_cell_and_entity_for_cluster's job — here the Cell already exists)."""
-    return _entity_payload(name, {"cell": cell_name, "cluster": cluster}, sheet)
-
 
 def build_imprint_entity(name: str, imprint: str,
                              sheet: Optional[str] = None) -> dict:

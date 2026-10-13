@@ -170,8 +170,10 @@ def test_a_failed_name_releases_its_socket_like_a_successful_one(monkeypatch, tm
 # "run_anchor_live_position_worker" left with its "Anchor position" menu item
 # (2026-10-13, plan_2026_10_13_trees_menus_cleanup Ч1) — there is no worker left
 # to guard.
-_TREES_WORKERS = ("run_internode_reread_worker",
-                  "run_anchor_base_mm_worker", "run_extract_new_cell_worker")
+# Both Instantiate-from-Cell workers (run_anchor_base_mm_worker /
+# run_extract_new_cell_worker) went with the flow (2026-10-13,
+# plan_2026_10_13_trees_menus_cleanup Ч1б) — there is nothing left to guard.
+_TREES_WORKERS = ("run_internode_reread_worker",)
 _COPPER_WORKERS = ("run_select_record_copper_worker",
                    "run_identify_copper_worker")
 _ALL_WORKERS = _TREES_WORKERS + _COPPER_WORKERS
@@ -224,16 +226,6 @@ def _payload_for(worker_name, monkeypatch, tmp_path):
                             lambda *a, **k: SimpleNamespace(added=[]))
         monkeypatch.setattr(capture_mod, "apply_reread_plan", lambda cfg, plan: cfg)
         return {"cfg": Config(), "tree": _plain_tree(), "sheet_names": {}}
-    if worker_name == "run_anchor_base_mm_worker":
-        monkeypatch.setattr(td_mod, "_anchor_base_live_position",
-                            lambda *a, **k: (Vector2.from_xy(1_000, 2_000), 0.0))
-        return {"cfg": object(), "tree": _plain_tree(ref="U1"), "sheet_names": {}}
-    if worker_name == "run_extract_new_cell_worker":
-        monkeypatch.setattr(
-            "gui.docks.tree_from_selection.extract_new_cell_for_instantiation",
-            lambda *a, **k: {"new_cell": {"components": [{"role": "R1"}]}})
-        return {"cluster": "CL", "cell_name": "new_cell", "selected": [],
-                "raw_items": [], "absolute": False}
     config_path = tmp_path / "root.sexp"
     config_path.write_text("", encoding="utf-8")
     if worker_name == "run_select_record_copper_worker":

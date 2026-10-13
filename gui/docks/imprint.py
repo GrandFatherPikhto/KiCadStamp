@@ -116,7 +116,7 @@ def snapshot_with_resolved_sheets(snapshot: list, sheet_names: dict) -> list:
 def live_sheet_paths(snapshot: list) -> list[tuple[str, ...]]:
     """Distinct FULL sheet-path tuples across the live snapshot, sorted — the
     WHOLE Selected.sheet chain of every footprint (not flattened leaf
-    segments, unlike TreesDock._live_sheets / imprint_place._live_sheets),
+    segments, unlike imprint_place._live_sheets),
     so a nested sheet stays distinguishable from a same-named sheet elsewhere
     in the hierarchy. A path containing an unresolved (None/empty) segment is
     skipped — resolve_sheet_path_names can leave a gap when a .kicad_sch

@@ -21,7 +21,6 @@ from pathlib import Path
 import pytest
 
 from gui.docks.tree_from_selection import (
-    build_instantiated_entity,
     build_imprint_entity,
 )
 from kicadstamp.config.sexp_format import dict_to_sexp, sexp_to_dict
@@ -75,12 +74,13 @@ class TestBuildImprintEntity:
         ent = build_imprint_entity("PSU_CH0", "psu")
         assert ent == {"name": "PSU_CH0", "imprint": "psu"}
 
-    def test_shares_entity_payload_with_build_instantiated(self):
-        """Both builders go through the same _entity_payload — the cell-based
-        shape is unchanged (P5 regression guard)."""
-        inst = build_instantiated_entity("c_psu", "PSU_CH0", "PSU", "Channel_0")
-        assert inst == {"name": "PSU_CH0", "cell": "c_psu",
-                        "cluster": "PSU", "sheet": "Channel_0"}
+    def test_imprint_entity_payload_shape(self):
+        """The imprint Entity's payload stays exactly this shape.
+
+        The cell-based twin this cell used to compare against
+        (`build_instantiated_entity`) went with the Instantiate-from-Cell flow
+        (2026-10-13, plan_2026_10_13_trees_menus_cleanup Ч1б); the imprint half
+        is live and pinned on its own."""
         sl = build_imprint_entity("PSU_CH0", "psu", "Channel_0")
         assert sl == {"name": "PSU_CH0", "imprint": "psu", "sheet": "Channel_0"}
 

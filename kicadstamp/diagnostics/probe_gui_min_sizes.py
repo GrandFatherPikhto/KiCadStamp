@@ -248,7 +248,6 @@ def _builders(window, built: dict) -> list[tuple[str, object]]:
         ("BulkSetCellDialog", lambda: BulkSetCellDialog(throwaway_root, parent=window)),
         ("ProfileImportDialog", lambda: ProfileImportDialog(window, throwaway_root)),
         # Deliberately NOT measured, reported instead of hidden.
-        ("InstantiateCellDialog", _needs_config("InstantiateCellDialog")),
         ("TreeInstancesDialog", _needs_config("TreeInstancesDialog")),
     ]
 

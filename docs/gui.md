@@ -105,13 +105,12 @@ keep their values) and is simply repeated: the tick holds the socket for millise
 moved the one flow whose read could genuinely take seconds — the node's **Reread current position** —
 onto a worker under `start_long_op`, so it no longer freezes the window either.
 
-The Instantiate-from-selection tree-anchor base left that refused list on 2026-09-14 (plan_
-2026_09_14_ui_thread_offenders): it costs 1x `get_footprints` plus one field read PER footprint
-(138.6 ms measured on a 325-footprint board), and refusing it meant that roughly every sixth OK in
-that dialog dropped to "enter the xy manually". It now runs on a worker under `start_long_op`, and a
-socket that is busy at that moment gets ONE deferred retry (120 ms) before the same manual answer.
-The cell-anchor page's Role narrowing left the board entirely in the same change: it is a HINT and
-reads the board snapshot the GUI already holds, so it costs no IPC at all.
+The tree-anchor base read of the now-removed (13.10, plan_2026_10_13_trees_menus_cleanup) **Instantiate
+from Cell…** dialog left that refused list on 2026-09-14 (plan_2026_09_14_ui_thread_offenders): it cost
+1x `get_footprints` plus one field read PER footprint (138.6 ms measured on a 325-footprint board), so it
+ran on a worker under `start_long_op` and a busy socket got ONE deferred retry (120 ms) before the same
+manual answer. The cell-anchor page's Role narrowing left the board entirely in the same change: it is a
+HINT and reads the board snapshot the GUI already holds, so it costs no IPC at all.
 
 ## Worker teardown (2026-09-18)
 
@@ -246,7 +245,7 @@ window X both hide; a non-modal dialog closed with the X never emits
 through the SAME screen cap as a constant — a size saved on a big monitor cannot
 hang off a laptop. Only the SIZE is remembered; a position on another monitor
 layout would put the window off-screen. Covers Cell/Project/Tools/Settings/
-InstantiateCell/TreeInstances/ExtractCluster/TreeFromSelection dialogs and the
+TreeInstances/ExtractCluster/TreeFromSelection dialogs and the
 node dialog.
 
 Guard: `tests/gui/test_no_widget_height_squeezing.py` — an ast tripwire over
@@ -1050,39 +1049,14 @@ in the same table:
   anchor's `shift` row are hidden here (a declaration has no suspension point or angle of its own; an
   existing `shift` is preserved verbatim).
 
-**Instantiate from Cell… (2026-09-03, plan instantiate_from_entity):** add ONE more physical group of
-the same kind INTO the current tree without duplicating geometry — pick an EXISTING Cell (e.g.
-pif_p2v5_vcca) as the group's internal layout (its components/vias/tracks live in the Cell once; the
-new Entity just references it via cell:), name the new Entity for the new cluster (e.g. PIF_1V2_VCCINT)
-and address it by Sheet/Cluster. The placement node is offset by xy from the tree's anchor (the tree
-must have an anchor set): entered manually, or — the opt-in "take from selection" checkbox — derived
-from the current board selection (the geometric center of the selected group's footprints when they all
-belong to ONE cluster; several clusters in the selection is an error; no selection → manual). The new
-Entity carries no role-pinning (refs): the new cluster's roles resolve at Apply by (Cluster, Sheet).
-Entry points: Tools → Trees → "Instantiate from Cell..." and the current tree anchor's context menu.
-Everything is staged — nothing reaches disk until File > Save.
-
-The same dialog has a second tab, **Extract new cell from selection** (2026-09-04, plan
-instantiate_new_cell_from_selection): when the current board selection holds exactly ONE FULLY
-selected cluster (the same detection "Extract cluster..." uses — a partial selection is never
-captured silently, cf. plan_2026_09_03_fpga_oscill_missing_copper_and_cell_import.md), the tab lets
-you EXTRACT the cluster's layout as a brand-new Cell right here — no separate "Extract cluster..."
-round-trip — and add the placement node in one click. The cluster's Cluster/Sheet auto-fill the
-addressing; the new Cell name defaults to the cluster slug (editable; a name already in `cfg.cells` is
-refused). The Cell's internal geometry origin ("Geometry origin") is either "Relative to zero-slot"
-(default — the portable convention, works with any node placement) or "Absolute (selection center),
-rotation 0", whose origin is the SAME geometric center the "take from selection" positioning uses, so
-the total position reproduces the live one exactly. "Absolute" is only guaranteed together with "take
-from selection" (the dialog warns, not blocks — the Cell can be edited by hand later).
-
-By default the zero-slot origin is picked AUTOMATICALLY (the role present exactly once among the
-cluster's selected footprints — see `cluster_origin_role`). Since 2026-09-04 (plan
-`extract_origin_pad_restore`) you can OPTIONALLY override it by hand with the "Override origin
-(Role/Pad)…" checkbox on the same tab (zero-slot mode only — under "Absolute" the override is hidden
-because that geometry mode has its own origin). Tick it to reveal the shared Anchor/Role picker
-pre-filled with the roles REALLY present in the selected cluster, then pick the role that should land
-at the Cell's local (0,0) and optionally narrow it to a specific pad. This restores the pad-origin
-picker the retired Extract dock had before Phase F. Unchecked = today's automatic behavior unchanged.
+**Instantiate from Cell… (2026-09-03, plan instantiate_from_entity) — REMOVED (13.10,
+plan_2026_10_13_trees_menus_cleanup).** The dialog added one more physical group of an existing Cell's
+kind into the current tree (a placement node offset from the tree anchor), offered a second tab
+"Extract new cell from selection" and an "Override origin (Role/Pad)…" picker, and was reachable from
+Tools → Trees and the tree-anchor context menu. All of it — the dialog, its menu item and its
+context-menu entry — is gone. Extracting a standalone Cell from a fully-selected Cluster is now the
+single **Extract cluster…** dialog (**Tools → Config**, see the [Extract](#extract) section); the group
+is then placed by a normal tree node or a `tree_instances:` template.
 
 ## Detail dock
 
@@ -1261,8 +1235,7 @@ missing: R...". The most common cause is a config WITHOUT `schematic_dir` (`sche
 `schematic_files:` at the project root): without it sheet names cannot be resolved anywhere, so a
 Cluster placed once per channel cannot be told apart and sheet-based narrowing is disabled
 project-wide — the message says so explicitly, and the same fact is logged ONCE when such a config is
-loaded with a live board. On-screen Ref lists are capped (the full list goes to the Log). The same
-concrete cause is shown on **Instantiate from Cell...** tab 2's strict gate.
+loaded with a live board. On-screen Ref lists are capped (the full list goes to the Log).
 
 The main menu's **Tools → Trees → Extract tree...** (2026-09-01) builds a NEW tree from the current
 selection — there is no "extract into tree" (the extract never writes `trees:`); this is the
@@ -1425,8 +1398,8 @@ placing this one (a manual tree node, a `tree_instances:` template, ...) is a se
 and is the ONLY one since 13.10 (the duplicate Tools → Trees entry was removed —
 plan_2026_10_13_trees_menus_cleanup).
 
-Just like the Instantiate-from-Cell tab above, the new Cell's origin is picked AUTOMATICALLY by
-default (the cluster role present exactly once). Since 2026-09-04 (plan `extract_origin_pad_restore`)
+The new Cell's origin is picked AUTOMATICALLY by default (the cluster role present exactly once).
+Since 2026-09-04 (plan `extract_origin_pad_restore`)
 the same dialog offers an OPTIONAL "Override origin (Role/Pad)…" checkbox to override it by hand:
 the Role picker is pre-filled with the roles of the currently selected Cluster, and an optional Pad
 narrows the origin to that specific pad — the same pad-origin picker the retired Extract dock had.
@@ -1918,8 +1891,8 @@ rows lost it, and the write button went grey because nothing differed any more).
 ### Placing a record — Tools → Imprints → Place... (the "Place Imprint" page)
 
 The Config side of CLONING a record onto a (possibly twin) sheet. The separate **"Place Imprint"**
-QView page in the Config dock's right side (a plain Config right-page, deliberately NOT a tab of
-"Instantiate from Cell...") is opened by Tools → Imprints → **Place...** (pre-filled with the record
+QView page in the Config dock's right side (a plain Config right-page) is opened by Tools → Imprints →
+**Place...** (pre-filled with the record
 selected in the Config tree, if any) or a record's context-menu **Place...** (pre-filled with that
 record). The form holds:
 

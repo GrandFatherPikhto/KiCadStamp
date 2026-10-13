@@ -98,7 +98,7 @@ class ExtractClusterDialog(QDialog):
         # extract_origin_pad_restore §4): opt-in checkbox + the shared
         # AnchorOriginWidget — the Extract-cluster Cell is always generated
         # from a role origin (no "Absolute" variant), so the override is only
-        # gated by the checkbox (unlike InstantiateCellDialog's tab 2).
+        # gated by the checkbox — there is no second "new cell" tab here.
         self.origin_override_check = QCheckBox(_("Override origin (Role/Pad)…"))
         self.origin_override_check.setChecked(False)
         self.origin_override_check.toggled.connect(

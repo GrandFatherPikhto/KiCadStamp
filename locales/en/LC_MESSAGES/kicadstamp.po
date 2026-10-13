@@ -296,15 +296,6 @@ msgstr ""
 msgid "Failed to load config: {error}"
 msgstr "Failed to load config: {error}"
 
-#: gui/dock_hub.py:1921 gui/docks/instantiate_cell_dialog.py:89
-#: gui/docks/trees_dock.py:4241 gui/docks/trees_dock.py:4290
-#: gui/docks/trees_dock.py:4296 gui/docks/trees_dock.py:4306
-#: gui/docks/trees_dock.py:4381 gui/docks/trees_dock.py:4387
-#: gui/docks/trees_dock.py:4395 gui/docks/trees_dock.py:4515
-#: gui/docks/trees_dock.py:4538 tests/gui/test_ui_thread_board_reads.py:568
-msgid "Instantiate from Cell"
-msgstr ""
-
 #: gui/dock_hub.py:2039
 msgid ""
 "The board is busy — the cluster list comes from the previously read board"
@@ -4684,113 +4675,6 @@ msgstr ""
 msgid "Rotation must be a number — got {value!r}."
 msgstr ""
 
-#: gui/docks/instantiate_cell_dialog.py:138
-msgid "e.g. dac_buf"
-msgstr ""
-
-#: gui/docks/instantiate_cell_dialog.py:139
-msgid "New cell name:"
-msgstr ""
-
-#: gui/docks/instantiate_cell_dialog.py:142
-msgid "Relative to zero-slot"
-msgstr ""
-
-#: gui/docks/instantiate_cell_dialog.py:144
-msgid "Absolute (selection center), rotation 0"
-msgstr ""
-
-#: gui/docks/instantiate_cell_dialog.py:151
-msgid "Geometry origin:"
-msgstr ""
-
-#: gui/docks/instantiate_cell_dialog.py:153
-msgid ""
-"Absolute geometry only reproduces the live position when paired with "
-"'Take from selection' — with manual xy the result is unverified."
-msgstr ""
-
-#: gui/docks/instantiate_cell_dialog.py:177
-msgid "Existing cell"
-msgstr ""
-
-#: gui/docks/instantiate_cell_dialog.py:178
-msgid "Extract new cell from selection"
-msgstr ""
-
-#: gui/docks/instantiate_cell_dialog.py:184
-msgid "e.g. PIF_1V2_VCCINT"
-msgstr ""
-
-#: gui/docks/instantiate_cell_dialog.py:202
-msgid "Take from selection (one cluster; center of the selected group)"
-msgstr ""
-
-#: gui/docks/instantiate_cell_dialog.py:213
-msgid "X (mm):"
-msgstr ""
-
-#: gui/docks/instantiate_cell_dialog.py:214
-msgid "Y (mm):"
-msgstr ""
-
-#: gui/docks/instantiate_cell_dialog.py:270
-msgid ""
-"No cluster-tagged component is selected — enter the Cluster and the xy "
-"manually."
-msgstr ""
-
-#: gui/docks/instantiate_cell_dialog.py:312 gui/docks/trees_dock.py:4388
-msgid ""
-"Select exactly ONE fully selected Cluster — the new Cell is extracted "
-"from exactly one cluster."
-msgstr ""
-
-#: gui/docks/instantiate_cell_dialog.py:406
-#, python-brace-format
-msgid "Cell {cell!r} fits this cluster ({n} roles matched)."
-msgstr ""
-
-#: gui/docks/instantiate_cell_dialog.py:410
-#, python-brace-format
-msgid ""
-"Cell {cell!r}: no footprints of this cluster on the board yet — roles "
-"will resolve at Apply once they are."
-msgstr ""
-
-#: gui/docks/instantiate_cell_dialog.py:415
-#, python-brace-format
-msgid "Cell {cell!r}: roles missing on the board for this cluster: {missing}"
-msgstr ""
-
-#: gui/docks/instantiate_cell_dialog.py:491
-msgid ""
-"For a new Cell, the Cluster and Sheet must match the fully selected "
-"cluster the Cell is extracted from."
-msgstr ""
-
-#: gui/docks/instantiate_cell_dialog.py:502
-msgid "A new Cell name is required."
-msgstr ""
-
-#: gui/docks/instantiate_cell_dialog.py:504 gui/docks/trees_dock.py:4396
-#, python-brace-format
-msgid "A cell named {name!r} already exists."
-msgstr ""
-
-#: gui/docks/instantiate_cell_dialog.py:521
-msgid "Pick a Cell (the source of the group's layout)."
-msgstr ""
-
-#: gui/docks/instantiate_cell_dialog.py:523
-#, python-brace-format
-msgid "Unknown cell {cell!r}."
-msgstr ""
-
-#: gui/docks/instantiate_cell_dialog.py:530
-msgid "Cluster is required (the address of the new instance)."
-msgstr ""
-
 #: gui/docks/live_position.py:68
 msgid "the Entity has no cell"
 msgstr ""
@@ -6159,10 +6043,6 @@ msgstr "Add node"
 msgid "Set anchor…"
 msgstr "Set anchor…"
 
-#: gui/docks/trees_dock.py:2865
-msgid "Instantiate from Cell…"
-msgstr ""
-
 #: gui/docks/trees_dock.py:3222
 msgid "Rename node"
 msgstr "Rename node"
@@ -6242,42 +6122,6 @@ msgstr ""
 #: gui/docks/trees_dock.py:4116 gui/docks/trees_dock.py:4121
 msgid "Create tree"
 msgstr "Create tree"
-
-#: gui/docks/trees_dock.py:4242
-msgid ""
-"Cannot derive the node offset from the selection (no selected footprint /"
-" cannot resolve the tree anchor live). Enter the xy manually instead."
-msgstr ""
-
-#: gui/docks/trees_dock.py:4262
-#, python-brace-format
-msgid "Added {entity!r} (cell {cell!r}) to tree {tree!r} — Save to persist."
-msgstr ""
-
-#: gui/docks/trees_dock.py:4291
-msgid "Open a tree first — a new group needs a tree to be added to."
-msgstr ""
-
-#: gui/docks/trees_dock.py:4297
-msgid ""
-"A generated instance is read-only — add the new group to its template "
-"tree instead."
-msgstr ""
-
-#: gui/docks/trees_dock.py:4307
-msgid ""
-"Set the tree anchor first — a new group is positioned relative to the "
-"tree anchor (anchor → Set anchor…)."
-msgstr ""
-
-#: gui/docks/trees_dock.py:4516
-#, python-brace-format
-msgid "Failed to save the new Cell: {error}"
-msgstr ""
-
-#: gui/docks/trees_dock.py:4539
-msgid "Failed to extract the new Cell from the selection — see the log."
-msgstr ""
 
 #: gui/docks/trees_dock.py:4547 gui/docks/trees_dock.py:4553
 msgid "Rename tree"
