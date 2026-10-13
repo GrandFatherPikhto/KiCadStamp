@@ -3115,10 +3115,6 @@ msgstr ""
 "сущность {name!r} теперь стоит на ячейке {cell!r} — медь старой раскладки"
 " не записана"
 
-#: gui/docks/config_tree.py:152
-msgid "Clone placements"
-msgstr "Клонируемые расстановки"
-
 #: gui/docks/config_tree.py:153
 msgid "Thermal via arrays"
 msgstr "Массивы термо-via"
@@ -3160,16 +3156,6 @@ msgstr "Добавить шаблон..."
 #: gui/docks/config_tree.py:180
 msgid "Add thermal via pad..."
 msgstr "Добавить термопад via..."
-
-# Added 2026-08-13 — was a pre-existing missing translation from the
-# 2026-08-12 coordinate_placements work (same menu block as the others).
-#: gui/docks/config_tree.py:181
-msgid "Add coordinate placement..."
-msgstr "Добавить координатное размещение..."
-
-#: gui/docks/config_tree.py:182
-msgid "Add placer..."
-msgstr "Добавить расстановку..."
 
 #: gui/docks/config_tree.py:1252 gui/docks/create_entity.py:117
 #: gui/docks/entity_tree.py:237
@@ -3988,10 +3974,6 @@ msgstr "экспорт между профилями в формате 3 пок�
 #: gui/docks/entity_export.py:77
 msgid "pass the target graph root explicitly, or export in format 2"
 msgstr "передай корень целевого графа явно или экспортируй в формате 2"
-
-#: gui/docks/entity_tree.py:59
-msgid "clone placement"
-msgstr "размещение клона"
 
 #: gui/docks/entity_tree.py:60
 msgid "nested placement in cell"
@@ -5538,70 +5520,6 @@ msgstr ""
 "Плата уехала и от схемы, и от НАШЕГО сохранённого значения — Apply всё "
 "равно запишет НАШЕ значение."
 
-#: gui/docks/placer.py:204
-msgid "cluster/role"
-msgstr "cluster/role"
-
-#: gui/docks/placer.py:215
-msgid ""
-"sheet name (only if Cluster+Role is ambiguous across cloned sheets, "
-"optional)"
-msgstr ""
-"имя листа (только если Cluster+Role неоднозначны между клонированными "
-"листами, необязательно)"
-
-#: gui/docks/placer.py:218
-msgid "Polar (around centre)"
-msgstr ""
-
-#: gui/docks/placer.py:229 gui/docks/placer.py:289
-msgid "X mm:"
-msgstr "X мм"
-
-#: gui/docks/placer.py:230 gui/docks/placer.py:291
-msgid "Y mm:"
-msgstr "Y мм"
-
-#: gui/docks/placer.py:240
-msgid "Center X mm:"
-msgstr "Центр X, мм:"
-
-#: gui/docks/placer.py:241
-msgid "Center Y mm:"
-msgstr "Центр Y, мм:"
-
-#: gui/docks/placer.py:242 gui/docks/placer.py:299
-msgid "Radius mm:"
-msgstr ""
-
-#: gui/docks/placer.py:243 gui/docks/placer.py:301
-msgid "Angle °:"
-msgstr "Угол °:"
-
-#: gui/docks/placer.py:256
-msgid "Center"
-msgstr "Недавние"
-
-#: gui/docks/placer.py:256
-msgid "Pad"
-msgstr "Пад:"
-
-#: gui/docks/placer.py:260
-msgid "pad number (e.g. 1)"
-msgstr ""
-
-#: gui/docks/placer.py:283
-msgid "Offset:"
-msgstr "Смещение:"
-
-#: gui/docks/placer.py:308
-msgid "= angle (polar) or 0"
-msgstr ""
-
-#: gui/docks/placer.py:309
-msgid "Rotation °:"
-msgstr "Поворот °:"
-
 #: gui/docks/placer.py:315 gui/docks/placer.py:931 gui/docks/placer.py:2169
 #: gui/docks/placer.py:2173 gui/docks/placer.py:2205 gui/docks/placer.py:2212
 #: gui/docks/placer.py:2291 gui/docks/placer.py:2297 gui/docks/placer.py:2328
@@ -5611,30 +5529,6 @@ msgstr "Поворот °:"
 #: gui/docks/trees_dock.py:5859
 msgid "Read current position"
 msgstr "Считать текущее положение"
-
-#: gui/docks/placer.py:449
-msgid "Polar offset needs BOTH Radius and Angle."
-msgstr "Полярному смещению нужны И радиус, И угол."
-
-#: gui/docks/placer.py:453
-msgid "Offset X"
-msgstr "Смещение X"
-
-#: gui/docks/placer.py:456
-msgid "Offset Y"
-msgstr "Смещение Y"
-
-#: gui/docks/placer.py:477
-msgid "Center X"
-msgstr ""
-
-#: gui/docks/placer.py:478
-msgid "Center Y"
-msgstr ""
-
-#: gui/docks/placer.py:774
-msgid "Single component"
-msgstr "Один компонент"
 
 #: gui/docks/placer.py:774 gui/docks/profile_import.py:35
 #: gui/docks/profile_import.py:38 gui/docks/tree_from_selection_dialog.py:145
@@ -5646,10 +5540,6 @@ msgstr "Сущность"
 msgid "Source:"
 msgstr "Источник:"
 
-#: gui/docks/placer.py:794
-msgid "pick a cell"
-msgstr "выберите шаблон"
-
 #: gui/docks/placer.py:807 gui/docks/tools.py:68
 msgid "pick an Entity"
 msgstr "выберите сущность"
@@ -5658,125 +5548,9 @@ msgstr "выберите сущность"
 msgid "Entity:"
 msgstr "Сущность:"
 
-#: gui/docks/placer.py:868
-msgid "Source"
-msgstr "Источник"
-
 #: gui/docks/placer.py:889 gui/docks/trees_dock.py:6657
 msgid "Coordinate"
 msgstr ""
-
-#: gui/docks/placer.py:926
-msgid "(cell default)"
-msgstr "(по умолчанию шаблона)"
-
-#: gui/docks/placer.py:950
-msgid "Origin"
-msgstr "Начало"
-
-#: gui/docks/placer.py:1167
-msgid "Not placed — set an origin to place it."
-msgstr "Не размещено — задайте начало координат, чтобы разместить."
-
-#: gui/docks/placer.py:1203
-#, python-brace-format
-msgid "Placed under tree {tree!r}."
-msgstr "Размещено в дереве {tree!r}."
-
-#: gui/docks/placer.py:1516
-msgid "Cluster name is required."
-msgstr "Требуется имя кластера."
-
-#: gui/docks/placer.py:1548
-msgid ""
-"Origin is set to Absolute XY, but an anchor/point is filled in — switch "
-"the Origin mode to “Anchor (ref/role)” or “Point” instead of typing X/Y "
-"(or clear those fields)."
-msgstr ""
-"Начало задано в режиме Absolute XY, но заполнены поля Anchor/Point — "
-"переключите режим начала координат на «Anchor (ref/role)» или «Point» "
-"вместо ввода X/Y (либо очистите эти поля)."
-
-#: gui/docks/placer.py:1638
-#, python-brace-format
-msgid ""
-"Entity {name!r} is an Imprint placement — Placer edits cell-based "
-"Entities only; edit its record via the Config tree and position it in "
-"Trees."
-msgstr ""
-"Entity {name!r} — это размещение Imprint: Placer редактирует только cell-"
-"based Entity; её запись правится через дерево Config, а позиция — в "
-"Trees."
-
-#: gui/docks/placer.py:1645
-msgid "Pick an Entity first (its Cell comes from the record)."
-msgstr "Сначала выберите сущность (её ячейка берётся из записи)."
-
-#: gui/docks/placer.py:1736
-#, python-brace-format
-msgid "Failed to load Placer file: {error}"
-msgstr "Не удалось загрузить файл расстановки: {error}"
-
-#: gui/docks/placer.py:1774 gui/docks/placer.py:2017
-#, python-brace-format
-msgid ""
-"Cell {cell!r} isn't reachable from the Placer file's include: — "
-"extract/save it and make sure include: is wired (see Extract)."
-msgstr ""
-"Шаблон {cell!r} недостижим из include: файла расстановки — "
-"извлеките/сохраните его и убедитесь, что include: подключён (см. "
-"Extract)."
-
-#: gui/docks/placer.py:1835
-#, python-brace-format
-msgid "{name!r} is retired/skipped — uncheck Retired/Skip to place it."
-msgstr ""
-
-#: gui/docks/placer.py:1916 gui/docks/placer.py:1920
-#, python-brace-format
-msgid "Placed, but tagging Cluster failed: {error}"
-msgstr "Размещено, но назначение Cluster не удалось: {error}"
-
-#: gui/docks/placer.py:1939
-#, python-brace-format
-msgid "Placed {name!r} ({count} component(s) tagged Cluster={name!r})."
-msgstr "Размещено {name!r} (у компонентов: {count} назначен Cluster={name!r})."
-
-#: gui/docks/placer.py:2050
-msgid "selecting on the board"
-msgstr "выделение на плате"
-
-#: gui/docks/placer.py:2083
-msgid "nothing found on the board for this placement — has it been placed yet?"
-msgstr "на плате ничего не найдено для этого размещения — оно ещё не размещено?"
-
-#: gui/docks/placer.py:2086
-#, python-brace-format
-msgid "Selected {count} item(s) on the board for {name!r}."
-msgstr "На плате выделено элементов: {count} (для {name!r})."
-
-#: gui/docks/placer.py:2170
-msgid "Cluster and Role are required to read the component's position."
-msgstr "Для чтения позиции компонента нужны Cluster и Role."
-
-#: gui/docks/placer.py:2215 gui/docks/placer.py:2339
-#, python-brace-format
-msgid "Read current position: ({x:.3f}, {y:.3f}) mm"
-msgstr "Текущее положение: ({x:.3f}, {y:.3f}) мм"
-
-#: gui/docks/placer.py:2298
-msgid "Cluster name and a Cell are required to read the cell's position."
-msgstr "Для чтения позиции ячейки нужны имя Cluster и Cell."
-
-#: gui/docks/placer.py:2411
-#, python-brace-format
-msgid "Placer: tag Cluster={name}"
-msgstr "Расстановщик: назначить Cluster={name}"
-
-#: gui/docks/placer.py:2580
-#, python-brace-format
-msgid "{action} entity {name!r} in {path}"
-msgstr "{action} entity {name!r} в {path}"
 
 #: gui/docks/points.py:198
 #, python-brace-format
@@ -8407,19 +8181,6 @@ msgstr "✅ Все операции выполнены успешно"
 msgid "⚠️ Some operations failed – check the log."
 msgstr "⚠️ Некоторые операции завершились с ошибками – проверьте лог."
 
-#: kicadstamp/author.py:98
-msgid "format 3: cannot write the fragment — the graph root is not set"
-msgstr "формат 3: нельзя записать фрагмент — корень графа не задан"
-
-#: kicadstamp/author.py:99
-#, python-brace-format
-msgid ""
-"in {path}: pass graph_root — the root config the fragment will be "
-"included into; a fragment cannot resolve its own references"
-msgstr ""
-"в {path}: передай graph_root — корневой конфиг, в который фрагмент будет "
-"включён; фрагмент не может разрешить собственные ссылки"
-
 #: kicadstamp/board_dedupe.py:332
 #, python-brace-format
 msgid ""
@@ -9517,36 +9278,35 @@ msgstr ""
 msgid "Extra clearance for collision check in mm"
 msgstr "Дополнительный зазор при проверке коллизий, мм"
 
-#: kicadstamp/cli_main.py:154
 msgid ""
-"Process only "
-"chains/clone_placements/thermal_via_arrays/coordinate_placements with "
-"this identity (chain name if set, else its net; "
-"clone_placement/thermal_via_arrays entry name; coordinate_placements "
-"entry name, or its default cluster/role pair if name wasn't set). "
-"Repeatable and/or comma-separated (--only a,b --only c). Everything else "
-"is ignored in this run."
+"Process only entities/net_traces/thermal_via_arrays/"
+"coordinate_placements with this identity (entity name; "
+"net_traces name, or its net; thermal_via_arrays entry name; "
+"coordinate_placements entry name, or its default cluster/role "
+"pair if name wasn't set). Repeatable and/or comma-separated "
+"(--only a,b --only c). Everything else is ignored in this run."
 msgstr ""
-"Обработать только chains/clone_placements/thermal_via_arrays с такой "
-"идентичностью (имя цепи, если задано, иначе его цепь; имя записи "
-"clone_placement/thermal_via_arrays). Флаг можно повторять и/или указывать"
-" через запятую (--only a,b --only c). Всё остальное в этом прогоне "
-"игнорируется."
+"Обработать только entities/net_traces/thermal_via_arrays/"
+"coordinate_placements с такой идентичностью (имя сущности; имя записи "
+"net_traces или её цепь; имя записи thermal_via_arrays; имя записи "
+"coordinate_placements или пара cluster/role по умолчанию, если имя не "
+"задано). Можно повторять и/или перечислять через запятую "
+"(--only a,b --only c). Всё остальное в этом прогоне игнорируется."
 
-#: kicadstamp/cli_main.py:161
 msgid ""
-"Process only "
-"spokes/clone_placements/thermal_via_arrays/coordinate_placements entries "
-"whose Cluster (anchor_cluster / spoke cluster / coordinate_placements' "
-"own cluster) matches this path or prefix (segment-wise, e.g. 'Channel_0' "
-"also matches 'Channel_0/DAC_OA'). Repeatable and/or comma-separated. "
+"Process only entities/net_traces/thermal_via_arrays/"
+"coordinate_placements entries whose Cluster (anchor_cluster / "
+"the entity's cluster / coordinate_placements' own cluster) matches "
+"this path or prefix (segment-wise, e.g. 'Channel_0' also matches "
+"'Channel_0/DAC_OA'). Repeatable and/or comma-separated. "
 "Combines with --only via AND (run apply twice for OR)."
 msgstr ""
-"Обработать только записи spokes/clone_placements/thermal_via_arrays, чей "
-"Cluster (anchor_cluster / cluster спицы) совпадает с этим путём или его "
-"префиксом (по сегментам: 'Channel_0' также подходит для "
-"'Channel_0/DAC_OA'). Флаг можно повторять и/или указывать через запятую. "
-"Сочетается с --only через И (для ИЛИ запустите apply дважды)."
+"Обработать только записи entities/net_traces/thermal_via_arrays/"
+"coordinate_placements, чей Cluster (anchor_cluster / cluster сущности / "
+"собственный cluster coordinate_placements) совпадает с этим путём или "
+"его префиксом (посегментно, напр. 'Channel_0' совпадает и с "
+"'Channel_0/DAC_OA'). Можно повторять и/или перечислять через запятую. "
+"Комбинируется с --only по И (для ИЛИ запустите apply дважды)."
 
 #: kicadstamp/cli_main.py:168
 msgid "Undo last operation"
@@ -13778,74 +13538,6 @@ msgstr ""
 msgid "got: {pivot!r}"
 msgstr "получено: {pivot!r}"
 
-#: kicadstamp/config/entries.py:1137
-msgid "clone_placement without cluster"
-msgstr "clone_placement без cluster"
-
-#: kicadstamp/config/entries.py:1138
-msgid ""
-"every clone_placement must have a cluster – the physical Cluster tag "
-"written onto the board's components (read by role_narrowing.py); write "
-"cluster: <string>. The save/--only identity (name:) is optional and falls"
-" back to cluster"
-msgstr ""
-
-#: kicadstamp/config/entries.py:1144
-#, python-brace-format
-msgid "unknown fields in clone_placement {name!r}"
-msgstr "неизвестные поля в clone_placement {name!r}"
-
-#: kicadstamp/config/entries.py:1145
-msgid " (e.g. 'pad' won't work; use 'anchor_pad')"
-msgstr " (например, 'pad' не сработает; используйте 'anchor_pad')"
-
-#: kicadstamp/config/entries.py:1164
-#, python-brace-format
-msgid "clone_placement {name!r} without cell"
-msgstr "clone_placement {name!r} без шаблона"
-
-#: kicadstamp/config/entries.py:1165
-msgid ""
-"cell: <name from cells:> is REQUIRED — the role:/cluster: single-"
-"component modes were migrated to coordinate_placements: (anchor-relative "
-"mode) on 2026-08-12; use coordinate_placements: for a single-component "
-"placement, or give this clone_placement a real cell:"
-msgstr ""
-
-#: kicadstamp/config/entries.py:1173
-#, python-brace-format
-msgid "anchor_ref and anchor_role together in clone_placement {name!r}"
-msgstr "anchor_ref и anchor_role одновременно в clone_placement {name!r}"
-
-#: kicadstamp/config/entries.py:1174
-msgid ""
-"these are mutually exclusive ways to define the anchor – either by refdes"
-" (anchor_ref) or by Role field (anchor_role), not both"
-msgstr ""
-"это два взаимоисключающих способа задать якорь – либо по refdes "
-"(anchor_ref), либо по полю Role (anchor_role), не оба сразу"
-
-#: kicadstamp/config/entries.py:1180
-#, python-brace-format
-msgid "anchor_sheet without anchor_role in clone_placement {name!r}"
-msgstr "anchor_sheet без anchor_role в clone_placement {name!r}"
-
-#: kicadstamp/config/entries.py:1181
-#, python-brace-format
-msgid ""
-"anchor_sheet={sheet!r} is set but anchor_role is missing – anchor_sheet "
-"only narrows ambiguity of anchor_role, it is not an anchor itself"
-msgstr ""
-"anchor_sheet={sheet!r} задан, но anchor_role отсутствует – anchor_sheet "
-"только сужает неоднозначность anchor_role, сам по себе якорем не является"
-
-#: kicadstamp/config/entries.py:1188
-#, python-brace-format
-msgid ""
-"anchor_point together with anchor_ref/anchor_role in clone_placement "
-"{name!r}"
-msgstr "anchor_point вместе с anchor_ref/anchor_role в clone_placement {name!r}"
-
 #: kicadstamp/config/entries.py:1190 kicadstamp/config/entries.py:1339
 #: kicadstamp/config/entries.py:1442
 #, python-brace-format
@@ -13856,11 +13548,6 @@ msgstr ""
 "anchor_point={point!r} называет запись points:, у которой уже есть "
 "собственный якорь — взаимоисключающе с anchor_ref/anchor_role"
 
-#: kicadstamp/config/entries.py:1195
-#, python-brace-format
-msgid "anchor_point together with anchor_pad in clone_placement {name!r}"
-msgstr "anchor_point вместе с anchor_pad в clone_placement {name!r}"
-
 #: kicadstamp/config/entries.py:1196 kicadstamp/config/entries.py:1449
 msgid ""
 "anchor_point already resolves to a full position — anchor_pad has no "
@@ -13869,90 +13556,9 @@ msgstr ""
 "anchor_point уже разрешается в полную позицию — anchor_pad поверх неё не "
 "имеет смысла; задайте anchor_pad на самой записи points:"
 
-#: kicadstamp/config/entries.py:1202
 #, python-brace-format
-msgid "anchor_pad without anchor_ref/anchor_role in clone_placement {name!r}"
-msgstr "anchor_pad без anchor_ref/anchor_role в clone_placement {name!r}"
-
-#: kicadstamp/config/entries.py:1203
-#, python-brace-format
-msgid ""
-"anchor_pad={pad!r} is set but no anchor specified – use anchor_ref: IC1 "
-"or anchor_role: SOME_ROLE"
-msgstr ""
-"anchor_pad={pad!r} задан, но якорь не указан – используйте anchor_ref: "
-"IC1 или anchor_role: SOME_ROLE"
-
-#: kicadstamp/config/entries.py:1221 kicadstamp/config/loader.py:522
-#: kicadstamp/placement/dependency_order.py:134
-#, python-brace-format
-msgid "clone_placement {name!r}"
-msgstr "clone_placement {name!r}"
-
-#: kicadstamp/config/entries.py:1227
-#, python-brace-format
-msgid "no anchor and no absolute coordinates in clone_placement {name!r}"
-msgstr "нет ни якоря, ни абсолютных координат в clone_placement {name!r}"
-
-#: kicadstamp/config/entries.py:1228
-msgid ""
-"either set xy: [x, y] (absolute point on board), or radius_mm/angle_deg "
-"(polar absolute position), or anchor_ref/anchor_role (+ optionally "
-"anchor_pad), or anchor_point, for anchor‑based placement"
-msgstr ""
-"задайте либо xy: [x, y] (абсолютная точка на плате), либо "
-"anchor_ref/anchor_role (+ необязательно anchor_pad), либо anchor_point — "
-"для размещения на основе якоря"
-
-#: kicadstamp/config/entries.py:1236
-#, python-brace-format
-msgid "deprecated field 'side' in clone_placement {name!r}"
-msgstr "устаревшее поле 'side' в clone_placement {name!r}"
-
-#: kicadstamp/config/entries.py:1237
-msgid ""
-"side is now set by an explicit pair: layer: F.Cu|B.Cu (where we place – "
-"fact) + mirror: true (how we place – operation, only meaningful when the "
-"layer changes relative to the cell)"
-msgstr ""
-"сторона теперь задаётся явной парой: layer: F.Cu|B.Cu (куда кладём — "
-"факт) + mirror: true (как кладём — операция, имеет смысл только при смене"
-" слоя относительно шаблона)"
-
-#: kicadstamp/config/entries.py:1243
-#, python-brace-format
-msgid "deprecated fields 'origin_x_mm'/'origin_y_mm' in clone_placement {name!r}"
-msgstr "устаревшие поля 'origin_x_mm'/'origin_y_mm' в clone_placement {name!r}"
-
-#: kicadstamp/config/entries.py:1244
-#, python-brace-format
-msgid "renamed to xy: [x, y] — write xy: [{x}, {y}] instead"
-msgstr "переименовано в xy: [x, y] — пишите xy: [{x}, {y}]"
-
-#: kicadstamp/config/entries.py:1252
-#, python-brace-format
-msgid "xy must be a 2-element [x, y] list in clone_placement {name!r}"
-msgstr "xy должен быть списком из 2 элементов [x, y] в clone_placement {name!r}"
-
-#: kicadstamp/config/entries.py:1271
-#, python-brace-format
-msgid "by_selection: true with non-empty nets in clone_placement {name!r}"
-msgstr "by_selection: true вместе с непустым nets в clone_placement {name!r}"
-
-#: kicadstamp/config/entries.py:1272
-msgid ""
-"nets is an explicit role->net mapping for 'by nets' mode; in selection "
-"mode roles are resolved by mouse selection, not by nets – nets is "
-"meaningless here. Either remove nets, or remove by_selection: true"
-msgstr ""
-"nets — это явная карта роль->цепь для режима «по цепям»; в режиме «по "
-"выделению» роли резолвятся мышкой, а не по цепям – nets здесь "
-"бессмысленен. Либо уберите nets, либо уберите by_selection: true"
-
-#: kicadstamp/config/entries.py:1278
-#, python-brace-format
-msgid "in clone_placement {name!r}"
-msgstr "в clone_placement {name!r}"
+msgid "placement {name!r}"
+msgstr "размещение {name!r}"
 
 #: kicadstamp/config/entries.py:1321
 msgid "deprecated field 'target_ref' in thermal_via_arrays"

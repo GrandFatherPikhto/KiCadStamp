@@ -87,7 +87,7 @@ def test_cell_mode_clone_produces_cell_roles():
     adapter = _adapter_for([tagged, other])
     items = resolve_execution_order(adapter, cfg)
 
-    assert [it.label for it in items] == ["clone_placement 'Conn_PM5V'"]
+    assert [it.label for it in items] == ["placement 'Conn_PM5V'"]
     assert items[0].produces == {"J1"}
 
 
@@ -111,7 +111,7 @@ def test_disabled_clone_is_skipped_entirely():
     adapter = _adapter_for([anchor1, p1])
     items = resolve_execution_order(adapter, cfg)
 
-    assert [it.label for it in items] == ["clone_placement 'clone_a'"]
+    assert [it.label for it in items] == ["placement 'clone_a'"]
 
 
 def test_no_dependencies_keeps_original_order():
@@ -130,7 +130,7 @@ def test_no_dependencies_keeps_original_order():
     items = resolve_execution_order(adapter, cfg)
 
     assert [it.label for it in items] == [
-        "clone_placement 'clone_a'", "clone_placement 'clone_b'"
+        "placement 'clone_a'", "placement 'clone_b'"
     ]
 
 
@@ -151,7 +151,7 @@ def test_producer_ordered_before_consumer_regardless_of_yaml_order():
     items = resolve_execution_order(adapter, cfg)
 
     assert [it.label for it in items] == [
-        "clone_placement 'producer'", "clone_placement 'consumer'"
+        "placement 'producer'", "placement 'consumer'"
     ]
 
 
@@ -168,7 +168,7 @@ def test_self_anchored_item_is_not_a_cycle():
     adapter = _adapter_for([anchor_and_role])
     items = resolve_execution_order(adapter, cfg)
 
-    assert [it.label for it in items] == ["clone_placement 'self_anchored'"]
+    assert [it.label for it in items] == ["placement 'self_anchored'"]
 
 
 def test_cycle_raises_validation_error():
@@ -257,7 +257,7 @@ class TestPointItems:
         items = resolve_execution_order(adapter, cfg)
 
         assert [it.label for it in items] == [
-            "clone_placement 'producer'", "point 'my_point'", "clone_placement 'consumer'"
+            "placement 'producer'", "point 'my_point'", "placement 'consumer'"
         ]
 
     def test_point_chain_orders_correctly_regardless_of_yaml_order(self):

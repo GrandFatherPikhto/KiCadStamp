@@ -131,7 +131,12 @@ def _build_items(adapter: KiCadBoardAdapter, cfg: Config, sheet_names=None) -> l
             produces = _resolve_clone_produces(adapter, cfg, clone, sheet_names=_sn)
         items.append(Item(
             kind='clone', obj=clone,
-            label=_("clone_placement {name!r}").format(name=clone_placement_effective_name(clone)),
+            # The user-facing word for the record (Denis, 12.10): after Placer a
+            # top-level ClonePlacement IS a materialized Entity placed by a
+            # kind="placement" node, so the label says "placement", never the
+            # retired SECTION name "clone_placement". Item.label is only PRINTED
+            # (guard_duplicate_refdes -> duplicate_summary_line), never parsed.
+            label=_("placement {name!r}").format(name=clone_placement_effective_name(clone)),
             anchor_ref=anchor_ref, produces=produces,
         ))
 
