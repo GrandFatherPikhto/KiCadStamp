@@ -953,6 +953,20 @@ colliding ref would be fatal at link time ("0 or 2+ matches"). **External** keep
 free-text for a live-board refdes (2026-08-29,
 plan_2026_08_29_trees_node_kind_filtered_combo.md).
 
+**UPDATE 2026-10-13 (plan_2026_10_13_trees_menus_cleanup Ч3):** the **Kind** combo now offers exactly
+FOUR kinds — **Entity** (`placement`, the default), **Mount**, **Tree** (`module`) and **Inter-node
+copper** (`net_trace`) — and the Ref list is narrowed by that choice immediately. The other kinds
+(auto, clone, coordinate, point, external, copper, component) left the MENU only: a FILE that already
+contains such a node still loads, still draws and still edits — the combo shows that node's own kind
+with a **"(retired)"** marker ("auto (retired)" for a node with no kind), and its kind is never changed
+silently. The node labels live in ONE table (`kicadstamp/trees.NODE_KIND_TABLE`) that also feeds the
+row tag, so a `net_trace` row now reads `… (Inter-node copper)`. A record that already has a node
+somewhere in the file is shown **greyed** in the Ref combo, with a tooltip naming the tree and the node
+("already stands in tree 'power' (node …)"), and trying to use it anyway is refused with the same
+wording: *"Record … already stands in tree 'power' (node …) — a record has exactly one position
+source; move the node, or embed tree 'power' as a Tree node."* The link-time hint for an unresolvable
+free-text ref now suggests `(kind mount)` (the `external` kind is no longer offered).
+
 Since 2026-08-30 (phase 5.5) the Add-node dialog auto-numbers a NEW node's ref when the typed ref is
 not one of the config's placeable record names AND is already used by another node somewhere in the
 trees: `_unique_ref` appends `_1`/`_2`/… so the tree never saves a duplicate ref (which would be
