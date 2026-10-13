@@ -115,7 +115,7 @@ def test_node_form_ref_change_updates_row_in_place(main_window, tmp_path,
     assert node.ref == "A2"
     assert "A" not in dock._node_items
     assert dock._node_items["A2"] is item          # the SAME widget item
-    assert item.text(0) == "A2 (external)"         # render's own text idiom
+    assert item.text(0) == "A2 (External)"         # render's own text idiom
     assert widget.currentItem() is item            # selection kept
     assert item.isExpanded() is True               # expansion kept
     # The dock's own master-detail identity follows the node.
@@ -124,20 +124,42 @@ def test_node_form_ref_change_updates_row_in_place(main_window, tmp_path,
 
 def test_node_form_kind_change_updates_row_text(main_window, tmp_path):
     """Kind edit (same ref) -> Apply: the `_node_items` key stays, but the row's
-    text follows the new kind tag through the render's OWN text routine."""
-    dock = _dock(main_window, tmp_path)
-    _widget, item, form = _open_form(dock, "B")
-    node = form._existing
-    assert item.text(0) == "B (external)"
+    text follows the new kind tag through the render's OWN text routine.
 
-    idx = form.kind_combo.findData("point")
-    assert idx >= 0, "the Kind combo must offer the 'point' kind"
+    Ч3 class Б: the transition is between two MENU kinds now ("placement" ->
+    "mount") — the property under test ("the row text follows the kind") is the
+    same, and the fixture is LOCAL (the shared rigs are not extended)."""
+    from kicadstamp.config.sexp_format import dict_to_sexp
+
+    data = {
+        "cells": {"c": {"components": [], "vias": [], "tracks": []}},
+        "entities": [{"name": "A", "cell": "c", "cluster": "A"}],
+        "trees": [{"name": "t", "anchor": {"origin": True},
+                   "nodes": [{"ref": "A", "kind": "placement",
+                              "xy": [1.0, 0.0]}]}],
+    }
+    root = tmp_path / "root.sexp"
+    write_later(root, dict_to_sexp(data, format_number=2))
+    dock = TreesDock(main_window)
+    dock.set_root_file(root)
+    assert dock._cfg is not None, "the throwaway root config did not load"
+
+    _widget, item, form = _open_form(dock, "A")
+    node = form._existing
+    assert item.text(0) == "A (Entity)"
+
+    idx = form.kind_combo.findData("mount")
+    assert idx >= 0, "the Kind combo must offer the 'mount' kind"
     form.kind_combo.setCurrentIndex(idx)
+    # A kind change repopulates the Ref combo; a mount node has no placeable
+    # candidates, so the typed ref has to come back.
+    form.ref_combo.setEditText("A")
+    form.mount_anchor_widget.load(mode="anchor", role="FPGA")
     assert form.apply() is True
 
-    assert node.kind == "point"
-    assert dock._node_items["B"] is item
-    assert item.text(0) == "B (point)"
+    assert node.kind == "mount"
+    assert dock._node_items["A"] is item
+    assert item.text(0) == "A (Mount)"
 
 
 def test_node_form_ref_change_when_no_board_keeps_child_rows(main_window,
@@ -413,22 +435,37 @@ def test_a_handle_that_changes_its_kind_is_refused_by_the_loader_rule(
 
 def test_a_record_to_record_kind_change_moves_the_section(main_window, tmp_path,
                                                           format3):
-    """(ж) A plain kind change of a non-handle node (placement -> coordinate) is
-    legal: the Ref moves to a record of the NEW section and the uuid follows it
-    there — the ORDINARY case the new rules must not block."""
-    dock, root = _rich_dock(main_window, tmp_path)
-    _widget, _item, form = _open_form(dock, "E4")
+    """(ж) A plain kind change of a non-handle node is legal: the Ref moves to a
+    record of the NEW section and the uuid follows it there — the ORDINARY case
+    the new rules must not block.
 
-    index = form.kind_combo.findData("coordinate")
+    Ч3 class Б: the direction is REVERSED — the OLD kind is the retired
+    `coordinate`, the transition goes INTO the menu's `placement` (the live
+    path). The node lives in a LOCAL fixture (the shared rigs are not extended)."""
+    data = {
+        "cells": {"c": {"components": [], "vias": [], "tracks": []}},
+        "entities": [{"name": "E4", "cell": "c", "cluster": "E4"}],
+        "coordinate_placements": [{"name": "CP1", "cluster": "CP1",
+                                   "role": "CP1_ROLE", "x_mm": 0.0, "y_mm": 0.0,
+                                   "rotation_deg": 0.0}],
+        "trees": [{"name": "t1", "anchor": {"origin": True},
+                   "nodes": [{"ref": "CP1", "kind": "coordinate",
+                              "xy": [1.0, 0.0]}]}],
+    }
+    dock, root = _fmt3_dock(main_window, tmp_path, data)
+    _widget, _item, form = _open_form(dock, "CP1")
+
+    index = form.kind_combo.findData("placement")
+    assert index >= 0, "the Kind combo must offer the 'placement' kind"
     form.kind_combo.setCurrentIndex(index)
-    form.ref_combo.setEditText("CP1")     # the kind change repopulated the combo
+    form.ref_combo.setEditText("E4")     # the kind change repopulated the combo
     assert form.apply() is True
 
-    written = _node_shot(root, node_index=1)
-    assert (written["kind"], written["ref"]) == ("coordinate", "CP1")
-    assert written["ref_uuid"] == det_uuid("coordinate_placements:CP1")
+    written = _node_shot(root)
+    assert (written["kind"], written["ref"]) == ("placement", "E4")
+    assert written["ref_uuid"] == det_uuid("entities:E4")
     reloaded = _reload(root)
-    assert reloaded.trees[0].nodes[1].ref == "CP1"
+    assert reloaded.trees[0].nodes[0].ref == "E4"
 
 
 def test_the_ref_checker_is_not_stale_after_an_apply(main_window, tmp_path,
@@ -543,15 +580,32 @@ def test_an_auto_kind_node_loses_its_ref_uuid(main_window, tmp_path, format3):
     `node_ref_uuid` resolves None and the copy CLEARS the uuid. The loader neither
     fatals on it (the local-kind rule names concrete kinds) nor normalizes such a
     node, so the file loads and the node keeps the name it names — the decision's
-    "any other kind -> ref_uuid = None", for the auto case."""
-    dock, root = _rich_dock(main_window, tmp_path)
+    "any other kind -> ref_uuid = None", for the auto case.
+
+    Ч3 class Б: the node opens with its kind ABSENT — the form shows its own
+    "auto (retired)" row — in a LOCAL fixture (the shared rigs are not extended).
+    The 2->3 lift REFUSES a kindless node on disk, so the kind is cleared on the
+    LOADED node: exactly the state an "auto" node is in."""
+    data = {
+        "cells": {"c": {"components": [], "vias": [], "tracks": []}},
+        "entities": [{"name": "E1", "cell": "c", "cluster": "E1"}],
+        "trees": [{"name": "t1", "anchor": {"origin": True},
+                   "nodes": [{"ref": "E1", "kind": "placement",
+                              "xy": [1.0, 0.0]}]}],
+    }
+    dock, root = _fmt3_dock(main_window, tmp_path, data)
+    # The lift minted the ref_uuid while the kind was "placement"; clearing the
+    # kind is exactly the "auto" state the form may open on.
+    dock._trees[0].nodes[0].kind = None
     _widget, _item, form = _open_form(dock, "E1")
     node = form._existing
+    assert node.kind is None
     assert node.ref_uuid                              # the lift gave it one
 
-    index = form.kind_combo.findData(None)            # the "auto" row
-    assert index >= 0
-    form.kind_combo.setCurrentIndex(index)
+    auto_index = form.kind_combo.findData(None)       # the "auto (retired)" row
+    assert auto_index >= 0
+    form.kind_combo.setCurrentIndex(0)                # any other kind...
+    form.kind_combo.setCurrentIndex(auto_index)       # ...back to "auto"
     form.ref_combo.setEditText("E1")                  # the kind change cleared it
     assert form.apply() is True
 

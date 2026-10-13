@@ -280,7 +280,9 @@ def test_node_form_read_position_refuses_while_the_poll_tick_owns_the_socket(
     dock, _root = _dock_with(main_window, tmp_path)
     tree = dock._current_tree()
     dlg = _node_dialog(dock, adapter, tree)
-    dlg.kind_combo.setCurrentIndex(dlg.kind_combo.findData("external"))
+    # Ч3: "external" left the Kind menu; a live menu kind carries the ref (the
+    # cell's subject is the socket guard, not the kind).
+    dlg.kind_combo.setCurrentIndex(dlg.kind_combo.findData("placement"))
     dlg.ref_combo.setCurrentText("R_DEBUG")
 
     seen = []
@@ -304,7 +306,9 @@ def test_node_form_read_position_still_fills_the_fields_when_the_socket_is_free(
     dock, _root = _dock_with(main_window, tmp_path)
     tree = dock._current_tree()
     dlg = _node_dialog(dock, adapter, tree)
-    dlg.kind_combo.setCurrentIndex(dlg.kind_combo.findData("external"))
+    # Ч3: "external" left the Kind menu; a live menu kind carries the ref (the
+    # cell's subject is the socket guard, not the kind).
+    dlg.kind_combo.setCurrentIndex(dlg.kind_combo.findData("placement"))
     dlg.ref_combo.setCurrentText("R_DEBUG")
 
     seen = []

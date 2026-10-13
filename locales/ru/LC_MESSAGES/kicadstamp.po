@@ -6179,9 +6179,6 @@ msgstr ""
 "Переместить…: плата сейчас занята — узел НЕ перемещён. Попробуйте "
 "переместить снова."
 
-#: gui/docks/trees_dock.py:131
-msgid "clone"
-msgstr "Клон"
 
 #: gui/docks/trees_dock.py:132
 msgid "placement"
@@ -6815,9 +6812,6 @@ msgstr "Внешний refdes"
 msgid "Self (component this tree places)"
 msgstr "Self (компонент, который размещает это дерево)"
 
-#: gui/docks/trees_dock.py:6659
-msgid "Clone"
-msgstr "Клон"
 
 #: gui/docks/trees_dock.py:6719
 msgid "All kinds"
@@ -17957,3 +17951,50 @@ msgid "Nothing was placed or modified on the board — this was a read-only chec
 msgstr ""
 "На плате ничего не размещалось и не менялось — это была только проверка "
 "чтением."
+#: kicadstamp/trees.py
+msgid "External"
+msgstr "Внешний"
+
+#: kicadstamp/trees.py
+msgid "Mount"
+msgstr "Крепление"
+
+#: kicadstamp/trees.py
+msgid "Tree"
+msgstr "Дерево"
+
+#: kicadstamp/trees.py
+msgid "Inter-node copper"
+msgstr "Медь между узлами"
+
+#: gui/docks/trees_dock.py
+msgid "auto (retired)"
+msgstr "auto (устаревший)"
+
+#: gui/docks/trees_dock.py
+#, python-brace-format
+msgid "{label} (retired)"
+msgstr "{label} (устаревший)"
+
+#: gui/docks/trees_dock.py
+msgid "local name (unique in tree)"
+msgstr "локальное имя (уникально в дереве)"
+
+#: gui/docks/trees_dock.py
+msgid "net_traces record name"
+msgstr "имя записи net_traces"
+
+#: gui/docks/trees_dock.py
+#, python-brace-format
+msgid "already stands in tree {tree!r} (node {node})"
+msgstr "уже стоит в дереве {tree!r} (узел {node})"
+
+#: kicadstamp/link_trees.py
+msgid "If this is an external (live-board-only) refdes, add (kind mount)"
+msgstr "Если это внешний (живущий только на плате) позиционный номер — добавьте (kind mount)"
+
+#: gui/docks/trees_dock.py
+#, python-brace-format
+msgid "Record {ref!r} {where} — a record has exactly one position source; move the node, or embed tree {tree!r} as a Tree node."
+msgstr "Запись {ref!r} {where} — у записи ровно один источник положения; перенесите узел или встройте дерево {tree!r} как узел (дерево)."
+

@@ -372,13 +372,14 @@ def test_set_root_file_renders_one_tab_per_tree_with_nested_structure(main_windo
     nodes = _children(tops[0])
     assert len(nodes) == 2
     # Every node kind is now EXPLICIT (the format-2 -> 3 converter needs it,
-    # Р-У3.3), and the dock shows the kind tag next to a ref whenever it is set
-    # (gui/docks/trees_dock.py:_KIND_TAGS) — so the child/polar nodes carry their
-    # "(external)" tag too.
-    assert nodes[0].text(0) == "AMS1117_REG (placement)"
-    assert nodes[1].text(0) == "R_AROUND (external)"
+    # Р-У3.3), and the dock shows the kind's LABEL next to a ref whenever it is
+    # set (kicadstamp.trees.NODE_KIND_TABLE via node_kind_label — Ч3, 2026-10-13;
+    # the labels used to live in trees_dock._KIND_TAGS) — so the child/polar nodes
+    # carry their "(External)" tag too and an Entity shows as "(Entity)".
+    assert nodes[0].text(0) == "AMS1117_REG (Entity)"
+    assert nodes[1].text(0) == "R_AROUND (External)"
     ams_children = _children(nodes[0])
-    assert [c.text(0) for c in ams_children] == ["C_OUT (external)"]
+    assert [c.text(0) for c in ams_children] == ["C_OUT (External)"]
 
 
 # ── Static preview ────────────────────────────────────────────────────────
@@ -774,7 +775,7 @@ def test_delete_node_removes_subtree_and_marks_dirty(main_window, tmp_path):
     assert dock._dirty is True
     tree_widget = dock._current_tree_widget()
     nodes = _children(_children(tree_widget.invisibleRootItem())[0])
-    assert [n.text(0) for n in nodes] == ["AMS1117_REG (placement)"]
+    assert [n.text(0) for n in nodes] == ["AMS1117_REG (Entity)"]
 
 
 def test_move_into_own_descendant_is_forbidden(main_window, tmp_path):
@@ -2039,7 +2040,19 @@ def _build_dialog(dock, tree, parent_node, existing=None, title="Add child"):
     return _NodeDialog(
         dock, dock._all_ref_candidates(), dock._used_refs(), title,
         cfg=dock._cfg, adapter=object(), sheet_names={},
-        tree=tree, parent_node=parent_node, existing=existing)
+        tree=tree, parent_node=parent_node, existing=existing,
+        net_trace_candidates=dock._net_trace_record_candidates(),
+        used_ref_locations=dock._used_ref_locations())
+
+
+def _existing_node(ref, kind, *, xy=(0.0, 0.0), anchor=None):
+    """A TreeNode as if it were ALREADY in the file — the Ч3 class-Б way to open
+    a node dialog for a kind the Kind menu no longer offers (external/component/
+    coordinate/point). The dialog then enters EDIT mode and shows that kind's own
+    "(retired)" row, so the kind survives an edit ("убрать из меню" ≠ "удалить из
+    грамматики") without a menu entry."""
+    return TreeNode(ref=ref, kind=kind, xy=xy, polar=None, rotation=0.0,
+                    name=None, group=None, anchor=anchor)
 
 
 def test_context_menu_on_node_offers_reread_and_edit(main_window, tmp_path, monkeypatch):
@@ -2102,12 +2115,13 @@ def test_node_dialog_read_position_fills_xy_and_rotation(main_window, tmp_path, 
 
     monkeypatch.setattr(td_mod, "_resolve_live_offset",
                         lambda *a, **k: ((10.0, 5.0), 90.0))
-    dlg = _build_dialog(dock, tree, parent)
-    # "external" (free-text ref) is the live carrier here — the retired "clone"
-    # kind left the Kind combo with Д3 (plan_2026_10_08_remove_placer); the cell's
-    # subject is the read-position flow, not the kind.
-    dlg.kind_combo.setCurrentIndex(dlg.kind_combo.findData("external"))
-    dlg.ref_combo.setCurrentText("C_OUT")
+    # Ч3 class Б: the Kind menu no longer offers "external", so the node is
+    # opened the way a file's OWN node is — in EDIT mode, from an existing
+    # external node (its "(retired)" row keeps the kind). The cell's subject is
+    # the read-position flow, not the kind.
+    dlg = _build_dialog(dock, tree, parent, title="Edit node",
+                        existing=_existing_node("C_OUT", "external"))
+    assert dlg.kind_combo.currentData() == "external"
     assert dlg.read_position_button.isEnabled() is True
 
     dlg._on_read_position()
@@ -2120,9 +2134,13 @@ def test_node_dialog_read_position_fills_xy_and_rotation(main_window, tmp_path, 
 
 def test_node_dialog_read_position_point_kind_rotation_left_blank(
         main_window, tmp_path, monkeypatch):
-    """A point-kind child has no rotation concept -> xy still fills, rotation
-    stays blank, and a one-line status appears under the button (never a
-    fabricated 0)."""
+    """A point-kind child has no rotation concept -> xy still fills, the
+    rotation field is left UNTOUCHED (never a fabricated value) and a one-line
+    status appears under the button.
+
+    Ч3 class Б: the node opens in EDIT mode with its own "(retired)" row; the
+    read writes nothing into the rotation field, so the node's STORED rotation
+    is what stays there — a point node is never given a rotation it lacks."""
     import gui.docks.trees_dock as td_mod
     dock, _root = _dock_with(main_window, tmp_path)
     tree = dock._current_tree()
@@ -2130,15 +2148,17 @@ def test_node_dialog_read_position_point_kind_rotation_left_blank(
 
     monkeypatch.setattr(td_mod, "_resolve_live_offset",
                         lambda *a, **k: ((3.0, 7.0), None))
-    dlg = _build_dialog(dock, tree, parent)
-    dlg.kind_combo.setCurrentIndex(dlg.kind_combo.findData("point"))
-    dlg.ref_combo.setCurrentText("PNT")
+    # Ч3 class Б: "point" left the Kind menu; the node opens in EDIT mode with
+    # its own "(retired)" row, and the read-position flow is as before.
+    dlg = _build_dialog(dock, tree, parent, title="Edit node",
+                        existing=_existing_node("PNT", "point"))
+    assert dlg.kind_combo.currentData() == "point"
 
     dlg._on_read_position()
 
     assert dlg.offset_widget.x_edit.text() == "3.000"
     assert dlg.offset_widget.y_edit.text() == "7.000"
-    assert dlg.rotation_edit.text() == ""
+    assert dlg.rotation_edit.text() == "0.0"   # the STORED value, untouched
     assert "rotation not available" in dlg.read_status_label.text()
 
 
@@ -2158,7 +2178,9 @@ def test_node_dialog_read_position_logs_error_when_no_live_connection(
     dlg = _NodeDialog(dock, dock._all_ref_candidates(), dock._used_refs(),
                       "Add child", cfg=dock._cfg, adapter=None,
                       sheet_names={}, tree=tree, parent_node=None)
-    dlg.kind_combo.setCurrentIndex(dlg.kind_combo.findData("external"))
+    # Ч3: "external" left the menu (this cell's subject is the no-connection
+    # ERROR, not the kind) — a live menu kind carries the free-typed ref.
+    dlg.kind_combo.setCurrentIndex(dlg.kind_combo.findData("placement"))
     dlg.ref_combo.setCurrentText("C_OUT")
     dlg._on_read_position()
 
@@ -2367,8 +2389,9 @@ def test_add_mode_prefills_x_and_y_with_zero(main_window, tmp_path):
     assert dlg.offset_widget.angle_edit.text() == ""
 
     # Set the KIND first: changing it repopulates the ref combo and clears a
-    # free-text ref, so the ref must be typed AFTER the kind.
-    dlg.kind_combo.setCurrentIndex(dlg.kind_combo.findData("external"))
+    # free-text ref, so the ref must be typed AFTER the kind. Ч3: a live menu
+    # kind (the cell's subject is the add-mode zero prefill, not the kind).
+    dlg.kind_combo.setCurrentIndex(dlg.kind_combo.findData("placement"))
     dlg.ref_combo.setCurrentText("at_origin")
     node = dlg.build_node()
     assert node is not None
@@ -2454,8 +2477,9 @@ def test_add_mode_ok_accepts_a_valid_form_and_hands_out_the_built_node(
                         lambda *a, **k: warnings.append(a) or None)
 
     def _fill(dlg, ref, x, y):
-        # KIND before ref — changing the kind clears a free-text ref.
-        dlg.kind_combo.setCurrentIndex(dlg.kind_combo.findData("external"))
+        # KIND before ref — changing the kind repopulates the ref combo. Ч3: a
+        # live menu kind (the subject is the OK/build contract, not the kind).
+        dlg.kind_combo.setCurrentIndex(dlg.kind_combo.findData("placement"))
         dlg.ref_combo.setCurrentText(ref)
         dlg.offset_widget.x_edit.setText(x)
         dlg.offset_widget.y_edit.setText(y)
@@ -2532,6 +2556,67 @@ def test_edit_dialog_different_already_used_ref_still_rejected(
 
     assert dlg.build_node() is None
     assert warnings
+
+
+def test_ref_combo_greys_a_used_record_and_names_where_it_stands(
+        main_window, tmp_path):
+    """Ч3 (Денис): an already-used record's row in the Ref combo is DISABLED and
+    its tooltip SAYS where the other node stands — "непонятно, где" was exactly
+    the complaint the greying answers."""
+    from PyQt6.QtCore import Qt
+    dock, _root = _dock_with(main_window, tmp_path)
+    tree = dock._current_tree()
+    dlg = _build_dialog(dock, tree, None)   # Add mode: nothing is excluded
+
+    place = dock._used_ref_locations()
+    assert place["AMS1117_REG"][0] == "power_tree"
+    row = dlg.ref_combo.findText("AMS1117_REG")
+    assert row >= 0
+    item = dlg.ref_combo.model().item(row)
+    assert item is not None and item.isEnabled() is False
+    tip = dlg.ref_combo.itemData(row, Qt.ItemDataRole.ToolTipRole)
+    assert "already stands in tree" in tip and "power_tree" in tip
+
+
+def test_editing_a_node_keeps_its_own_ref_row_selectable(main_window, tmp_path):
+    """Ч3: a node's OWN ref is never "taken from itself" — editing a node must
+    keep its ref row enabled (grey it and the form could not even show its own
+    current ref)."""
+    dock, _root = _dock_with(main_window, tmp_path)
+    tree = dock._current_tree()
+    node = tree.nodes[0]   # AMS1117_REG, used by this very node
+    dlg = _build_dialog(dock, tree, dock._find_parent(tree, node),
+                        existing=node, title="Edit node")
+
+    row = dlg.ref_combo.findText("AMS1117_REG")
+    assert row >= 0
+    item = dlg.ref_combo.model().item(row)
+    assert item is not None and item.isEnabled() is True
+
+
+def test_the_used_ref_refusal_names_the_tree_and_the_node(
+        main_window, tmp_path, monkeypatch):
+    """Ч3 «Дополнение к Ч3»: the "already has a node in this file" refusal NAMES
+    the place — the tree and the node — so Denis's "непонятно, где" is answered
+    without hunting through the file."""
+    import gui.docks.trees_dock as td_mod
+    dock, _root = _dock_with(main_window, tmp_path)
+    tree = dock._current_tree()
+    node = tree.nodes[0]   # AMS1117_REG
+    other = tree.nodes[1]  # R_AROUND
+
+    warnings = []
+    monkeypatch.setattr(td_mod.QMessageBox, "warning",
+                        lambda *a, **k: warnings.append(a) or None)
+    dlg = _build_dialog(dock, tree, dock._find_parent(tree, node),
+                        existing=node, title="Edit node")
+    dlg.ref_combo.setCurrentText(other.ref)   # used by another node
+
+    assert dlg.build_node() is None
+    text = str(warnings[-1][2])
+    assert "power_tree" in text                    # the tree is NAMED
+    assert other.ref in text                       # ... and the node too
+    assert "exactly one position source" in text
 
 
 def test_master_detail_node_tab_apply_mutates_node_and_marks_dirty(main_window, tmp_path):
@@ -2672,8 +2757,11 @@ def test_read_position_coordinate_anchor_point_resolves_on_demand(
     warnings = []
     monkeypatch.setattr(td_mod.QMessageBox, "warning",
                         lambda *a, **k: warnings.append(a) or None)
-    dlg = _build_dialog(dock, tree, None)
-    dlg.kind_combo.setCurrentIndex(dlg.kind_combo.findData("coordinate"))
+    # Ч3 class Б: a coordinate node is opened in EDIT mode (its own "(retired)"
+    # row) — the real read path is exercised exactly as before.
+    dlg = _build_dialog(dock, tree, None, title="Edit node",
+                        existing=_existing_node("CL_AP", "coordinate"))
+    assert dlg.kind_combo.currentData() == "coordinate"
     dlg.ref_combo.setCurrentText("CL_AP")
 
     dlg._on_read_position()  # must not raise
@@ -3038,28 +3126,29 @@ def test_all_ref_names_dedups_cross_section_collision(main_window, tmp_path):
     assert dock._all_ref_names() == ["CL_A", "SHARED", "E_B", "COORD_C", "PNT_D"]
 
 
-def test_node_dialog_kind_coordinate_lists_only_coordinates(main_window, tmp_path):
-    """Kind = coordinate -> the "Ref:" combo carries ONLY coordinate names
-    (plain), and build_node() yields an explicitly-typed coordinate node."""
+# ── Ч3 (2026-10-13): the Kind menu is FOUR entries, Entity by default ───────
+#
+# Class А of the acceptance note (plan_2026_10_13_trees_menus_cleanup, "Ответ
+# Claude на ОСТАНОВКУ Ч3"): the cells whose SUBJECT was "pick a kind the menu no
+# longer offers" (auto, coordinate, external) went with the menu — the choice no
+# longer exists. What is guarded instead is the MENU ITSELF and the editing of a
+# node that still carries such a kind.
+
+def test_node_dialog_offers_exactly_the_four_menu_kinds(main_window, tmp_path):
+    """The Kind combo lists Entity / Mount / Tree / Inter-node copper — in that
+    order, ONE per kind — and starts on Entity (Denis, Ч3)."""
     dock, _root = _dock_with(main_window, tmp_path, KIND_FILTER_CFG)
-    tree = dock._current_tree()
-    dlg = _build_dialog(dock, tree, None)
-    dlg.kind_combo.setCurrentIndex(dlg.kind_combo.findData("coordinate"))
+    dlg = _build_dialog(dock, dock._current_tree(), None)
 
-    assert _combo_texts(dlg.ref_combo) == ["COORD_C"]
-    assert dlg.ref_combo.itemData(0) == ("coordinate", "COORD_C")
-
-    dlg.ref_combo.setCurrentText("COORD_C")
-    dlg.offset_widget.x_edit.setText("1.0")
-    dlg.offset_widget.y_edit.setText("2.0")
-    built = dlg.build_node()
-    assert built is not None
-    assert built.ref == "COORD_C"
-    assert built.kind == "coordinate"
+    assert _combo_texts(dlg.kind_combo) == [
+        "Entity", "Mount", "Tree", "Inter-node copper"]
+    assert [dlg.kind_combo.itemData(i) for i in range(dlg.kind_combo.count())] == [
+        "placement", "mount", "module", "net_trace"]
+    assert dlg.kind_combo.currentData() == "placement"  # Entity by default
 
 
 def test_node_dialog_kind_placement_lists_only_entities(main_window, tmp_path):
-    """Kind = placement -> only entities: names (plain) — never a
+    """Kind = Entity (placement) -> only entities: names (plain) — never a
     coordinate/point leaking in."""
     dock, _root = _dock_with(main_window, tmp_path, KIND_FILTER_CFG)
     tree = dock._current_tree()
@@ -3069,67 +3158,63 @@ def test_node_dialog_kind_placement_lists_only_entities(main_window, tmp_path):
     assert _combo_texts(dlg.ref_combo) == ["CL_A", "SHARED", "E_B"]
 
 
-def test_node_dialog_auto_unique_plain_collisions_prefixed(main_window, tmp_path):
-    """Kind = auto -> names unique to one section shown plain; a name shared by
-    2+ sections shown once PER section as {kind}:{name}. itemData carries the
-    (kind | None, name) pair the selection handler needs."""
+def test_node_dialog_kind_net_trace_lists_net_traces_records(main_window, tmp_path):
+    """Kind = Inter-node copper -> the Ref combo carries the net_traces: record
+    names. Before Ч3 the list was ALWAYS empty: net_trace is deliberately not in
+    link_trees._PLACEABLE_KINDS (its ref is a net name, never auto-searched), and
+    the dialog had no list of its own for it.
+
+    The acceptance note (Ч3 class Б) says the shared KIND_FILTER_CFG must NOT be
+    extended, so this cell carries its own LOCAL config with the one net_traces:
+    record it needs."""
+    # name: is the record's identity and the string the node's ref must carry
+    # (net_trace_effective_name); without it the format-2 -> 3 lift would MINT
+    # "net_trace_001" and the Combo would offer that instead.
+    cfg = dict(KIND_FILTER_CFG, net_traces=[
+        {"net": "NT_NET", "name": "NT_NET", "anchor_role": "ROLE_X"}])
+    dock, _root = _dock_with(main_window, tmp_path, cfg)
+    dlg = _build_dialog(dock, dock._current_tree(), None)
+    dlg.kind_combo.setCurrentIndex(dlg.kind_combo.findData("net_trace"))
+
+    assert _combo_texts(dlg.ref_combo) == ["NT_NET"]
+    assert dlg.ref_combo.itemData(0) == ("net_trace", "NT_NET")
+    assert "net_traces" in dlg.ref_combo.placeholderText()
+
+    dlg.ref_combo.setCurrentText("NT_NET")
+    built = dlg.build_node()
+    assert built is not None
+    assert built.kind == "net_trace"
+    assert built.ref == "NT_NET"
+    assert built.xy is None  # positionless: the record carries the geometry
+
+
+def test_node_dialog_retired_kind_keeps_its_kind_on_edit(main_window, tmp_path):
+    """Б-класс of the acceptance note: an EXISTING node of a kind the menu no
+    longer offers (here a `point`) opens with its own "(retired)" row, the kind
+    is NOT lost, and the Ref list is the one that kind always had. A file with
+    such a node keeps loading and editing — "убрать из меню" ≠ "удалить из
+    грамматики"."""
     dock, _root = _dock_with(main_window, tmp_path, KIND_FILTER_CFG)
-    tree = dock._current_tree()
-    dlg = _build_dialog(dock, tree, None)
+    node = TreeNode(ref="PNT_D", kind="point", xy=(1.0, 2.0), polar=None,
+                    rotation=0.0, name=None, group=None)
+    dlg = _build_dialog(dock, dock._current_tree(), None, existing=node,
+                        title="Edit node")
 
-    assert dlg.kind_combo.currentData() is None  # auto by default
-    assert _combo_texts(dlg.ref_combo) == [
-        "CL_A", "placement:SHARED", "E_B", "COORD_C", "PNT_D", "point:SHARED",
-    ]
-    assert dlg.ref_combo.itemData(0) == (None, "CL_A")
-    assert dlg.ref_combo.itemData(1) == ("placement", "SHARED")
-    assert dlg.ref_combo.itemData(4) == (None, "PNT_D")
-    assert dlg.ref_combo.itemData(5) == ("point", "SHARED")
+    assert dlg.kind_combo.currentData() == "point"
+    assert "retired" in dlg.kind_combo.currentText().lower()
+    # The retired row is EXTRA: the four menu kinds are still all offered.
+    assert [dlg.kind_combo.itemData(i) for i in range(dlg.kind_combo.count())] == [
+        "placement", "mount", "module", "net_trace", "point"]
+    # point records: PNT_D and the point/Entity collision SHARED both qualify.
+    assert _combo_texts(dlg.ref_combo) == ["PNT_D", "SHARED"]
+    assert dlg.ref_combo.currentText() == "PNT_D"  # pre-filled by _prefill
 
-
-def test_node_dialog_auto_pick_collision_specializes_kind(main_window, tmp_path):
-    """Picking a PREFIXED collision entry in auto mode must auto-set the Kind
-    to that section and put the CLEAN name in the ref combo — a node with
-    kind=None and a colliding ref would be fatal at link_trees ("0 or 2+
-    matches"), so the pick carries the explicit kind along."""
-    dock, _root = _dock_with(main_window, tmp_path, KIND_FILTER_CFG)
-    tree = dock._current_tree()
-    dlg = _build_dialog(dock, tree, None)
-    assert dlg.kind_combo.currentData() is None
-
-    collision_idx = _combo_texts(dlg.ref_combo).index("placement:SHARED")
-    dlg.ref_combo.setCurrentIndex(collision_idx)
-
-    assert dlg.kind_combo.currentData() == "placement"
-    assert dlg.ref_combo.currentText() == "SHARED"
-
-
-def test_node_dialog_auto_pick_plain_keeps_auto(main_window, tmp_path):
-    """Picking a plain (unique) entry in auto mode must NOT touch the Kind —
-    only prefixed collision entries specialize it."""
-    dock, _root = _dock_with(main_window, tmp_path, KIND_FILTER_CFG)
-    tree = dock._current_tree()
-    dlg = _build_dialog(dock, tree, None)
-
-    plain_idx = _combo_texts(dlg.ref_combo).index("CL_A")
-    dlg.ref_combo.setCurrentIndex(plain_idx)
-
-    assert dlg.kind_combo.currentData() is None
-    assert dlg.ref_combo.currentText() == "CL_A"
-
-
-def test_node_dialog_external_clears_ref_combo(main_window, tmp_path):
-    """Kind = external -> the combo is emptied (free-text live refdes) with a
-    hint — regardless of what records the config carries."""
-    dock, _root = _dock_with(main_window, tmp_path, KIND_FILTER_CFG)
-    tree = dock._current_tree()
-    dlg = _build_dialog(dock, tree, None)
-    assert dlg.ref_combo.count() > 0
-
-    dlg.kind_combo.setCurrentIndex(dlg.kind_combo.findData("external"))
-
-    assert dlg.ref_combo.count() == 0
-    assert "external" in dlg.ref_combo.placeholderText()
+    dlg.offset_widget.x_edit.setText("3.0")
+    dlg.offset_widget.y_edit.setText("4.0")
+    built = dlg.build_node()
+    assert built is not None
+    assert built.kind == "point"  # the kind survived the edit
+    assert built.ref == "PNT_D"
 
 
 def test_node_dialog_edit_kind_none_collision_ref_stays_clean(main_window, tmp_path):
@@ -3700,8 +3785,9 @@ def test_master_detail_redraw_button_tracks_live_kind_changes(main_window, tmp_p
     """The master-detail Redraw button must re-evaluate when the user changes
     Kind live in the form — not just once at construction (a stale enabled
     state would let a name neither worker can resolve back in through an
-    edit). "external" (a live-board-only base, no content of its own to
-    place) is the still-disabled kind now that "module" is enabled too."""
+    edit). "mount" (whose position IS its anchor — nothing to redraw by
+    --only) is the still-disabled kind; Ч3 replaced "external" with it, since
+    "external" left the Kind menu altogether."""
     dock, _root = _module_dock(main_window, tmp_path)
     fpga = _tree_of(dock, "fpga")
     module_node = fpga.nodes[0]  # ref "ch0_dac_buf", kind "module"
@@ -3713,7 +3799,7 @@ def test_master_detail_redraw_button_tracks_live_kind_changes(main_window, tmp_p
     form = _embedded_form(page)
     redraw_btn = _embedded_redraw_button(page)
 
-    idx = form.kind_combo.findData("external")
+    idx = form.kind_combo.findData("mount")
     form.kind_combo.setCurrentIndex(idx)
     assert redraw_btn.isEnabled() is False
 
@@ -3723,13 +3809,13 @@ def test_master_detail_redraw_button_tracks_live_kind_changes(main_window, tmp_p
 
 
 def test_render_tree_shows_module_tag(main_window, tmp_path):
-    """P4 п.1: the module kind gets a "(tree)" tag next to the ref — relabeled
+    """P4 п.1: the module kind gets a "(Tree)" tag next to the ref — relabeled
     2026-09-07 (Denis: "module" alone was not discoverable as "this embeds a
     whole other tree"); the underlying kind value stays "module" everywhere
     else (data/grammar unaffected, display-only)."""
     dock, _root = _module_dock(main_window, tmp_path)
     item = dock._node_items["ch0_dac_buf"]
-    assert "(tree)" in item.text(0)
+    assert "(Tree)" in item.text(0)
 
 
 def test_double_click_navigation_module_and_embedded_in(main_window, tmp_path):
@@ -4335,8 +4421,13 @@ def test_component_address_returns_either_the_role_or_the_ref(main_window, tmp_p
     (ref ...) form with its pad; the two are mutually exclusive (the shared
     widget's own rule)."""
     dock, _root = _dock_with(main_window, tmp_path)
-    dlg = _build_dialog(dock, dock._current_tree(), None)
-    dlg.kind_combo.setCurrentIndex(dlg.kind_combo.findData("component"))
+    # Ч3 class Б: "component" left the Kind menu; an existing component node
+    # opens in EDIT mode with its own "(retired)" row. The node carries an
+    # address, so the picker loads in its "anchor" (address) mode.
+    dlg = _build_dialog(dock, dock._current_tree(), None, title="Edit node",
+                        existing=_existing_node("cmp_1", "component",
+                                                anchor=TreeAnchor(role="AD_DAC")))
+    assert dlg.kind_combo.currentData() == "component"
     assert dlg.component_address_widget.isHidden() is False
     assert dlg.tabs.isTabVisible(1) is True
     # A component node HAS coordinates of its own — the ordinary rows come back.
@@ -4367,10 +4458,13 @@ def test_component_node_without_an_address_refuses_build(main_window, tmp_path,
     warnings = []
     monkeypatch.setattr(td_mod.QMessageBox, "warning",
                         lambda *a, **k: warnings.append(a) or None)
-    dlg = _NodeDialog(None, [], set(), "Add node", cfg=None, adapter=None,
-                      sheet_names={}, tree=None, parent_node=None)
-    dlg.ref_combo.setCurrentText("place_1")
-    dlg.kind_combo.setCurrentIndex(dlg.kind_combo.findData("component"))
+    # Ч3 class Б: an existing component node whose address is EMPTY, in EDIT
+    # mode. The empty (anchor) address keeps the picker in its address mode, so
+    # its OWN "set Ref or Role" message is the one under test.
+    dlg = _NodeDialog(None, [], set(), "Edit node", cfg=None, adapter=None,
+                      sheet_names={}, tree=None, parent_node=None,
+                      existing=_existing_node("place_1", "component",
+                                              anchor=TreeAnchor()))
     dlg.offset_widget.x_edit.setText("1.0")
     dlg.offset_widget.y_edit.setText("2.0")
     assert dlg.build_node() is None
@@ -4381,10 +4475,12 @@ def test_a_component_node_builds_with_its_address_and_coordinates(main_window,
                                                                  tmp_path):
     """Т3.7 end of the form: the built node carries the address AND the
     coordinates — a component node is positioned like any other node."""
-    dlg = _NodeDialog(None, [], set(), "Add node", cfg=None, adapter=None,
-                      sheet_names={}, tree=None, parent_node=None)
-    dlg.ref_combo.setCurrentText("place_1")
-    dlg.kind_combo.setCurrentIndex(dlg.kind_combo.findData("component"))
+    # Ч3 class Б: an existing component node, EDIT mode (empty address, so the
+    # picker is in its address mode and the Ref field is the one filled below).
+    dlg = _NodeDialog(None, [], set(), "Edit node", cfg=None, adapter=None,
+                      sheet_names={}, tree=None, parent_node=None,
+                      existing=_existing_node("place_1", "component",
+                                              anchor=TreeAnchor()))
     dlg.component_address_widget.anchor_ref_edit.setText("IC7")
     dlg.offset_widget.x_edit.setText("12.5")
     dlg.offset_widget.y_edit.setText("40.0")
@@ -4432,7 +4528,9 @@ def test_node_form_build_for_copper_needs_no_coordinates(monkeypatch):
     assert node.ref == "2v5_oa__dac_buf__pif_oa_n2v5"
     assert node.xy is None and node.polar is None and node.rotation == 0.0
 
-    dlg.kind_combo.setCurrentIndex(dlg.kind_combo.findData("external"))
+    # Ч3: a live menu kind now carries the empty-offset refusal (the subject is
+    # "positionless copper needs no XY; a positioned kind still does").
+    dlg.kind_combo.setCurrentIndex(dlg.kind_combo.findData("placement"))
     dlg.ref_combo.setCurrentText("C_OUT")
     assert dlg.build_node() is None
     assert shown and "is required" in str(shown[-1])
@@ -4458,7 +4556,8 @@ def test_node_form_copper_rows_are_hidden_not_removed():
     assert dlg.offset_widget.parentWidget() is dlg.offset_row
     assert dlg.rotation_edit.parentWidget() is dlg.rotation_row
 
-    dlg.kind_combo.setCurrentIndex(dlg.kind_combo.findData("external"))
+    # Ч3: switching back to a positioned MENU kind shows the rows again.
+    dlg.kind_combo.setCurrentIndex(dlg.kind_combo.findData("placement"))
     assert dlg.offset_row.isVisibleTo(dlg) is True
     assert dlg.rotation_row.isVisibleTo(dlg) is True
     assert dlg.read_position_button.isVisibleTo(dlg) is True
@@ -6031,7 +6130,7 @@ def test_kind_switch_shows_and_hides_the_tab_and_the_picker_together(
     idx = dlg._position_tab_index
 
     for kind, visible in (("mount", True), ("placement", False),
-                          ("mount", True), ("external", False)):
+                          ("mount", True), ("module", False)):
         dlg.kind_combo.setCurrentIndex(dlg.kind_combo.findData(kind))
         assert dlg.tabs.isTabVisible(idx) is visible
         assert dlg.mount_anchor_widget.isHidden() is (not visible)
@@ -6047,7 +6146,7 @@ def test_kind_switch_shows_and_hides_the_tab_and_the_picker_together(
     assert built is not None and built.kind == "mount"
     assert built.anchor is not None and built.anchor.role == "DAC_ROLE"
 
-    dlg.kind_combo.setCurrentIndex(dlg.kind_combo.findData("coordinate"))
+    dlg.kind_combo.setCurrentIndex(dlg.kind_combo.findData("placement"))
     dlg.ref_combo.setCurrentText("CL_CHILD")
     cloned = dlg.build_node()
     assert cloned is not None and cloned.anchor is None
@@ -7742,9 +7841,10 @@ def test_component_node_read_position_row_is_visible_and_enabled(qapp):
     positioned kind. It used to be hidden deliberately (plan Ф5: "a component
     node's read would have to resolve the ADDRESS ... deliberately not invented
     here"); Часть B is that feature."""
-    dlg = _bare_node_dialog()
-    dlg.kind_combo.setCurrentIndex(dlg.kind_combo.findData("component"))
-    dlg.ref_combo.setCurrentText("conn_renc")
+    # Ч3 class Б: an existing component node (form-level, no dock), EDIT mode.
+    dlg = _NodeDialog(None, [], set(), "Edit node", cfg=None, adapter=None,
+                      sheet_names={}, tree=None, parent_node=None,
+                      existing=_existing_node("conn_renc", "component"))
 
     assert dlg.read_position_button.isVisibleTo(dlg) is True
     assert dlg.read_status_label.isVisibleTo(dlg) is True
@@ -7767,9 +7867,8 @@ def test_component_node_read_position_without_address_warns_and_writes_nothing(
     monkeypatch.setattr(td_mod, "resolve_component_footprint",
                         lambda *a, **k: pytest.fail("no address -> no resolve"))
 
-    dlg = _build_dialog(dock, tree, None)
-    dlg.kind_combo.setCurrentIndex(dlg.kind_combo.findData("component"))
-    dlg.ref_combo.setCurrentText("conn_renc")
+    dlg = _build_dialog(dock, tree, None, title="Edit node",
+                        existing=_existing_node("conn_renc", "component"))
     dlg.offset_widget.x_edit.setText("7.000")
     dlg.offset_widget.y_edit.setText("8.000")
     dlg.rotation_edit.setText("12.000")
@@ -7798,10 +7897,10 @@ def test_component_node_read_position_fills_offset_and_rotation(
                             position=Vector2.from_xy_mm(10.0, 5.0),
                             angle_deg=30.0, layer=BoardLayer.BL_F_Cu))
 
-    dlg = _build_dialog(dock, tree, None)
+    dlg = _build_dialog(dock, tree, None, title="Edit node",
+                        existing=_existing_node("conn_renc", "component",
+                                                anchor=TreeAnchor()))
     monkeypatch.setattr(dlg, "_base_rotation_deg", lambda: 0.0)
-    dlg.kind_combo.setCurrentIndex(dlg.kind_combo.findData("component"))
-    dlg.ref_combo.setCurrentText("conn_renc")
     dlg.component_address_widget.anchor_ref_edit.setText("J5")
 
     dlg._on_read_position()
@@ -7907,9 +8006,9 @@ def test_component_node_read_position_mirrored_warns_and_writes_nothing(
                             position=Vector2.from_xy_mm(1.0, 1.0),
                             angle_deg=0.0, layer=BoardLayer.BL_B_Cu))
 
-    dlg = _build_dialog(dock, tree, None)
-    dlg.kind_combo.setCurrentIndex(dlg.kind_combo.findData("component"))
-    dlg.ref_combo.setCurrentText("conn_renc")
+    dlg = _build_dialog(dock, tree, None, title="Edit node",
+                        existing=_existing_node("conn_renc", "component",
+                                                anchor=TreeAnchor()))
     dlg.component_address_widget.anchor_ref_edit.setText("J5")
     before = (dlg.offset_widget.x_edit.text(), dlg.offset_widget.y_edit.text(),
               dlg.rotation_edit.text())
@@ -7941,9 +8040,9 @@ def test_component_node_read_position_not_found_warns_like_every_other_kind(
         raise ValidationError("tree node 'conn_renc': CONN_RENC not found")
     monkeypatch.setattr(td_mod, "resolve_component_footprint", _boom)
 
-    dlg = _build_dialog(dock, tree, None)
-    dlg.kind_combo.setCurrentIndex(dlg.kind_combo.findData("component"))
-    dlg.ref_combo.setCurrentText("conn_renc")
+    dlg = _build_dialog(dock, tree, None, title="Edit node",
+                        existing=_existing_node("conn_renc", "component",
+                                                anchor=TreeAnchor()))
     dlg.component_address_widget.anchor_ref_edit.setText("J5")
     before = dlg.offset_widget.x_edit.text()
 

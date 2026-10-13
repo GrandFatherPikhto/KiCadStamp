@@ -1035,8 +1035,10 @@ def test_the_form_hands_the_connections_snapshot_to_its_base_resolve(
         driver = form._base_pose
     else:
         form = dock._build_node_form(tree, node)
+        # Ч3: "external" left the Kind menu; a live menu kind carries the ref
+        # (the cell's subject is the door/snapshot seam, not the kind).
+        form.kind_combo.setCurrentIndex(form.kind_combo.findData("placement"))
         form.ref_combo.setCurrentText("R_DEBUG")
-        form.kind_combo.setCurrentIndex(form.kind_combo.findData("external"))
         monkeypatch.setattr(
             trees_mod, "_resolve_live_offset",
             lambda *a, **k: seen.append(k) or ((0.0, 0.0), 0.0))

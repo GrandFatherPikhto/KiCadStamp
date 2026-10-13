@@ -66,8 +66,9 @@ from kicadstamp.placement.services.component_resolver import (
 )
 from kicadstamp.placement.anchor_identity import entity_is_self_anchor
 from kicadstamp.placement.services.point_resolver import resolve_point_chain
-from kicadstamp.trees import (KINDS, Tree, TreeAnchor, TreeNode,
-                              _mount_ancestor_of, _walk_nodes,
+from kicadstamp.trees import (KINDS, RECORD_KINDS, Tree, TreeAnchor,
+                              TreeNode, _mount_ancestor_of, _walk_nodes,
+                              node_kind_label,
                               tree_pivot_ref_candidates,
                               tree_self_ref_candidates, tree_to_dict)
 from kicadstamp.utils.units import MM
@@ -78,6 +79,8 @@ from ..ui_utils import (persist_dialog_size, restore_dialog_size,
                         wrap_in_scroll_area)
 from ..worker import defer_while_socket_busy, socket_busy, start_long_op
 from ._anchor_origin import AnchorOriginWidget, build_role_anchor_fields
+from .trees_node_form import (kind_menu_rows, mark_used_items, ref_combo_rows,
+                              used_ref_locations, used_ref_refusal)
 from .trees_node_row import apply_node_form
 from .live_position import read_record_live_pose
 from .copper_select import (identify_copper_report_lines, resolve_record,
@@ -125,31 +128,15 @@ _REHANG_BUSY_TEXT = _(
     "Move to…: the board is busy right now — the node was NOT moved. "
     "Try the move again.")
 
-# Short kind tags, shown next to a node's ref when the kind is set. "external"
-# is included here — trees need it.
-_KIND_TAGS = {
-    "clone": _("clone"),
-    "placement": _("placement"),
-    "coordinate": _("coordinate"),
-    "point": _("point"),
-    "external": _("external"),
-    # Display-only relabel (2026-09-07, Denis: "module -- это tree", not
-    # discoverable as a label on its own) — the grammar/data value stays
-    # "module" everywhere (files, KINDS, link_trees, ...); only what the user
-    # reads here and in the Kind combo (NodeFormWidget, below) changes.
-    "module": _("tree"),
-    # Mount node (2026-09-11, plan_2026_09_11_tree_mount_nodes): a POINT OF
-    # REFERENCE — it places nothing itself; its children hang from the live
-    # component its anchor names.
-    "mount": _("mount"),
-    # A node that places ONE live component by its own address (2026-09-17, plan
-    # Э3): the tag is the kind name, as for every other kind.
-    "component": _("component"),
-    # Copper container (2026-09-16, plan_2026_09_16_copper_node_order_and_
-    # container P.2.4): a folding node for a tree's inter-node copper. It places
-    # nothing of its own, so the tag simply says what it is.
-    "copper": _("copper"),
-}
+# Node-kind LABELS (the tag next to a node's ref, the Kind combo, the anchor
+# form's record filter) live in ONE table — kicadstamp.trees.NODE_KIND_TABLE,
+# read through node_kind_label() (2026-10-13, plan_2026_10_13_trees_menus_cleanup
+# Ч3). The local `_KIND_TAGS` copy went with it: it carried a "clone" tag for a
+# kind the grammar no longer accepts at all (trees.RETIRED_NODE_KINDS refuses a
+# file that names it), and it had NO "net_trace" entry — so an inter-node copper
+# row printed no tag whatsoever. The label a node shows and the label the Kind
+# combo offers now come from the same row of that table ("module" reads as
+# "Tree" for the user; the data value stays "module" everywhere).
 
 # Node kinds the per-node Redraw button can actually act on. Most of these
 # are a record kind ApplyPipeline's --only can resolve by name directly
@@ -175,8 +162,10 @@ _KIND_TAGS = {
 # --only path: the node materializes a transient CoordinatePlacement whose
 # effective name IS the node's ref, so `--only <node name>` resolves it — no
 # special case needed here at all.
+# (the legacy "clone" entry went 2026-10-13 with the retired kind itself — see
+# kicadstamp/trees.RETIRED_NODE_KINDS; nothing can produce such a node any more.)
 _REDRAWABLE_NODE_KINDS = frozenset(
-    {"placement", "clone", "coordinate", "net_trace", "module", "component"})
+    {"placement", "coordinate", "net_trace", "module", "component"})
 
 # Node kinds that carry NO coordinates, so the node form neither collects nor
 # asks for any (2026-09-16, plan_2026_09_16_copper_node_order_and_container
@@ -188,6 +177,9 @@ _REDRAWABLE_NODE_KINDS = frozenset(
 # _on_kind_changed (which rows to hide) — so they cannot drift apart and leave
 # a visible field that build_node ignores, or the other way round.
 _POSITIONLESS_NODE_KINDS = frozenset({"net_trace", "copper"})
+
+# (the Ref field's per-kind placeholder sentences live with the rest of the node
+# form's kind/ref support — gui/docks/trees_node_form.LOCAL_REF_PLACEHOLDERS.)
 
 
 # ── The "Copper" pseudo-node (2026-09-16, plan_2026_09_16_copper_pseudo_node) ──
@@ -1714,13 +1706,13 @@ class TreesDock(QWidget):
     @staticmethod
     def _node_item_text(node: TreeNode, *, is_handle: bool = False,
                         stale: bool = False) -> str:
-        """One row's text: the ref, plus the short kind tag (_KIND_TAGS), the
+        """One row's text: the ref, plus the kind's tag (NODE_KIND_TABLE), the
         tree's own suspension handle tag and the "stale" mark — the SAME
         single-column tag idiom, so no second column is added (plan §W.6).
         Shared by the initial render and _refresh_tree_marks."""
         text = node.ref
         if node.kind is not None:
-            tag = _KIND_TAGS.get(node.kind)
+            tag = node_kind_label(node.kind)
             if tag:
                 text = f"{text} ({tag})"
         if is_handle:
@@ -2090,7 +2082,9 @@ class TreesDock(QWidget):
             cfg=self._cfg,
             sheet_names=self._ctx.sheet_names if self._ctx is not None else {},
             tree=tree, parent_node=self._find_parent(tree, node), existing=node,
+            used_ref_locations=self._used_ref_locations(),
             module_candidates=self._module_tree_candidates(tree),
+            net_trace_candidates=self._net_trace_record_candidates(),
             all_trees=self._trees,
             role_candidates=self._live_roles(),
             cluster_candidates=self._live_clusters(),
@@ -2502,21 +2496,15 @@ class TreesDock(QWidget):
         LOCAL name, unique per TREE, so two trees may both have one called
         "copper" — flagging it "(used)" here would make the GUI refuse a config
         the loader accepts (trees.py::_LOCAL_REF_KINDS)."""
-        used: set[str] = set()
-        for tree in self._trees:
-            for node in tree.nodes:
-                self._collect_refs(node, used)
-        return used
+        return set(self._used_ref_locations())
 
-    @staticmethod
-    def _collect_refs(node: TreeNode, into: set[str]) -> None:
-        # "component" is a LOCAL name like "mount"/"copper" (its ref never
-        # resolves against the config), so it must not mark a name as "used" —
-        # otherwise the form would refuse a name the loader accepts.
-        if node.kind not in ("module", "copper", "component"):
-            into.add(node.ref)
-        for child in node.children:
-            TreesDock._collect_refs(child, into)
+    def _used_ref_locations(self) -> dict[str, tuple[str, str]]:
+        """WHERE every already-used RECORD node ref stands: ref -> (tree name,
+        node label). Delegates to the ONE owner (gui/docks/trees_used_refs.py),
+        which also WORDS the place — so the Ref combo's greyed rows and
+        build_node's refusal can never disagree. The ref SET (_used_refs) is
+        derived from this map's keys, so a greyed row is EXACTLY a refusal."""
+        return used_ref_locations(self._trees)
 
     @staticmethod
     def _module_targets(tree: Tree) -> set[str]:
@@ -2597,6 +2585,19 @@ class TreesDock(QWidget):
             return []
         return [(r.kind, r.name) for r in build_records(self._cfg)
                 if r.kind in _PLACEABLE_KINDS]
+
+    def _net_trace_record_candidates(self) -> list[str]:
+        """`net_traces:` record names, for an "inter-node copper" node's Ref
+        (Ч3, 2026-10-13). A SEPARATE list from _all_ref_candidates on purpose:
+        the net_trace kind is deliberately NOT in link_trees._PLACEABLE_KINDS —
+        its ref is a net NAME, which must never be auto-searched by name (it can
+        collide with another section's name, see kicadstamp/trees.KINDS). The
+        node always carries the EXPLICIT kind, so the dialog may still OFFER the
+        names. Before Ч3 this list simply did not exist and the combo stayed
+        empty."""
+        if self._cfg is None:
+            return []
+        return [r.name for r in build_records(self._cfg) if r.kind == "net_trace"]
 
     def _all_ref_names(self) -> list[str]:
         """Plain unique ref names for the ANCHOR dialog — an anchor auto-
@@ -2987,11 +2988,14 @@ class TreesDock(QWidget):
             tree=tree,
             parent_node=parent_node,
             existing=existing,
-            # kind=="module" candidate wiring (2026-09-07 fix): mirrors
-            # _build_node_form's Edit-mode wiring exactly — without these two,
-            # the module Ref combo and "From child node..." are always empty,
-            # regardless of how many trees actually exist (found live).
+            used_ref_locations=self._used_ref_locations(),
+            # kind=="module"/"net_trace" candidate wiring (2026-09-07 fix,
+            # extended Ч3 2026-10-13): mirrors _build_node_form's Edit-mode
+            # wiring exactly — without these, the module Ref combo and "From
+            # child node..." (and, since Ч3, the inter-node copper Ref list) are
+            # always empty, regardless of how many records actually exist.
             module_candidates=self._module_tree_candidates(tree),
+            net_trace_candidates=self._net_trace_record_candidates(),
             all_trees=self._trees,
             # Position-tab (mount anchor) candidate lists — the same live
             # sources the mount anchor picker uses (plan tree_node_own_anchor
@@ -4310,13 +4314,18 @@ class NodeFormWidget(QWidget):
                  tree=None, parent_node=None, existing=None,
                  module_candidates=None, all_trees=None,
                  role_candidates=None, cluster_candidates=None,
-                 parent_candidates=None):
+                 parent_candidates=None, net_trace_candidates=None,
+                 used_ref_locations=None):
         super().__init__(parent)
         # `title` is accepted for signature compatibility with the former
         # QDialog (its caller set the window title); a plain QWidget form has
         # no window of its own, so nothing is set here.
         self._ref_candidates = ref_candidates
         self._used_refs = used_refs
+        # Ч3: WHERE each used ref stands (ref -> (tree, node label)), for the
+        # Ref combo's greyed rows + tooltip and build_node's own wording.
+        # Optional: a standalone form may pass only the set (no greying then).
+        self._used_ref_locations = dict(used_ref_locations or {})
         self._cfg = cfg
         self._adapter = adapter
         # Set by _base_pose: whether the last base resolve had anything to read
@@ -4337,6 +4346,10 @@ class NodeFormWidget(QWidget):
         # (plan 2026-09-02 P4 п.1/п.2). `parent` is the TreesDock; the dock
         # computes both before opening the dialog.
         self._module_candidates = list(module_candidates or [])
+        # kind=="net_trace" (inter-node copper): the net_traces: record names the
+        # Ref combo offers (Ч3) — the dock computes them, see
+        # TreesDock._net_trace_record_candidates.
+        self._net_trace_candidates = list(net_trace_candidates or [])
         self._all_trees = list(all_trees or [])
 
         self._role_candidates = list(role_candidates or [])
@@ -4378,14 +4391,14 @@ class NodeFormWidget(QWidget):
         general_widget = QWidget()
         form = QFormLayout(general_widget)
 
-        # kind — "auto" (None) + every grammar kind (KINDS incl. "module").
+        # kind — the four MENU kinds (Denis, Ч3: Entity default, then Mount,
+        # Tree, Inter-node copper), labels from the ONE table; plus an EXISTING
+        # node's own "(retired)" row so a withdrawn kind survives an edit. The
+        # ROWS are built by the ONE owner (trees_node_form.kind_menu_rows).
         self.kind_combo = QComboBox()
-        self.kind_combo.addItem(_("auto"), None)
-        for k in KINDS:
-            # Display label from _KIND_TAGS when one exists (2026-09-07:
-            # "module" reads as "tree" here too) — data stays the raw kind
-            # value `k`, so currentData()/build_node() are unaffected.
-            self.kind_combo.addItem(_KIND_TAGS.get(k, k), k)
+        for _label, _value in kind_menu_rows(existing is not None,
+                                             existing.kind if existing else None):
+            self.kind_combo.addItem(_label, _value)
         self.kind_combo.currentIndexChanged.connect(self._on_kind_changed)
         form.addRow(_("Kind:"), self.kind_combo)
 
@@ -5539,6 +5552,11 @@ class NodeFormWidget(QWidget):
         for text, kind, name in items:
             self.ref_combo.addItem(text, (kind, name))
         self.ref_combo.setCurrentText(current_text)
+        # Ч3: a used record's row is greyed and SAYS where it stands — the ONE
+        # owner (trees_used_refs.mark_used_items); a node's own ref is never
+        # marked, so editing a node keeps its ref row selectable.
+        own_ref = self._existing.ref if self._existing is not None else None
+        mark_used_items(self.ref_combo, self._used_ref_locations, own_ref)
         self.ref_combo.blockSignals(False)
 
     def _on_kind_changed(self) -> None:
@@ -5624,55 +5642,16 @@ class NodeFormWidget(QWidget):
             self.mount_anchor_widget.load(mode="anchor")
         if is_component and self.component_address_widget.mode != "anchor":
             self.component_address_widget.load(mode="anchor")
-        if kind == "module":
-            # Ref = a child TREE NAME (not a record) — the dialog's separate
-            # tree-name candidate list, minus self/dups/cycle risks.
-            self.ref_combo.clear()
-            self._set_ref_items([(name, None, name)
-                                 for name in self._module_candidates])
-            self.ref_combo.setPlaceholderText(_("child tree name"))
-            return
-        if kind == "mount":
-            # A mount node's ref is a local NAME (unique within the tree), not
-            # a config record — free text, like external (plan §Y.1.3).
-            self.ref_combo.clear()
-            self.ref_combo.setPlaceholderText(_("mount node name (unique in tree)"))
-            return
-        if kind == "copper":
-            # A copper CONTAINER's ref is a local NAME too (P.2.4) — free text,
-            # exactly like a mount node's, and normally created by the re-read
-            # rather than typed by hand.
-            self.ref_combo.clear()
-            self.ref_combo.setPlaceholderText(
-                _("copper container name (unique in tree)"))
-            return
-        if kind == "component":
-            # A component node's ref is a LOCAL NAME as well (plan Э3/Т3.2) —
-            # free text. The COMPONENT it places is named by the address picker
-            # on the Position tab, never by this ref.
-            self.ref_combo.clear()
-            self.ref_combo.setPlaceholderText(
-                _("component node name (unique in tree)"))
-            return
-        if kind == "external":
-            self.ref_combo.clear()
-            self.ref_combo.setPlaceholderText(_("external refdes (live board)"))
-            return
-        if kind is None:
-            section_count: dict[str, int] = {}
-            for _k, name in self._ref_candidates:
-                section_count[name] = section_count.get(name, 0) + 1
-            items = []
-            for k, name in self._ref_candidates:
-                if section_count[name] > 1:
-                    items.append((f"{k}:{name}", k, name))
-                else:
-                    items.append((name, None, name))
-        else:
-            items = [(name, kind, name)
-                     for k, name in self._ref_candidates if k == kind]
+        # WHERE the Ref list comes from is the ONE table's `ref_source` column
+        # (kicadstamp.trees.NODE_KIND_TABLE): the ITEMS and the placeholder are
+        # built by the ONE owner (trees_node_form.ref_combo_rows), so rewording
+        # what a kind means cannot leave the combo offering the wrong list.
+        items, placeholder = ref_combo_rows(
+            kind, ref_candidates=self._ref_candidates,
+            module_candidates=self._module_candidates,
+            net_trace_candidates=self._net_trace_candidates)
         self._set_ref_items(items)
-        self.ref_combo.setPlaceholderText(_("record name (from config)"))
+        self.ref_combo.setPlaceholderText(placeholder)
 
     def _on_ref_selected(self, index: int) -> None:
         """Auto-specialize the Kind when the user picks a PREFIXED collision
@@ -5758,10 +5737,11 @@ class NodeFormWidget(QWidget):
             # got backwards and let a DIFFERENT node's ref through).
             used_refs = {r for r in used_refs if r != self._existing.ref}
         if ref in used_refs:
+            # Ч3 (Денис): the refusal NAMES the place — the same owner and the
+            # same wording the greyed combo rows use, so "where?" is answered.
             QMessageBox.warning(
                 self, _("Add node"),
-                _("Record {ref!r} already has a node in this file — a record's "
-                  "position source must be exactly one.").format(ref=ref))
+                used_ref_refusal(ref, self._used_ref_locations.get(ref)))
             return None
         # Э2 (plan_2026_09_13_tree_instance_self_embed): the module tree-name
         # LIST is enforced, not merely offered — see _module_ref_refusal.
@@ -5875,7 +5855,8 @@ class _NodeDialog(QDialog):
                  tree=None, parent_node=None, existing=None,
                  module_candidates=None, all_trees=None,
                  role_candidates=None, cluster_candidates=None,
-                 parent_candidates=None):
+                 parent_candidates=None, net_trace_candidates=None,
+                 used_ref_locations=None):
         super().__init__(parent)
         self.setWindowTitle(title)
         # The FORM is built with the original `parent` (the TreesDock, not this
@@ -5885,8 +5866,10 @@ class _NodeDialog(QDialog):
             parent, ref_candidates, used_refs, title, cfg=cfg, adapter=adapter,
             sheet_names=sheet_names, tree=tree, parent_node=parent_node,
             existing=existing, module_candidates=module_candidates,
+            net_trace_candidates=net_trace_candidates,
             all_trees=all_trees, role_candidates=role_candidates,
             cluster_candidates=cluster_candidates,
+            used_ref_locations=used_ref_locations,
             # Э1: the Parent combo's rows (dock-computed; Edit mode only).
             parent_candidates=parent_candidates)
         layout = QVBoxLayout(self)
@@ -6077,13 +6060,6 @@ class AnchorFormWidget(QWidget):
     Extracted from the former _AnchorDialog (plan §2.1); the class keeps the
     exact constructor signature and every field/method the picker/edit flows
     use, just as a plain QWidget."""
-    _KIND_LABELS = {
-        "placement": _("Entity"),
-        "coordinate": _("Coordinate"),
-        "point": _("Point"),
-        "clone": _("Clone"),
-    }
-
     def __init__(self, parent, ref_candidates, *, cfg=None, sheet_names=None,
                  role_candidates=None, cluster_candidates=None, existing=None,
                  tree=None, adapter=None, all_trees=None):
@@ -6140,10 +6116,15 @@ class AnchorFormWidget(QWidget):
         self.record_row = QWidget()
         record_form = QFormLayout(self.record_row)
         record_form.setContentsMargins(0, 0, 0, 0)
+        # The record-kind filter of an anchor: labels from the ONE table
+        # (kicadstamp.trees.NODE_KIND_TABLE), the kind LIST stays this form's own
+        # — an anchor names a RECORD that resolves by name, so the tree/local/
+        # free kinds have nothing to offer here. The legacy "clone" row went
+        # with the retired kind (2026-10-13, Ч3).
         self.kind_combo = QComboBox()
         self.kind_combo.addItem(_("All kinds"), None)
-        for kind, label in self._KIND_LABELS.items():
-            self.kind_combo.addItem(label, kind)
+        for kind in RECORD_KINDS:
+            self.kind_combo.addItem(node_kind_label(kind), kind)
         record_form.addRow(_("Kind:"), self.kind_combo)
         self.ref_combo = QComboBox()
         configure_searchable(self.ref_combo)

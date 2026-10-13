@@ -5,7 +5,6 @@
 {"reason": "English wording variant with/without colon before the value", "msgids": ["{label} {text!r} is not an integer.", "{label}: {text!r} is not an integer."]}
 {"reason": "English wording variant with/without colon before the value", "msgids": ["{label} {text!r} is not a number.", "{label}: {text!r} is not a number."]}
 {"reason": "capitalisation-only difference (Edit cell.../Edit Cell...)", "msgids": ["Edit Cell...", "Edit cell..."]}
-{"reason": "capitalisation-only difference (clone/Clone)", "msgids": ["Clone", "clone"]}
 {"reason": "article-only difference ('the config'/'config')", "msgids": ["Failed to load config: {error}", "Failed to load the config: {error}"]}
 {"reason": "the two msgids are the same action ('Rename'/'Rename tree')", "msgids": ["Rename", "Rename tree"]}
 {"reason": "synonymous English verbs (Place/Placement failed)", "msgids": ["Place failed: {error}", "Placement failed: {error}"]}

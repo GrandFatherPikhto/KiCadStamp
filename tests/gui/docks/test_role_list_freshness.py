@@ -29,7 +29,7 @@ import gui.docks.trees_dock as trees_dock_mod
 from gui.docks.trees_dock import AnchorFormWidget
 from kicadstamp.config.sexp_format import dict_to_sexp
 from kicadstamp.i18n import _
-from kicadstamp.trees import Tree
+from kicadstamp.trees import Tree, TreeNode
 from tests.gui.conftest import _pump
 # Ф2.4: both files now live under tests/gui/docks/, so the cross-import follows them.
 from tests.gui.docks.test_trees_dock import _node_form_for  # noqa: F401
@@ -434,9 +434,14 @@ def test_the_address_tab_is_labelled_for_the_kind_it_serves(
     dock = real_main_window._dock_hub.trees_dock
     tree = Tree(name="T", anchor=None, nodes=[])
     dock._trees = [tree]
-    form = _node_form_for(dock, tree, None, adapter=object())
+    # Ч3 class Б: "component" left the Kind menu, so an existing component node
+    # opens the form with its own "(retired)" row — the tab label can still be
+    # checked for that kind.
+    existing = TreeNode(ref="cmp_1", kind="component", xy=(0.0, 0.0), polar=None,
+                        rotation=0.0, name=None, group=None)
+    form = _node_form_for(dock, tree, None, existing=existing, adapter=object())
 
-    form.kind_combo.setCurrentIndex(form.kind_combo.findData("component"))
+    assert form.kind_combo.currentData() == "component"
     assert form.tabs.tabText(form._position_tab_index) == _("Component")
 
     form.kind_combo.setCurrentIndex(form.kind_combo.findData("mount"))

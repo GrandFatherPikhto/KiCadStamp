@@ -284,6 +284,9 @@ def apply_node_form(form) -> bool:
         # made one ref free and another taken, so the uniqueness check (and the
         # "(used)" hints) must not keep judging by the old set.
         form._used_refs = form._dock._used_refs()
+        # Ч3: the PLACES moved with the refs — the greyed rows' hints must not
+        # keep naming the old spot either.
+        form._used_ref_locations = form._dock._used_ref_locations()
     form._touched = False
     form.apply_status_label.setText(_("Applied — keep editing or Redraw."))
     return True

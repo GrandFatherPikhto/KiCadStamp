@@ -5778,9 +5778,6 @@ msgid ""
 "move again."
 msgstr ""
 
-#: gui/docks/trees_dock.py:131
-msgid "clone"
-msgstr "clone"
 
 #: gui/docks/trees_dock.py:132
 msgid "placement"
@@ -6377,9 +6374,6 @@ msgstr "External refdes"
 msgid "Self (component this tree places)"
 msgstr ""
 
-#: gui/docks/trees_dock.py:6659
-msgid "Clone"
-msgstr "Clone"
 
 #: gui/docks/trees_dock.py:6719
 msgid "All kinds"
@@ -17035,3 +17029,50 @@ msgstr ""
 #: kicadstamp/exceptions.py
 msgid "Nothing was placed or modified on the board — this was a read-only check."
 msgstr ""
+#: kicadstamp/trees.py
+msgid "External"
+msgstr "External"
+
+#: kicadstamp/trees.py
+msgid "Mount"
+msgstr "Mount"
+
+#: kicadstamp/trees.py
+msgid "Tree"
+msgstr "Tree"
+
+#: kicadstamp/trees.py
+msgid "Inter-node copper"
+msgstr "Inter-node copper"
+
+#: gui/docks/trees_dock.py
+msgid "auto (retired)"
+msgstr "auto (retired)"
+
+#: gui/docks/trees_dock.py
+#, python-brace-format
+msgid "{label} (retired)"
+msgstr "{label} (retired)"
+
+#: gui/docks/trees_dock.py
+msgid "local name (unique in tree)"
+msgstr "local name (unique in tree)"
+
+#: gui/docks/trees_dock.py
+msgid "net_traces record name"
+msgstr "net_traces record name"
+
+#: gui/docks/trees_dock.py
+#, python-brace-format
+msgid "already stands in tree {tree!r} (node {node})"
+msgstr "already stands in tree {tree!r} (node {node})"
+
+#: kicadstamp/link_trees.py
+msgid "If this is an external (live-board-only) refdes, add (kind mount)"
+msgstr "If this is an external (live-board-only) refdes, add (kind mount)"
+
+#: gui/docks/trees_dock.py
+#, python-brace-format
+msgid "Record {ref!r} {where} — a record has exactly one position source; move the node, or embed tree {tree!r} as a Tree node."
+msgstr "Record {ref!r} {where} — a record has exactly one position source; move the node, or embed tree {tree!r} as a Tree node."
+

@@ -139,7 +139,10 @@ def test_node_auto_search_zero_matches_is_fatal(tmp_path):
         '(tree (name "t") (anchor (origin))\n'
         '      (node (ref "NOWHERE") (xy 1 2)))',
         tmp_path=tmp_path)
-    with pytest.raises(ValidationError, match="kind external"):
+    # The hint names the kind the menu offers for a live-board-only refdes
+    # ("mount" since Ч3, 2026-10-13 — it used to say "external", a kind the
+    # "Add node" dialog no longer offers; the MESSAGE, not the result, changed).
+    with pytest.raises(ValidationError, match="kind mount"):
         link_trees(cfg, trees)
 
 
@@ -180,7 +183,7 @@ def test_node_auto_search_only_scans_4_placeable_kinds(tmp_path):
         '(tree (name "t") (anchor (origin))\n'
         '      (node (ref "NT_NET") (xy 1 2)))',
         tmp_path=tmp_path)
-    with pytest.raises(ValidationError, match="kind external"):
+    with pytest.raises(ValidationError, match="kind mount"):
         link_trees(cfg, trees)
 
 
@@ -729,8 +732,9 @@ def test_fatal_has_no_hint_when_nothing_is_close(tmp_path):
 def test_kindless_miss_suggests_a_name_from_any_section(tmp_path):
     """С5: without an explicit kind the section is unknown, so the candidate
     pool is EVERY placeable name — a near-miss in any of the four placeable
-    sections yields a hint (here a clone), and the external-refdes hint the
-    message always carried stays."""
+    sections yields a hint (here a clone), and the live-board-refdes hint the
+    message always carried stays (it names "mount" since Ч3, 2026-10-13: the
+    kind the "Add node" dialog actually offers)."""
     cfg = _cfg()
     trees = _tree(
         '(tree (name "t") (anchor (origin))\n'
@@ -741,7 +745,7 @@ def test_kindless_miss_suggests_a_name_from_any_section(tmp_path):
     message = str(excinfo.value)
     assert "tree 't': node 'CL_AA' not found in config" in message
     assert "did you mean 'CL_A'?" in message
-    assert "kind external" in message
+    assert "kind mount" in message
 
 
 def test_ambiguous_anchor_fatal_names_the_tree(tmp_path):

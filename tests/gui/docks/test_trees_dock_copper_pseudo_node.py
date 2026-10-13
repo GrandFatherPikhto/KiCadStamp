@@ -133,6 +133,15 @@ def _pseudo_text(count):
     return trees_dock_mod._("Copper ({count})").format(count=count)
 
 
+def _copper_row(ref):
+    """The ROW text of a copper node: the ref plus the kind's label tag, read
+    from the ONE table (kicadstamp.trees.NODE_KIND_TABLE via node_kind_label).
+    Before Ч3 a net_trace row carried NO tag; Ч3 tags it from the same table the
+    Kind combo uses (Denis: "the node row shows the same label")."""
+    from kicadstamp.trees import node_kind_label
+    return f"{ref} ({node_kind_label('net_trace')})"
+
+
 def _context_menu_labels(dock, item, monkeypatch):
     """Runs _on_context_menu for `item` with QMenu.exec no-oped and returns the
     added labels in order (the same capture idiom tests/gui/test_trees_dock.py
@@ -164,14 +173,15 @@ def test_pseudo_node_gathers_every_root_copper_node(main_window, tmp_path):
     rows = _children(anchor_item)
 
     assert [item.text(0) for item in rows] == [
-        "dac_buf_channel_0 (external)",
-        "pif_avdd_channel_0 (external)",
+        "dac_buf_channel_0 (External)",
+        "pif_avdd_channel_0 (External)",
         _pseudo_text(5),
     ]
     pseudo = rows[-1]
     assert _pseudo_item(tree_widget) is pseudo
     # document order, NOT sorted: the 2v5/3v3 pair is split by position
-    assert [item.text(0) for item in _children(pseudo)] == list(COPPER_REFS)
+    assert [item.text(0) for item in _children(pseudo)] == [
+        _copper_row(ref) for ref in COPPER_REFS]
     # every copper row is reachable from the pseudo node and from nowhere else:
     # the anchor's own rows carry no TreeNode of kind net_trace
     assert [item.data(0, Qt.ItemDataRole.UserRole).kind
@@ -196,12 +206,12 @@ def test_pseudo_node_gathers_copper_from_a_container_and_hides_the_container(
     rows = _children(anchor_item)
 
     assert [item.text(0) for item in rows] == [
-        "dac_buf_channel_0 (external)", _pseudo_text(2)]
+        "dac_buf_channel_0 (External)", _pseudo_text(2)]
     pseudo = rows[-1]
     assert [item.text(0) for item in _children(pseudo)] == [
-        COPPER_REFS[0], COPPER_REFS[1]]
+        _copper_row(COPPER_REFS[0]), _copper_row(COPPER_REFS[1])]
     # the container has no row of its own anywhere in the widget
-    assert all(item.text(0) != "my_copper (copper)"
+    assert all(item.text(0) != "my_copper (Copper)"
                for item in _all_items(tree_widget))
     # ...and the data is exactly as it was written
     assert "my_copper" in [n.ref for n in tree.nodes]
@@ -215,7 +225,7 @@ def test_no_copper_no_pseudo_node(main_window, tmp_path):
     tree_widget = dock._current_tree_widget()
     anchor_item = _children(tree_widget.invisibleRootItem())[0]
     assert [item.text(0) for item in _children(anchor_item)] == [
-        "dac_buf_channel_0 (external)"]
+        "dac_buf_channel_0 (External)"]
     assert _pseudo_item(tree_widget) is None
 
 

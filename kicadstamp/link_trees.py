@@ -257,7 +257,7 @@ def _resolve_node_ref(node: TreeNode, by_key: dict[str, Record],
         _fatal(_("{location}node {ref!r} not found in config{suggestion}")
                .format(location=_location(where), ref=ref,
                        suggestion=_did_you_mean(ref, by_name)) + " " +
-               _("If this is an external (live-board-only) refdes, add (kind external)"))
+               _("If this is an external (live-board-only) refdes, add (kind mount)"))
     if len(candidates) > 1:
         # NOT a "not found": the kinds themselves are the hint, no difflib.
         kinds = ", ".join(sorted({c.kind for c in candidates}))

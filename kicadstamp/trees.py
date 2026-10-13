@@ -118,6 +118,64 @@ KINDS = ("placement", "coordinate", "net_trace", "point",
 # how the two shapes drift apart.
 _LOCAL_REF_KINDS = ("module", "mount", "copper", "component")
 
+# ── THE node-kind table: kind -> (label the user sees, where its Ref list comes
+# from, offered for a NEW node) ────────────────────────────────────────────────
+#
+# ONE place (2026-10-13, plan_2026_10_13_trees_menus_cleanup Ч3): the Kind combo,
+# the row tag next to a node's ref, the anchor form's record-kind filter and
+# link_trees' resolution rules all read THIS table, so what the dialog offers and
+# what the linker accepts can never drift apart (before, the labels lived in
+# `_KIND_TAGS` AND `_KIND_LABELS`, and the combo listed every grammar kind).
+#
+# ref_source:
+#   "records"    — config RECORD names (link_trees._PLACEABLE_KINDS: the kinds an
+#                  auto-search can resolve by name)
+#   "net_traces" — `net_traces:` record names; resolved BY KIND, never
+#                  auto-searched (its ref is a net NAME that may collide)
+#   "trees"      — other trees' names (a "module" node embeds a tree)
+#   "local"      — a NAME local to the tree (mount/copper/component)
+#   "free"       — a live-board refdes (external)
+#
+# menu=True — offered for a NEW node. Ч3 (Denis): exactly four — Entity, Mount,
+# Tree, Inter-node copper. The other kinds are NOT gone from the grammar: a file
+# carrying one still loads, still draws and still edits (the combo shows such a
+# node's own kind marked as retired), it is simply not offered for new nodes.
+NODE_KIND_TABLE = {
+    "placement": (_("Entity"), "records", True),
+    "mount": (_("Mount"), "local", True),
+    "module": (_("Tree"), "trees", True),
+    "net_trace": (_("Inter-node copper"), "net_traces", True),
+    "coordinate": (_("Coordinate"), "records", False),
+    "point": (_("Point"), "records", False),
+    "external": (_("External"), "free", False),
+    "copper": (_("Copper"), "local", False),
+    "component": (_("Component"), "local", False),
+}
+#: Kinds the "Add node" dialog offers, in menu order (the FIRST one is the
+#: dialog's default kind — Denis: Entity).
+MENU_KINDS = tuple(kind for kind, (_label, _src, menu) in NODE_KIND_TABLE.items()
+                   if menu)
+#: Kinds whose ref is a config RECORD resolved by name — the anchor form's
+#: record-kind filter (a SUBSET of the grammar: no tree/local/free kinds).
+RECORD_KINDS = tuple(kind for kind, (_label, src, _menu) in NODE_KIND_TABLE.items()
+                     if src in ("records", "net_traces"))
+
+
+def node_kind_label(kind: str | None) -> str:
+    """The user-visible label of a node kind — the ONE reader of the table's
+    first column, shared by the row tag and every combo. An unknown/None kind
+    falls back to its raw value (a foreign file must still print something)."""
+    entry = NODE_KIND_TABLE.get(kind)
+    return entry[0] if entry is not None else (kind or "")
+
+
+def node_kind_ref_source(kind: str | None) -> str | None:
+    """Where a node of `kind` takes its Ref list from — the table's second
+    column, read by the dialog (which list to offer) and by link_trees' rules."""
+    entry = NODE_KIND_TABLE.get(kind)
+    return entry[1] if entry is not None else None
+
+
 _OFFSET_KEYS = ("xy", "polar")
 
 

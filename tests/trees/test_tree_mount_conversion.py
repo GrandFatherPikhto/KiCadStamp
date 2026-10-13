@@ -399,8 +399,10 @@ def test_the_internal_mount_shape_is_accepted_by_load_config(tmp_path):
 # ── Y.9.4: the mount node's display tag ────────────────────────────────────
 
 def test_mount_kind_has_a_display_tag():
-    from gui.docks.trees_dock import _KIND_TAGS
-    assert _KIND_TAGS["mount"]
+    """The label comes from the ONE table (kicadstamp.trees.NODE_KIND_TABLE);
+    the local `_KIND_TAGS` copy it used to read went in Ч3 (2026-10-13)."""
+    from kicadstamp.trees import node_kind_label
+    assert node_kind_label("mount") == "Mount"
 
 
 def test_the_frozen_fixture_set_is_complete():
