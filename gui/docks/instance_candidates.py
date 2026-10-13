@@ -151,9 +151,8 @@ def cell_role_order(components) -> list:
     (gui/docks/cell_instance_mixin._cell_role_order), the CELL-SPEC picker
     (change_cell_flow._resolve_cells) and the ENTITY page's Refs tab
     (gui/entity/page._cell_roles) all call it — the roles a picker offers and the
-    roles a table tags can never disagree. Deliberately ORDERED with multiplicity,
-    unlike tree_from_selection.cell_component_roles (a SET, for the "does the
-    cluster resolve every role" question)."""
+    roles a table tags can never disagree. Deliberately ORDERED with multiplicity
+    (a SET would lose both the order and the repeated slots)."""
     out: list = []
     for slot in components or ():
         role = slot.get("role") if isinstance(slot, dict) \

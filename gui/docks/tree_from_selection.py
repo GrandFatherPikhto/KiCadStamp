@@ -405,17 +405,6 @@ def build_imprint_entity(name: str, imprint: str,
     return _entity_payload(name, {"imprint": imprint}, sheet)
 
 
-def selection_cluster(selected: Iterable[Any]) -> Optional[str]:
-    """The single distinct Cluster tag among the selected footprints that carry
-    one, or None when none is selected. Raises ValueError when the selection
-    spans MORE THAN ONE cluster — placing a group from a mixed selection would
-    be an error (the caller turns this into a dialog message)."""
-    clusters = {s.cluster for s in selected if getattr(s, "cluster", None)}
-    if len(clusters) > 1:
-        raise ValueError(_("selection covers several clusters"))
-    return next(iter(clusters), None)
-
-
 def selected_center_mm(selected: Iterable[Any]) -> Optional[tuple[float, float]]:
     """Geometric center (mean of footprint positions, mm) of the selected
     footprints — the "координата кучки" Denis asked for (one footprint = its own
@@ -431,23 +420,6 @@ def selected_center_mm(selected: Iterable[Any]) -> Optional[tuple[float, float]]
     if not xs:
         return None
     return (sum(xs) / len(xs), sum(ys) / len(ys))
-
-
-def cell_component_roles(cell: Any) -> set[str]:
-    """Roles of a Cell's own component slots (a Cell whose geometry is reused by
-    a new cluster must be able to resolve every one of these roles on the board
-    at Apply)."""
-    return {slot.role for slot in getattr(cell, "components", [])
-            if getattr(slot, "role", None)}
-
-
-def missing_cluster_roles(cell: Any, cluster_footprints: Iterable[Any]) -> list[str]:
-    """The Cell's component roles absent among the board footprints of the target
-    cluster instance (snapshot Selected carrying its Role) — empty = "the Cell
-    fits this cluster" (every role is present, Apply can resolve it)."""
-    roles_on_board = {s.role for s in cluster_footprints
-                      if getattr(s, "role", None)}
-    return sorted(r for r in cell_component_roles(cell) if r not in roles_on_board)
 
 
 def resolve_cluster_live_position_mm(adapter, cfg, c: ReReadCluster, sheet_names,

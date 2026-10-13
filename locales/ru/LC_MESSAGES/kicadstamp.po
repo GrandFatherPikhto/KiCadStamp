@@ -6022,10 +6022,6 @@ msgstr "Редактировать шаблон"
 msgid "{net} [{nodes}]"
 msgstr "{net} [{nodes}]"
 
-#: gui/docks/tree_from_selection.py:522
-msgid "selection covers several clusters"
-msgstr "выделение охватывает несколько кластеров"
-
 #: gui/docks/tree_from_selection.py:572
 #, python-brace-format
 msgid "cluster {cluster!r} live position"

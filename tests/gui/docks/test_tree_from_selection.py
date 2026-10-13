@@ -17,6 +17,7 @@ from gui.docks.tree_from_selection import (
     create_cell_and_entity_for_cluster,
     detect_inter_cluster_nets,
     resolve_cluster_entity,
+    selected_center_mm,
     tree_anchor_from_cluster_entity,
 )
 import pytest
@@ -34,6 +35,43 @@ from kicadstamp.tree_position import (
     relative_rotation_deg,
 )
 from kicadstamp.trees import Tree, TreeAnchor, tree_to_dict
+
+
+# ── selected_center_mm — class Б (2026-10-13, trees-menus cleanup dodelka) ─────
+# The helper is ALIVE (its one caller is the imprint "Take from selection" pivot
+# math — gui/docks/imprint.py and gui/docks/imprint_place.py), so its OWN unit
+# cells do NOT go with the retired Instantiate flow that used to share the test
+# module they lived in. Restored, three cases as they were.
+
+_MM_NM = 1_000_000.0  # 1 mm in nanometers (Footprint.position is in nm)
+
+
+def _sc_fp_nm(x_mm, y_mm):
+    from types import SimpleNamespace
+    return SimpleNamespace(position=SimpleNamespace(x=x_mm * _MM_NM,
+                                                    y=y_mm * _MM_NM))
+
+
+def _sc_sel(ref, fp=None):
+    from types import SimpleNamespace
+    return SimpleNamespace(ref=ref,
+                           fp=fp if fp is not None else _sc_fp_nm(0, 0))
+
+
+class TestSelectedCenterMm:
+    def test_mean_of_positions(self):
+        sel = [_sc_sel("R1", _sc_fp_nm(10.0, 20.0)),
+               _sc_sel("C1", _sc_fp_nm(20.0, 40.0))]
+        cx, cy = selected_center_mm(sel)
+        assert abs(cx - 15.0) < 1e-6
+        assert abs(cy - 30.0) < 1e-6
+
+    def test_single_is_its_own_coordinate(self):
+        cx, cy = selected_center_mm([_sc_sel("R1", _sc_fp_nm(3.0, 4.0))])
+        assert abs(cx - 3.0) < 1e-6 and abs(cy - 4.0) < 1e-6
+
+    def test_empty_returns_none(self):
+        assert selected_center_mm([]) is None
 
 
 def _sel(ref, cluster, sheet, nets=None):

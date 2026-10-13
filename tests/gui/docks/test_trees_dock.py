@@ -980,6 +980,119 @@ def test_delegates_act_on_the_tree_they_are_given_not_the_current_tab(
         "from the active tab")
 
 
+def test_rename_delegate_renames_the_tree_it_is_given(
+        real_main_window, tmp_path, monkeypatch):
+    """Ч2 доделка — a delegate given a tree that is NOT the active tab acts on
+    THAT tree. Kills the T1 mutation '_on_rename_tree reads _current_tree()'."""
+    trees = {"trees": [
+        {"name": "tree_a", "anchor": {"origin": True}, "nodes": []},
+        {"name": "tree_b", "anchor": {"origin": True}, "nodes": []},
+    ]}
+    hub, dock = _hub_dock(real_main_window, tmp_path, trees)
+    dock.tree_tabs.setCurrentIndex(0)          # tree_a is the active tab
+    tree_a, tree_b = dock._trees
+    assert dock._current_tree() is tree_a
+
+    import gui.docks.trees_dock as td_mod
+    monkeypatch.setattr(td_mod.QInputDialog, "getText",
+                        lambda *a, **k: ("renamed_b", True))
+
+    hub.rename_tree(tree_b)
+
+    assert tree_b.name == "renamed_b"
+    assert tree_a.name == "tree_a", "the ACTIVE tab must not be renamed"
+
+
+def test_reread_delegate_targets_the_tree_it_is_given(
+        real_main_window, tmp_path, monkeypatch):
+    """Ч2 доделка — kills the T4 mutation '_on_reread_internode_copper reads
+    _current_tree()': the payload's tree is the one GIVEN, not the active tab."""
+    from types import SimpleNamespace
+    trees = {"trees": [
+        {"name": "tree_a", "anchor": {"origin": True}, "nodes": []},
+        {"name": "tree_b", "anchor": {"origin": True}, "nodes": []},
+    ]}
+    hub, dock = _hub_dock(real_main_window, tmp_path, trees)
+    dock.tree_tabs.setCurrentIndex(0)          # tree_a is the active tab
+    tree_a, tree_b = dock._trees
+    assert dock._current_tree() is tree_a
+
+    import gui.docks.trees_dock as td_mod
+    real_main_window.connection = SimpleNamespace(
+        board=None, is_connected=False, long_op_active=False,
+        timeout_ms=1000, snapshot=None)
+    captured = {}
+
+    def _fake_start(connection, widgets, fn, ok, err, payload, **k):
+        captured.update(payload)
+        return object()
+
+    monkeypatch.setattr(td_mod, "start_long_op", _fake_start)
+    monkeypatch.setattr(dock, "_warn_read_only_instance", lambda *a, **k: False)
+
+    hub.reread_internode_copper(tree_b)
+
+    assert captured["tree"] is tree_b, (
+        "Reread inter-node copper must target the tree it is GIVEN, not the "
+        "active tab")
+
+
+def test_redraw_selected_targets_the_tree_it_is_given(
+        real_main_window, tmp_path, monkeypatch):
+    """Ч2 доделка — the checked-refs redraw names the tree it is GIVEN."""
+    trees = {"trees": [
+        {"name": "tree_a", "anchor": {"origin": True}, "nodes": []},
+        {"name": "tree_b", "anchor": {"origin": True}, "nodes": []},
+    ]}
+    hub, dock = _hub_dock(real_main_window, tmp_path, trees)
+    dock.tree_tabs.setCurrentIndex(0)          # tree_a is the active tab
+    tree_a, tree_b = dock._trees
+    assert dock._current_tree() is tree_a
+
+    seen = []
+    monkeypatch.setattr(dock, "_run_curated_redraw",
+                        lambda refs, trigger=None, tree=None: seen.append(tree))
+
+    hub.redraw_selected(tree_b)
+
+    assert seen == [tree_b], (
+        "Redraw selected must pass the tree it is GIVEN, not the active tab")
+
+
+def test_instances_delegate_preselects_the_tree_it_is_given(
+        real_main_window, tmp_path, monkeypatch):
+    """Ч2 доделка — Instances… opens with the GIVEN tree preselected as the
+    template (its own tree, not the active tab)."""
+    from types import SimpleNamespace
+
+    import gui.dock_hub as hub_mod
+    from PyQt6.QtWidgets import QDialog
+
+    trees = {"trees": [
+        {"name": "tree_a", "anchor": {"origin": True}, "nodes": []},
+        {"name": "tree_b", "anchor": {"origin": True}, "nodes": []},
+    ]}
+    hub, dock = _hub_dock(real_main_window, tmp_path, trees)
+    # root_path is a read-only property on RootMetadataDock — hand the delegate a
+    # stand-in that just names the root file (the real one has no setter).
+    monkeypatch.setattr(hub, "root_metadata_dock",
+                        SimpleNamespace(root_path=dock._root_path))
+    seen = {}
+
+    class _Stub:
+        def __init__(self, parent, root_path, cfg, preferred_template=None):
+            seen["preferred"] = preferred_template
+
+        def exec(self):
+            return QDialog.DialogCode.Rejected
+
+    monkeypatch.setattr(hub_mod, "TreeInstancesDialog", _Stub)
+
+    hub.open_instances_dialog(dock._trees[1])
+
+    assert seen["preferred"] == "tree_b"
+
+
 def test_delete_tree_from_root_menu_stages_an_unsaved_tree(
         real_main_window, tmp_path, monkeypatch):
     """Ч2 (design §7 п.2, Denis): Delete works for an UNSAVED tree too — a tree
