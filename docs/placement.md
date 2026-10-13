@@ -119,7 +119,9 @@ non-zero angle therefore redraws in place instead of double-rotating around the 
 whose nodes were captured under a 0° anchor only stays correct while the anchor is at 0° — restore the
 anchor's angle, or re-extract the tree (same name) to re-capture under the fixed code.
 
-**Migrating a legacy profile:** `tools/convert_placements.py` rewrites `clone_placements:` into
+**Migrating a legacy profile:** `tools/convert_placements.py` is REMOVED (2026-10-12) and
+`clone_placements:` itself is REFUSED (2026-10-13) — move the records to `entities:` + `trees:`
+by hand, or open the profile with an older build. (Historically it rewrote `clone_placements:` into
 `entities:` + placement trees in place (run on a COPY — it writes a timestamped `.bak` first), and
 rewrites pre-existing `kind "clone"` tree nodes to `kind "placement"`. See
 [docs/commands.md](commands.md) and [docs/config.md](config.md).

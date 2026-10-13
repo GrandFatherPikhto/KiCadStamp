@@ -47,7 +47,7 @@ Field names match `kicadstamp/config/models.py` exactly as of 2026-08-01.
 | `cells` | mapping | Inline `Cell` definitions (see below). Rare to write by hand — usually populated by `extract`; can be split across files via `include:` (see below). |
 | `points` | mapping | Named, reusable anchors (see **Points** below). |
 | `include` | list | Other config files to merge in — see **`include:`** below. |
-| `clone_placements` | list | TemplatePlacer placements — see **`clone_placements:`** below. |
+| `clone_placements` | list | **RETIRED (2026-10-13) — REFUSED**; TemplatePlacer placements, once — see **`clone_placements:`** below. |
 | `entities` | list | Entity records — the "what" of a placement, WITHOUT any position — see **`entities:`** below. |
 | `trees` | list | Placement trees — the ONLY place a position can live — see **`trees:`** below. |
 | `tree_instances` | list | Sheet-/cluster-/params-parameterized references to a template tree, each optionally carrying its own place (`anchor`) and angle (`rotation`) — see **`tree_instances:`** below. |
@@ -455,6 +455,14 @@ path, not a Python `RecursionError`).
 ---
 
 ## `clone_placements:` — ClonePlacement (TemplatePlacer)
+
+> **REFUSED (2026-10-13, plan_2026_10_08_remove_placer):** this section is RETIRED — a
+> config that still carries a NON-EMPTY `clone_placements:` (or a tree node of the retired
+> kind `clone`) is REFUSED while its text is parsed, naming the file and every record in
+> it, and a `sheet_template` that instantiates it refuses too. Everything below documents
+> the grammar a pre-2026-10-13 profile used; open such a profile with an older build, or
+> move its records to `entities:` + `trees:`. The in-memory `ClonePlacement` carrier and
+> the `Cell.clone_placements:` nesting are NOT affected (they are still alive).
 
 > **Migration (2026-08-30):** `clone_placements:` is the LEGACY placement path, still alive during
 > the migration so live profiles keep working. New-style profiles use `entities:` + `trees:` instead
