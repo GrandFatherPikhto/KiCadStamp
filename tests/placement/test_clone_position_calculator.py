@@ -180,12 +180,17 @@ class TestAbsoluteCloneGeometricRoleNarrowing:
         cascade step happens to narrow these candidates).
 
         The wording is the cluster-conflict refusal (2026-10-13): the candidates
-        ARE in the clone's own cluster, they are simply indistinguishable."""
+        ARE in the clone's own cluster, they are simply indistinguishable — so
+        the assertion carries the ROLE **and** the reason (a bare role name is
+        too weak: it appears in any refusal about that role)."""
         adapter = _adapter(_two_blocks_board())
         clone = _absolute_clone()
-        with pytest.raises(ValidationError, match="C_IN_BYPASS"):
+        with pytest.raises(ValidationError) as ei:
             resolve_roles_by_nets(adapter, _two_role_shared_net_cell(), clone,
                                   anchor_position=None)
+        msg = str(ei.value)
+        assert "C_IN_BYPASS" in msg
+        assert "distinct roles" in msg
 
     def test_insufficient_proximity_gap_still_fatal(self):
         """Regression: the 2x-gap guard of step 5 must keep refusing to guess.
@@ -208,8 +213,11 @@ class TestAbsoluteCloneGeometricRoleNarrowing:
                                nets={"C_IN_BULK": "+3V3"})
         calc = ClonePositionCalculator(adapter, Config(layer="F.Cu", cells={cell.name: cell}))
 
-        with pytest.raises(ValidationError, match="C_IN_BULK"):
+        with pytest.raises(ValidationError) as ei:
             calc.compute_raw_positions([clone])
+        msg = str(ei.value)
+        assert "C_IN_BULK" in msg
+        assert "distinct roles" in msg
 
 
 class TestGeometryUnchangedRegression:
