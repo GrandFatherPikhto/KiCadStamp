@@ -20,6 +20,11 @@ consume the frame.
   * M3  the READER skips the single-slot branch                -> red (Denis's fact)
   * M4  the RE-READ frame skips it                             -> red (К7)
   * M5  the "could not be determined" line goes silent         -> red (К8)
+  * M6  the PRODUCTION forward formula is shifted by 90°       -> red, and ONLY the
+        round-trip cell К9 may kill it: К1–К2 write the forward formula in the TEST,
+        so the two wrong sides would agree there (доделка of 13.10 — the gap Denis's
+        acceptance found). M6 carries `-k round_trip`, so the rig proves WHICH guard
+        catches it instead of accepting a neighbour's red (rule 38).
   * K1  a cosmetic comment                                     -> MUST survive
 
 Run with the main checkout's interpreter; point it at another tree with
@@ -51,6 +56,7 @@ GUARDS = ["test_cell_frame_single_slot.py",
 
 CELL_FRAME = "kicadstamp/cell_frame.py"
 LIVE_POSITION = "gui/docks/live_position.py"
+CLONE_GEOMETRY = "kicadstamp/geometry/clone_geometry.py"
 
 _DELEGATE = ("    return clone_rotation_from_component(live_angle_deg, "
              "slot_angle_deg, mirror)")
@@ -77,6 +83,14 @@ MUTATIONS = [
      "            logger.warning(_(",
      "            logger.debug(_(  # MUTATION",
      "die", GUARDS, ()),
+    ("M6 the production forward formula is +90", CLONE_GEOMETRY,
+     "    def comp_angle(angle_deg: float) -> float:\n"
+     "        phi = angle_deg + rotation_deg\n"
+     "        return (180.0 - phi) % 360.0 if mirror else phi",
+     "    def comp_angle(angle_deg: float) -> float:\n"
+     "        phi = angle_deg + rotation_deg + 90.0  # MUTATION\n"
+     "        return (180.0 - phi) % 360.0 if mirror else phi",
+     "die", GUARDS, ("-k", "round_trip")),
     ("K1 cosmetic comment (control)", CELL_FRAME,
      _DELEGATE,
      _DELEGATE.replace("mirror)", "mirror)  # control"),

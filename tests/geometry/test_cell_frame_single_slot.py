@@ -29,10 +29,11 @@ from unittest.mock import MagicMock
 
 from kicadstamp.cell_frame import (CellFrame, frame_for_live_selection,
                                    single_slot_rotation)
-from kicadstamp.config import Cell, TemplateComponentSlot
+from kicadstamp.config import Cell, ClonePlacement, TemplateComponentSlot
 from kicadstamp.constants import CLUSTER_FIELD_NAME, ROLE_FIELD_NAME
 from kicadstamp.domain.board import Footprint
 from kicadstamp.domain.geometry import BoardLayer, Vector2
+from kicadstamp.geometry.clone_geometry import apply_clone_geometry
 
 from gui.docks import live_position as lp
 
@@ -249,3 +250,52 @@ def test_the_reread_frame_of_a_multi_part_cell_still_fits():
                                      "F.Cu")
 
     assert frame.rotation_deg == pytest.approx(-90.0, abs=0.01)
+
+
+# ── К9: the round trip through the PRODUCTION placement ─────────────────────
+
+@pytest.mark.parametrize("mirror, side", [(False, FRONT), (True, BACK)])
+def test_the_round_trip_through_the_production_placement(mirror, side):
+    """К9 (the gap К1–К2 leave): the part is placed by PRODUCTION code —
+    `apply_clone_geometry`, the very formula Redraw uses — and only then READ.
+
+    К1–К2 write the forward formula in the TEST, so a mutation that shifts the
+    PRODUCTION `comp_angle` by 90° would stay invisible there (both sides wrong
+    together). Here the live footprint is where `apply_clone_geometry` says the
+    placement puts it, and the read must return the node's own rotation —
+    270° (≡ -90°) with `mirror=False` on F.Cu and with `mirror=True` (the part on
+    B.Cu, the cell on F.Cu)."""
+    cell = _one_slot_cell(slot_angle=0.0, layer="F.Cu")
+    clone = ClonePlacement(cluster=CLUSTER, cell="conn_lcd", xy=(100.0, 100.0),
+                           rotation_deg=270.0)
+    placed = apply_clone_geometry(clone, cell, {"CONN_LCD": "J3"},
+                                 mirror=mirror).components[0]
+    fp = _make_fp("J3", role="CONN_LCD", cluster=CLUSTER,
+                  position=placed.position, angle=placed.angle_deg, layer=side)
+    adapter = _adapter([fp])
+
+    _pos, rotation, read_mirror = lp._live_cluster_frame(
+        adapter, cell, CLUSTER, "", {})
+
+    assert read_mirror is mirror
+    assert rotation == pytest.approx(_norm(270.0), abs=0.01)
+
+
+def test_the_round_trip_survives_every_orthogonal_rotation():
+    """К9 (cont.): the same production round trip over all four node rotations —
+    the inverse must recover each of them, not just 270°."""
+    for rotation_deg in (0.0, 90.0, 180.0, 270.0):
+        cell = _one_slot_cell(slot_angle=90.0, layer="F.Cu")
+        clone = ClonePlacement(cluster=CLUSTER, cell="conn_lcd",
+                               xy=(100.0, 100.0), rotation_deg=rotation_deg)
+        placed = apply_clone_geometry(clone, cell,
+                                      {"CONN_LCD": "J3"}).components[0]
+        fp = _make_fp("J3", role="CONN_LCD", cluster=CLUSTER,
+                      position=placed.position, angle=placed.angle_deg)
+        adapter = _adapter([fp])
+
+        _pos, rotation, _mirror = lp._live_cluster_frame(
+            adapter, cell, CLUSTER, "", {})
+
+        assert rotation == pytest.approx(_norm(rotation_deg), abs=0.01), \
+            f"round trip failed for {rotation_deg}°"

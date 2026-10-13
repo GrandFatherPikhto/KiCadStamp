@@ -66,7 +66,7 @@ from .cell_frame import (CellFrame, fit_cell_frame, frame_for_live_selection,
                          reference_relative_pairs)
 from .frame_node_pose import FrameReadContext, follow_the_tree_node
 from .cluster_matching import cluster_prefix_match
-from .config import Cell, TemplateComponentSlot, load_cell_placement
+from .config import Cell, load_cell_placement
 from .constants import ROLE_FIELD_NAME
 from .domain.board import Footprint, Track, Via
 from .domain.geometry import BoardLayer, Vector2
@@ -74,6 +74,8 @@ from .exceptions import ValidationError, format_fatal_error
 from .geometry.cell_anchor import cell_mount_offset
 from .geometry.clone_geometry import clone_layout_origin
 from .i18n import _
+from .nested_placement import (nested_new_geo, nested_report_line,
+                               nested_target_norm, role_only_cell)
 from .net_resolution import resolve_net_from_role
 from .placement.services.clone_role_resolver import resolve_roles_by_nets
 from .template_extraction import _selection_role_nets, _suggest_net_from_role
@@ -757,56 +759,6 @@ def cell_slot_dicts(cell) -> list[dict]:
             for slot in (getattr(cell, "components", None) or ())]
 
 
-def _nested_role_cell(role: str) -> Cell:
-    """The synthesized one-component Cell for a `role:`-only nested placement —
-    the SAME construction clone_position_calculator._resolve_content uses at
-    apply time (a single slot at the cell's own (0, 0), angle 0)."""
-    return Cell(name=f"__role__{role}",
-                components=[TemplateComponentSlot(
-                    role=role, offset_along_mm=0.0, offset_across_mm=0.0,
-                    angle_deg=0.0)])
-
-
-def _nested_target_norm(record: dict) -> tuple[float, float, float, bool]:
-    """The comparable identity of a nested record's geometry: the same tuple
-    shape this module WRITES (see _nested_target_geo), so "did anything
-    change?" is one equality test and a re-read of an unmoved board is
-    bit-for-bit idempotent."""
-    xy = record.get("xy") or [0.0, 0.0]
-    return (round(float(xy[0]), 4), round(float(xy[1]), 4),
-            round(float(record.get("rotation_deg", 0.0)), 4),
-            bool(record.get("mirror", False)))
-
-
-def _nested_new_geo(norm: tuple) -> dict:
-    """The update dict for one nested record, in the SAME convention the
-    nested-cell editor's own writer uses (gui/docks/cell_editor.py::
-    _build_nested_dict): a DEFAULT value is not stored at all — xy only when
-    not (0, 0), rotation_deg only when not 0, mirror only when True."""
-    x, y, rot, mirror = norm
-    new: dict = {}
-    if (x, y) != (0.0, 0.0):
-        new["xy"] = [x, y]
-    if rot != 0.0:
-        new["rotation_deg"] = rot
-    if mirror:
-        new["mirror"] = True
-    return new
-
-
-def _nested_report_line(record: dict, before: tuple, after: tuple) -> str:
-    """One Log line per CHANGED nested placement (H.2.4 style: name + old ->
-    new, never a bare counter)."""
-    content = record.get("cell")
-    content = (f"cell:{content}" if content is not None
-               else f"role:{record.get('role', '')}")
-    return _("nested {name!r} ({content}): xy ({x0}, {y0}) rot {r0}° "
-             "mirror={m0} -> xy ({x1}, {y1}) rot {r1}° mirror={m1}").format(
-        name=record.get("name", "?"), content=content,
-        x0=before[0], y0=before[1], r0=before[2], m0=str(before[3]).lower(),
-        x1=after[0], y1=after[1], r1=after[2], m1=str(after[3]).lower())
-
-
 def _read_nested_live(adapter, placement, cell, parent_frame: CellFrame,
                       sheet_names: dict, parent_roles: set, parent_refs: set
                       ) -> tuple[tuple | None, str | None]:
@@ -1073,10 +1025,10 @@ def build_refresh_plan(components: list[dict], vias: list[dict], tracks: list[di
                                 .format(name=name, cell=placement.cell))
                 continue
             if nested_cell is None:
-                # `role:`-only placement — the synthesized one-slot cell, the
-                # SAME construction clone_position_calculator._resolve_content
-                # uses at apply time.
-                nested_cell = _nested_role_cell(placement.role)
+                # `role:`-only placement — the synthesized one-slot cell from the
+                # ONE host (nested_placement.role_only_cell), the SAME function
+                # clone_position_calculator._resolve_content calls at apply time.
+                nested_cell = role_only_cell(placement.role)
             target, reason = _read_nested_live(
                 adapter, placement, nested_cell, frame, sheet_names or {},
                 parent_roles, parent_refs)
@@ -1084,11 +1036,11 @@ def build_refresh_plan(components: list[dict], vias: list[dict], tracks: list[di
                 warnings.append(_("nested {name!r}: {reason} — record left "
                                   "untouched").format(name=name, reason=reason))
                 continue
-            before = _nested_target_norm(record)
+            before = nested_target_norm(record)
             if before == target:
                 continue  # an unmoved board changes nothing — idempotent
-            nested_updates.append((record, _nested_new_geo(target)))
-            nested_reports.append(_nested_report_line(record, before, target))
+            nested_updates.append((record, nested_new_geo(target)))
+            nested_reports.append(nested_report_line(record, before, target))
 
     # Components — every matched role recomputed from its own live footprint.
     # Built only once the frame is known (its origin is the reference for every

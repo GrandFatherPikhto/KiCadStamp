@@ -25,8 +25,7 @@ if TYPE_CHECKING:
 from ...domain.geometry import BoardLayer
 
 from ...config import (Config, ClonePlacement, CellPlacement, Cell, Entity,
-                       TemplateComponentSlot, clone_placement_effective_name,
-                       entity_effective_name)
+                       clone_placement_effective_name, entity_effective_name)
 from ...exceptions import ValidationError, format_fatal_error
 from ...kicad.adapter import KiCadBoardAdapter
 from ...geometry.clone_geometry import (
@@ -35,6 +34,7 @@ from ...geometry.clone_geometry import (
     clone_shift_mm,
 )
 from ...net_resolution import resolve_net_from_role
+from ...nested_placement import role_only_cell
 from ...registry import make_registry_key, record_key_part
 from ...utils.layers import inner_copper_layers, layer_from_str_strict
 from ..commands import PlacedComponentInfo, ViaCommand, TrackCommand
@@ -405,12 +405,10 @@ class ClonePositionCalculator:
             # shared with clone_registry_identity (so an outside caller's key
             # cannot drift from this one).
             return cell, cell_ref, cell_key_part_for(cell_ref, self.cfg.cells)
-        cell = Cell(
-            name=f"__role__{role_ref}",
-            components=[TemplateComponentSlot(
-                role=role_ref, offset_along_mm=0.0, offset_across_mm=0.0, angle_deg=0.0,
-            )],
-        )
+        # The synthesized cell comes from the ONE host
+        # (kicadstamp/nested_placement.role_only_cell) — the re-read path builds
+        # the very same cell, and a copy in each side is how the two drift.
+        cell = role_only_cell(role_ref)
         # A role:-only nested placement has NO cells: record — this synthesized
         # one-component cell is not a §0 record and carries no uuid, so it keeps
         # its deterministic name as the template_name part under either gate.
