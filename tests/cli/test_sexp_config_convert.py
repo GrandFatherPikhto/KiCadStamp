@@ -38,10 +38,13 @@ def test_yaml_to_sexp_first_conversion_writes_no_bak(tmp_path):
     `stamp=False`, so the output carries the SOURCE's number and content, never
     the current format's machine identity — the raw self-verify then matches and
     the output is a loadable translation."""
-    # the clone's cell target is declared (a format-3 load would resolve it)
+    # the entity's cell target is declared (a format-3 load would resolve it).
+    # 13.10 (Ч1в-6): the carrier was a clone_placements: entry until that
+    # section was retired; this cell is about the conversion writing no .bak,
+    # so the live entities: carrier stands in unchanged.
     p = _write(tmp_path, "cfg.yaml", "layer: B.Cu\ncells:\n  c1: {}\n"
-                                     "clone_placements:\n- name: cp1\n"
-                                     "  cell: c1\n  xy: [0.0, 0.0]\n")
+                                     "entities:\n- name: e1\n"
+                                     "  cell: c1\n")
     out = convert_file(p, to_sexp=True)
     assert out == p.with_suffix(".sexp")
     assert out.exists()
@@ -141,8 +144,8 @@ def test_convert_all_profiles_generates_sexp_next_to_yaml(tmp_path):
     (tmp_path / "sub").mkdir()
     _write(tmp_path / "sub", "one.yaml", "layer: B.Cu\n")
     _write(tmp_path / "sub", "two.yaml",
-           "cells:\n  c: {}\nclone_placements:\n- name: cp1\n"
-           "  cell: c\n  xy: [0.0, 0.0]\n")
+           "cells:\n  c: {}\nentities:\n- name: e1\n"
+           "  cell: c\n")
     # a pre-existing .sexp is left untouched (parallel format, no clobber)
     (tmp_path / "sub" / "one.sexp").write_text("(kicadstamp-config)", encoding="utf-8")
 

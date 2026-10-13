@@ -32,8 +32,11 @@ def _build_project(tmp_path: Path) -> dict:
         "cells": {"cap_pair": {"components": []}},
         "points": {"origin_a": {}},
     })
+    # 13.10 (Ч1в-6): the carrier was a clone_placements: record until that
+    # section was retired. flatten's subject is the MERGE, so any live list
+    # section with an identity does the job — entities: carries it now.
     _write(spokes, {
-        "clone_placements": [{"name": "fpga_clone", "cell": "cap_pair"}],
+        "entities": [{"name": "fpga_entity", "cell": "cap_pair"}],
         "thermal_via_arrays": [{"name": "fpga_thermal", "pad": "1"}],
     })
     return {"root": root, "components": components, "spokes": spokes}
@@ -55,7 +58,7 @@ class TestFlattenMerge:
         assert data["net_traces"][0]["net"] == "+3V3"
         assert "cap_pair" in data["cells"]          # empty cell -> default-stripped {}
         assert "origin_a" in data["points"]         # empty point -> default-stripped {}
-        assert data["clone_placements"][0]["name"] == "fpga_clone"
+        assert data["entities"][0]["name"] == "fpga_entity"
         assert data["thermal_via_arrays"][0]["name"] == "fpga_thermal"
         assert "include" not in data
 
@@ -64,10 +67,12 @@ class TestFlattenMerge:
         flatten_config(root=str(paths["root"]))
         data = _load(paths["root"])
         # Nothing in this project contributes coordinate_placements:/
-        # entities:/extract_profiles:/clone_profiles:/sheet_templates: —
-        # they must not be written back as empty noise.
+        # imprints:/extract_profiles:/clone_profiles:/sheet_templates: — they
+        # must not be written back as empty noise. (entities: REPLACED the
+        # retired clone_placements: as this project's carrier on 13.10, Ч1в-6,
+        # so the live imprints: section stands in for "contributed by nobody".)
         assert "coordinate_placements" not in data
-        assert "entities" not in data
+        assert "imprints" not in data
         assert "extract_profiles" not in data
         assert "clone_profiles" not in data
         assert "sheet_templates" not in data
@@ -89,7 +94,7 @@ class TestFlattenDryRun:
         report = flatten_config(root=str(paths["root"]), dry_run=True)
         joined = "\n".join(report)
         for section in ("net_traces", "cells", "points",
-                        "clone_placements", "thermal_via_arrays"):
+                        "entities", "thermal_via_arrays"):
             assert section in joined
         assert "Would write to" in joined
 
@@ -106,7 +111,7 @@ class TestFlattenOutputPath:
         data = _load(out)
         assert "include" not in data
         assert "cap_pair" in data["cells"]
-        assert data["clone_placements"][0]["name"] == "fpga_clone"
+        assert data["entities"][0]["name"] == "fpga_entity"
 
     def test_source_files_untouched_in_both_modes(self, tmp_path):
         paths = _build_project(tmp_path)
