@@ -134,6 +134,12 @@ cloner/
 
 ### `plan.py` – Авто-блок `clone_placements` (Фаза 3)
 
+> **СНЯТО (2026-10-12, план `plan_2026_10_08_remove_placer`).** `plan.py` и его
+> команда `clone-plan` порождали корневой блок `clone_placements:`. Секция
+> снята и **отказывается** при загрузке, поэтому модуль и команда удалены
+> вместе с ней. Описание ниже — историческое; авторите `entities:` и деревья
+> размещений (см. docs/commands_ru.md, docs/config_ru.md).
+
 **Назначение:** превращает файловый снимок в готовый блок `clone_placements:`
 для клонирования канала — БЕЗ ручного написания params:/nets:. Здесь же живёт
 проверка net_matching, общая с live-потоком `channel-copy`.
@@ -244,6 +250,9 @@ python kicadstamp_cli.py clone-extract --net project.net --pcb project.kicad_pcb
 ```
 
 ### `clone-plan` — авто-блок `clone_placements`
+
+> **СНЯТО (2026-10-12).** Команды `clone-plan` больше нет — вместе с корневой
+> секцией `clone_placements:` (см. `plan.py` выше и docs/commands_ru.md).
 
 ```bash
 python kicadstamp_cli.py clone-plan --net project.net --pcb project.kicad_pcb \

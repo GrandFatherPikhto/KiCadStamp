@@ -719,8 +719,8 @@ python kicadstamp_cli.py channel-copy --src Channel_0 --dst Channel_1 --dst Chan
 Собирает многофайловый проект (корневой конфиг, подключающий файлы подсистем
 через `include:`) в один s-expr-файл (`.sexp`). Разрешает весь граф `include:` ровно так
 же, как это делает `apply`/`load_config`, и записывает полностью слитое
-содержимое — все list-секции (`chains:`/`clone_placements:`/
-`thermal_via_arrays:`/`coordinate_placements:`/`net_traces:`) конкатенацией,
+содержимое — все list-секции (`thermal_via_arrays:`/
+`coordinate_placements:`/`net_traces:`) конкатенацией,
 все dict-секции (`cells:`/`points:`/`extract_profiles:`/`clone_profiles:`/
 `sheet_templates:`) объединением по ключу. Уже разрешённый ключ `include:`
 отбрасывается, так что у результата не остаётся внешних зависимостей.

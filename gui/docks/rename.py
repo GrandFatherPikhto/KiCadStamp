@@ -314,16 +314,14 @@ def rename_dict_entry(path: Path, section: str, old_name: str, new_name: str) ->
 
 
 def rename_list_entry(path: Path, section: str, old_name: str, new_name: str) -> None:
-    """clone_placements:/thermal_via_arrays:/rules:/coordinate_placements: —
-    list of dicts, entry matched by its effective name (name:, or the
-    section's fallback — net: for a nameless rules:, cluster/role for a
-    nameless coordinate_placements: — see entry_effective_name), then the
-    section's RENAME_TARGET_FIELD is set/created on it (name: normally; the
-    cluster: field for a clone_placement whose identity is still just its
-    Cluster tag — 2026-08-15 split, Cluster stays a physical tag). For a
-    rules:/coordinate_placements:
-    entry matched only by its fallback, this is what actually gives it an
-    explicit name: for the first time, distinct from its fallback."""
+    """A named LIST section — `thermal_via_arrays:` / `net_traces:` (the live
+    `LIST_SECTIONS`; `chains:` and `clone_placements:` went with their sections
+    and are REFUSED at load, so a rename can never see them). Entries are dicts,
+    matched by their effective name (`name:`, or the section's fallback — `net:`
+    for a nameless `net_traces:` — see `entry_effective_name`), then the
+    section's `RENAME_TARGET_FIELD` is set/created on it (`name:` today). A
+    `net_traces:` entry matched only by its fallback net gains an explicit
+    `name:` here — distinct from its fallback."""
     # deepcopy before mutating — same shared-cache hazard as rename_dict_entry
     # (see there for the rationale).
     data = copy.deepcopy(read_data(path))

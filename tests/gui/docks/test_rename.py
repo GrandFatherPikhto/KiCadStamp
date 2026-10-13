@@ -250,11 +250,16 @@ def test_rename_list_entry_gives_a_nameless_coordinate_placement_an_explicit_nam
 
 
 def test_rename_list_entry_raises_on_collision(tmp_path):
+    """Renaming an entry onto a name another one already has is refused — the
+    generic collision check of a named LIST section.
+
+    2026-10-13 (Д3/Ч3 item 7): the carrier is the LIVE `thermal_via_arrays:`
+    list, not the retired `clone_placements:` section."""
     path = _write(tmp_path / "config.sexp", {
-        "clone_placements": [{"name": "a"}, {"name": "b"}]})
+        "thermal_via_arrays": [{"name": "a"}, {"name": "b"}]})
 
     try:
-        rename_list_entry(path, "clone_placements", "a", "b")
+        rename_list_entry(path, "thermal_via_arrays", "a", "b")
         assert False, "expected OSError"
     except OSError:
         pass
@@ -360,22 +365,24 @@ def test_rename_entry_refuses_a_graph_wide_collision_before_writing_anything(tmp
     assert without_identity(_load(root)["cells"]) == {"old_cell": {}}
 
 
-# ── placer_name-aware identity for clone_placements (2026-08-15, plan
-# config_tree_rename_placer_name_aware) — same split as config/models.py's
-# clone_placement_effective_name(): display/match/rename must use placer_name
-# (the save/--only identity), not the raw Cluster tag `name`. ─────────────
+# ── effective-name identity of a named LIST section (2026-08-15, plan
+# config_tree_rename_placer_name_aware) — display/match/rename must use the
+# section's EFFECTIVE name (name:, or its single-field fallback), never a raw
+# tag. The carrier moved off the retired `clone_placements:` section to the
+# LIVE `net_traces:` list (2026-10-13, Д3/Ч3 item 7). ──────────────────────
 
 def test_rename_list_entry_collision_checks_by_name(tmp_path):
     """The new_name collision check must also use the effective identity —
-    renaming to a name another entry already has must be refused."""
+    renaming an entry onto a name another one already has must be refused
+    (net_traces: identity is name:, falling back to net:)."""
     path = _write(tmp_path / "config.sexp", {
-        "clone_placements": [
-            {"cluster": "A", "name": "CH0_PIF_AVDD", "cell": "ldo"},
-            {"cluster": "B", "name": "CH1_PIF_AVDD", "cell": "ldo"},
+        "net_traces": [
+            {"name": "CH0_PIF_AVDD", "net": "N0"},
+            {"name": "CH1_PIF_AVDD", "net": "N1"},
         ]})
 
     try:
-        rename_list_entry(path, "clone_placements", "CH0_PIF_AVDD", "CH1_PIF_AVDD")
+        rename_list_entry(path, "net_traces", "CH0_PIF_AVDD", "CH1_PIF_AVDD")
         assert False, "expected OSError"
     except OSError:
         pass

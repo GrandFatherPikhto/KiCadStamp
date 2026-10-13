@@ -711,8 +711,8 @@ python kicadstamp_cli.py channel-copy --src Channel_0 --dst Channel_1 --dst Chan
 Consolidates a multi-file project (a root config that pulls subsystem files in
 via `include:`) into a single s-expr (`.sexp`) file. It resolves the whole `include:`
 graph exactly the way `apply`/`load_config` does, then writes the fully merged
-content back out — every list section (`chains:`/`clone_placements:`/
-`thermal_via_arrays:`/`coordinate_placements:`/`net_traces:`) concatenated and
+content back out — every list section (`thermal_via_arrays:`/
+`coordinate_placements:`/`net_traces:`) concatenated and
 every dict section (`cells:`/`points:`/`extract_profiles:`/`clone_profiles:`/
 `sheet_templates:`) merged by key. The now-resolved `include:` key is dropped,
 so the output has no external dependencies left. Root-only keys (`layer:`,

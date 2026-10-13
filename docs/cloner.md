@@ -134,6 +134,12 @@ Ties together the netlist and board, builds the channel snapshot, and serialises
 
 ### `plan.py` – Auto clone_placements block (Phase 3)
 
+> **REMOVED (2026-10-12, plan_2026_10_08_remove_placer).** `plan.py` and its
+> `clone-plan` command produced the root `clone_placements:` block. That section
+> is retired and REFUSED at load, so the module and the command were deleted with
+> it. The description below is kept as history — author `entities:` plus
+> placement trees instead (docs/commands.md, docs/config.md).
+
 **Purpose:** turns the file-based snapshot into a ready `clone_placements:` block
 for a channel clone — WITHOUT manually writing params:/nets:. Also hosts the
 net_matching verification shared with the live `channel-copy` flow.
@@ -247,6 +253,9 @@ python kicadstamp_cli.py clone-extract --net project.net --pcb project.kicad_pcb
 ```
 
 ### `clone-plan` — auto clone_placements block
+
+> **REMOVED (2026-10-12).** The `clone-plan` command is GONE with the root
+> `clone_placements:` section (see `plan.py` above and docs/commands.md).
 
 ```bash
 python kicadstamp_cli.py clone-plan --net project.net --pcb project.kicad_pcb \

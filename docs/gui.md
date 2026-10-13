@@ -1526,6 +1526,16 @@ the **Show advanced net settings** checkbox reveals them for manual overrides.
 
 ## Placer
 
+> **REMOVED (2026-10-12, plan_2026_10_08_remove_placer).** The Placer dock
+> (`gui/docks/placer.py`) and the root `clone_placements:` section it wrote are
+> GONE: a cell is placed through **Entities** + **Trees** now — the Entity carries
+> the "what" (Cell/Nets/Params) and a `kind="placement"` node carries the "where".
+> The historical prose below describes a dock that no longer exists; its
+> **Save** / **Write target** / **Placer name** rows and the `clone_plan`
+> mentions are kept for history only, not as live UI. (The nested
+> `Cell.clone_placements:` mechanism is a DIFFERENT, LIVE thing — see the Cells
+> section below.)
+
 Builds and applies a `ClonePlacement` — the GUI equivalent of `kicadstamp_cli.py apply --only
 <name>`. **This dock moves real footprints on the live board.**
 
