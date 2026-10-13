@@ -1796,19 +1796,6 @@ class DockHub:
         self._focus_config_tree_dock()
         self._reread_imprint_from_tree(entry, file_path)
 
-    def run_forest_full_redraw(self) -> None:
-        """Main menu "Tools -> Trees -> Full redraw (all trees and modules)..."
-        (plan
-        2026-09-02 tree_module_embedding P3 п.3): the forest-wide, module-aware
-        curated redraw across ALL trees. TreesDock owns the trees/cfg/ctx and
-        the worker callback plumbing (no new dock button — menu only).
-
-        The QAction is handed down as the operation's guard widget (Э2,
-        plan_2026_09_12_busy_indicator): greyed out for the duration, so the
-        same menu entry cannot start a second forest redraw."""
-        self.trees_dock._run_forest_redraw(
-            self._menu_trigger_action("full_redraw_action"))
-
     def open_instances_dialog(self) -> None:
         """Main menu "Tools -> Trees -> Instances..." (2026-09-02, plan tree_instances
         P3): modal dialog editing the `tree_instances:` SHORT declarations of
@@ -1839,7 +1826,7 @@ class DockHub:
     # The TreesDock's whole-tree action buttons moved to the top-level menu
     # Tools → Trees; these delegates are the menu QActions' call points. Every
     # one focuses the Trees dock first so the action's context (the active
-    # tree tab, the checkbox selection, the anchor readout) is visible.
+    # tree tab and the checkbox selection) is visible.
 
     def _focus_trees_dock(self) -> None:
         """Bring the Trees tab to the front of the central tab group."""
@@ -1881,17 +1868,6 @@ class DockHub:
         selected = getattr(self, "_selection_footprints", []) or []
         raw_items = getattr(self, "_selection_raw_items", []) or []
         self.trees_dock._instantiate_from_cell(selected, raw_items)
-
-    def anchor_position(self) -> None:
-        """Tools → Trees → Anchor position: refresh the dock's read-only live
-        anchor-position readout for the CURRENT tree (background worker —
-        plan_2026_09_12_anchor_position_on_worker Э1). The menu QAction is the
-        operation's guard widget (Э2, plan_2026_09_12_busy_indicator): greyed
-        out while the read holds the shared kipy socket, so the same entry
-        cannot start a second read."""
-        self._focus_trees_dock()
-        self.trees_dock._refresh_anchor_live_position(
-            self._menu_trigger_action("anchor_position_action"))
 
     def redraw_selected(self) -> None:
         """Tools → Trees → Redraw selected: curated redraw of the CURRENT

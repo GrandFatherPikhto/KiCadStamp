@@ -496,51 +496,6 @@ def run_internode_reread_worker(payload: dict) -> dict:
         adapter.close()
 
 
-def run_anchor_live_position_worker(payload: dict) -> dict:
-    """start_long_op worker entry point for Tools → Trees → "Anchor position"
-    (§5.1, plan_2026_08_29_fork1_rigid_redraw_override.md). Plain data in,
-    plain data out — no widget access anywhere in here (Э1,
-    plan_2026_09_12_anchor_position_on_worker): the read builds its OWN live
-    adapter, refreshes the board and resolves the tree's anchor pose through
-    _anchor_base_live_position (every anchor mode), handing the UI thread the
-    numbers plus the anchor's ref for the label format.
-
-    Running inside start_long_op is the whole point of the move: the shared
-    kipy REQ socket gets exactly one in-flight owner for the read
-    (`connection.long_op_active` locks the ~400ms polling ticks out) instead of
-    the SECOND socket this call used to open from the UI thread — and the
-    window no longer freezes for up to the adapter timeout.
-
-    NEVER raises (Э2): the indicator must not be able to crash the dock, so a
-    failed IPC read or an unresolvable anchor comes back as
-    {"available": False, "reason": ...} with one Log warning — the same
-    "unavailable" the synchronous read used to show, only decided off the UI
-    thread.
-
-    The socket this worker builds is handed back in the `finally`, on BOTH paths —
-    see run_internode_reread_worker for why that is not pedantry. `adapter` is None
-    only when create_board_adapter itself raised, and then there is no socket."""
-    tree = payload["tree"]
-    adapter = None
-    try:
-        # Э3 (plan_2026_09_13_timeout_sweep) — same payload-carried timeout as
-        # the reread worker above.
-        adapter = create_board_adapter(timeout_ms=worker_timeout_ms(payload),
-                                       config_path=payload.get("config_path"))
-        adapter.refresh_board()
-        pos, rot = _anchor_base_live_position(
-            adapter, payload["cfg"], tree, payload.get("sheet_names") or {})
-    except Exception as exc:  # noqa: BLE001 — a read-only indicator, never crash
-        logger.warning(_("anchor live position unavailable: {error}")
-                       .format(error=exc))
-        return {"available": False, "reason": str(exc)}
-    finally:
-        if adapter is not None:
-            adapter.close()
-    return {"available": True, "x": pos.x, "y": pos.y, "rotation": rot,
-            "ref": tree.anchor.ref}
-
-
 def run_anchor_base_mm_worker(payload: dict) -> dict:
     """start_long_op worker entry point for the Instantiate-from-Cell "from selection"
     base (Э2, plan_2026_09_14_ui_thread_offenders): the tree anchor's live base in mm.
@@ -1093,17 +1048,12 @@ class TreesDock(QWidget):
         self.tree_tabs.currentChanged.connect(self._on_tab_changed)
         layout.addWidget(self.tree_tabs, 1)
 
-        # ── Bottom status row: read-only indicators ──────────────────────
-        # The whole-tree action buttons are gone (Tools → Trees owns them);
-        # only the two read-only labels stay — the anchor live-position
-        # readout and the unsaved-changes ●.
+        # ── Bottom status row: the one read-only indicator ───────────────
+        # The whole-tree action buttons are gone (Tools → Trees owns them) and
+        # the anchor live-position readout went with its "Anchor position" menu
+        # item (2026-10-13, plan_2026_10_13_trees_menus_cleanup Ч1) — only the
+        # unsaved-changes ● stays.
         status_row = QHBoxLayout()
-        # Labels must never floor the dock width (their text can be wide, e.g.
-        # a live anchor position) — Ignored lets them shrink below the text.
-        self.anchor_pos_label = QLabel("")
-        self.anchor_pos_label.setSizePolicy(QSizePolicy.Policy.Ignored,
-                                            QSizePolicy.Policy.Preferred)
-        status_row.addWidget(self.anchor_pos_label)
         status_row.addStretch(1)
         self.dirty_label = QLabel("")
         self.dirty_label.setSizePolicy(QSizePolicy.Policy.Ignored,
@@ -4707,15 +4657,15 @@ class TreesDock(QWidget):
         self._run_forest_redraw_with_refs(set(collect_tree_refs(tree)), trigger)
 
     def _run_forest_redraw_with_refs(self, refs: set, trigger=None) -> None:
-        """Shared worker invocation of the FOREST curated redraw — the ONE place
-        its two callers differ only in the refs they hand in: "Full redraw"
-        (every tree's every node) and "Redraw whole tree" (the CURRENT tree's
-        nodes — plan_2026_09_14 Э1). start_long_op keeps it off the UI thread,
-        same worker pattern as run_curated_tree_redraw_worker, and the FULL
-        trees list is ALWAYS in the payload: run_curated_forest_redraw resolves
-        module markers by tree name, so a caller that narrowed the SELECTION
-        must still hand over every tree (otherwise the by_tree lookup silently
-        finds nothing and the embedded content stays put).
+        """Shared worker invocation of the FOREST curated redraw —
+        "Redraw whole tree" (the CURRENT tree's nodes, plan_2026_09_14 Э1) is the
+        ONLY caller since the forest-wide "Full redraw" item was removed
+        (2026-10-13). start_long_op keeps it off the UI thread, same worker
+        pattern as run_curated_tree_redraw_worker, and the FULL trees list is
+        ALWAYS in the payload: run_curated_forest_redraw resolves module markers
+        by tree name, so a caller that narrowed the SELECTION must still hand
+        over every tree (otherwise the by_tree lookup silently finds nothing and
+        the embedded content stays put).
 
         `trigger` is the Tools-menu QAction the caller was started by, greyed
         out for the duration (Э2, plan_2026_09_12_busy_indicator)."""
@@ -4741,108 +4691,6 @@ class TreesDock(QWidget):
             run_curated_forest_redraw_worker, self._finish_redraw,
             self._on_redraw_failed, payload,
             busy_text=_("placing"))
-
-    def _run_forest_redraw(self, trigger=None) -> None:
-        """Forest-wide curated redraw — the module-aware FULL redraw (plan
-        2026-09-02 tree_module_embedding P3 п.2/п.3, design P3 D5): collects
-        EVERY node ref of EVERY tree (records AND module markers — checking the
-        markers activates their content) and runs run_curated_forest_redraw_
-        worker in the background, which stage-2-places active module content
-        from the flow roots' live anchors. Exposed ONLY through the Tools menu
-        (DockHub.run_forest_full_redraw) — NO new dock button.
-
-        Deliberately stays a SEPARATE menu entry from "Redraw whole tree"
-        (Denis asked for a separate item, not a merge): on his current profile
-        both produce the same plan (4 trees, 3 embedded in the fourth), so the
-        difference is invisible there — a profile with two INDEPENDENT trees is
-        what shows it (Э4 guard #3)."""
-        refs: set[str] = set()
-        for tree in (self._trees or []):
-            refs.update(collect_tree_refs(tree))
-        self._run_forest_redraw_with_refs(refs, trigger)
-
-    def _refresh_anchor_live_position(self, trigger=None) -> None:
-        """§5.1 (plan_2026_08_29_fork1_rigid_redraw_override.md) — a READ-ONLY
-        indicator of the current tree anchor's live absolute position/rotation,
-        via _anchor_base_live_position — which supports EVERY anchor mode
-        (origin/auto/role/point/ref; 2026-09-02: role/point/auto used to show
-        "unavailable" because a ref-less anchor read was never implemented
-        here). Not cached: reads the board on demand (menu entry / on-open).
-
-        Э1 (plan_2026_09_12_anchor_position_on_worker): the read itself runs on
-        the WORKER (`run_anchor_live_position_worker`) under start_long_op —
-        this half only decides the payload and, in `_finish_…`, writes the
-        label. Until 2026-09-12 the whole thing was synchronous on the UI
-        thread, which froze the window for up to the adapter timeout AND took a
-        SECOND kipy socket without the `long_op_active` token the polling tick
-        is serialized by.
-
-        `trigger` is the Tools-menu QAction that started it; it is greyed out
-        for the operation's duration (Э2, plan_2026_09_12_busy_indicator).
-
-        The two answers that need no board stay SYNCHRONOUS (Э3): no tree
-        clears the label, and an origin anchor is trivially (0,0)/0° — spinning
-        up a worker for a constant would only flash the busy indicator for
-        nothing. A live KiCad IPC failure just shows "unavailable" — the
-        indicator never crashes the dock (Э2)."""
-        tree = self._current_tree()
-        if tree is None:
-            self.anchor_pos_label.setText("")
-            return
-        if tree.anchor.is_origin:
-            self.anchor_pos_label.setText(_("anchor (origin): (0, 0) mm @ 0°"))
-            return
-        payload = {
-            "cfg": self._cfg,
-            "tree": tree,
-            "config_path": str(self._root_path) if self._root_path else "",
-            "sheet_names": dict(getattr(self._ctx, "sheet_names", None) or {}),
-            "timeout_ms": worker_timeout_ms(self._main_window.connection),
-        }
-        # Э2 (plan_2026_09_12_busy_indicator): the menu QAction is disabled
-        # while the read runs, so the same entry cannot put a SECOND board read
-        # on the shared kipy REQ socket.
-        widgets = [trigger] if trigger is not None else []
-        self._active_op = start_long_op(
-            self._main_window.connection, widgets,
-            run_anchor_live_position_worker,
-            self._finish_anchor_live_position,
-            self._on_anchor_live_position_failed, payload,
-            busy_text=_("reading the board"))
-
-    def _finish_anchor_live_position(self, result: dict) -> None:
-        """The worker's result, on the UI thread — the ONLY half that touches a
-        widget (Э1). A successful read is formatted exactly as the synchronous
-        one was (the ref-named line for a ref anchor, the mode-generic line
-        otherwise); an unavailable read shows the very same text it used to
-        (Э2)."""
-        self._active_op = None
-        if not result.get("available"):
-            self.anchor_pos_label.setText(_("anchor: live position unavailable"))
-            return
-        rot = result["rotation"]
-        rot_s = f"{rot:.1f}" if rot is not None else "—"
-        if result.get("ref"):
-            self.anchor_pos_label.setText(
-                _("anchor {ref!r}: ({x:.3f}, {y:.3f}) mm @ {rot}°")
-                .format(ref=result["ref"], x=result["x"] / MM,
-                        y=result["y"] / MM, rot=rot_s))
-        else:
-            # auto/role/point anchor — no ref to name, a mode-generic readout.
-            self.anchor_pos_label.setText(
-                _("anchor: ({x:.3f}, {y:.3f}) mm @ {rot}°")
-                .format(x=result["x"] / MM, y=result["y"] / MM, rot=rot_s))
-
-    def _on_anchor_live_position_failed(self, message: str) -> None:
-        """start_long_op's failure path. The worker already converts an IPC
-        failure into a normal "unavailable" result, so reaching here means
-        something unexpected — the indicator's contract is the same on both
-        paths (Э2): one Log warning, "unavailable" in the label, the dock
-        alive."""
-        self._active_op = None
-        logger.warning(_("anchor live position unavailable: {error}")
-                       .format(error=message))
-        self.anchor_pos_label.setText(_("anchor: live position unavailable"))
 
     def _finish_redraw(self, result) -> None:
         results, warnings = result

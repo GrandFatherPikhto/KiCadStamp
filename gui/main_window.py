@@ -297,9 +297,9 @@ class MainWindow(QMainWindow):
         # (plan plan_2026_09_03_trees_menu_tools.md) EVERY tree-related entry
         # lives in the nested "Trees" submenu below — both the capture flows
         # (Extract tree…/Extract cluster…/Full redraw…/Instances…) and the
-        # whole-tree management actions relocated from the TreesDock toolbar
-        # (Create/Rename/Delete tree, Anchor position, Redraw selected/whole).
-        # The other Tools entries stay in the menu's root.
+        # Whole-tree management actions relocated from the TreesDock toolbar
+        # (Create/Rename/Delete tree, Redraw selected/whole). The other Tools
+        # entries stay in the menu's root.
         tools_menu = self.menuBar().addMenu(_("Tools"))
 
         # ── Trees submenu (2026-09-03) ──────────────────────────────────
@@ -316,16 +316,8 @@ class MainWindow(QMainWindow):
         self.extract_tree_action.triggered.connect(
             lambda: self._dock_hub.extract_tree_from_selection())
         self.trees_menu.addAction(self.extract_tree_action)
-        # "Extract cluster..." (2026-09-03, plan extract_cluster_entity): a
-        # NARROWER sibling of "Extract tree..." — ONE fully-selected Cluster ->
-        # a standalone flat Entity (+ its Cell if missing), NO tree node, NO
-        # anchor, NO net_traces (an Entity stores no position; the user places
-        # it later by any mechanism).
-        self.extract_cluster_action = QAction(_("Extract cluster..."), self)
-        self.extract_cluster_action.triggered.connect(
-            lambda: self._dock_hub.extract_cluster_from_selection())
-        self.trees_menu.addAction(self.extract_cluster_action)
-        self.trees_menu.addSeparator()
+        # "Extract cluster..." is NOT here: it lives in Tools → Config (the same
+        # handler) — Denis, 13.10 (plan_2026_10_13_trees_menus_cleanup Ч1).
         # Whole-tree management (relocated from the TreesDock toolbar,
         # 2026-09-03): "Create tree..." is the empty/manual tree — the dock's
         # old "Add tree…" renamed — and answers the missing "Создать дерево"
@@ -342,10 +334,7 @@ class MainWindow(QMainWindow):
         self.delete_tree_action.triggered.connect(
             lambda: self._dock_hub.delete_tree())
         self.trees_menu.addAction(self.delete_tree_action)
-        self.anchor_position_action = QAction(_("Anchor position"), self)
-        self.anchor_position_action.triggered.connect(
-            lambda: self._dock_hub.anchor_position())
-        self.trees_menu.addAction(self.anchor_position_action)
+        self.trees_menu.addSeparator()
         # ── "Copper" submenu (2026-10-07, plan_2026_10_05_tree_reread_modules
         #    Т5): everything about the CURRENT tree's inter-node copper, in the
         #    order a user works — reread it, select what a reread WOULD take,
@@ -385,9 +374,11 @@ class MainWindow(QMainWindow):
         # Redraw (relocated from the TreesDock toolbar, 2026-09-03):
         # "Redraw selected" = the current tree's CHECKED nodes; "Redraw whole
         # tree" = every node of the current tree TOGETHER WITH the content of
-        # every module it embeds (plan_2026_09_14 Э1 — it now runs through the
-        # forest machinery, scoped to this tree's refs); "Full redraw..." = the
-        # forest-wide module-aware run across ALL trees (plan 2026-09-02 P3).
+        # every module it embeds (plan_2026_09_14 Э1 — it runs through the
+        # forest machinery, scoped to this tree's refs). The former "Full redraw
+        # (all trees and modules)..." item is GONE (Denis 04.10/13.10): trees can
+        # be different layouts of the same thing, and a whole-tree redraw already
+        # covers everything embedded into it.
         self.redraw_selected_action = QAction(_("Redraw selected"), self)
         self.redraw_selected_action.triggered.connect(
             lambda: self._dock_hub.redraw_selected())
@@ -396,15 +387,6 @@ class MainWindow(QMainWindow):
         self.redraw_whole_tree_action.triggered.connect(
             lambda: self._dock_hub.redraw_whole_tree())
         self.trees_menu.addAction(self.redraw_whole_tree_action)
-        # "Full redraw (all trees and modules)..." (2026-09-02, plan
-        # plan_2026_09_02_tree_module_embedding.md P3 п.3): the forest-wide,
-        # module-aware curated redraw across ALL trees — menu-only, per Denis:
-        # NO new dock buttons.
-        self.full_redraw_action = QAction(
-            _("Full redraw (all trees and modules)..."), self)
-        self.full_redraw_action.triggered.connect(
-            lambda: self._dock_hub.run_forest_full_redraw())
-        self.trees_menu.addAction(self.full_redraw_action)
         self.trees_menu.addSeparator()
         # "Instances..." (2026-09-02, plan tree_instances P3): modal dialog
         # editing one template tree's `tree_instances:` declarations ({name,
@@ -414,14 +396,9 @@ class MainWindow(QMainWindow):
         self.tree_instances_action.triggered.connect(
             lambda: self._dock_hub.open_instances_dialog())
         self.trees_menu.addAction(self.tree_instances_action)
-        # "Instantiate from Cell..." (2026-09-03, plan instantiate_from_entity):
-        # add ONE new group into the CURRENT tree by reusing an EXISTING Cell
-        # as its internal layout (new Entity + placement node, staged until
-        # Save) — the sibling of "Extract cluster...", but tree-bound.
-        self.instantiate_cell_action = QAction(_("Instantiate from Cell..."), self)
-        self.instantiate_cell_action.triggered.connect(
-            lambda: self._dock_hub.instantiate_from_cell())
-        self.trees_menu.addAction(self.instantiate_cell_action)
+        # "Instantiate from Cell..." is GONE (Denis, plan_2026_10_13_trees_menus_
+        # cleanup Ч1: "голую ячейку не ставим" — a placement is an Entity + a tree
+        # node). Its whole flow is removed in the SAME task, commit Ч1б.
 
         # ── "Config" submenu (2026-09-04, plan plan_2026_09_04_celldock_to_
         #    dialog.md) ───────────────────────────────────────────────────

@@ -688,25 +688,25 @@ def test_master_detail_touched_draft_survives_tree_switch(main_window, tmp_path)
 
 def test_no_whole_tree_action_buttons(main_window):
     """2026-09-03 (plan plan_2026_09_03_trees_menu_tools.md): every whole-tree
-    action (Create/Rename/Delete tree, Anchor position, Redraw selected/whole)
-    moved to the top-level menu Tools → Trees — the dock itself exposes no
-    action buttons or "⋯" overflow. Only the read-only status labels
-    (anchor_pos_label / dirty_label) and the handler call points remain."""
+    action (Create/Rename/Delete tree, Redraw selected/whole) moved to the
+    top-level menu Tools → Trees — the dock itself exposes no action buttons or
+    "⋯" overflow. The anchor live-position readout went with its "Anchor
+    position" menu item (2026-10-13, plan_2026_10_13_trees_menus_cleanup Ч1), so
+    only the dirty ● indicator and the handler call points remain."""
     dock = TreesDock(main_window)
     for attr in ("add_tree_button", "rename_tree_button", "delete_tree_button",
                  "redraw_button", "redraw_whole_button", "anchor_pos_button",
                  "more_button", "open_button", "new_button"):
         assert not hasattr(dock, attr), (
             f"whole-tree action button {attr} should have moved to Tools → Trees")
-    # The read-only indicators stay.
-    assert hasattr(dock, "anchor_pos_label")
+    # The read-only indicator stays; the anchor readout is gone with its item.
+    assert not hasattr(dock, "anchor_pos_label")
     assert hasattr(dock, "dirty_label")
     # The handlers behind the moved Tools actions stay callable on the dock
     # (DockHub / the Tools-menu QActions forward here).
     assert callable(dock._on_create_tree)
     assert callable(dock._on_rename_tree)
     assert callable(dock._on_delete_tree)
-    assert callable(dock._refresh_anchor_live_position)
     assert callable(dock._on_redraw_selected)
     assert callable(dock._on_redraw_whole_tree)
 
@@ -1633,12 +1633,13 @@ def test_confirm_first_run_redraw_forwards_path_and_live_adapter(
     assert captured["adapter"] is adapter
 
 
-def test_run_forest_redraw_collects_all_trees_and_calls_forest_worker(
+def test_redraw_whole_tree_calls_the_forest_worker_with_the_full_trees_list(
         main_window, tmp_path, monkeypatch):
-    """P3b (plan 2026-09-02 P3 п.3): the FULL redraw collects EVERY node ref of
-    EVERY tree (records AND module markers — checking markers activates their
-    content) and calls the FOREST worker (no tree_name payload), through the
-    Tools menu only — no new dock button."""
+    """MOVED here from the removed forest-wide `_run_forest_redraw` (2026-10-13,
+    plan_2026_10_13_trees_menus_cleanup Ч1): the guards that cell carried are
+    live on "Redraw whole tree" — the FOREST worker is called (no tree_name
+    payload), the FULL `trees` list rides in the payload (module markers resolve
+    by tree name), and `selected_refs` is exactly the CURRENT tree's refs."""
     dock, _root = _dock_with(main_window, tmp_path)
     from gui.docks.trees_dock import (
         collect_tree_refs, run_curated_forest_redraw_worker)
@@ -1651,28 +1652,29 @@ def test_run_forest_redraw_collects_all_trees_and_calls_forest_worker(
     import gui.docks.trees_dock as td_mod
     monkeypatch.setattr(td_mod, "start_long_op", fake_start)
 
-    dock._run_forest_redraw()
+    dock._on_redraw_whole_tree()
 
     assert captured
     assert captured["worker"] is run_curated_forest_redraw_worker
     assert "tree_name" not in captured["payload"]
     assert captured["payload"]["trees"] is dock._trees
-    expected: set[str] = set()
-    for tree in dock._trees:
-        expected.update(collect_tree_refs(tree))
-    assert captured["payload"]["selected_refs"] == expected
+    assert captured["payload"]["selected_refs"] == set(
+        collect_tree_refs(dock._current_tree()))
 
 
-def test_run_forest_redraw_no_trees_shows_hint(main_window, tmp_path, monkeypatch):
-    """A forest redraw with no trees loaded is a no-op status hint (no worker)."""
+def test_redraw_whole_tree_with_no_refs_shows_the_hint(
+        main_window, tmp_path, monkeypatch):
+    """MOVED here from the removed `_run_forest_redraw` (2026-10-13): a redraw
+    with nothing to draw is a no-op status hint, no worker — through the LIVE
+    "Redraw whole tree" path (a tree whose node list is empty)."""
     dock, _root = _dock_with(main_window, tmp_path)
-    dock._trees = []
+    dock._current_tree().nodes = []
     called = []
     import gui.docks.trees_dock as td_mod
     monkeypatch.setattr(td_mod, "start_long_op",
                         lambda *a, **k: called.append(a) or object())
 
-    dock._run_forest_redraw()
+    dock._on_redraw_whole_tree()
 
     assert not called
     assert "Nothing to redraw" in dock.status_label.text()
@@ -1735,17 +1737,6 @@ def test_redraw_edited_node_normal_kind_uses_single_node_worker(
     assert captured["worker"] is run_single_node_redraw_worker
     assert captured["payload"]["ref"] == node.ref
     assert "selected_refs" not in captured["payload"]
-
-
-def test_refresh_anchor_live_position_origin_shows_trivial(main_window, tmp_path):
-    """§5.1: an origin anchor is trivially (0,0)/0° — shown WITHOUT any live
-    board read (no IPC needed)."""
-    dock, _root = _dock_with(main_window, tmp_path, trees={"trees": [
-        {"name": "misc", "anchor": {"origin": True},
-         "nodes": [{"ref": "R_DEBUG", "kind": "external", "xy": [100.0, 50.0]}]}]})
-    dock._refresh_anchor_live_position()
-    assert "(0, 0) mm" in dock.anchor_pos_label.text()
-    assert "0°" in dock.anchor_pos_label.text()
 
 
 # ── Read current position / Reread / Edit node (2026-08-27) ───────────────

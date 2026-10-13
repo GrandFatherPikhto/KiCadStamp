@@ -939,10 +939,6 @@ msgstr "Tools"
 msgid "Extract tree..."
 msgstr "Extract tree..."
 
-#: gui/main_window.py:324
-msgid "Extract cluster..."
-msgstr ""
-
 #: gui/main_window.py:333
 msgid "Create tree..."
 msgstr "Create tree..."
@@ -954,10 +950,6 @@ msgstr "Rename tree..."
 #: gui/main_window.py:341
 msgid "Delete tree..."
 msgstr "Delete tree..."
-
-#: gui/main_window.py:345
-msgid "Anchor position"
-msgstr "Anchor position"
 
 #: gui/main_window.py:355
 msgid "Copper"
@@ -987,16 +979,8 @@ msgstr "Redraw selected"
 msgid "Redraw whole tree"
 msgstr "Redraw whole tree"
 
-#: gui/main_window.py:404
-msgid "Full redraw (all trees and modules)..."
-msgstr "Full redraw (all trees and modules)..."
-
 #: gui/main_window.py:413
 msgid "Instances..."
-msgstr ""
-
-#: gui/main_window.py:421
-msgid "Instantiate from Cell..."
 msgstr ""
 
 #: gui/main_window.py:438
@@ -6008,11 +5992,6 @@ msgstr ""
 "The last re-read of the inter-node copper found no copper for this record"
 " on the board. The record is KEPT — remove it by hand if you meant to."
 
-#: gui/docks/trees_dock.py:534 gui/docks/trees_dock.py:4843
-#, python-brace-format
-msgid "anchor live position unavailable: {error}"
-msgstr "anchor live position unavailable: {error}"
-
 #: gui/docks/trees_dock.py:961
 msgid "the base of this node is MIRRORED on the live board"
 msgstr ""
@@ -6325,28 +6304,6 @@ msgstr "Nothing selected — check some nodes first."
 #: gui/docks/trees_dock.py:4723 gui/docks/trees_dock.py:4726
 msgid "Nothing to redraw."
 msgstr "Nothing to redraw."
-
-#: gui/docks/trees_dock.py:4793
-#: tests/gui/docks/test_trees_dock_anchor_position.py:384
-msgid "anchor (origin): (0, 0) mm @ 0°"
-msgstr "anchor (origin): (0, 0) mm @ 0°"
-
-#: gui/docks/trees_dock.py:4821 gui/docks/trees_dock.py:4845
-#: tests/gui/docks/test_trees_dock_anchor_position.py:47
-msgid "anchor: live position unavailable"
-msgstr "anchor: live position unavailable"
-
-#: gui/docks/trees_dock.py:4827
-#: tests/gui/docks/test_trees_dock_anchor_position.py:153
-#, python-brace-format
-msgid "anchor {ref!r}: ({x:.3f}, {y:.3f}) mm @ {rot}°"
-msgstr "anchor {ref!r}: ({x:.3f}, {y:.3f}) mm @ {rot}°"
-
-#: gui/docks/trees_dock.py:4833
-#: tests/gui/docks/test_trees_dock_anchor_position.py:172
-#, python-brace-format
-msgid "anchor: ({x:.3f}, {y:.3f}) mm @ {rot}°"
-msgstr "anchor: ({x:.3f}, {y:.3f}) mm @ {rot}°"
 
 #: gui/docks/trees_dock.py:4851 gui/docks/trees_dock.py:4858
 #, python-brace-format

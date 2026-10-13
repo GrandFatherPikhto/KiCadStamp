@@ -997,10 +997,6 @@ msgstr "Инструменты"
 msgid "Extract tree..."
 msgstr "Извлечь дерево..."
 
-#: gui/main_window.py:324
-msgid "Extract cluster..."
-msgstr "Извлечь кластер..."
-
 #: gui/main_window.py:333
 msgid "Create tree..."
 msgstr "Создать дерево..."
@@ -1012,10 +1008,6 @@ msgstr "Переименовать дерево..."
 #: gui/main_window.py:341
 msgid "Delete tree..."
 msgstr "Удалить дерево..."
-
-#: gui/main_window.py:345
-msgid "Anchor position"
-msgstr "Позиция якоря"
 
 #: gui/main_window.py:355
 msgid "Copper"
@@ -1045,17 +1037,9 @@ msgstr "Перерисовать выбранное"
 msgid "Redraw whole tree"
 msgstr "Перерисовать всё дерево"
 
-#: gui/main_window.py:404
-msgid "Full redraw (all trees and modules)..."
-msgstr "Полная перерисовка (все деревья и модули)..."
-
 #: gui/main_window.py:413
 msgid "Instances..."
 msgstr "Копии шаблона..."
-
-#: gui/main_window.py:421
-msgid "Instantiate from Cell..."
-msgstr "Инстанцировать из Cell..."
 
 #: gui/main_window.py:438
 msgid "Edit Cell..."
@@ -6421,11 +6405,6 @@ msgstr ""
 "При последнем перечитывании межузловой меди для этой записи меди на плате"
 " не нашлось. Запись СОХРАНЕНА — удалите её вручную, если так и задумано."
 
-#: gui/docks/trees_dock.py:534 gui/docks/trees_dock.py:4843
-#, python-brace-format
-msgid "anchor live position unavailable: {error}"
-msgstr "живая позиция якоря недоступна: {error}"
-
 #: gui/docks/trees_dock.py:961
 msgid "the base of this node is MIRRORED on the live board"
 msgstr "база этого узла ОТЗЕРКАЛЕНА на живой плате"
@@ -6763,28 +6742,6 @@ msgstr ""
 #: gui/docks/trees_dock.py:4723 gui/docks/trees_dock.py:4726
 msgid "Nothing to redraw."
 msgstr "Нечего перерисовывать."
-
-#: gui/docks/trees_dock.py:4793
-#: tests/gui/docks/test_trees_dock_anchor_position.py:384
-msgid "anchor (origin): (0, 0) mm @ 0°"
-msgstr "якорь (origin): (0, 0) мм @ 0°"
-
-#: gui/docks/trees_dock.py:4821 gui/docks/trees_dock.py:4845
-#: tests/gui/docks/test_trees_dock_anchor_position.py:47
-msgid "anchor: live position unavailable"
-msgstr "якорь: живая позиция недоступна"
-
-#: gui/docks/trees_dock.py:4827
-#: tests/gui/docks/test_trees_dock_anchor_position.py:153
-#, python-brace-format
-msgid "anchor {ref!r}: ({x:.3f}, {y:.3f}) mm @ {rot}°"
-msgstr "якорь {ref!r}: ({x:.3f}, {y:.3f}) мм @ {rot}°"
-
-#: gui/docks/trees_dock.py:4833
-#: tests/gui/docks/test_trees_dock_anchor_position.py:172
-#, python-brace-format
-msgid "anchor: ({x:.3f}, {y:.3f}) mm @ {rot}°"
-msgstr "якорь: ({x:.3f}, {y:.3f}) мм @ {rot}°"
 
 #: gui/docks/trees_dock.py:4851 gui/docks/trees_dock.py:4858
 #, python-brace-format

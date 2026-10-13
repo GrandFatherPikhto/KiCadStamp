@@ -285,7 +285,7 @@ def test_dock_hub_delegates_hand_the_menu_action_down(real_main_window, monkeypa
     dock = hub.trees_dock
     seen = {}
     for name in ("_on_redraw_selected", "_on_redraw_whole_tree",
-                 "_run_forest_redraw", "_on_reread_internode_copper",
+                 "_on_reread_internode_copper",
                  "_on_identify_selected_copper"):
         seen[name] = []
         monkeypatch.setattr(
@@ -294,7 +294,6 @@ def test_dock_hub_delegates_hand_the_menu_action_down(real_main_window, monkeypa
 
     hub.redraw_selected()
     hub.redraw_whole_tree()
-    hub.run_forest_full_redraw()
     hub.reread_internode_copper()
     hub.identify_selected_copper()
 
@@ -302,8 +301,6 @@ def test_dock_hub_delegates_hand_the_menu_action_down(real_main_window, monkeypa
         (real_main_window.redraw_selected_action,)]
     assert seen["_on_redraw_whole_tree"] == [
         (real_main_window.redraw_whole_tree_action,)]
-    assert seen["_run_forest_redraw"] == [
-        (real_main_window.full_redraw_action,)]
     assert seen["_on_reread_internode_copper"] == [
         (real_main_window.reread_internode_action,)]
     assert seen["_on_identify_selected_copper"] == [

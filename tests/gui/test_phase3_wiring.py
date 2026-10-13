@@ -678,18 +678,19 @@ def test_tools_menu_extract_tree_between_edit_and_view(real_main_window, monkeyp
     assert called == [True]
 
 
-def test_tools_menu_full_redraw_routes_to_dock_hub(real_main_window, monkeypatch):
-    """P3b (plan 2026-09-02 P3 п.3): Tools has the forest-wide "Full redraw
-    (all trees and modules)..." item (NO new dock button) and it routes to
-    DockHub.run_forest_full_redraw."""
+def test_tools_menu_has_no_full_redraw_item(real_main_window):
+    """Denis, 04.10/13.10 (plan_2026_10_13_trees_menus_cleanup Ч1): the
+    forest-wide "Full redraw (all trees and modules)..." item is GONE — trees
+    can be different layouts of the same thing, and "Redraw whole tree" already
+    covers everything embedded into one. This cell keeps it from creeping back:
+    no QAction attribute, no menu label, no DockHub.run_forest_full_redraw."""
     labels = [a.text() for a in real_main_window.menuBar().actions()]
     assert "Tools" in labels
 
-    called = []
-    monkeypatch.setattr(real_main_window._dock_hub, "run_forest_full_redraw",
-                        lambda: called.append(True))
-    real_main_window.full_redraw_action.trigger()
-    assert called == [True]
+    assert not hasattr(real_main_window, "full_redraw_action")
+    assert not hasattr(real_main_window._dock_hub, "run_forest_full_redraw")
+    texts = [a.text() for a in _trees_menu(real_main_window).actions()]
+    assert not any("Full redraw" in t for t in texts)
 
 
 def test_extract_tree_no_fully_selected_cluster_shows_message(real_main_window,
@@ -879,31 +880,13 @@ def _trees_menu(real_main_window):
     return sub_action.menu()
 
 
-def test_tools_menu_extract_cluster_routes_to_dock_hub(real_main_window,
-                                                       monkeypatch):
-    """2026-09-03: "Extract tree..." and "Extract cluster..." moved into the
-    nested Tools → Trees submenu (they are tree entries); Extract cluster
-    routes to DockHub.extract_cluster_from_selection (a narrower sibling —
-    one flat Entity, no tree node)."""
-    sub = _trees_menu(real_main_window)
-    texts = [a.text() for a in sub.actions()]
-    assert "Extract tree..." in texts and "Extract cluster..." in texts
-    assert texts.index("Extract tree...") < texts.index("Extract cluster...")
-
-    called = []
-    monkeypatch.setattr(real_main_window._dock_hub, "extract_cluster_from_selection",
-                        lambda: called.append(True))
-    real_main_window.extract_cluster_action.trigger()
-    assert called == [True]
-
-
 def test_tools_config_extract_cluster_routes_to_dock_hub(real_main_window,
                                                          monkeypatch):
     """2026-09-06 (plan refresh_geometry_no_preview, доп. задание): "Extract
-    cluster (by selection)" is ALSO exposed in Tools → Config (right after
-    "Edit Cell...") — a second, independent QAction wired to the SAME DockHub
-    delegate as the Trees submenu's "Extract cluster..." (which is kept, per
-    Denis)."""
+    cluster (by selection)" is exposed in Tools → Config (right after
+    "Edit Cell..."). 2026-10-13 (plan_2026_10_13_trees_menus_cleanup Ч1): the
+    duplicate Trees-submenu entry "Extract cluster..." was removed — this is
+    the ONE entry now."""
     tools = next(m for m in real_main_window.menuBar().actions()
                  if m.text() == "Tools").menu()
     config = next(a for a in tools.actions()
@@ -918,17 +901,16 @@ def test_tools_config_extract_cluster_routes_to_dock_hub(real_main_window,
                         lambda: called.append(True))
     real_main_window.extract_cluster_config_action.trigger()
     assert called == [True]
-    # The Trees entry still routes through the same delegate.
-    real_main_window.extract_cluster_action.trigger()
-    assert called == [True, True]
 
 
 def test_tools_trees_submenu_groups_all_tree_actions(real_main_window):
-    """2026-09-03 (plan plan_2026_09_03_trees_menu_tools.md): EVERY tree-related
-    Tools entry lives in the one nested "Trees" submenu — the capture flows
-    (Extract tree…/Extract cluster…/Instances…), the forest-wide Full redraw and
-    the whole-tree actions relocated from the TreesDock toolbar. The Tools root
-    keeps only the non-tree entries (Settings… stays reachable at the root)."""
+    """2026-09-03 (plan plan_2026_09_03_trees_menu_tools.md); Denis 13.10
+    (plan_2026_10_13_trees_menus_cleanup Ч1): EVERY tree-related Tools entry
+    lives in the one nested "Trees" submenu, and the list below is the WHOLE
+    menu in ORDER — exact equality, so a re-added or re-ordered item turns this
+    red. "Extract cluster..." moved out (it lives in Tools → Config); "Anchor
+    position", "Full redraw (all trees and modules)..." and "Instantiate from
+    Cell..." are gone. The Tools root keeps only the non-tree entries."""
     tools = next(m for m in real_main_window.menuBar().actions()
                  if m.text() == "Tools").menu()
     # Nested blocks at the Tools root: "Trees" (tree entries), "Config"
@@ -938,14 +920,13 @@ def test_tools_trees_submenu_groups_all_tree_actions(real_main_window):
     submenus = [a for a in tools.actions() if a.menu() is not None]
     assert [a.text() for a in submenus] == ["Trees", "Config", "Imprints"]
     sub = submenus[0].menu()
-    texts = [a.text() for a in sub.actions()]
-    for label in ("Extract tree...", "Extract cluster...", "Create tree...",
-                  "Rename tree...", "Delete tree...", "Anchor position",
-                  "Redraw selected", "Redraw whole tree",
-                  "Full redraw (all trees and modules)...", "Instances..."):
-        assert label in texts, f"missing from Tools → Trees: {label}"
-    # The capture entries sit before the manual whole-tree management entries.
-    assert texts.index("Extract tree...") < texts.index("Create tree...")
+    # Separators read as "" in QAction.text() — they are part of the pinned
+    # list on purpose (the plan fixes the order AND the separators).
+    assert [a.text() for a in sub.actions()] == [
+        "Extract tree...", "Create tree...", "Rename tree...", "Delete tree...",
+        "", "Copper", "", "Redraw selected", "Redraw whole tree", "",
+        "Instances...",
+    ]
     # "Edit Cell..."/"Extract cluster (by selection)" live in the Config
     # submenu (2026-09-06), NOT at the Tools root.
     config_texts = [a.text() for a in submenus[1].menu().actions()]
@@ -990,14 +971,14 @@ def test_tools_trees_copper_submenu_groups_the_inter_node_copper_actions(
 def test_tools_trees_submenu_whole_tree_actions_route_to_dock_hub(
         real_main_window, monkeypatch):
     """2026-09-03: the relocated whole-tree actions (Create/Rename/Delete tree,
-    Anchor position, Redraw selected/whole tree) live in Tools → Trees and route
-    to the matching DockHub delegates."""
+    Redraw selected/whole tree) live in Tools → Trees and route to the matching
+    DockHub delegates. "Anchor position" left with the readout it drove
+    (2026-10-13, plan_2026_10_13_trees_menus_cleanup Ч1)."""
     hub = real_main_window._dock_hub
     for attr, delegate in (
             ("create_tree_action", "create_tree"),
             ("rename_tree_action", "rename_tree"),
             ("delete_tree_action", "delete_tree"),
-            ("anchor_position_action", "anchor_position"),
             ("redraw_selected_action", "redraw_selected"),
             ("redraw_whole_tree_action", "redraw_whole_tree")):
         called = []
@@ -1007,15 +988,14 @@ def test_tools_trees_submenu_whole_tree_actions_route_to_dock_hub(
 
 
 def test_dock_hub_tree_actions_forward_to_trees_dock(real_main_window, monkeypatch):
-    """DockHub.create_tree/rename_tree/delete_tree/anchor_position/
-    redraw_selected/redraw_whole_tree forward to the matching TreesDock handlers
-    after focusing the dock."""
+    """DockHub.create_tree/rename_tree/delete_tree/redraw_selected/
+    redraw_whole_tree forward to the matching TreesDock handlers after focusing
+    the dock."""
     hub = real_main_window._dock_hub
     for delegate, handler in (
             ("create_tree", "_on_create_tree"),
             ("rename_tree", "_on_rename_tree"),
             ("delete_tree", "_on_delete_tree"),
-            ("anchor_position", "_refresh_anchor_live_position"),
             ("redraw_selected", "_on_redraw_selected"),
             ("redraw_whole_tree", "_on_redraw_whole_tree")):
         called = []

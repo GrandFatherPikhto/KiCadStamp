@@ -167,7 +167,10 @@ def test_a_failed_name_releases_its_socket_like_a_successful_one(monkeypatch, tm
 #     cannot slip past — the list in the first half is written by hand, and forgetting
 #     to extend a hand-written list is how the fourth leak got in.
 
-_TREES_WORKERS = ("run_internode_reread_worker", "run_anchor_live_position_worker",
+# "run_anchor_live_position_worker" left with its "Anchor position" menu item
+# (2026-10-13, plan_2026_10_13_trees_menus_cleanup Ч1) — there is no worker left
+# to guard.
+_TREES_WORKERS = ("run_internode_reread_worker",
                   "run_anchor_base_mm_worker", "run_extract_new_cell_worker")
 _COPPER_WORKERS = ("run_select_record_copper_worker",
                    "run_identify_copper_worker")
@@ -221,8 +224,7 @@ def _payload_for(worker_name, monkeypatch, tmp_path):
                             lambda *a, **k: SimpleNamespace(added=[]))
         monkeypatch.setattr(capture_mod, "apply_reread_plan", lambda cfg, plan: cfg)
         return {"cfg": Config(), "tree": _plain_tree(), "sheet_names": {}}
-    if worker_name in ("run_anchor_live_position_worker",
-                       "run_anchor_base_mm_worker"):
+    if worker_name == "run_anchor_base_mm_worker":
         monkeypatch.setattr(td_mod, "_anchor_base_live_position",
                             lambda *a, **k: (Vector2.from_xy(1_000, 2_000), 0.0))
         return {"cfg": object(), "tree": _plain_tree(ref="U1"), "sheet_names": {}}
