@@ -326,7 +326,8 @@ def test_checking_the_pseudo_node_marks_every_copper_row(main_window, tmp_path):
     assert [c.checkState(0) for c in children] == [Qt.CheckState.Checked] * 5
 
     captured = []
-    dock._run_curated_redraw = lambda refs, trigger=None: captured.append(refs)
+    dock._run_curated_redraw = (
+        lambda refs, trigger=None, tree=None: captured.append(refs))
     dock._on_redraw_selected()
     assert captured == [set(COPPER_REFS)]
 

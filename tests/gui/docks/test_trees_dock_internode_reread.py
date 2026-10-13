@@ -280,7 +280,10 @@ def test_finish_with_nothing_changed_keeps_the_tree_and_is_clean(main_window, tm
 
 def test_dock_hub_delegates_hand_the_menu_action_down(real_main_window, monkeypatch):
     """Every Tools → Trees delegate passes ITS OWN QAction down to the dock
-    method — the action that the user actually clicked, not a guess."""
+    method — the action that the user actually clicked, not a guess. Since
+    plan_2026_10_13_trees_menus_cleanup Ч2 the three tree-scoped delegates also
+    pass the TREE (`None` from Tools = the dock's active tab; the tree ROOT's
+    context menu passes its own)."""
     hub = real_main_window._dock_hub
     dock = hub.trees_dock
     seen = {}
@@ -298,11 +301,11 @@ def test_dock_hub_delegates_hand_the_menu_action_down(real_main_window, monkeypa
     hub.identify_selected_copper()
 
     assert seen["_on_redraw_selected"] == [
-        (real_main_window.redraw_selected_action,)]
+        (real_main_window.redraw_selected_action, None)]
     assert seen["_on_redraw_whole_tree"] == [
-        (real_main_window.redraw_whole_tree_action,)]
+        (real_main_window.redraw_whole_tree_action, None)]
     assert seen["_on_reread_internode_copper"] == [
-        (real_main_window.reread_internode_action,)]
+        (real_main_window.reread_internode_action, None)]
     assert seen["_on_identify_selected_copper"] == [
         (real_main_window.identify_copper_action,)]
 

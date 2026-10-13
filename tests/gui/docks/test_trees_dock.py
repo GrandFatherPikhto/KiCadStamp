@@ -834,6 +834,179 @@ def test_context_menu_on_anchor_offers_add_node(main_window, tmp_path, monkeypat
     assert dock._dirty is True
 
 
+# ── Ч2 (plan_2026_10_13_trees_menus_cleanup): the tree ROOT's FULL menu ─────
+
+def _root_menu(dock, monkeypatch):
+    """The anchor pseudo-root's context menu as a flat list of (label, action),
+    with separators captured as ("", None). QMenu.exec is no-oped."""
+    import gui.docks.trees_dock as td_mod
+    monkeypatch.setattr(td_mod.QMenu, "exec", lambda self, *a, **k: None)
+    captured = []
+    orig_action = td_mod.QMenu.addAction
+    orig_sep = td_mod.QMenu.addSeparator
+
+    def _rec_action(self, text, *a, **k):
+        action = orig_action(self, text, *a, **k)
+        captured.append((text, action))
+        return action
+
+    def _rec_sep(self, *a, **k):
+        captured.append(("", None))
+        return orig_sep(self, *a, **k)
+
+    monkeypatch.setattr(td_mod.QMenu, "addAction", _rec_action)
+    monkeypatch.setattr(td_mod.QMenu, "addSeparator", _rec_sep)
+    item = _children(dock._current_tree_widget().invisibleRootItem())[0]
+    dock._on_context_menu(
+        dock._current_tree_widget().visualItemRect(item).center())
+    return captured
+
+
+def test_root_context_menu_is_the_exact_tree_menu(main_window, tmp_path, monkeypatch):
+    """Ч2 — the tree ROOT's context menu is the FULL tree menu, in this exact
+    order (separators captured as ""). Equality, not "≥" (a removed or reordered
+    item must fail)."""
+    empty = {"trees": [{"name": "t", "anchor": {"origin": True}, "nodes": []}]}
+    dock, _root = _dock_with(main_window, tmp_path, empty)
+
+    labels = [text for text, _a in _root_menu(dock, monkeypatch)]
+    assert labels == [
+        "Add node",
+        "Set anchor…",
+        "",
+        "Redraw selected",
+        "Redraw whole tree",
+        "Reread inter-node copper",
+        "",
+        "Instances...",
+        "Rename tree...",
+        "Delete tree...",
+    ]
+
+
+def test_root_menu_grays_the_socket_items_while_an_op_runs(
+        real_main_window, tmp_path, monkeypatch):
+    """Ч2 — the socket-holding items (Redraw selected / Redraw whole tree /
+    Reread inter-node copper) are greyed while an operation is in flight: one
+    operation — one lock on BOTH menus (the Tools QAction is the run's guard)."""
+    trees = {"trees": [{"name": "t", "anchor": {"origin": True}, "nodes": []}]}
+    hub, dock = _hub_dock(real_main_window, tmp_path, trees)
+
+    idle = dict((t, a) for t, a in _root_menu(dock, monkeypatch) if a is not None)
+    assert idle["Redraw whole tree"].isEnabled() is True
+
+    dock._active_op = object()          # a socket-holding run is in flight
+    busy = dict((t, a) for t, a in _root_menu(dock, monkeypatch) if a is not None)
+    for label in ("Redraw selected", "Redraw whole tree",
+                  "Reread inter-node copper"):
+        assert busy[label].isEnabled() is False, label
+    assert busy["Delete tree..."].isEnabled() is True
+
+
+def _hub_dock(real_main_window, tmp_path, trees):
+    """The DockHub's OWN TreesDock pointed at a fresh root carrying `trees` —
+    the dock the delegates under test actually act on (a `_dock_with` dock is a
+    DIFFERENT instance and would hide a routing bug)."""
+    hub = real_main_window._dock_hub
+    dock = hub.trees_dock
+    root = tmp_path / "root.sexp"
+    write_later(root, dict_to_sexp(trees, format_number=2))
+    dock.set_root_file(root)
+    return hub, dock
+
+
+def test_root_menu_routes_each_item_to_dock_hub_with_this_tree(
+        real_main_window, tmp_path, monkeypatch):
+    """Ч2 — the whole-tree items go through DockHub's delegates (the SAME ones the
+    Tools menu uses) with the CLICKED tree. Here the menu is on the active tab,
+    so the tree handed over is that tree — proving the routing, not a second
+    implementation."""
+    trees = {"trees": [
+        {"name": "tree_a", "anchor": {"origin": True}, "nodes": []},
+        {"name": "tree_b", "anchor": {"origin": True}, "nodes": []},
+    ]}
+    hub, dock = _hub_dock(real_main_window, tmp_path, trees)
+    dock.tree_tabs.setCurrentIndex(0)          # tree_a is the active tab
+    current = dock._current_tree()
+
+    seen = []
+    for name in ("redraw_selected", "redraw_whole_tree",
+                 "reread_internode_copper", "open_instances_dialog",
+                 "rename_tree", "delete_tree"):
+        monkeypatch.setattr(
+            hub, name,
+            (lambda n: lambda tree=None: seen.append((n, tree)))(name))
+
+    actions = dict((t, a) for t, a in _root_menu(dock, monkeypatch) if a is not None)
+    for label in ("Redraw selected", "Redraw whole tree",
+                  "Reread inter-node copper", "Instances...",
+                  "Rename tree...", "Delete tree..."):
+        actions[label].trigger()
+
+    assert seen == [
+        ("redraw_selected", current),
+        ("redraw_whole_tree", current),
+        ("reread_internode_copper", current),
+        ("open_instances_dialog", current),
+        ("rename_tree", current),
+        ("delete_tree", current),
+    ]
+
+
+def test_delegates_act_on_the_tree_they_are_given_not_the_current_tab(
+        real_main_window, tmp_path, monkeypatch):
+    """Ч2 — a delegate called with a tree that is NOT the active tab acts on THAT
+    tree. Kills the mutation 'the handler reads _current_tree() instead of its
+    `tree` parameter' (which would rebuild tree_a's refs and find none)."""
+    trees = {"trees": [
+        {"name": "tree_a", "anchor": {"origin": True}, "nodes": []},
+        {"name": "tree_b", "anchor": {"origin": True}, "nodes": []},
+    ]}
+    hub, dock = _hub_dock(real_main_window, tmp_path, trees)
+    dock.tree_tabs.setCurrentIndex(0)          # tree_a is the active tab
+    tree_b = dock._trees[1]
+    assert dock._current_tree() is dock._trees[0]
+
+    tree_b.nodes.append(TreeNode(ref="DAC_B", kind="placement", xy=(0.0, 0.0),
+                                 polar=None, rotation=0.0, name=None, group=None))
+    got = []
+    monkeypatch.setattr(dock, "_run_forest_redraw_with_refs",
+                        lambda refs, trigger=None: got.append(set(refs)))
+
+    hub.redraw_whole_tree(tree_b)
+
+    assert got == [{"DAC_B"}], (
+        "Redraw whole tree must build its refs from the tree it is GIVEN, not "
+        "from the active tab")
+
+
+def test_delete_tree_from_root_menu_stages_an_unsaved_tree(
+        real_main_window, tmp_path, monkeypatch):
+    """Ч2 (design §7 п.2, Denis): Delete works for an UNSAVED tree too — a tree
+    created in-session and never written to the root config is removed and the
+    deletion is STAGED (dirty), exactly like every other tree edit."""
+    from kicadstamp.trees import Tree, TreeAnchor
+
+    trees = {"trees": [
+        {"name": "keeper", "anchor": {"origin": True}, "nodes": []},
+    ]}
+    hub, dock = _hub_dock(real_main_window, tmp_path, trees)
+
+    fresh = Tree(name="fresh", anchor=TreeAnchor(is_origin=True), nodes=[])
+    dock._trees.append(fresh)
+    dock._rebuild_tabs()
+    assert dock._dirty is False, "appending a tree by hand must not be dirty yet"
+
+    import gui.docks.trees_dock as td_mod
+    monkeypatch.setattr(td_mod.QMessageBox, "question",
+                        lambda *a, **k: QMessageBox.StandardButton.Yes)
+
+    hub.delete_tree(fresh)
+
+    assert all(t.name != "fresh" for t in dock._trees)
+    assert dock._dirty is True, "deleting an unsaved tree is STAGED, not written"
+
+
 def test_anchor_dialog_origin_mode_returns_origin(main_window):
     """The historic "Origin (board 0,0)" mode still yields is_origin=True with
     every other field at its default — regression gate for the 6-mode rework."""

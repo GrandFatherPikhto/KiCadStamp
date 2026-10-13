@@ -657,9 +657,15 @@ context menu (Add child / Add sibling / Reread current position / Edit node… /
 / Move to…); **Reread current position** re-resolves the node against the LIVE board and rewrites its
 `xy`/rotation in place, with no confirmation (not saving is the undo) — since 2026-09-12 that read runs
 on a worker (the status bar names it, the window stays responsive) and it is refused rather than
-interleaved while another owner holds the one shared kipy socket. The tree ROOT row's menu keeps
-**Add node** and a **Set anchor…** shortcut that selects
-that root row. Since 2026-09-04 (plan plan_2026_09_04_trees_dock_master_detail.md) every real-tree tab
+interleaved while another owner holds the one shared kipy socket. The tree ROOT row's context menu is
+the FULL tree menu (2026-10-13, plan_2026_10_13_trees_menus_cleanup Ч2): **Add node**, **Set anchor…**
+(a shortcut that selects that root row), then **Redraw selected** / **Redraw whole tree** / **Reread
+inter-node copper**, then **Instances…** / **Rename tree…** / **Delete tree…**. Every item acts on THIS
+tree — the one whose root was clicked — not on "the active tab": the whole-tree items run through the
+SAME DockHub delegates the Tools → Trees menu uses (one implementation, one busy-guard — a socket-
+holding run greys both menus), and **Instances…** opens the dialog with THIS tree preselected as its
+template. Delete works for an UNSAVED tree too (the deletion is staged until Save). Since 2026-09-04
+(plan plan_2026_09_04_trees_dock_master_detail.md) every real-tree tab
 is a **master-detail** splitter: the node list on the LEFT, ONE form panel on the RIGHT. **UPDATED
 2026-09-11 (plan_2026_09_11_trees_dock_single_panel.md):** that panel used to be a FIXED two-tab widget
 (**Anchor** / **Node**); the tab strip is gone because it read as "this node's anchor". The panel now

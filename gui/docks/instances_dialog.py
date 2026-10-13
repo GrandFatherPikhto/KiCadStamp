@@ -122,7 +122,7 @@ class TreeInstancesDialog(QDialog):
     surfaces before the dialog opens) + the root config path the section is
     written back to."""
 
-    def __init__(self, parent, root_path, cfg):
+    def __init__(self, parent, root_path, cfg, preferred_template=None):
         super().__init__(parent)
         self._root_path = root_path
         self._cfg = cfg
@@ -146,6 +146,11 @@ class TreeInstancesDialog(QDialog):
                                   "generated copies of it):")))
         self.template_combo = QComboBox()
         self.template_combo.addItems(self._templates)
+        # The tree ROOT's context menu opens this dialog FOR its own tree
+        # (plan_2026_10_13_trees_menus_cleanup Ч2) and preselects it as the
+        # template — when it can be one (a generated instance cannot).
+        if preferred_template in self._templates:
+            self.template_combo.setCurrentText(preferred_template)
         layout.addWidget(self.template_combo)
 
         self.table = QTableWidget(0, 5)

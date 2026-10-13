@@ -2714,17 +2714,61 @@ class TreesDock(QWidget):
                 menu.addAction(_("Move down")).triggered.connect(
                     lambda: self._move_node_among_siblings(tree, node, +1))
         else:
-            # Anchor pseudo-root: set the tree anchor, or add its first/next
-            # top-level node (the only way a tree gets nodes at all — there
-            # is no TreeNode to right-click until one exists).
+            # Anchor pseudo-root (plan_2026_10_13_trees_menus_cleanup Ч2): the
+            # FULL tree menu, and it acts on THIS tree — the one whose root was
+            # clicked — never on "the active tab". The generation items are
+            # dock-local; the whole-tree items go through DockHub's delegates
+            # with the SAME `tree`, so both menus (Tools → Trees and here) share
+            # ONE implementation and ONE busy-guard ("одна операция — одна
+            # блокировка"). `tree` was resolved above from the clicked widget.
+            #
+            # Add node is the only way a tree gets nodes at all — there is no
+            # TreeNode to right-click until one exists. Z.3: 'Set anchor…' opens
+            # no modal picker — it selects the tree's ROOT row (selectable since
+            # Z.2), which makes the right-hand panel show the anchor form.
             menu.addAction(_("Add node")).triggered.connect(
                 lambda: self._add_node_flow(tree))
-            # Z.3: 'Set anchor…' no longer opens a modal picker — it selects the
-            # tree's ROOT row (now selectable, Z.2), which makes the single
-            # right-hand panel show the active tree's anchor form.
             menu.addAction(_("Set anchor…")).triggered.connect(
                 lambda: self._select_anchor_row(tree))
+            menu.addSeparator()
+            redraw_selected = menu.addAction(_("Redraw selected"))
+            redraw_selected.triggered.connect(
+                lambda: self._tree_menu("redraw_selected", tree))
+            redraw_whole = menu.addAction(_("Redraw whole tree"))
+            redraw_whole.triggered.connect(
+                lambda: self._tree_menu("redraw_whole_tree", tree))
+            reread = menu.addAction(_("Reread inter-node copper"))
+            reread.triggered.connect(
+                lambda: self._tree_menu("reread_internode_copper", tree))
+            if self._active_op is not None:
+                # One operation — one lock on BOTH menus: while a socket-holding
+                # run is in flight these items are greyed, exactly as the
+                # Tools → Trees QActions are (that QAction IS the run's guard
+                # widget; here we mirror its state).
+                for act in (redraw_selected, redraw_whole, reread):
+                    act.setEnabled(False)
+            menu.addSeparator()
+            menu.addAction(_("Instances...")).triggered.connect(
+                lambda: self._tree_menu("open_instances_dialog", tree))
+            menu.addAction(_("Rename tree...")).triggered.connect(
+                lambda: self._tree_menu("rename_tree", tree))
+            menu.addAction(_("Delete tree...")).triggered.connect(
+                lambda: self._tree_menu("delete_tree", tree))
         menu.exec(tree_widget.viewport().mapToGlobal(pos))
+
+    def _tree_menu(self, name: str, tree) -> None:
+        """Route a tree-ROOT context-menu item to the matching DockHub delegate
+        with THIS tree (plan_2026_10_13_trees_menus_cleanup Ч2): the Tools menu
+        and the root menu call the SAME delegate → the SAME dock handler, and the
+        action targets the tree whose root was clicked, never "the active tab".
+
+        The dock reaches DockHub the way gui/docks/explode_page.py does — a
+        getattr on main_window — so a standalone dock in a unit test simply has
+        no menu to route (and never crashes on the missing hub)."""
+        hub = getattr(self._main_window, "_dock_hub", None)
+        if hub is None:
+            return
+        getattr(hub, name)(tree)
 
     # ── Node dialog helpers ──────────────────────────────────────────────
 
@@ -3175,10 +3219,13 @@ class TreesDock(QWidget):
 
     # ── Inter-node copper: re-read (plan_2026_09_12_internode_copper_core Э4) ──
 
-    def _on_reread_internode_copper(self, trigger=None) -> None:
+    def _on_reread_internode_copper(self, trigger=None, tree=None) -> None:
         """Tools → Trees → "Reread inter-node copper": re-read the CURRENT
         tree's copper between pads from the LIVE board and refresh its
         `net_traces:` records (design §6).
+
+        `tree` (Ч2): the tree ROOT's context menu passes its OWN tree, Tools
+        passes nothing (the dock's active tab).
 
         `trigger` is the Tools-menu QAction that started it; it is greyed out
         for the operation's duration (Э2, plan_2026_09_12_busy_indicator).
@@ -3189,7 +3236,7 @@ class TreesDock(QWidget):
         merely marked in the tree. The live read happens on the worker; the AREA
         (the board selection when there is one, else the whole board) is decided
         there too, because reading the selection is itself a board call."""
-        tree = self._current_tree()
+        tree = tree or self._current_tree()
         if tree is None:
             return
         if self._warn_read_only_instance(tree):
@@ -4002,8 +4049,11 @@ class TreesDock(QWidget):
         of _rehang_offset_or_ask (_REHANG_BUSY_TEXT) — one reason, two channels."""
         QMessageBox.warning(self, _("Move to…"), _REHANG_BUSY_TEXT)
 
-    def _on_rename_tree(self) -> None:
-        tree = self._current_tree()
+    def _on_rename_tree(self, tree=None) -> None:
+        # `tree` (plan_2026_10_13_trees_menus_cleanup Ч2): the tree ROOT's
+        # context menu passes its OWN tree; the Tools menu passes nothing and
+        # the dock's active tab is used. One implementation, two menus.
+        tree = tree or self._current_tree()
         if tree is None:
             return
         if self._warn_read_only_instance(tree):
@@ -4026,13 +4076,17 @@ class TreesDock(QWidget):
         self._mark_dirty()
         self._rebuild_tabs()
 
-    def _on_delete_tree(self) -> None:
-        """Remove the CURRENT tree from self._trees entirely — the whole-tree
-        counterpart of the per-node "Delete node" context-menu action. Like
-        Add/Rename, nothing is written until Save: the deletion is just part of
-        the unsaved state, and _do_save persists it (plus the .bak backup).
-        Confirmed via QMessageBox with No as the safe default button."""
-        tree = self._current_tree()
+    def _on_delete_tree(self, tree=None) -> None:
+        """Remove a tree from self._trees entirely — the whole-tree counterpart
+        of the per-node "Delete node" context-menu action. Like Add/Rename,
+        nothing is written until Save: the deletion is just part of the unsaved
+        state, and _do_save persists it (plus the .bak backup). Confirmed via
+        QMessageBox with No as the safe default button.
+
+        `tree` (Ч2): the tree ROOT's context menu passes its OWN tree — this
+        works for an UNSAVED tree too (Denis, §7 п.2: the deletion is staged,
+        exactly like a Save-time one); None = the dock's active tab."""
+        tree = tree or self._current_tree()
         if tree is None:
             return
         if self._warn_read_only_instance(tree):
@@ -4103,7 +4157,8 @@ class TreesDock(QWidget):
             adapter = self._live_adapter()
         return confirm_first_run_adoption(self, config_path, adapter=adapter)
 
-    def _run_curated_redraw(self, selected_refs: set, trigger=None) -> None:
+    def _run_curated_redraw(self, selected_refs: set, trigger=None,
+                            tree=None) -> None:
         """Worker invocation of the TREE-scoped curated redraw, used by "Redraw
         selected" (plan_2026_08_29_fork1_rigid_redraw_override.md §5).
         start_long_op keeps it off the UI thread, same worker pattern as
@@ -4114,8 +4169,9 @@ class TreesDock(QWidget):
 
         `trigger` is the Tools-menu QAction the caller was started by (the one
         whose checkbox set the run uses), greyed out for the duration
-        (Э2, plan_2026_09_12_busy_indicator)."""
-        tree_name = self._current_tree_name()
+        (Э2, plan_2026_09_12_busy_indicator). `tree` (Ч2) is the tree to redraw
+        — the root context menu's OWN tree, or None for the dock's active tab."""
+        tree_name = tree.name if tree is not None else self._current_tree_name()
         if tree_name is None:
             return
         if not selected_refs:
@@ -4139,15 +4195,20 @@ class TreesDock(QWidget):
             self._on_redraw_failed, payload,
             busy_text=_("placing"))
 
-    def _on_redraw_selected(self, trigger=None) -> None:
+    def _on_redraw_selected(self, trigger=None, tree=None) -> None:
         """Collect the CHECKED nodes' refs and run the curated redraw for the
         current tree in the background. `trigger` is the Tools-menu QAction
-        (Э2) — the guard widget for the run it starts."""
+        (Э2) — the guard widget for the run it starts.
+
+        `tree` (Ч2): the tree ROOT's context menu passes its OWN tree; None =
+        the dock's active tab. The tick state lives on the RENDERED rows, so the
+        passed tree only names the run's target — the checked refs are the ones
+        the user ticked."""
         selected_refs = {ref for ref, item in self._node_items.items()
                          if item.checkState(0) == Qt.CheckState.Checked}
-        self._run_curated_redraw(selected_refs, trigger)
+        self._run_curated_redraw(selected_refs, trigger, tree)
 
-    def _on_redraw_whole_tree(self, trigger=None) -> None:
+    def _on_redraw_whole_tree(self, trigger=None, tree=None) -> None:
         """Redraw EVERY node of the current tree — TOGETHER with the content of
         every module it embeds (plan_2026_09_14 Э1). The refs come DIRECTLY
         from the Tree structure (collect_tree_refs), not from checkbox state, so
@@ -4165,7 +4226,9 @@ class TreesDock(QWidget):
         still rides in the payload because the forest planner resolves module
         markers by tree name. The menu wording and its translations are
         deliberately untouched (deferred by Denis)."""
-        tree = self._current_tree()
+        # `tree` (Ч2): the tree ROOT's context menu passes its OWN tree, Tools
+        # passes nothing (the dock's active tab) — the SAME path either way.
+        tree = tree or self._current_tree()
         if tree is None:
             return
         self._run_forest_redraw_with_refs(set(collect_tree_refs(tree)), trigger)

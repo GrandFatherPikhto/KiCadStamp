@@ -1796,14 +1796,18 @@ class DockHub:
         self._focus_config_tree_dock()
         self._reread_imprint_from_tree(entry, file_path)
 
-    def open_instances_dialog(self) -> None:
+    def open_instances_dialog(self, tree=None) -> None:
         """Main menu "Tools -> Trees -> Instances..." (2026-09-02, plan tree_instances
         P3): modal dialog editing the `tree_instances:` SHORT declarations of
         one template tree ({name, sheet} rows, add/remove). Writes the section
         via config_writer.upsert_tree_instances — the dialog GENERATES nothing;
         materialization happens at the next load — then reloads TreesDock (and
         refreshes the Config tree) so the regenerated read-only instance tabs
-        appear."""
+        appear.
+
+        `tree` (plan_2026_10_13_trees_menus_cleanup Ч2): the tree ROOT's context
+        menu passes its OWN tree, which the dialog then PRESELECTS as the
+        template; Tools passes nothing and the dialog keeps its own default."""
         root_path = self.root_metadata_dock.root_path
         if root_path is None:
             QMessageBox.warning(self.main_window, _("Tree instances"),
@@ -1816,7 +1820,9 @@ class DockHub:
             QMessageBox.warning(self.main_window, _("Tree instances"),
                                 _("Failed to load config: {error}").format(error=e))
             return
-        dialog = TreeInstancesDialog(self.main_window, root_path, cfg)
+        dialog = TreeInstancesDialog(
+            self.main_window, root_path, cfg,
+            preferred_template=tree.name if tree is not None else None)
         if dialog.exec() == QDialog.DialogCode.Accepted:
             self.trees_dock.reload_trees()
             self.config_tree_dock.refresh()
@@ -1839,34 +1845,46 @@ class DockHub:
         self._focus_trees_dock()
         self.trees_dock._on_create_tree()
 
-    def rename_tree(self) -> None:
+    def rename_tree(self, tree=None) -> None:
         """Tools → Trees → Rename tree…: rename the CURRENT tree (the dock's
-        active tab); staged until File > Save."""
-        self._focus_trees_dock()
-        self.trees_dock._on_rename_tree()
+        active tab); staged until File > Save.
 
-    def delete_tree(self) -> None:
+        `tree` (plan_2026_10_13_trees_menus_cleanup Ч2): the tree to act on — the
+        tree ROOT's context menu passes the tree whose root was clicked, the Tools
+        menu passes nothing and the dock resolves its own active tab. ONE
+        implementation, two menus (no second copy of the flow)."""
+        self._focus_trees_dock()
+        self.trees_dock._on_rename_tree(tree)
+
+    def delete_tree(self, tree=None) -> None:
         """Tools → Trees → Delete tree…: delete the CURRENT tree (the dock's
-        active tab), confirmed; staged until File > Save."""
+        active tab), confirmed; staged until File > Save. `tree` — as in
+        rename_tree (the root context menu's OWN tree; None = the active tab)."""
         self._focus_trees_dock()
-        self.trees_dock._on_delete_tree()
+        self.trees_dock._on_delete_tree(tree)
 
-    def redraw_selected(self) -> None:
+    def redraw_selected(self, tree=None) -> None:
         """Tools → Trees → Redraw selected: curated redraw of the CURRENT
         tree's CHECKED nodes (background worker). The menu QAction is handed
-        down as the guard widget (Э2, plan_2026_09_12_busy_indicator)."""
+        down as the guard widget (Э2, plan_2026_09_12_busy_indicator).
+
+        `tree` (Ч2): the tree ROOT's context menu passes its OWN tree, Tools
+        passes nothing (the dock's active tab)."""
         self._focus_trees_dock()
         self.trees_dock._on_redraw_selected(
-            self._menu_trigger_action("redraw_selected_action"))
+            self._menu_trigger_action("redraw_selected_action"), tree)
 
-    def reread_internode_copper(self) -> None:
+    def reread_internode_copper(self, tree=None) -> None:
         """Tools → Trees → "Reread inter-node copper" (plan_2026_09_12_internode_
         copper_core Э4): re-read the CURRENT tree's copper between pads from the
         live board — a background worker, no dialog, the report in the Log. The
-        menu QAction is the operation's guard widget (Э2)."""
+        menu QAction is the operation's guard widget (Э2).
+
+        `tree` (Ч2): the tree ROOT's context menu passes its OWN tree, Tools
+        passes nothing (the dock's active tab)."""
         self._focus_trees_dock()
         self.trees_dock._on_reread_internode_copper(
-            self._menu_trigger_action("reread_internode_action"))
+            self._menu_trigger_action("reread_internode_action"), tree)
 
     def identify_selected_copper(self) -> None:
         """Tools → Trees → "Whose copper is this?" (plan_2026_09_12_select_copper_
@@ -1896,13 +1914,17 @@ class DockHub:
         self.trees_dock._on_select_recorded_inter_node_copper(
             self._menu_trigger_action("select_recorded_internode_action"))
 
-    def redraw_whole_tree(self) -> None:
+    def redraw_whole_tree(self, tree=None) -> None:
         """Tools → Trees → Redraw whole tree: curated redraw of EVERY node of
         the CURRENT tree (background worker). The menu QAction is handed down as
-        the guard widget (Э2, plan_2026_09_12_busy_indicator)."""
+        the guard widget (Э2, plan_2026_09_12_busy_indicator).
+
+        `tree` (plan_2026_10_13_trees_menus_cleanup Ч2): the tree ROOT's context
+        menu passes its OWN tree, Tools passes nothing (the dock's active tab) —
+        the SAME dock handler runs either way, so both menus share one path."""
         self._focus_trees_dock()
         self.trees_dock._on_redraw_whole_tree(
-            self._menu_trigger_action("redraw_whole_tree_action"))
+            self._menu_trigger_action("redraw_whole_tree_action"), tree)
 
     def _refresh_snapshot_then(self, title: str, on_ready) -> None:
         """R.2.2 (2026-09-11, plan_2026_09_11_stale_snapshot_positions.md) — the
