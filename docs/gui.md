@@ -466,19 +466,18 @@ with KiCad closed — writing the values ONTO the board is again its own explici
 
 ## Files
 
-A file tree (default root: `boards/`, changeable) for picking `.sexp`/JSON config files, plus three
+A file tree (default root: `boards/`, changeable) for picking `.sexp`/JSON config files, plus two
 named **roles** other docks read their target file from:
 
 | Role | Consumed by | What goes there |
 |---|---|---|
 | **Cells** | Extract (writes), Placer/Cells tab (reads) | `extract`'s output goes into this file's `cells:` key. |
 | **Extractor** | Extract | The structured root config `extract_profiles:` entries get written into. |
-| **Placer** | Extract (wiring only), Placer | The structured root config `clone_placements:` entries get written into — the file you'd point a real `apply` run at. |
 
 To assign a role: click a file in the tree, then **"Use selected"** on the role's row.
 
-**All three roles can share one file** — all three are the same "structured root config" shape
-(`extract_profiles:`/`cells:`/`include:`/`clone_placements:` as sibling keys, since `cells_file:`/
+**Both roles can share one file** — both are the same "structured root config" shape
+(`extract_profiles:`/`cells:`/`include:` as sibling keys, since `cells_file:`/
 `cell_files:` were folded into `include:` on 2026-08-02 — see [docs/config.md](config.md)). A
 dedicated file per role is just the default habit, not a requirement enforced anywhere.
 
@@ -1526,192 +1525,10 @@ the **Show advanced net settings** checkbox reveals them for manual overrides.
 
 ## Placer
 
-> **REMOVED (2026-10-12, plan_2026_10_08_remove_placer).** The Placer dock
-> (`gui/docks/placer.py`) and the root `clone_placements:` section it wrote are
-> GONE: a cell is placed through **Entities** + **Trees** now — the Entity carries
-> the "what" (Cell/Nets/Params) and a `kind="placement"` node carries the "where".
-> The historical prose below describes a dock that no longer exists; its
-> **Save** / **Write target** / **Placer name** rows and the `clone_plan`
-> mentions are kept for history only, not as live UI. (The nested
-> `Cell.clone_placements:` mechanism is a DIFFERENT, LIVE thing — see the Cells
-> section below.)
-
-Builds and applies a `ClonePlacement` — the GUI equivalent of `kicadstamp_cli.py apply --only
-<name>`. **This dock moves real footprints on the live board.**
-
-**Source**/**Nets**/**Net overrides**/**Refs**/**Origin** live in a tab widget (2026-08-06, Denis:
-"в пласере точно надо табом. Он может быть длинный!" — same "a stacked `QVBoxLayout`'s minimum
-height is the SUM of every section's own" fix Extract/Root/Rules/Cells already got). Nets/Net
-overrides/Refs started out as sections stacked inside one "Nets" tab, split into three sibling tabs
-the same day (Denis, live: even tabbed, Params+Nets+Net overrides+Refs together still didn't fit —
-Params stays paired with Nets, since both feed the same by-nets role resolution step and that
-pairing itself was explicitly liked as-is; Net overrides and Refs are rarer and earn their own tabs
-instead of competing for the same vertical space). Redraw/Save and the message label stay outside
-the tabs — they act on the whole placement, not one tab.
-
-- **Write target** — the placement is written into the project root file's `clone_placements:`
-  (or `coordinate_placements:`) section. The former Cells-file/Placer-file dropdowns are gone
-  (2026-08-21); the **Cell** combo inside Source still picks a Cell from the WHOLE `include:` graph.
-- **Source** — **Cell** (default), **Role**, or **Cluster** (all added 2026-08-06, Denis: "путь
-  потрясающе длинный: создать экстрактор, извлечь шаблон, сделать cell и только потом, placement") —
-  Role/Cluster both skip Extract/Cell entirely for a genuine single-component placement; neither
-  ever writes or reads a `cells:` entry (`ClonePlacement.role`/`.cluster`, already supported by the
-  backend — this toggle is just their first GUI surface). Only good for a bare component with no
-  via/track/second component of its own — for anything with real content, Cell + Extract is still
-  the right path.
-  - *Role* — pick a Role directly (same autocompleted combo as Anchor's own Role field below). Role
-    is a CATEGORY, not unique — many components routinely share one — so if it's ambiguous on the
-    board, Redraw resolves it the same way a real cell's role slots do (selection, then the
-    placement's own Cluster — its `name` — narrowing; since 2026-08-14 `anchor_cluster` narrows
-    only the anchor), or fails loud listing every candidate.
-  - *Cluster* — same idea, but finds its target by an ALREADY-ASSIGNED Cluster PCB field instead
-    (tag it first via the Components tree's Role/Cluster editing or fieldstool) — same-day pushback
-    on Role alone, Denis: "Условие уникальности у нас касается кластера, а не роли... ОДНУ деталь
-    надо размещать просто по кластеру. Роль там не при делах". No selection/narrowing: an exact
-    match is either unique (used directly) or a tagging mistake, fatal either way. This mode also
-    reuses the picked Cluster value as the placement's own name — the "Cluster:" name row below
-    (see next bullet) hides entirely in this mode (found live 2026-08-06, Denis: "Зачем нам два поля
-    Existing Cluster и Cluster?" — a second, independently-typed name risked silently retagging the
-    component to something else on Redraw, since Cluster tags are meant to already be unique).
-- **Cell** — a closed-set dropdown (not `configure_searchable()` — same "an editable combo on a
-  field that must match an existing key is a freeze risk, and semantically wrong anyway" lesson as
-  CellDock's own anchor_role_combo) populated from the currently picked Cells file's `cells:` keys.
-  Also settable by clicking a Cell in the Config tree's Cells category (`set_selected_cell`) — both
-  paths go through the same method, so either one keeps the other in sync. Added 2026-08-06 (Denis,
-  live: "в пласере давай сделаем имя целла по выпадающему комбо-боксу... не удобно" — going to the
-  Config tree for every single pick was the friction). Hidden in Role/Cluster mode.
-- **Sheet** (added 2026-08-15) — the placement's OWN sheet, OPTIONAL: narrows ambiguous
-  Cluster+Role inside the cell when this cell is cloned across reused sheets. A searchable combo
-  autocompleted from the project's schematic files (`schematic_dir`/`schematic_files`, via
-  `RuntimeContext.sheet_names`) on root change — a picker, not a whitelist, the same "populate,
-  don't restrict" pattern as Cluster/Role/Nets (2026-08-15, see
-  plan_2026_08_15_sheet_combo_everywhere.md). Ordered ABOVE "Cluster:" — the same (Sheet, Cluster,
-  Role) convention as Single-component mode below.
-- **Cluster** — the placement's Cluster TAG (the `name:` key written onto the board's components;
-  also what gets clicked from the Components tree, see above). Since 2026-08-15 it is no longer the
-  save identity — that moved to **Placer name** below. Hidden in Cluster *source* mode (see above) —
-  the picked Existing Cluster value is reused as the name instead, nothing left to ask for here.
-  Since 2026-08-31 (plan placer_source_tab_gaps P.1) it ALSO auto-fills from the CURRENT board
-  selection, like ExtractDock does for Cell names: select a whole Cluster's components on the live
-  board and its name fills into this field — only in Cell mode, only while the field is blank and
-  not user-owned (never overwriting a typed/picked value), and then silently triggers the
-  Nets/Params auto-fill pipeline.
-- **Placer name** (added 2026-08-15) — the placement's SAVE/`--only` identity (the optional
-  `placer_name:` key in `clone_placements:`), separate from the Cluster tag: this is what
-  `upsert_clone_placement` matches on to "replace this saved entry" vs "append a new one", and what
-  `--only` addresses. Auto-fills from Cluster ONLY while creating a brand new placement; once the
-  entry is saved it stays fixed, so editing Cluster on an already-saved placement no longer spawns a
-  duplicate. Only needed when you want to be able to re-tag Cluster on a saved entry — leave it
-  equal to Cluster and it is omitted from the file entirely.
-- **Single component** (Source combo — a `coordinate_placements:` entry, no `cell:`) — its
-  **Sheet**/**Cluster**/**Role**/**Name** identity fields live here on the Source tab (since
-  2026-08-13, Denis: "Cluster, Role, Name надо на первый таб перенести" — they used to be on the
-  Coordinate tab, mixed with the positioning fields, which was confusing to find). **Sheet** (added
-  2026-08-15) is OPTIONAL — narrows Cluster+Role to one physical instance when the same sheet is
-  cloned/reused and Cluster alone is identical across copies (distinct from the Anchor widget's
-  `anchor_sheet`, which narrows the OTHER, anchor component). Both Sheet fields are searchable combos
-  autocompleted from the project's schematic files on root change — a picker, not a whitelist (see
-  plan_2026_08_15_sheet_combo_everywhere.md). The **Coordinate** tab then keeps only
-  "where to put it" (Mode/X Y/Anchor/...). The "Cluster:" label intentionally matches the Cell-mode
-  name row above — a different field, never visible at the same time.
-- **Nets / Net overrides / Refs tabs** — all three tabs are hidden entirely (removed from the tab
-  bar via `setTabVisible`, not just their contents blanked) in Role/Cluster mode (a synthetic
-  one-component cell has no via/track net fields to template in the first place, and Role/Cluster's
-  default resolution — by selection — never reads `nets:`/`refs:` at all, only "by nets" mode does;
-  see `_on_cell_mode_changed`'s own docstring for why hiding them together avoids a silent no-op
-  trap):
-  - **Nets tab** —
-    - **Params** — one row per `{PLACEHOLDER}` found anywhere in the picked Cell's own config (auto-
-      discovered, not hand-typed) — the literal net each placeholder should resolve to for *this*
-      instance.
-    - **Nets** (added 2026-08-06) — role → literal net, takes priority over the cell's own
-      `net_template:` for by-nets role resolution. Editable table (add/update by key, remove
-      selected row) — Role column autocompletes from the PICKED CELL's own `components:` roles (not
-      every role on the live board — `nets:`/`refs:` are only ever consulted for a role that's
-      actually one of the cell's own components, see `resolve_roles_by_nets` in
-      [docs/config.md](config.md); found live 2026-08-06 that a board-wide list was misleadingly
-      broad, fixed same day).
-    - **Auto-fill from board** — the "Auto-fill from board" button (and its silent auto-trigger on
-      every Cell/Cluster pick, plan 2026-08-13) resolves each role on the LIVE board by Cluster
-      prefix plus the cell's `net_template_pad`/`net_template_same_as_role` hints (see
-      [docs/config.md](config.md)), pre-fills the blank Nets rows, and in the same worker run
-      computes the per-role candidate-net narrowing for the Nets role-key combobox AND the Params
-      comboboxes. Since 2026-08-16 it ALSO narrows by THIS placement's own **Sheet** (`sheet_edit`,
-      i.e. `clone.sheet`) — the same (Sheet, Cluster, Role) convention the apply-time resolvers use —
-      so a cell reused across hierarchical sheets (the live DAC_BUF repro: three `AD_DAC`+`DAC_BUF`
-      instances, identical Cluster/Role written on the sheet FILE) narrows to the right instance
-      instead of falling back to the full board net list. Empty/unknown `sheet_names` (no Placer file
-      picked, or `schematic_dir` unresolved) is a silent no-op — the same full-list fallback as
-      before, never a wrong guess. Since 2026-08-27, when a Params combo's narrowing resolves to
-      exactly ONE candidate the value is selected automatically (only while the field is still
-      blank — never overwriting a value the user already entered; a still-ambiguous 2+ candidate
-      list is left blank, the same no-guess discipline as the Nets rows). Since 2026-08-28 (Phase 2
-      step 2.4) the backend is the LIVE auto-derivation (`suggest_role_nets_live`): the hint-based
-      `net_template_pad`/`net_template_same_as_role` suggestions are combined with the APPLY-side
-      `_auto_derive_live_net` (live_pad), so a role WITHOUT cell hints is also filled whenever the
-      live board gives a deterministic single net — a unique instance's one net, or the ONE net
-      shared by all its candidates on this cluster (e.g. several C_IN_BULK on +3V3 in one PI-filter).
-      The Nets table shows these auto-values and remains an OVERRIDE editor — the user can replace
-      any row. A Params row that stays blank may be a deliberate limitation, not a stale auto-fill
-      (2026-08-31, plan placer_source_tab_gaps P.3): a placeholder is only narrowable through a role
-      whose `net_template:` is EXACTLY `{KEY}` — a compound template like `/…/…/+3V3` can't be
-      reverse-mapped to one net, so that field shows a tooltip explaining it must be picked by hand.
-  - **Net overrides tab** (added 2026-08-06) — resolved net → final override name, applied AFTER
-    Params/net_template substitution (see `resolve_net` in [docs/config.md](config.md)). Both columns
-    autocomplete from the live board's actual net names.
-  - **Refs tab** (added 2026-08-06, closes the last GUI gap this dock's own docstring used to flag) —
-    role → explicit ref, bypasses role search entirely — last resort, breaks on re-annotation. Role
-    column autocompletes from the picked cell's own `components:` roles, same reasoning as Nets above.
-- **Origin**:
-  - *Absolute XY* — a literal board position.
-  - *Anchor (ref/role)* — position relative to an existing component: Ref **or** Role (mutually
-    exclusive), optional Sheet, optional Pad, optional Anchor cluster (narrows which same-Role
-    component is meant, when there's more than one). Role and Anchor cluster are pick-from-list
-    combo boxes, autocompleted from the live board; Sheet is a searchable combo autocompleted from
-    the project's schematic files (a picker, not a whitelist); Ref is plain free text (this project
-    prefers Role over refdes — Role survives re-annotation, refdes doesn't — Ref exists mainly for
-    the rare case it's actually needed).
-  - *Point* — position relative to a named `points:` entry, autocompleted from the whole project
-    (every `points:` key reachable via `include:`, not just this file's own).
-  - Anchor/Point modes also take a flat XY **shift**.
-  - **Read current position** — fills the current live origin/rotation. Since 2026-08-31 (plan
-    placer_source_tab_gaps P.2), if the Anchor/Point identity fields are filled but the mode combo
-    is still on the default Absolute (XY), the mode is auto-switched to the filled Anchor/Point set
-    (silently, no dialog) so the read expresses the origin as the SHIFT from that anchor instead of
-    silently writing absolute coordinates.
-- **Cell anchor** — REMOVED from the Placer (Фаза B of
-  `plan_2026_09_09_cell_anchor_v2_declarative_and_board_overlay.md`, 2026-09-10). It recorded the
-  cell's mount point by COMPUTING a numeric `anchor_xy` at save time — the mechanism §0.1 of that
-  plan established as wrong (a Role+Pad anchor is a REFERENCE resolved at apply time, not a number).
-  The anchor is now edited in the Config tree's dedicated **Cell anchor...** page (see the
-  "Cell anchor..." section below); this Placer form only ever positions THIS placement (Origin page).
-- **Rotation / Layer / Mirror** — as in `ClonePlacement`'s own fields (see
-  [docs/config.md](config.md)).
-- **Redraw** — builds the placement, validates it, and actually runs it against the live board
-  (loading the *real*, full Placer config first, so any other already-saved placement's vias/
-  tracks are protected — not a synthetic single-placement preview). On success, the components
-  that were actually placed are tagged `Cluster=<name>` (nothing else in the pipeline does this —
-  see [docs/config.md](config.md) on `Cluster` being read-only during `apply`). Since 2026-08-26
-  only the placement's OWN-level components are tagged: for a composite cell (nested
-  `clone_placements:`), components resolved by a nested `CellPlacement` keep their own Cluster
-  (`PIF_DVDD`, ...) instead of being re-tagged with the top placement's name (live bug
-  tag_cluster_overtag — a Redraw wiped every nested sub-cell component's Cluster field). Change a
-  field, click Redraw again — idempotent, safe to repeat.
-- **Save** — separately, writes the current form into the project root file's `clone_placements:` list
-  (replacing an existing entry of the same name, never duplicating). Redraw does **not** save by
-  itself — look, adjust, Redraw again, and only Save once you're happy with the result.
-- **Select on board** (2026-08-25) — resolves the current form's placement to its live board items
-  (its components plus every via/track the registry records under this placement's anchor) and
-  highlights exactly those in pcbnew — a visual check of what this placement really owns, without
-  moving anything. Nothing found (not placed yet) is a short Log message, never a crash. The read
-  walks the SHARED board adapter, so the click is refused outright while another owner holds the one
-  kipy REQ socket (the ~400 ms selection poll, or a long operation) — see "While a board operation
-  runs" at the top of this page.
-Not covered by the GUI yet (still reachable by hand-editing the saved config): `by_selection` mode.
-`anchor_sheet` narrowing WAS in this deferred list — closed 2026-08-15: every Sheet field is now a
-searchable combo sourced from the project's schematic files (see
-plan_2026_08_15_sheet_combo_everywhere.md), including ClonePlacement's Origin tab and
-ThermalViaArrayConfig's anchor (both had the field in the model, only the form never reached it).
+**Placer dock REMOVED (2026-10-13, plan_2026_10_08_remove_placer).** A placement is
+now an **Entity** (the "what") + a `kind="placement"` **tree node** (the "where") —
+see [Trees](#trees) and [Cells](#cells). The nested `Cell.clone_placements:` is a
+DIFFERENT, LIVE mechanism (also under Cells). History is in git.
 
 ## Entity mode (PlacerDock, 2026-08-30)
 
