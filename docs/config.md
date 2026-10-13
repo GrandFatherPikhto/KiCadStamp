@@ -506,11 +506,18 @@ multi-component sections (PI-filters, DAC channels, LDO subsystems) as well as o
   net auto-derives its expected net from the live board (`derive_role_nets` — the unique instance's
   designated net, or the single non-rule net shared by all its candidates), and a LITERAL local
   `/Channel_0/...` `net_template` is prefix-remapped to the target channel (`TwinMap.twin_net`
-  semantics). Ambiguous candidates (2+ matching the resolved net) are narrowed by
-  the placement's own `sheet` → its own `Cluster` (the placement's `name:` — NOT `anchor_sheet`/`anchor_cluster`,
-  which narrow only the anchor, see "Anchored" above) → current board selection → physical proximity
-  to the anchor → a fatal error, in that order — see `clone_role_resolver.py`'s docstrings for the
-  exact cascade.
+  semantics). **Candidates come ONLY from the placement's own `cluster`** (2026-10-13, plan
+  plan_2026_10_13_cluster_confined_roles): a component of another cluster, or one whose Cluster field
+  is empty, is never taken — the refusal NAMES it instead (ref, short uuid, position). Inside that
+  set, candidates are narrowed by a REAL net source (explicit `nets:` / a parametrised
+  `net_template` / the live `live_pad`) and then by the placement's own `sheet` → its own `Cluster`
+  (the placement's `name:` — NOT `anchor_sheet`/`anchor_cluster`, which narrow only the anchor, see
+  "Anchored" above) → current board selection → physical proximity to the anchor → a fatal error, in
+  that order — see `clone_role_resolver.py`'s docstrings for the exact cascade. Two copies of ONE
+  refdes inside the cluster are refused BEFORE any narrowing ("delete the extra copy" — a net can
+  never tell them apart); distinct refdes that no net source separates are refused with "give them
+  distinct roles in the schematic" (the ONE wording lives in `role_conflict_reasons.py`). A LITERAL
+  cell `net_template` is not a net source at all.
 - **By selection** (rare, one-off sections — a single MCU): explicitly with `by_selection: true`
   (needed when `params` is present only for via/track net resolution and would otherwise be misread
   as "by nets" mode), or — for the implicit no-`params`/`nets` case — only when the cell CANNOT

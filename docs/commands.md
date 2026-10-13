@@ -24,6 +24,11 @@ apply time a clone's role expected nets auto-derive from the live board via
 net shared by all its candidates) and `prefix_remap` (a literal `/Channel_0/...`
 `net_template` is remapped to the target channel — `TwinMap.twin_net`
 semantics). `nets:`/`params:`/`net_overrides:`/`refs:` are OPTIONAL overrides.
+A clone's candidates come ONLY from its own `cluster` (2026-10-13): a part of
+another cluster (or one without the Cluster tag) is never taken — the refusal
+names it; two copies of ONE refdes inside the cluster are refused with "delete
+the extra copy", and distinct refdes that no net source separates are refused
+with "give them distinct roles in the schematic".
 The implicit mode (no `nets`/`params`/`by_selection`) auto-picks by-nets
 whenever the cell auto-derives on the board, else by-selection (Phase 2 step
 2.3); `by_selection: true` remains the explicit override. Extract already

@@ -364,21 +364,30 @@ Resolves roles for `ClonePlacement`. Supports two modes:
   auto-prefix-remapped to the target channel, `TwinMap.twin_net` semantics) → auto-derived from the
   live board (`derive_role_nets`: the unique instance's single net, or the one non-rule net shared by
   all candidates). A LITERAL cell `net_template` (no `{param}`, not `/Channel_N/...`) is a
-  source-instance fallback, not a selector: when the placement has its own cluster and the live board
-  gives a deterministic net for the role there, that live net wins (`derive_role_nets` live_pad,
-  2026-09-05) — so a cell extracted from one power rail is safely reusable on another rail without
-  dragging the source instance's components (see `tests/placement/test_clone_reuse_cell_across_power_rails.py`).
+  source-instance breadcrumb and **NOT a selector at all** (2026-10-13, plan
+  plan_2026_10_13_cluster_confined_roles): it may only corroborate a single own-cluster component (a
+  Log line when it disagrees with the live net) and never separates candidates — so a cell extracted
+  from one power rail is safely reusable on another rail without dragging the source instance's
+  components (see `tests/placement/test_clone_reuse_cell_across_power_rails.py`).
   A cell `net_template` with an unresolved `{placeholder}` (no matching `params`) is
   NOT treated as an explicit source — it falls through to the live auto-derivation path (Phase 4 step
   4.3) instead of fataling — so `nets:`/`params:`/`net_overrides:` are OPTIONAL overrides. Since Phase 2 step
   2.3 the IMPLICIT mode (no `nets`/`params`/`by_selection`) is also by-nets whenever the whole cell
   auto-derives on the live board — mode is chosen by the availability of an unambiguous source
-  instance, not by the presence of `nets`/`params`. In case of ambiguity,
-  uses cascading narrowing: explicit `refs` → selection → sheet hierarchy → **physical proximity to
-  the anchor** (if the distance gap is sufficient, the closest candidate is chosen). This allows
-  distinguishing electrically identical filters on a common rail. The GUI's Auto-fill/Nets/Params
-  narrowing (PlacerDock) uses the same `sheet` dimension for its live-board candidate search since
-  2026-08-16.
+  instance, not by the presence of `nets`/`params`.
+  **The candidate set is the role's components inside the placement's OWN `cluster`** (2026-10-13,
+  rule 1): a component of another cluster, or one whose Cluster field is EMPTY, is never taken — it is
+  NAMED in the refusal instead (with its ref, short uuid and position). Inside that set the candidates
+  are narrowed by a REAL net source (explicit `nets:` / a parametrised `net_template` / the live
+  `live_pad`), then by the cascade as before: the placement's own `sheet` → current board selection →
+  **physical proximity to the anchor** (the closest candidate wins only with a sufficient distance
+  gap). Two copies of ONE refdes inside the cluster are refused BEFORE any of that ("delete the extra
+  copy"); distinct refdes that no net source separates are refused with "give them distinct roles in
+  the schematic". A record WITHOUT `cluster` (refs/sheet-only addressing) keeps the previous
+  behaviour. This allows distinguishing electrically identical filters on a common rail — a reused
+  hierarchical sheet copies ONE Cluster tag onto every instance, so the sheet, the selection and
+  proximity are what tell them apart. The GUI's Auto-fill/Nets/Params narrowing (PlacerDock) uses the
+  same `sheet` dimension for its live-board candidate search since 2026-08-16.
 - **Two matching mechanisms, never conflated** (Phase 2 step 2.2): the by-nets path NEVER applies
   net-matching (Kuhn) to INSTANCE selection — N identical instances on a shared/global net are
   disambiguated only by the cascade (sheet → Cluster → selection → proximity); if they are truly
