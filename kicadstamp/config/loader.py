@@ -70,8 +70,7 @@ from .tree_instances import expand_tree_instances
 from .models import (
     ThermalViaArrayConfig, CoordinatePlacement, NetTrace, Config,
     ImprintConfig, coordinate_placement_effective_name,
-    clone_placement_effective_name, net_trace_effective_name,
-    entity_effective_name, imprint_effective_name,
+    net_trace_effective_name, entity_effective_name, imprint_effective_name,
 )
 
 logger = logging.getLogger(__name__)
@@ -429,38 +428,18 @@ def _load_config_uncached(path: str) -> tuple[Config, RuntimeContext]:
     # check above already catches on the generated set.
     tree_instances = [_load_tree_instance(x) for x in data.get('tree_instances', [])]
 
-    # Cross‑validation of layer/mirror
-    for cp in clone_placements:
-        cell = cells.get(cp.cell)
-        if cell is None:
-            continue
-        placement_layer = cp.layer if cp.layer is not None else cell.layer
-        layer_changed = placement_layer != cell.layer
-        if cp.mirror and not layer_changed:
-            raise ValidationError(format_fatal_error(
-                _("mirror without layer change in clone_placement {name!r}").format(
-                    name=clone_placement_effective_name(cp)),
-                [_("cell {cell!r} is on {cell_layer}, placement layer is {place_layer} – "
-                   "mirror without changing side is physically meaningless: either set layer to "
-                   "{opposite}, or remove mirror").format(
-                       cell=cp.cell, cell_layer=cell.layer, place_layer=placement_layer,
-                       opposite='B.Cu' if cell.layer == 'F.Cu' else 'F.Cu')]
-            ))
-        if layer_changed and not cp.mirror:
-            raise ValidationError(format_fatal_error(
-                _("layer changed without mirror in clone_placement {name!r}").format(
-                    name=clone_placement_effective_name(cp)),
-                [_("cell {cell!r} is on {cell_layer}, placement layer is {place_layer} – "
-                   "flipped footprints on non‑flipped sites are nonsense; add mirror: true, "
-                   "or remove the layer override").format(
-                       cell=cp.cell, cell_layer=cell.layer, place_layer=placement_layer)]
-            ))
+    # Cross-validation of layer/mirror lives with `entities:` below — the only
+    # live carrier. The same loop also ran over `clone_placements` until
+    # 2026-10-13 (plan_2026_10_08_remove_placer): that list became an empty
+    # CARRIER when its section was retired, so the loop could never execute —
+    # `raise` inside it survived a whole-suite mutation, which is how the dead
+    # code was found.
 
-    # Same layer/mirror cross-validation for entities: — an Entity is the
-    # "what" of a former ClonePlacement, so it inherits the exact same
-    # physical rule (mirror without a layer change / layer change without
-    # mirror is nonsense). Missing cell is skipped here (structural cell
-    # existence is a validation.py concern, mirroring the clone path).
+    # Layer/mirror cross-validation for entities: — an Entity is the "what" of
+    # a former ClonePlacement, so it carries the exact same physical rule
+    # (mirror without a layer change / layer change without mirror is
+    # nonsense). Missing cell is skipped here (structural cell existence is a
+    # validation.py concern).
     for ent in entities:
         cell = cells.get(ent.cell)
         if cell is None:
@@ -491,9 +470,9 @@ def _load_config_uncached(path: str) -> tuple[Config, RuntimeContext]:
     # existing points: entry; a thermal_via_array additionally needs a
     # footprint-eligible target (see _point_is_footprint_eligible), because it
     # looks up a specific named pad on the resolved component — a bare
-    # coordinate doesn't work for it. ClonePlacement and Point-to-Point
-    # references only ever need a coordinate, so any point (shifted,
-    # xy-literal, or not) is fine there.
+    # coordinate doesn't work for it. The other live carriers (coordinate
+    # placements and Point-to-Point references) only ever need a coordinate, so
+    # any point (shifted, xy-literal, or not) is fine there.
     def _check_anchor_point(owner_label: str, anchor_point: str | None, needs_footprint: bool):
         if anchor_point is None:
             return
@@ -511,22 +490,18 @@ def _load_config_uncached(path: str) -> tuple[Config, RuntimeContext]:
                 .format(owner=owner_label, name=anchor_point),
                 [_("point {name!r} has a shift, is xy-literal, or chains to one that does — "
                    "{owner} needs a live component to look up a specific pad from, a bare "
-                   "coordinate is not enough. Use this point with a clone_placement instead, "
-                   "or give it shift_x_mm=0/shift_y_mm=0 and no xy")
+                   "coordinate is not enough. Use a point that sits on the component "
+                   "(shift_x_mm=0/shift_y_mm=0 and no xy), or anchor by ref/role instead")
                  .format(name=anchor_point, owner=owner_label)]
             ))
 
     for pname, point in points.items():
         _check_anchor_point(_("point {name!r}").format(name=pname), point.anchor_point,
                             needs_footprint=False)
-    for cp in clone_placements:
-        _check_anchor_point(_("clone_placement {name!r}").format(
-            name=clone_placement_effective_name(cp)), cp.anchor_point,
-            needs_footprint=False)
     for ccp in coordinate_placements:
         # Anchor-relative CoordinatePlacement (2026-08-12, Group 0): only ever
-        # needs a coordinate (like ClonePlacement), not a footprint — a
-        # shifted or xy-literal Point works fine.
+        # needs a coordinate, not a footprint — a shifted or xy-literal Point
+        # works fine.
         _check_anchor_point(_("coordinate_placements entry {name!r}")
                             .format(name=coordinate_placement_effective_name(ccp)),
                             ccp.anchor_point, needs_footprint=False)

@@ -14942,38 +14942,6 @@ msgstr ""
 msgid "Config loaded: trees={trees}"
 msgstr ""
 
-#: kicadstamp/config/loader.py:440
-#, python-brace-format
-msgid "mirror without layer change in clone_placement {name!r}"
-msgstr "mirror без смены слоя в clone_placement {name!r}"
-
-#: kicadstamp/config/loader.py:442
-#, python-brace-format
-msgid ""
-"cell {cell!r} is on {cell_layer}, placement layer is {place_layer} – "
-"mirror without changing side is physically meaningless: either set layer "
-"to {opposite}, or remove mirror"
-msgstr ""
-"шаблон {cell!r} на {cell_layer}, слой размещения {place_layer} — mirror "
-"без смены стороны физически бессмыслен: либо задайте layer {opposite}, "
-"либо уберите mirror"
-
-#: kicadstamp/config/loader.py:450
-#, python-brace-format
-msgid "layer changed without mirror in clone_placement {name!r}"
-msgstr "слой сменён без mirror в clone_placement {name!r}"
-
-#: kicadstamp/config/loader.py:452
-#, python-brace-format
-msgid ""
-"cell {cell!r} is on {cell_layer}, placement layer is {place_layer} – "
-"flipped footprints on non‑flipped sites are nonsense; add mirror: true, "
-"or remove the layer override"
-msgstr ""
-"шаблон {cell!r} на {cell_layer}, слой размещения {place_layer} — "
-"перевёрнутые футпринты на неперевёрнутых местах бессмысленны; добавьте "
-"mirror: true или уберите переопределение слоя"
-
 #: kicadstamp/config/loader.py:471
 #, python-brace-format
 msgid "mirror without layer change in entity {name!r}"
@@ -15010,19 +14978,6 @@ msgstr ""
 #, python-brace-format
 msgid "{owner}: anchor_point {name!r} has no footprint to anchor on"
 msgstr "{owner}: у anchor_point {name!r} нет футпринта, на который можно опереться"
-
-#: kicadstamp/config/loader.py:511
-#, python-brace-format
-msgid ""
-"point {name!r} has a shift, is xy-literal, or chains to one that does — "
-"{owner} needs a live component to look up a specific pad from, a bare "
-"coordinate is not enough. Use this point with a clone_placement instead, "
-"or give it shift_x_mm=0/shift_y_mm=0 and no xy"
-msgstr ""
-"у точки {name!r} есть сдвиг, она литеральна по xy или ссылается на такую "
-"— {owner} нужен живой компонент, чтобы взять конкретный пад; голой "
-"координаты недостаточно. Используйте эту точку с clone_placement, либо "
-"задайте shift_x_mm=0/shift_y_mm=0 и уберите xy"
 
 #: kicadstamp/config/loader.py:519 kicadstamp/placement/dependency_order.py:117
 #: kicadstamp/placement/services/point_resolver.py:68
@@ -18555,3 +18510,14 @@ msgstr "sheet_template {name!r} инстанциирует снятую секц
 #: kicadstamp/config/sheet_templates.py
 msgid "remove it: a template may only instantiate coordinate_placements:"
 msgstr "уберите её: шаблон может инстанциировать только coordinate_placements:"
+
+#: kicadstamp/config/loader.py
+#, python-brace-format
+msgid "point {name!r} has a shift, is xy-literal, or chains to one that does — "
+"{owner} needs a live component to look up a specific pad from, a bare "
+"coordinate is not enough. Use a point that sits on the component "
+"(shift_x_mm=0/shift_y_mm=0 and no xy), or anchor by ref/role instead"
+msgstr "у точки {name!r} есть сдвиг, она xy-литерал или цепляется к такой же — "
+"{owner} нужен живой компонент, чтобы найти конкретный пад, голой координаты "
+"недостаточно. Возьмите точку, стоящую на компоненте (shift_x_mm=0/shift_y_mm=0 "
+"и без xy), либо якорь по ref/role"
