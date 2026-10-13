@@ -134,7 +134,7 @@ Sets up gettext for Russian-language user-facing messages. Uses `kicadstamp` tra
 ## 8. `author.py` – Scripting Helpers
 
 **Purpose:**
-Provides helper functions for writing placement scripts (Python code instead of `.sexp` configs). Includes dump functions and `apply_config()` for applying generated configs. The standard `--apply`/`--dry-run` CLI entry-point wrapper `cli_main()` was split out into `author_cli.py` (arch refactor 2026-08-11) so this module stays a pure library.
+Provides helper functions for writing placement scripts (Python code instead of `.sexp` configs): `dump_template()` and `apply_config()`. The `dump_clone_placements()` writer and the `author_cli.py` `--apply`/`--dry-run` wrapper went with the retired `clone_placements:` section (2026-10-13, plan_2026_10_08_remove_placer).
 
 **Main functions:**
 
@@ -144,7 +144,7 @@ Provides helper functions for writing placement scripts (Python code instead of 
 | `dump_chains(chains, path)` | Serialises `Chain` list to s-expr, pruning defaults. |
 | `dump_template(template_dict, path)` | Writes a template dictionary as s-expr (the config graph is s-expr/`.json` only). |
 | `apply_config(cfg, config_path, *, dry_run, ...)` | Loads config and runs `cmd_apply` programmatically. |
-| `cli_main(build_fn, output_path, ...)` | Standard `if __name__ == "__main__":` body for placement scripts — **now in `author_cli.py`** (split out 2026-08-11). |
+| `dump_template(template_dict, path)` | Serialises a template-extraction result to s-expr. |
 
 ---
 

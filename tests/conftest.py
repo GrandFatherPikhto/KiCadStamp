@@ -98,8 +98,8 @@ def _reset_logging_after_test():
     techdocs/handoff/plan_2026_08_15_queue_based_logging.md) made
     setup_logging() replace the ROOT logger's handlers with a QueueHandler
     and start a daemon QueueListener thread kept in a module-global. Tests
-    that run a CLI/author entry point (kicadstamp_cli.main(),
-    author_cli.cli_main()) therefore leak that thread and leave
+    that run a CLI entry point (kicadstamp_cli.main()) therefore leak that
+    thread and leave
     _log_listener set — which would silently switch LogDock's handler onto
     the listener path in later GUI tests (they expect get_log_listener() ==
     None and direct root attachment, see tests/gui/test_log_panel.py).

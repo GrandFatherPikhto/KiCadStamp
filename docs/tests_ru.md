@@ -73,7 +73,7 @@ tests/
 ├── overrides/           # переопределения полей и хранилище
 ├── net/                 # разрешение цепей, net traces, internode copper
 ├── extraction/          # шаблоны (ячейки), писатель извлечения
-├── cli/                 # точки входа CLI, author_cli, конвертеры из tools/
+├── cli/                 # точки входа CLI, конвертеры из tools/
 ├── kicad/               # IPC-адаптер, adapter_factory, explore, pynng safety
 ├── mcp/                 # mcp_server/*
 ├── repo/                # сторожа, читающие сам РЕПОЗИТОРИЙ

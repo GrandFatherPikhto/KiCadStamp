@@ -47,7 +47,7 @@ from ..i18n import _
 
 # Patches pynng.nng.Socket.close with an external timeout on import (see its
 # docstring) — must run before any kipy/pynng socket is created, so this is
-# the single chokepoint every entry point (GUI, CLI, author_cli, tests) goes
+# the single chokepoint every entry point (GUI, CLI, tests) goes
 # through just by importing this module.
 from . import pynng_safety  # noqa: F401
 

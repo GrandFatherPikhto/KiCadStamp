@@ -596,7 +596,7 @@ def main() -> int:
             sys.exit(1)
 
     # Exception → exit-code translation is delegated to cli_common.run_cli —
-    # the single owner of exit codes, shared with author_cli.cli_main().
+    # the single owner of exit codes.
     # The QueueListener's thread must be stopped on EVERY exit path (normal
     # return AND exceptions) so buffered records aren't lost at the end of a
     # run — see techdocs/handoff/plan_2026_08_15_queue_based_logging.md.

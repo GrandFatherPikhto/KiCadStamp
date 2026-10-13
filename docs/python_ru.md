@@ -97,9 +97,13 @@ dataclass — прописывать их явно выше нужно толь�
 **Вариант (a) — стандартная точка входа (`cli_main`):**
 
 Использует каждый скрипт под `boards/*/scripts/*.py` — одно место для шаблонного argparse-кода
-`--apply`/`--dry-run`/`--verbose`, вместо того чтобы каждый скрипт изобретал его заново. `cli_main`
-живёт в `kicadstamp.author_cli` (вынесен из `kicadstamp.author` 2026-08-11, чтобы модуль author
-оставался чистой библиотекой):
+`--apply`/`--dry-run`/`--verbose`, вместо того чтобы каждый скрипт изобретал его заново.
+
+> **СНЯТО (2026-10-13):** `kicadstamp.author_cli` — и `dump_clone_placements()` из
+> `kicadstamp.author` — ушли вместе со снятой секцией `clone_placements:`
+> (`plan_2026_10_08_remove_placer`). Пример, который был здесь, больше не запускается; чем его
+> заменить — решает дизайн Python-API
+> (`techdocs/handoff/claude/design/design_2026_10_03_python_api.md` §6). Набросок был такой:
 
 ```python
 # boards/3ch-awg-tia/scripts/my_subsystem.py

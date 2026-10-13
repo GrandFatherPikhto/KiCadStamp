@@ -49,7 +49,7 @@
     ├── cli_main.py / gui_main.py      # пакетные точки входа (console-скрипты)
     ├── apply_pipeline.py              # cmd_apply / ApplyPipeline
     ├── cli.py / cli_common.py / cli_extract.py   # обёртки команд CLI + владелец exit-кодов
-    ├── author.py / author_cli.py      # скриптовые хелперы + CLI для скриптов плат
+    ├── author.py                      # скриптовые хелперы
     ├── channel_copy.py / flatten.py   # копирование канала + уплощение include-графа
     ├── anchor_graph.py                # статический граф зависимостей по якорям
     ├── cluster_matching.py / net_resolution.py / net_from_role_resolver.py

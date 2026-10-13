@@ -6,7 +6,7 @@ instead of the library printing to stdout directly. Covers:
     self.dry_run_report, and prints nothing itself (capsys).
   - ApplyPipeline.run(): returns the report when dry_run=True, None otherwise.
   - run_apply()/cmd_apply(): propagate the report up to the CLI layer.
-  - author.apply_config() returns it; author_cli.cli_main() prints it.
+  - author.apply_config() returns it.
   - kicadstamp_cli.main() (_dispatch) prints it for `apply --dry-run`.
 """
 import sys

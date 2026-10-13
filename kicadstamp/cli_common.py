@@ -3,8 +3,8 @@ from collections.abc import Callable
 """
 cli_common.py — the single owner of CLI exit codes.
 
-Every CLI front-end (kicadstamp_cli.py's ``main()`` and ``author_cli.cli_main()``
-used by ``boards/*/scripts/*.py``) must translate exceptions into process
+Every CLI front-end (kicadstamp_cli.py's ``main()``) must translate exceptions
+into process
 exit codes. That translation used to be copy-pasted in two places; this
 module is the one source of truth so every front-end reports errors
 identically and a change to the contract lands in exactly one file.

@@ -97,9 +97,12 @@ dataclass — spelling them out above is only for clarity, not required.
 **Option (a) — the standard entry point (`cli_main`):**
 
 Every script under `boards/*/scripts/*.py` uses this — one place for the `--apply`/`--dry-run`/
-`--verbose` argparse boilerplate, instead of every script reinventing it. `cli_main` lives in
-`kicadstamp.author_cli` (split out of `kicadstamp.author` 2026-08-11 so the author module stays a
-pure library):
+`--verbose` argparse boilerplate, instead of every script reinventing it.
+
+> **REMOVED (2026-10-13):** `kicadstamp.author_cli` — and `kicadstamp.author.dump_clone_placements()`
+> — went with the retired `clone_placements:` section (`plan_2026_10_08_remove_placer`). The example
+> that used to follow no longer runs; the Python-API redesign owns what replaces it
+> (`techdocs/handoff/claude/design/design_2026_10_03_python_api.md` §6). The sketch was:
 
 ```python
 # boards/3ch-awg-tia/scripts/my_subsystem.py

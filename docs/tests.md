@@ -73,7 +73,7 @@ tests/
 ├── overrides/           # field overrides and the override store
 ├── net/                 # net resolution, net traces, internode copper
 ├── extraction/          # templates (cells), the extract writer
-├── cli/                 # CLI entry points, author_cli, the tools/ converters
+├── cli/                 # CLI entry points, the tools/ converters
 ├── kicad/               # the IPC adapter, adapter_factory, explore, pynng safety
 ├── mcp/                 # mcp_server/*
 ├── repo/                # guards that read the REPOSITORY itself

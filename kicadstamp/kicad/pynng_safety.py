@@ -26,7 +26,7 @@ explicit close() calls AND __del__-triggered GC calls, GUI and CLI alike.
 
 Applied once, at import time, by kicadstamp/kicad/adapter.py (the only
 module in this codebase that touches kipy/pynng) — every entry point (GUI,
-CLI, author_cli, tests) picks it up for free just by importing that module.
+CLI, tests) picks it up for free just by importing that module.
 
 ── The TWO close paths are bounded DIFFERENTLY (Ф1.13, 2026-09-30) ────────────
 

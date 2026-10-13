@@ -49,7 +49,7 @@ Repo root
     ├── cli_main.py / gui_main.py      # package entry points (console scripts)
     ├── apply_pipeline.py              # cmd_apply / ApplyPipeline
     ├── cli.py / cli_common.py / cli_extract.py   # CLI command wrappers + exit-code owner
-    ├── author.py / author_cli.py      # scripting helpers + board-script CLI
+    ├── author.py                      # scripting helpers
     ├── channel_copy.py / flatten.py   # channel copy + include-graph flattening
     ├── anchor_graph.py                # static anchor-dependency graph
     ├── cluster_matching.py / net_resolution.py / net_from_role_resolver.py
