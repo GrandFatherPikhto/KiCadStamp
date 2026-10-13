@@ -4,11 +4,25 @@
 12.10 (Ч1в-5): the root ``clone_placements:`` section is retired, so the
 per-field rules whose LIVE home is ``_load_coordinate_placement`` (= the clone
 anchor-relative mode migrated there 2026-08-12) / ``_load_entity`` /
-``_load_cell_placement`` ride those loaders here. The rules that are
-clone-only (``ignore_selection``/``by_selection``/the 2-field absolute polar/
-the ``without cell`` / ``without cluster`` messages) are class А and stay until
-Ч1 removes the section.
+``_load_cell_placement`` ride those loaders here.
+
+13.10 (Ч1в-6): the ``_load_entity`` rules NO live cell guarded are guarded from
+here instead of going away with the section — ``ignore_selection``,
+``by_selection``, ``by_selection`` + ``nets`` and the entity unknown-key check.
+Measured, not guessed: ``deepseek_mutations_ch1v6_placement_2026_10_13.py``
+disables each rule and every mutation's killer list came back EMPTY. The
+unknown-key rule needs the JSON path — on the s-expr path the PARSER rejects an
+unknown key first with its own message, so the loader's ``check_unknown_keys``
+is the sole gate only where the dict reaches the loader directly.
+
+Class А, until Ч1 removes the section: the clone-only keys (``xy``/
+``rotation_deg``/the 2-field absolute polar/the anchor grammar keys), the
+``without cluster`` message (an entity's ``cluster`` is optional) and the
+``without cell`` message — its entity twin (exactly one of ``cell:``/
+``imprint:``) is ALREADY guarded by
+``tests/imprint/test_imprint_config.py::test_entity_requires_exactly_one_of_cell_and_imprint``.
 """
+import json
 from pathlib import Path
 
 import pytest
@@ -39,6 +53,20 @@ def _write_coord(tmp_path, name: str, placements) -> Path:
     translated record adds a role:."""
     p = tmp_path / name
     p.write_text(dict_to_sexp({"coordinate_placements": placements},
+                              format_number=2), encoding="utf-8")
+    return p
+
+
+def _write_entities(tmp_path, name: str, entities) -> Path:
+    """Write ``entities:`` (the LIVE carrier of the role-resolution flags — an
+    entity is the "what" of a placement, position lives in trees) as s-expr,
+    with a stub cell for every cell the entries reference."""
+    cells = {"t": {"components": []}}
+    for e in entities:
+        if e.get("cell"):
+            cells.setdefault(e["cell"], {"components": []})
+    p = tmp_path / name
+    p.write_text(dict_to_sexp({"cells": cells, "entities": entities},
                               format_number=2), encoding="utf-8")
     return p
 
@@ -95,14 +123,15 @@ def test_skip_defaults_false_and_can_be_set_true(tmp_path):
 
 
 def test_ignore_selection_defaults_false_and_can_be_set_true(tmp_path):
-    config_file = _write(tmp_path, "ignore_selection.sexp", [
-        {"cluster": "default_selection", "cell": "t", "xy": [0, 0]},
-        {"cluster": "ignores_selection", "cell": "t", "xy": [0, 0],
-         "ignore_selection": True},
+    """The rule rides the LIVE entity record now (13.10, Ч1в-6): default False,
+    can be set True."""
+    config_file = _write_entities(tmp_path, "ignore_selection.sexp", [
+        {"name": "default_selection", "cell": "t"},
+        {"name": "ignores_selection", "cell": "t", "ignore_selection": True},
     ])
     cfg, _ = load_config(str(config_file))
-    assert cfg.clone_placements[0].ignore_selection is False
-    assert cfg.clone_placements[1].ignore_selection is True
+    assert cfg.entities[0].ignore_selection is False
+    assert cfg.entities[1].ignore_selection is True
 
 
 def test_no_clone_placements_gives_empty_list(tmp_path):
@@ -229,23 +258,37 @@ def test_nets_and_refs(tmp_path):
 
 
 def test_by_selection_flag(tmp_path):
-    """Explicit 'by selection' mode."""
-    config_file = _write(tmp_path, "by_selection.sexp", [
-        {"cluster": "selection_mode", "cell": "t", "xy": [0, 0],
-         "by_selection": True},
+    """Explicit 'by selection' mode — carried by the LIVE entity record
+    (13.10, Ч1в-6)."""
+    config_file = _write_entities(tmp_path, "by_selection.sexp", [
+        {"name": "selection_mode", "cell": "t", "by_selection": True},
     ])
     cfg, _ = load_config(str(config_file))
-    cp = cfg.clone_placements[0]
-    assert cp.by_selection is True
+    assert cfg.entities[0].by_selection is True
 
 
 def test_by_selection_and_nets_conflict_raises(tmp_path):
-    """by_selection: true + nets should raise ValidationError (message in English)."""
-    config_file = _write(tmp_path, "conflict.sexp", [
-        {"cluster": "conflict", "cell": "t", "xy": [0, 0],
-         "by_selection": True, "nets": {"A": "GND"}},
+    """by_selection: true + nets is fatal on the LIVE entity record (13.10,
+    Ч1в-6) — the message is the entity one."""
+    config_file = _write_entities(tmp_path, "conflict.sexp", [
+        {"name": "conflict", "cell": "t", "by_selection": True,
+         "nets": {"A": "GND"}},
     ])
     with pytest.raises(ValidationError, match="by_selection.*true.*nets"):
+        load_config(str(config_file))
+
+
+def test_an_unknown_field_in_an_entity_is_refused_on_the_json_path(tmp_path):
+    """The entity ``check_unknown_keys`` rule is the ONLY gate on the JSON path:
+    the s-expr parser refuses an unknown key first, with its own message, so a
+    cell written in s-expr can never guard the loader's check (13.10, Ч1в-6 —
+    the mutation that disables it went red on nothing)."""
+    config_file = tmp_path / "unknown_entity_key.json"
+    config_file.write_text(json.dumps({
+        "cells": {"t": {"components": []}},
+        "entities": [{"name": "E1", "cell": "t", "role": "LED"}],
+    }), encoding="utf-8")
+    with pytest.raises(ValidationError, match="unknown fields in entity"):
         load_config(str(config_file))
 
 
