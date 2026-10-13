@@ -168,12 +168,16 @@ def test_two_loaders_for_same_path_share_one_cache_entry(tmp_path):
 
 
 def test_write_data_delete_then_upsert_never_stale(tmp_path):
-    """Regression for the exact race invalidate_path() exists to prevent
-    (PlacerDock._do_save does delete_entry() then upsert_*() on the SAME
-    file, two physical writes microseconds apart, see
-    techdocs/handoff/plan_2026_08_15_config_read_cache_startup.md): the read
-    after the SECOND write must see the second write's content even if the
-    filesystem gave both writes the same mtime_ns.
+    """Regression for the exact race invalidate_path() exists to prevent (a
+    delete-then-upsert on the SAME file — two physical writes microseconds
+    apart, see techdocs/handoff/plan_2026_08_15_config_read_cache_startup.md):
+    the read after the SECOND write must see the second write's content even if
+    the filesystem gave both writes the same mtime_ns.
+
+    The carrier was clone_placements: until 13.10 (Ч1в-6). The section is
+    retired, and the property belongs to _write_data()/_read_data(), not to any
+    one section — so it rides a live list section (net_traces:) now, unchanged
+    otherwise.
 
     The race is FORCED, not left to the filesystem's clock: both
     delete-then-upsert writes are pinned to the SAME mtime_ns via
@@ -185,19 +189,19 @@ def test_write_data_delete_then_upsert_never_stale(tmp_path):
     from kicadstamp import config_writer
 
     path = tmp_path / "target.sexp"
-    config_writer._write_data(path, {"clone_placements": [{"name": "old"}]})
+    config_writer._write_data(path, {"net_traces": [{"name": "old"}]})
     pinned_ns = os.stat(path).st_mtime_ns
-    assert config_writer._read_data(path)["clone_placements"][0]["name"] == "old"
+    assert config_writer._read_data(path)["net_traces"][0]["name"] == "old"
 
     # delete-then-upsert, back to back, both writes pinned to the SAME
     # mtime_ns so the mtime check alone cannot tell them apart:
-    config_writer._write_data(path, {"clone_placements": []})
+    config_writer._write_data(path, {"net_traces": []})
     _pin_mtime(path, pinned_ns)
-    config_writer._write_data(path, {"clone_placements": [{"name": "new"}]})
+    config_writer._write_data(path, {"net_traces": [{"name": "new"}]})
     _pin_mtime(path, pinned_ns)
 
     data = config_writer._read_data(path)
-    assert [e["name"] for e in data["clone_placements"]] == ["new"]
+    assert [e["name"] for e in data["net_traces"]] == ["new"]
 
 
 @pytest.fixture(autouse=True)
