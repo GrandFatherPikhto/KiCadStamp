@@ -7,12 +7,12 @@ SOUND — a materialized Entity clone gets a stable registry_key
 (``name:{entity.name}|{cell}|__spoke__|{index}``) and two consecutive redraws
 of the same Entity are idempotent (test ``test_entity_only_two_redraws_...``).
 The live duplicates came from the fpga cell being placed by TWO placements at
-once — the LEGACY clone_placement (anchor ``role:...``/``point:...``) AND the
-new Entity (anchor ``name:...``) — which plan the SAME physical tracks under
-DIFFERENT registry keys. With ``skip_existing_components=False`` (profile
-default) the positional track pre-check (``filter_existing_tracks``) was
-gated OFF, so the second placement's identical tracks were created
-unconditionally → literal duplicates that persisted.
+once — a LEGACY clone_placement AND the new Entity — which plan the SAME
+physical tracks under DIFFERENT registry keys. With
+``skip_existing_components=False`` (profile default) the positional track
+pre-check (``filter_existing_tracks``) was gated OFF, so the second placement's
+identical tracks were created unconditionally → literal duplicates that
+persisted.
 
 Fix: the positional pre-check now runs UNCONDITIONALLY in ApplyPipeline's
 Phase 3 (it is SKIP-ONLY — never deletes/adopts foreign copper), so any
@@ -113,13 +113,18 @@ def _cell():
 
 
 def _legacy_clone():
-    """The pre-migration clone_placement "FPGA" (cell "c"), anchored by role —
-    registry anchor_id ``role:FPGA:...`` — while the Entity "fpga" gets
-    ``name:fpga``. Both land the cell at the SAME board position."""
+    """A second placement of the SAME cell "c" as the Entity "fpga", landing at
+    the FPGA role anchor — a differently-named ``name:`` KEY than the entity's
+    (``name:FPGA`` vs ``name:fpga``). It reproduces the bug's SHAPE (one cell
+    planned twice under two keys) without depending on the retired
+    ``clone_placements:`` section, which no product path emits any more (Д2 of
+    plan_2026_10_08_remove_placer). The record carries its format-3 uuid so the
+    ``name:`` builder can compose the key (Р-У5.7)."""
     return ClonePlacement(
         cluster="FPGA", cell="c", xy=(0.0, 0.0),
         anchor_role="FPGA", anchor_sheet="FPGA", anchor_cluster="FPGA",
         nets={"FPGA": "+3V3_VCCIO"},
+        uuid=det_uuid("clone_placements:FPGA"),
     )
 
 
@@ -256,12 +261,12 @@ def test_entity_only_two_redraws_no_growth():
 # ── The real bug: legacy clone copper already on the board ────────────────────
 
 def test_entity_redraw_after_legacy_clone_does_not_duplicate():
-    """The live-profile state on 2026-08-31: the SAME cell is placed by the
-    LEGACY clone_placement "FPGA" (registry anchor role:...) AND the Entity
-    "fpga" (anchor name:...). The legacy tracks are already on the board
-    (registered under role: keys). An Entity redraw then plans the same
-    physical tracks under name: keys — reconcile sees them as new (different
-    key), but the UNCONDITIONAL positional pre-check must skip them (identical
+    """The live-profile state on 2026-08-31: the SAME cell is placed by a
+    LEGACY clone_placement "FPGA" AND the Entity "fpga" — two placements whose
+    registry keys differ (name:FPGA vs name:fpga). The legacy tracks are
+    already on the board. An Entity redraw then plans the same physical tracks
+    under its own key — reconcile sees them as new (different key), but the
+    UNCONDITIONAL positional pre-check must skip them (identical
     position/net/width/layer), so NO duplicate is created."""
     tmpdir = tempfile.mkdtemp(prefix="kicadstamp_")
     reg_path = track_registry_path_for_config(os.path.join(tmpdir, "board.sexp"))

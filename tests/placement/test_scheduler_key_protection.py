@@ -10,14 +10,22 @@ ONE call site (`_resolve_one_level`) makes the planner emit a key no protection
 set contains, and `reconcile` then prunes the nested cell's copper.
 
 У5.3 (Р-У5.1/Р-У5.2) re-spells the record-identifying PART of every key:
-`name:<uuid>`, `point:<uuid>:…`, `thermal:<uuid>`, `net:<uuid>`, and the
-`template_name` (the cell / net-trace identity) — while the physics stays
-untouched (`anchor:`/`role:`, offsets, index, the `thermal_via_array`
-literal). This file pins BOTH: the protection linkage AND the record part.
+`name:<uuid>`, `thermal:<uuid>`, `net:<uuid>`, and the `template_name` (the
+cell / net-trace identity) — while the physics stays untouched (offsets, index,
+the `thermal_via_array` literal). This file pins BOTH: the protection linkage
+AND the record part.
 
-Here one config carries EVERY key form the У5.0 inventory lists — `name:` for an
-Entity and for an absolute ClonePlacement, `point:`, `role:`, `anchor:`,
-`thermal:`, `net:`, and a nested placement depth 2 — and the REAL
+2026-10-13 (Д2 of plan_2026_10_08_remove_placer): the `anchor:` / `role:` /
+`point:` FORMS left the builder with the retired `clone_placements:` section, so
+their three producers (and the per-form rows) were removed — no product path can
+emit them any more (a whole-suite mutation restoring each branch in
+`clone_anchor_id` survives, see the Д2 harness). The prefixes themselves stay
+protected for legacy registries ON DISK — that is
+`test_registry_anchor_prefix_protection.py`'s job, on LITERAL keys.
+
+Here one config carries every LIVE key form — `name:` for an Entity and for an
+absolute ClonePlacement, `thermal:`, `net:`, and a nested placement depth 2 —
+and the REAL
 planners run on `FakeLiveBoardAdapter` (a local subclass only supplies the one
 footprint the fake takes as a fixture, plus `get_bounding_boxes`, exactly like
 the redraw harnesses). For each emitted `registry_key`:
@@ -40,7 +48,6 @@ from kicadstamp.config import (
     Cell, CellPlacement, ClonePlacement, Config, Entity,
     NetTrace, TemplateTrack, TemplateVia, ThermalViaArrayConfig,
 )
-from kicadstamp.config import Point
 from kicadstamp.config import format_version
 from kicadstamp.domain.geometry import Vector2
 from kicadstamp.exceptions import ValidationError
@@ -60,9 +67,7 @@ MM = 1_000_000
 # The deterministic UUID every record of the fixture carries in format 3.
 _UUID = {
     "leaf": "uuid-leaf", "lvl1": "uuid-lvl1", "lvl2": "uuid-lvl2",
-    "P1": "uuid-P1",
-    "cabs": "uuid-cabs", "cref": "uuid-cref", "crole": "uuid-crole",
-    "cpoint": "uuid-cpoint", "cnest": "uuid-cnest",
+    "cabs": "uuid-cabs", "cnest": "uuid-cnest",
     "E": "uuid-E",
     "tva1": "uuid-tva1",
     "nt1": "uuid-nt1",
@@ -74,15 +79,6 @@ _UUID = {
 # byte-identical in both gates — that is the point of the table.
 _EXPECTED = {
     "name":    {"anchor2": "name:cabs", "anchor3": "name:uuid-cabs",
-                "tpl2": "leaf", "tpl3": "uuid-leaf"},
-    "anchor":  {"anchor2": "anchor:U1::0.0000:0.0000",
-                "anchor3": "anchor:U1::0.0000:0.0000",
-                "tpl2": "leaf", "tpl3": "uuid-leaf"},
-    "role":    {"anchor2": "role:FPGA:FPGA:FPGA::0.0000:0.0000",
-                "anchor3": "role:FPGA:FPGA:FPGA::0.0000:0.0000",
-                "tpl2": "leaf", "tpl3": "uuid-leaf"},
-    "point":   {"anchor2": "point:P1:0.0000:0.0000",
-                "anchor3": "point:uuid-P1:0.0000:0.0000",
                 "tpl2": "leaf", "tpl3": "uuid-leaf"},
     "nested":  {"anchor2": "name:cnest/inner1/inner2",
                 "anchor3": "name:uuid-cnest/inner1/inner2",
@@ -161,18 +157,9 @@ def _cfg():
             "lvl1": Cell(name="lvl1", uuid=_UUID["lvl1"], clone_placements=[
                 CellPlacement(name="inner1", cell="lvl2", xy=(1.0, 0.0))]),
         },
-        points={"P1": Point(name="P1", xy=(10.0, 20.0), uuid=_UUID["P1"])},
         clone_placements=[
             ClonePlacement(cluster="cabs", cell="leaf", xy=(0.0, 0.0),
                            uuid=_UUID["cabs"]),
-            ClonePlacement(cluster="cref", cell="leaf", xy=(0.0, 0.0),
-                           anchor_ref="U1", uuid=_UUID["cref"]),
-            ClonePlacement(cluster="crole", cell="leaf", xy=(0.0, 0.0),
-                           anchor_role="FPGA", anchor_sheet="FPGA",
-                           anchor_cluster="FPGA", uuid=_UUID["crole"]),
-            ClonePlacement(cluster="cpoint", cell="leaf", xy=(0.0, 0.0),
-                           anchor_point="P1", anchor_point_uuid=_UUID["P1"],
-                           uuid=_UUID["cpoint"]),
             ClonePlacement(cluster="cnest", cell="lvl1", xy=(0.0, 0.0),
                            uuid=_UUID["cnest"]),
         ],
@@ -215,21 +202,6 @@ def _p_name_clone(cfg, adapter):
     return _clone_commands(cfg, adapter, [clone])
 
 
-def _p_anchor_clone(cfg, adapter):
-    clone = next(c for c in cfg.clone_placements if c.cluster == "cref")
-    return _clone_commands(cfg, adapter, [clone])
-
-
-def _p_role_clone(cfg, adapter):
-    clone = next(c for c in cfg.clone_placements if c.cluster == "crole")
-    return _clone_commands(cfg, adapter, [clone])
-
-
-def _p_point_clone(cfg, adapter):
-    clone = next(c for c in cfg.clone_placements if c.cluster == "cpoint")
-    return _clone_commands(cfg, adapter, [clone])
-
-
 def _p_nested(cfg, adapter):
     clone = next(c for c in cfg.clone_placements if c.cluster == "cnest")
     return _clone_commands(cfg, adapter, [clone])
@@ -251,9 +223,6 @@ def _p_net(cfg, adapter):
 
 _PRODUCERS = {
     "name": _p_name_clone,
-    "anchor": _p_anchor_clone,
-    "role": _p_role_clone,
-    "point": _p_point_clone,
     "nested": _p_nested,
     "entity": _p_entity,
     "thermal": _p_thermal,
@@ -322,25 +291,18 @@ def test_record_key_part_without_uuid_is_a_fatal_in_format3(format3):  # noqa: F
 
 
 def _blank_uuid_for(cfg, form):
-    """Remove the uuid that the form's key must read, so the producer either
-    resolves a record-identifying part from a record with no uuid (anchor-side)
-    or a template_name from a cell with no uuid."""
+    """Remove the uuid the form's key must read, so the producer has to build a
+    record-identifying part from a record with no uuid."""
     if form in ("name", "nested"):
         record = next(c for c in cfg.clone_placements
                       if c.cluster == ("cabs" if form == "name" else "cnest"))
         record.uuid = None
-    elif form == "point":
-        next(c for c in cfg.clone_placements if c.cluster == "cpoint").anchor_point_uuid = None
     elif form == "entity":
         cfg.entities[0].uuid = None
     elif form == "thermal":
         cfg.thermal_via_arrays[0].uuid = None
     elif form == "net":
         cfg.net_traces[0].uuid = None
-    else:
-        # anchor/role/pad: the anchor_id is physics — the template_name is the
-        # cell, so blanking the cell's uuid must fatal.
-        cfg.cells["leaf"].uuid = None
 
 
 @pytest.mark.parametrize("form", sorted(_PRODUCERS))

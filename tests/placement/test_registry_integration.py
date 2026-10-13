@@ -119,7 +119,13 @@ def test_registry_full_cycle_across_two_runs():
     assert len(vias1) == 1
     key = vias1[0].registry_key
     template = identity_value("t", det_uuid("cells:t"))  # the cell's identity part
-    expected_key = f"anchor:IC1::0.0000:0.0000|{template}|{CELL_LEVEL_ROLE_PLACEHOLDER}|0"
+    # Д2 (plan_2026_10_08_remove_placer): a clone's registry identity is now the
+    # "name:" branch alone — the anchor:/role:/point: forms went with the retired
+    # section. The PHYSICS below (anchor_ref="IC1") still drives the position;
+    # only the KEY changed. `_stamp_configs` gives the cp1 record its uuid, so
+    # the name: part is uuid-based under the gate and the name in format 2.
+    anchor_id = f"name:{identity_value('cp1', det_uuid('clone_placements:cp1'))}"
+    expected_key = f"{anchor_id}|{template}|{CELL_LEVEL_ROLE_PLACEHOLDER}|0"
     assert key == expected_key
 
     reg1 = PlacementRegistry(adapter, reg_path)

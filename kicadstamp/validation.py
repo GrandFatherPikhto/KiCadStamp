@@ -25,7 +25,6 @@ from .geometry.cell_copper_connectivity import (
     cell_copper_components, component_containing, component_role_pads,
     component_shared_point,
 )
-from .geometry.clone_geometry import clone_shift_mm
 from .kicad.adapter import KiCadBoardAdapter
 from .exceptions import ValidationError, fatal_error_reason, format_fatal_error
 from .net_resolution import resolve_net
@@ -148,41 +147,24 @@ def check_no_cell_definition_cycles(cfg: Config) -> None:
 
 def check_no_duplicate_clone_anchors(cfg: Config) -> None:
     """
-    Pure config check (does not require live board):
-      1. clone_placements' effective identity (name-or-cluster) must be unique —
-         this is the save/--only identity, and is also the fallback identifier
-         for anchor‑less placements (see clone_anchor_id).
-      2. (content, anchor_ref, anchor_pad, xy) among
-         clone_placements with anchor_ref set must be unique — this mirrors
-         the identity used by the registry (registry.py, see clone_anchor_id).
-         If two different clone_placements accidentally point to the same
-         physical anchor AND the same offset, the registry will confuse their
-         vias/tracks. This is almost certainly a copy‑paste typo (forgot to
-         change anchor_pad or xy in the second block),
-         not intentional. "Content" is the (mandatory) cell — a role:/cluster:
-         single‑component variant used to exist too but was migrated 1:1 to
-         coordinate_placements on 2026‑08‑12 (Group 0), so this is now always
-         clone.cell. xy is included (found 2026-07-27)
-         because it's legitimate for two clones to share an anchor and differ
-         only by this offset (e.g. a positive/negative filter pair mirrored
-         off the same connector pad) — without it in the key, that legitimate
-         case was indistinguishable from a real duplicate, both to this check
-         and to the registry itself. anchor_cluster is included in the
-         anchor_role key (found 2026-07-28, same reasoning): p5v_led_spoke/
-         n5v_led_spoke share identical anchor_role/anchor_sheet/anchor_pad/
-         origin and differ ONLY by anchor_cluster (Pos vs Neg, the field that
-         actually picks which physical component the anchor resolves to) —
-         without it here, this check false-positived on that legitimate pair.
-      3. Same check for anchor_point (found 2026-08-06, same gap as
-         clone_anchor_id's missing anchor_point branch): two clones anchored
-         on the same Point with the same offset are just as confusable to the
-         registry as two anchor_ref/anchor_role duplicates would be.
+    Pure config check (does not require live board): a clone_placement's
+    effective identity (name-or-cluster) must be unique — it is the save/--only
+    identity AND, since the physical-binding branches went, the registry identity
+    of EVERY live clone (see `clone_anchor_id`).
+
+    The anchor_ref / anchor_role / anchor_point duplicate checks that used to
+    live here went with those branches (2026-10-13, plan_2026_10_08_remove_placer):
+    no product path builds a clone carrying `anchor_*` any more — the loader's
+    `clone_placements` is an empty CARRIER, and `_to_clone(entity)` materializes
+    absolute-coordinate clones only, so those three tables could never be filled
+    (a whole-suite mutation with a `raise` in each survived).
+
+    Registries ALREADY ON DISK still carry the old keys: `registry_upgrade.
+    _map_anchor_id` reads them, and `registry.PROTECTED_ANCHOR_PREFIXES` keeps
+    their prefixes so `reconcile()` never prunes such copper under `--only`.
     """
     problems = []
     seen_effective_names = {}
-    seen_point_anchors = {}
-    seen_ref_anchors = {}
-    seen_role_anchors = {}
     for clone in cfg.clone_placements:
         if clone.retired:
             continue
@@ -202,54 +184,6 @@ def check_no_duplicate_clone_anchors(cfg: Config) -> None:
                   "used by {users}; name identities must be unique")
                 .format(name=effective, users=", ".join(sorted(seen_effective_names[effective] + [clone.cluster]))))
         seen_effective_names.setdefault(effective, []).append(clone.cluster)
-
-        content_id = clone.cell
-        ox, oy = clone_shift_mm(clone)
-        origin = (round(ox, 4), round(oy, 4))
-
-        if clone.anchor_point is not None:
-            key = (content_id, clone.anchor_point, origin)
-            if key in seen_point_anchors:
-                problems.append(
-                    _("{this!r} and {other!r} both point to the same anchor with the same offset "
-                      "(cell/role={content!r}, anchor_point={point!r}, origin=({ox}, {oy}) mm) — "
-                      "the registry would confuse their vias/tracks; likely a copy‑paste typo (if "
-                      "this is intentional, give them different xy)")
-                    .format(this=clone_placement_effective_name(clone), other=seen_point_anchors[key],
-                            content=content_id, point=clone.anchor_point, ox=origin[0], oy=origin[1])
-                )
-            seen_point_anchors[key] = clone_placement_effective_name(clone)
-
-        if clone.anchor_ref is not None:
-            key = (content_id, clone.anchor_ref, clone.anchor_pad, origin)
-            if key in seen_ref_anchors:
-                problems.append(
-                    _("{this!r} and {other!r} both point to the same anchor with the same offset "
-                      "(cell/role={content!r}, anchor_ref={ref!r}, anchor_pad={pad!r}, "
-                      "origin=({ox}, {oy}) mm) — the registry would confuse their vias/tracks; "
-                      "likely a copy‑paste typo (if this is intentional, give them different "
-                      "xy)")
-                    .format(this=clone_placement_effective_name(clone), other=seen_ref_anchors[key],
-                            content=content_id, ref=clone.anchor_ref, pad=clone.anchor_pad,
-                            ox=origin[0], oy=origin[1])
-                )
-            seen_ref_anchors[key] = clone_placement_effective_name(clone)
-
-        if clone.anchor_role is not None:
-            key = (content_id, clone.anchor_role, clone.anchor_sheet, clone.anchor_cluster,
-                   clone.anchor_pad, origin)
-            if key in seen_role_anchors:
-                problems.append(
-                    _("{this!r} and {other!r} both point to the same anchor with the same offset "
-                      "(cell/role={content!r}, anchor_role={role!r}, anchor_sheet={sheet!r}, "
-                      "anchor_cluster={cluster!r}, anchor_pad={pad!r}, origin=({ox}, {oy}) mm) — "
-                      "the registry would confuse their vias/tracks; likely a copy‑paste typo (if "
-                      "this is intentional, give them different xy)")
-                    .format(this=clone_placement_effective_name(clone), other=seen_role_anchors[key],
-                            content=content_id, role=clone.anchor_role, sheet=clone.anchor_sheet,
-                            cluster=clone.anchor_cluster, pad=clone.anchor_pad, ox=origin[0], oy=origin[1])
-                )
-            seen_role_anchors[key] = clone_placement_effective_name(clone)
 
     if problems:
         raise ValidationError(format_fatal_error(

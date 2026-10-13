@@ -12604,47 +12604,6 @@ msgstr ""
 "имя {name!r} встречается дважды в clone_placements — используется "
 "{users}; идентификаторы имён должны быть уникальны"
 
-#: kicadstamp/validation.py:214
-#, python-brace-format
-msgid ""
-"{this!r} and {other!r} both point to the same anchor with the same offset"
-" (cell/role={content!r}, anchor_point={point!r}, origin=({ox}, {oy}) mm) "
-"— the registry would confuse their vias/tracks; likely a copy‑paste typo "
-"(if this is intentional, give them different xy)"
-msgstr ""
-"{this!r} и {other!r} оба указывают на один и тот же якорь с одинаковым "
-"смещением (cell/role={content!r}, anchor_point={point!r}, origin=({ox}, "
-"{oy}) мм) — реестр перепутает их via/треки; похоже на опечатку copy-paste"
-" (если это намеренно, задайте им разный xy)"
-
-#: kicadstamp/validation.py:227
-#, python-brace-format
-msgid ""
-"{this!r} and {other!r} both point to the same anchor with the same offset"
-" (cell/role={content!r}, anchor_ref={ref!r}, anchor_pad={pad!r}, "
-"origin=({ox}, {oy}) mm) — the registry would confuse their vias/tracks; "
-"likely a copy‑paste typo (if this is intentional, give them different xy)"
-msgstr ""
-"{this!r} и {other!r} оба указывают на один и тот же якорь с одинаковым "
-"смещением (cell/role={content!r}, anchor_ref={ref!r}, anchor_pad={pad!r},"
-" origin=({ox}, {oy}) мм) — реестр перепутает их via/треки; похоже на "
-"опечатку copy-paste (если это намеренно, задайте им разный xy)"
-
-#: kicadstamp/validation.py:243
-#, python-brace-format
-msgid ""
-"{this!r} and {other!r} both point to the same anchor with the same offset"
-" (cell/role={content!r}, anchor_role={role!r}, anchor_sheet={sheet!r}, "
-"anchor_cluster={cluster!r}, anchor_pad={pad!r}, origin=({ox}, {oy}) mm) —"
-" the registry would confuse their vias/tracks; likely a copy‑paste typo "
-"(if this is intentional, give them different xy)"
-msgstr ""
-"{this!r} и {other!r} оба указывают на один и тот же якорь с одинаковым "
-"смещением (cell/role={content!r}, anchor_role={role!r}, "
-"anchor_sheet={sheet!r}, anchor_cluster={cluster!r}, anchor_pad={pad!r}, "
-"origin=({ox}, {oy}) мм) — реестр перепутает их via/треки; похоже на "
-"опечатку copy-paste (если это намеренно, задайте им разный xy)"
-
 #: kicadstamp/validation.py:256
 msgid "clone_placements with ambiguous identity"
 msgstr "clone_placements с неоднозначной identity"

@@ -45,37 +45,21 @@ def _adapter_with_pads(pad_numbers):
 
 
 class TestNoDuplicateCloneAnchors:
+    """The effective-identity (name-or-cluster) duplicate check — the ONLY one
+    left. The anchor_ref / anchor_role duplicate cells (2026-10-13, Д2 of
+    plan_2026_10_08_remove_placer) went with those branches of
+    ``check_no_duplicate_clone_anchors``: no product path builds a clone
+    carrying ``anchor_*`` any more, and a whole-suite mutation with a ``raise``
+    in each anchor block survived.
+    """
+
     def test_no_duplicates_passes(self):
         clones = [
-            ClonePlacement(cluster="a", cell="t", xy=(0, 0),
-                           anchor_ref="IC1", anchor_pad="17"),
-            ClonePlacement(cluster="b", cell="t", xy=(0, 0),
-                           anchor_ref="IC1", anchor_pad="18"),
+            ClonePlacement(cluster="a", cell="t", xy=(0, 0)),
+            ClonePlacement(cluster="b", cell="t", xy=(0, 0)),
         ]
         cfg = _cfg(clone_placements=clones)
         check_no_duplicate_clone_anchors(cfg)
-
-    def test_duplicate_anchor_raises(self):
-        clones = [
-            ClonePlacement(cluster="a", cell="t", xy=(0, 0),
-                           anchor_ref="IC1", anchor_pad="17"),
-            ClonePlacement(cluster="b", cell="t", xy=(0, 0),
-                           anchor_ref="IC1", anchor_pad="17"),
-        ]
-        cfg = _cfg(clone_placements=clones)
-        with pytest.raises(ValidationError, match="b.*a"):
-            check_no_duplicate_clone_anchors(cfg)
-
-    def test_duplicate_role_anchor_raises(self):
-        clones = [
-            ClonePlacement(cluster="a", cell="t", xy=(0, 0),
-                           anchor_role="MASTER", anchor_sheet="Sheet1"),
-            ClonePlacement(cluster="b", cell="t", xy=(0, 0),
-                           anchor_role="MASTER", anchor_sheet="Sheet1"),
-        ]
-        cfg = _cfg(clone_placements=clones)
-        with pytest.raises(ValidationError, match="b.*a"):
-            check_no_duplicate_clone_anchors(cfg)
 
     def test_duplicate_name_raises(self):
         clones = [
@@ -84,111 +68,6 @@ class TestNoDuplicateCloneAnchors:
         ]
         cfg = _cfg(clone_placements=clones)
         with pytest.raises(ValidationError, match="a"):
-            check_no_duplicate_clone_anchors(cfg)
-
-    def test_same_anchor_different_origin_is_not_a_duplicate(self):
-        """Regression (found 2026-07-27): two clones legitimately sharing one
-        physical anchor (e.g. a connector pad) but offset to opposite sides
-        via xy must NOT be flagged — this must match
-        clone_anchor_id's identity exactly, or the registry and this check
-        disagree on what counts as a duplicate."""
-        clones = [
-            ClonePlacement(cluster="p5v", cell="t", xy=(7.0, -6.0),
-                           anchor_role="CONN_PM5V", anchor_pad="1"),
-            ClonePlacement(cluster="n5v", cell="t", xy=(7.0, 6.0),
-                           anchor_role="CONN_PM5V", anchor_pad="1"),
-        ]
-        cfg = _cfg(clone_placements=clones)
-        check_no_duplicate_clone_anchors(cfg)
-
-    def test_same_anchor_same_origin_role_based_raises(self):
-        clones = [
-            ClonePlacement(cluster="a", cell="t", xy=(1.0, 2.0),
-                           anchor_role="CONN_PM5V", anchor_pad="1"),
-            ClonePlacement(cluster="b", cell="t", xy=(1.0, 2.0),
-                           anchor_role="CONN_PM5V", anchor_pad="1"),
-        ]
-        cfg = _cfg(clone_placements=clones)
-        with pytest.raises(ValidationError, match="b.*a"):
-            check_no_duplicate_clone_anchors(cfg)
-
-    def test_same_anchor_different_cluster_is_not_a_duplicate(self):
-        """Regression (found 2026-07-28): p5v_led_spoke/n5v_led_spoke share
-        identical anchor_role/anchor_sheet/anchor_pad/origin and differ ONLY
-        by anchor_cluster (Pos vs Neg, the field that actually picks which
-        physical component the anchor resolves to) — must NOT be flagged,
-        must match clone_anchor_id's identity exactly."""
-        clones = [
-            ClonePlacement(cluster="p5v_led", cell="t", xy=(3.0, 0.0),
-                           anchor_role="C_OUT_BYPASS", anchor_pad="1",
-                           anchor_cluster="In_Pi_Filter_Pos"),
-            ClonePlacement(cluster="n5v_led", cell="t", xy=(3.0, 0.0),
-                           anchor_role="C_OUT_BYPASS", anchor_pad="1",
-                           anchor_cluster="In_Pi_Filter_Neg"),
-        ]
-        cfg = _cfg(clone_placements=clones)
-        check_no_duplicate_clone_anchors(cfg)
-
-    def test_same_anchor_same_cluster_role_based_raises(self):
-        clones = [
-            ClonePlacement(cluster="a", cell="t", xy=(3.0, 0.0),
-                           anchor_role="C_OUT_BYPASS", anchor_pad="1",
-                           anchor_cluster="In_Pi_Filter_Pos"),
-            ClonePlacement(cluster="b", cell="t", xy=(3.0, 0.0),
-                           anchor_role="C_OUT_BYPASS", anchor_pad="1",
-                           anchor_cluster="In_Pi_Filter_Pos"),
-        ]
-        cfg = _cfg(clone_placements=clones)
-        with pytest.raises(ValidationError, match="b.*a"):
-            check_no_duplicate_clone_anchors(cfg)
-
-    def test_duplicate_point_anchor_raises(self):
-        """Found 2026-08-06: anchor_point had no branch here at all, same gap
-        as clone_anchor_id — two clones on the same Point with the same
-        offset went completely unnoticed."""
-        clones = [
-            ClonePlacement(cluster="a", cell="t", xy=(4.0, -110.0), anchor_point="Origin"),
-            ClonePlacement(cluster="b", cell="t", xy=(4.0, -110.0), anchor_point="Origin"),
-        ]
-        cfg = _cfg(clone_placements=clones)
-        with pytest.raises(ValidationError, match="b.*a"):
-            check_no_duplicate_clone_anchors(cfg)
-
-    def test_same_point_different_origin_is_not_a_duplicate(self):
-        clones = [
-            ClonePlacement(cluster="a", cell="t", xy=(4.0, -110.0), anchor_point="Origin"),
-            ClonePlacement(cluster="b", cell="t", xy=(8.0, -69.0), anchor_point="Origin"),
-        ]
-        cfg = _cfg(clone_placements=clones)
-        check_no_duplicate_clone_anchors(cfg)
-
-    def test_same_anchor_different_polar_radius_is_not_a_duplicate(self):
-        """Polar clones (radius_mm/angle_deg) on the same anchor with
-        different radii are distinct — their xy is the loader default (0,0),
-        so this check must use the polar offset, not xy, to match
-        clone_anchor_id's identity."""
-        clones = [
-            ClonePlacement(cluster="a", cell="t", xy=(0, 0),
-                           radius_mm=5.0, angle_deg=0.0,
-                           anchor_role="CONN_PM5V", anchor_pad="1"),
-            ClonePlacement(cluster="b", cell="t", xy=(0, 0),
-                           radius_mm=7.0, angle_deg=0.0,
-                           anchor_role="CONN_PM5V", anchor_pad="1"),
-        ]
-        cfg = _cfg(clone_placements=clones)
-        check_no_duplicate_clone_anchors(cfg)
-
-    def test_same_anchor_same_polar_radius_raises(self):
-        clones = [
-            ClonePlacement(cluster="a", cell="t", xy=(0, 0),
-                           radius_mm=5.0, angle_deg=0.0,
-                           anchor_role="CONN_PM5V", anchor_pad="1"),
-            ClonePlacement(cluster="b", cell="t", xy=(0, 0),
-                           radius_mm=5.0, angle_deg=0.0,
-                           anchor_role="CONN_PM5V", anchor_pad="1"),
-        ]
-        cfg = _cfg(clone_placements=clones)
-        with pytest.raises(ValidationError, match="b.*a"):
             check_no_duplicate_clone_anchors(cfg)
 
 

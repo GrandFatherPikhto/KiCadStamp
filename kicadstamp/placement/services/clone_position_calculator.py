@@ -75,61 +75,22 @@ def resolve_clone_anchor_ref(adapter: KiCadBoardAdapter, cfg: Config, clone: Clo
 
 def clone_anchor_id(clone: ClonePlacement) -> str:
     """
-    Identity of clone_placement for the registry — physical binding, not name.
-    Priority order matches anchor resolution order (_resolve_anchor: anchor_point
-    is checked FIRST, then anchor_ref, then anchor_role — this function mirrors
-    that order so every anchored clone gets a physical-binding key, not the
-    name: fallback):
-      anchor_point set -> "point:{anchor_point}:{origin_x}:{origin_y}"
-        (found 2026-08-06: this branch was missing entirely — a Point-anchored
-        clone fell all the way through to name:{clone.name}, same as absolute
-        coordinates, silently losing the rename-safety this whole function
-        exists for — renaming a Point-anchored clone_placement, or just editing
-        its xy: while keeping the same name, orphaned its own vias/tracks in
-        the registry with no protection from known_anchor_ids, since the OLD
-        name: key stops being produced the moment cfg no longer has that exact
-        name)
-      anchor_ref set -> "anchor:{ref}:{pad}:{origin_x}:{origin_y}"
-      anchor_role set -> "role:{anchor_role}:{anchor_sheet}:{pad}:{origin_x}:{origin_y}"
-        (anchor_role is also resilient to renaming/re‑annotation, like anchor_ref
-        to clone.name changes; anchor_sheet is included because it is part of the
-        anchor search conditions — changing anchor_sheet also changes the physical
-        placement)
-      neither (absolute coordinates) -> "name:{clone_placement_effective_name(clone)}",
-        the only available identifier in this mode (the effective identity —
-        name if set, else the Cluster tag).
+    Registry identity of a clone_placement — the "name:" branch ONLY.
 
-    xy is included in the anchor_ref/anchor_role branches
-    (found 2026-07-27): two clone_placements can legitimately share the same
-    physical anchor point and differ only by this flat offset — e.g. a positive
-    and a negative power-filter instance both anchored to the same connector
-    pad, mirrored to opposite sides. Without the offset in the key, both
-    resolved to the identical registry identity, so placing the second one
-    made the registry think its vias/tracks had merely "moved" and dragged the
-    first instance's already-placed items onto itself instead of creating
-    independent ones. check_no_duplicate_clone_anchors (validation.py) uses
-    the same extended key, for the same reason.
+    The physical-binding branches (`point:` / `anchor:` / `role:`, with the xy
+    offset and anchor_cluster folded into the key) went with the retired
+    `clone_placements:` SECTION (2026-10-13, plan_2026_10_08_remove_placer): no
+    product path builds a ClonePlacement carrying `anchor_*` any more. The
+    loader's list is an empty CARRIER, and the only thing that fills it is
+    `materialize_entity_placements` — `_to_clone(entity)` clones are
+    absolute-coordinate by construction (the Entity carries no position at all).
+    `entity_anchor_id` below has the same `name:` shape, so a materialized Entity
+    and its real record key identically (phase 3.1).
 
-    anchor_cluster is included in the anchor_role branch (found 2026-07-28,
-    same class of bug as above): p5v_led_spoke/n5v_led_spoke share identical
-    anchor_role/anchor_sheet/anchor_pad/origin (both anchor on C_OUT_BYPASS
-    pad '1', offset 3/0 mm) and differ ONLY by anchor_cluster (In_Pi_Filter_Pos
-    vs In_Pi_Filter_Neg) — the one field that actually picks which physical C9
-    vs C12 the anchor resolves to. Without it in the key, they too would
-    collapse to one registry identity.
+    The OLD key forms still exist in registries ON DISK, which is why
+    `registry.PROTECTED_ANCHOR_PREFIXES` keeps their prefixes: READING them is
+    `registry_upgrade._map_anchor_id`'s job, not this builder's.
     """
-    ox, oy = clone_shift_mm(clone)
-    if clone.anchor_point is not None:
-        # point: part is the record-identifying value (Р-У5.2): the Point's UUID
-        # in format 3, its name in format 2 — never the name under the gate.
-        point_part = record_key_part(clone.anchor_point,
-                                     getattr(clone, "anchor_point_uuid", None))
-        return f"point:{point_part}:{ox:.4f}:{oy:.4f}"
-    if clone.anchor_ref is not None:
-        return f"anchor:{clone.anchor_ref}:{clone.anchor_pad or ''}:{ox:.4f}:{oy:.4f}"
-    if clone.anchor_role is not None:
-        return (f"role:{clone.anchor_role}:{clone.anchor_sheet or ''}:{clone.anchor_cluster or ''}"
-                f":{clone.anchor_pad or ''}:{ox:.4f}:{oy:.4f}")
     return f"name:{record_key_part(clone_placement_effective_name(clone), getattr(clone, 'uuid', None))}"
 
 
