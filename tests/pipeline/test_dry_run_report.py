@@ -19,7 +19,6 @@ from kicadstamp.domain.geometry import BoardLayer
 
 from kicadstamp.apply_pipeline import ApplyPipeline, RunOptions, cmd_apply, run_apply
 from kicadstamp.author import apply_config
-from kicadstamp.author_cli import cli_main
 from kicadstamp.config import Config
 from kicadstamp.placement.commands import MoveCommand, TrackCommand, ViaCommand
 
@@ -137,20 +136,6 @@ class TestAuthorReportPlumbing:
         assert result == ["report-line"]
         assert m.call_args.args[0].dry_run is True
         assert m.call_args.kwargs["cfg"] is not None
-
-    def test_cli_main_prints_report_on_dry_run(self, tmp_path, capsys):
-        out = tmp_path / "gen.sexp"
-
-        def build():
-            return []
-
-        with patch("kicadstamp.author_cli.load_config", return_value=("cfg", "ctx")), \
-             patch("kicadstamp.author_cli.apply_config", return_value=["line1", "line2"]) as m:
-            cli_main(build, str(out), "root.sexp", argv=["--apply", "--dry-run"])
-        captured = capsys.readouterr()
-        assert "line1\nline2" in captured.out
-        assert m.call_args.kwargs["dry_run"] is True
-
 
 class TestKicadstampCliPrintsReport:
     def test_apply_dry_run_prints_report(self, monkeypatch, capsys):

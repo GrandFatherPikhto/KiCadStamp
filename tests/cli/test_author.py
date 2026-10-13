@@ -9,41 +9,9 @@ from unittest.mock import patch
 from kicadstamp.config import ClonePlacement, Config, load_config
 from kicadstamp.config.sexp_format import dict_to_sexp, sexp_to_dict
 from kicadstamp.exceptions import ValidationError
-from kicadstamp.author import (_prune_defaults, apply_config, dump_clone_placements,
-                               dump_template)
-from kicadstamp.author_cli import cli_main
+from kicadstamp.author import apply_config, dump_template
 from kicadstamp.apply_pipeline import RunOptions
 from tests.fakes.format3 import format3  # noqa: F401  (pytest fixture: pin to 3)
-
-
-class TestPruneDefaults:
-    def test_drops_default_valued_fields(self):
-        cp = ClonePlacement(cluster="c", cell="t", xy=(1.0, 2.0))
-        d = _prune_defaults(cp)
-        assert "rotation_deg" not in d      # default 0.0
-        assert "retired" not in d           # default False
-        assert "nets" not in d              # default_factory dict, empty
-
-    def test_keeps_required_fields_regardless_of_value(self):
-        cp = ClonePlacement(cluster="c", cell="t", xy=(0.0, 0.0))
-        d = _prune_defaults(cp)
-        # xy has no default at all -> always present, even though (0.0, 0.0)
-        # also happens to be a "natural" default-looking value.
-        assert d["cluster"] == "c"
-        assert d["xy"] == [0.0, 0.0]
-
-    def test_keeps_non_default_fields(self):
-        cp = ClonePlacement(cluster="c", cell="t", xy=(1.0, 2.0),
-                            rotation_deg=90.0, nets={"X": "NET_A"})
-        d = _prune_defaults(cp)
-        assert d["rotation_deg"] == 90.0
-        assert d["nets"] == {"X": "NET_A"}
-
-    # test_recurses_into_rule_spokes went with the Chain/ManualSpoke models
-    # (Б6, 2026-10-12): a Rule's spokes were the ONLY nesting _prune_defaults
-    # recursed into, so the recursion has no carrier any more. The code path
-    # stays (generic, cheap); the property is not asserted, and is named as
-    # carrier-less in done_2026_10_12_remove_spokes_ch3_b6.md.
 
 
 def _fragment_profile_root(tmp_path, cells, fragment_name):
@@ -65,35 +33,6 @@ def _fragment_profile_root(tmp_path, cells, fragment_name):
         {"cells": {name: {} for name in cells}, "include": [fragment_name]},
         format_number=2), encoding="utf-8")
     return root
-
-
-class TestDumpRoundTrip:
-    def test_minimal_clone_placement_omits_defaults_in_sexp_text(self, tmp_path):
-        """Sanity check on the actual written text, not just the round-trip —
-        confirms the s-expr stays close to the hand-written minimal style."""
-        clones = [ClonePlacement(name="c", cluster="c", cell="t", xy=(1.0, 2.0))]
-        out = tmp_path / "generated.sexp"
-        root = _fragment_profile_root(tmp_path, ["t"], "generated.sexp")
-        dump_clone_placements(clones, str(out), graph_root=str(root))
-        text = out.read_text(encoding="utf-8")
-        assert "rotation_deg" not in text
-        assert "retired" not in text
-
-class TestDumpRefusesWithoutGraphRoot:
-    """У3.5 Ф2: under format 3 a fragment write WITHOUT its graph root is
-    refused with a hint ("pass graph_root") instead of a dangling-reference
-    fatal — a fragment cannot resolve its own references. The `format3` fixture
-    pins the build to 3 for these cells regardless of the ambient format."""
-
-    def test_clone_placements_refuses_without_graph_root(self, tmp_path, format3):
-        with pytest.raises(ValidationError, match="pass graph_root"):
-            dump_clone_placements(
-                [ClonePlacement(cluster="c", cell="t", xy=(1.0, 2.0))],
-                str(tmp_path / "f.sexp"))
-
-    # The dump_rules variant of this refusal went with the retired chains:
-    # section; the SAME guard is _require_fragment_graph_root, still exercised
-    # by test_clone_placements_refuses_without_graph_root above.
 
 
 class TestApplyConfig:
@@ -150,73 +89,6 @@ class TestApplyConfig:
             apply_config(cfg, "my_run.yaml")
 
         assert mock_run_apply.call_args.kwargs["ctx"] is None
-
-
-class TestCliMain:
-    """cli_main — the shared --apply/--dry-run entry point every
-    boards/*/scripts/*.py generator uses instead of copy-pasting its own
-    argparse block (see dac_channels.py/dac_pi_filter.py)."""
-
-    @staticmethod
-    def _build():
-        return [ClonePlacement(cluster="c", cell="t", xy=(1.0, 2.0))]
-
-    @staticmethod
-    def _root(tmp_path):
-        """A minimal root carrying the referenced cell ("t"), so the fragment
-        write resolves its reference under format 3 (У3.5 Ф2). Passing the root
-        is now part of cli_main's contract: it hands root_config_path to
-        dump_clone_placements as graph_root."""
-        root = tmp_path / "root.sexp"
-        root.write_text(dict_to_sexp({"cells": {"t": {}}}, format_number=2),
-                        encoding="utf-8")
-        return root
-
-    def test_without_apply_only_writes_output(self, tmp_path):
-        out = tmp_path / "generated.sexp"
-        root = self._root(tmp_path)
-        with patch("kicadstamp.author_cli.load_config") as mock_load_config, \
-             patch("kicadstamp.author_cli.apply_config") as mock_apply_config:
-            cli_main(self._build, str(out), str(root), argv=[])
-
-        assert out.exists()
-        mock_load_config.assert_not_called()
-        mock_apply_config.assert_not_called()
-
-    def test_apply_dry_run_loads_root_config_and_forwards_dry_run(self, tmp_path):
-        """Regression: cli_main used to discard load_config()'s ctx (RuntimeContext,
-        carries sheet_names) as `_ctx` and never forward it to apply_config(), so
-        anchor_sheet-based clone_placements would fatal with "sheet name dictionary
-        is empty" even though sheet_names had been built correctly."""
-        out = tmp_path / "generated.sexp"
-        root = self._root(tmp_path)
-        with patch("kicadstamp.author_cli.load_config") as mock_load_config, \
-             patch("kicadstamp.author_cli.apply_config") as mock_apply_config:
-            mock_load_config.return_value = ("cfg-sentinel", "ctx-sentinel")
-            cli_main(self._build, str(out), str(root), argv=["--apply", "--dry-run"])
-
-        mock_load_config.assert_called_once_with(str(root))
-        mock_apply_config.assert_called_once_with(
-            "cfg-sentinel", str(root), ctx="ctx-sentinel", dry_run=True)
-
-    def test_apply_without_dry_run_forwards_dry_run_false(self, tmp_path):
-        out = tmp_path / "generated.sexp"
-        root = self._root(tmp_path)
-        with patch("kicadstamp.author_cli.load_config") as mock_load_config, \
-             patch("kicadstamp.author_cli.apply_config") as mock_apply_config:
-            mock_load_config.return_value = ("cfg-sentinel", None)
-            cli_main(self._build, str(out), str(root), argv=["--apply"])
-
-        assert mock_apply_config.call_args.kwargs["dry_run"] is False
-
-    def test_creates_missing_parent_directories(self, tmp_path):
-        out = tmp_path / "nested" / "dir" / "generated.sexp"
-        root = self._root(tmp_path)
-        with patch("kicadstamp.author_cli.load_config"), \
-             patch("kicadstamp.author_cli.apply_config"):
-            cli_main(self._build, str(out), str(root), argv=[])
-
-        assert out.exists()
 
 
 class TestDumpTemplate:
