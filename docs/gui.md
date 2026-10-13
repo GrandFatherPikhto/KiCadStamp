@@ -66,9 +66,8 @@ closed dock can be brought back without restarting).
 
 **While a board operation runs, the status bar says so — and says which one.** Every operation the
 USER starts (Extract/Redraw, an imprint Record/Re-source/Reread, the inter-node copper re-read,
-a node's *Reread current position* from the node context menu, "Whose copper is this?", the live
-anchor-position read behind Tools → Trees → Anchor position, the snapshot rebuild in front of an
-Extract dialog, …) shows a short word in the status bar for its whole
+a node's *Reread current position* from the node context menu, "Whose copper is this?", the snapshot
+rebuild in front of an Extract dialog, …) shows a short word in the status bar for its whole
 duration:
 
     Working with the board: placing
@@ -86,8 +85,8 @@ The indicator is driven by `LongOpController` alone — through the module-level
 idle board. The background poll stays invisible on purpose — the user did not start it.
 
 Where the operation has a widget of its own — a dock button, or the Tools-menu `QAction` that started
-a menu-only flow (Anchor position, Redraw selected/whole tree, Full redraw, the two copper reads,
-Record and Re-source) — that widget is handed to `start_long_op` as well, so it is greyed out for the
+a menu-only flow (Redraw selected/whole tree, the two copper reads, Record and Re-source) — that
+widget is handed to `start_long_op` as well, so it is greyed out for the
 duration
 and a second click on the same entry is refused instead of starting a second board read on the one
 shared kipy socket. Flows started by a context-menu action built on the fly (the node's *Reread
@@ -647,12 +646,14 @@ The **Trees** tab (tabbed with the Config tree, same left group) is a hand-autho
 OPTIONAL `trees:` section of the ROOT config. One tab per tree, each a nested node list
 relative to the tree's own anchor. Since 2026-09-03 (plan plan_2026_09_03_trees_menu_tools.md) the
 dock has NO whole-tree action toolbar — every whole-tree action lives in the top-level menu
-**Tools → Trees**: **Extract tree…** / **Extract cluster…** (new trees from the board selection),
-**Create tree…** (an empty manual tree — the old dock "Add tree…"), **Rename tree…** / **Delete
-tree…** (the whole-tree counterpart of a node's "Delete node", confirmed with Yes/No — No by
-default), **Anchor position**, **Redraw selected** / **Redraw whole tree**, **Full redraw (all trees
-and modules)…** and **Instances…**. The dock keeps the tabs, the checkbox subtree selection and the
-read-only status row (anchor live position + unsaved-changes ●). Structural editing happens through each node's
+**Tools → Trees**: **Extract tree…** (a new tree from the board selection), **Create tree…** (an empty
+manual tree — the old dock "Add tree…"), **Rename tree…** / **Delete tree…** (the whole-tree
+counterpart of a node's "Delete node", confirmed with Yes/No — No by default), a **Copper ▸** submenu,
+**Redraw selected** / **Redraw whole tree**, and **Instances…** (Denis, 13.10,
+plan_2026_10_13_trees_menus_cleanup: **Extract cluster…** moved to Tools → Config, while **Anchor
+position**, **Full redraw (all trees and modules)…** and **Instantiate from Cell…** were removed). The
+dock keeps the tabs, the checkbox subtree selection and the read-only status row (unsaved-changes ●).
+Structural editing happens through each node's
 context menu (Add child / Add sibling / Reread current position / Edit node… / Delete node / Rename…
 / Move to…); **Reread current position** re-resolves the node against the LIVE board and rewrites its
 `xy`/rotation in place, with no confirmation (not saving is the undo) — since 2026-09-12 that read runs
@@ -966,19 +967,15 @@ WITHOUT stripping its `anchor_role` first.
 manual checkbox marking — TOGETHER with the content of every module that tree embeds (2026-09-14,
 plan_2026_09_14_tree_redraw_subtrees_and_mount_parents.md Э1): from the user's side of the screen a
 module marker IS a tree node, so "the whole tree" means "together with what it embedded". It runs
-through the same module-aware forest machinery as **Full redraw**, only scoped to this tree's OWN refs
-(the full trees list still travels along, because module markers are resolved by tree name) — so a
+through the module-aware forest machinery, scoped to this tree's OWN refs (the full trees list still
+travels along, because module markers are resolved by tree name) — so a
 foreign independent tree is neither redrawn nor made a layout root. On the first redraw in a profile
 whose copper registry is still EMPTY while
 the board already carries copper, KiCadStamp asks "adopt existing copper into the registry?" (Bug 3,
 2026-09-05): the redraw registers any existing copper that matches the layout as owned, so a later
 move relocates it instead of leaving leftovers. Recommended flow: run one redraw WITHOUT moving
-first. **Anchor position** (Tools → Trees) refreshes the read-only indicator of the
-current tree anchor's live absolute position/rotation on the board, shown in the dock's status row
-(origin anchor: trivially (0,0)/0°; requires a live KiCad connection; "unavailable" otherwise). The
-board read runs on a background worker — the menu entry is greyed out and the status bar shows the
-operation while it holds the shared KiCad connection, so the window never freezes; only the two
-answers that need no board (no tree, an origin anchor) are given immediately.
+first. (The read-only **Anchor position** indicator that used to sit next to this action went with its
+menu item on 13.10 — plan_2026_10_13_trees_menus_cleanup.)
 
 **Redraw selected is a rigid group** (2026-08-29, plan_2026_08_29_tree_live_rigid_redraw.md): a node
 the tree owns (no inline anchor) is placed at its LIVE-captured offset from its parent, re-projected
@@ -1009,14 +1006,12 @@ are NEVER auto-numbered and are NOT counted as "used" record refs (the same chil
 embedded by several different parents; only a duplicate inside ONE parent is invalid — a config
 fatal at Save). Double-clicking a module node opens the referenced tree's tab; a tree that others
 embed shows one **"⇐ embedded in {parent}"** item per embedding parent (double-click navigates back).
-The module-aware FULL redraw — every tree's records plus every active module's content, laid out from
-each tree's live anchor (role/auto/origin/point/ref) — runs from **Tools → Trees → Full redraw (all
-trees and modules)…** (menu only, no dock button); the per-tree **Redraw selected / Redraw whole
-tree** items in the same **Tools → Trees** submenu differ from it in SCOPE: **Redraw selected** is the
-current tree's CHECKED nodes (a rigid group), while **Redraw whole tree** is the current tree's own
-nodes PLUS the content of the modules it embeds (Э1 above) — on a profile with two independent trees
-the two operations genuinely differ, even though on a profile where every extra tree is embedded they
-happen to agree.
+The **Redraw selected / Redraw whole tree** items in **Tools → Trees** differ in SCOPE: **Redraw
+selected** is the current tree's CHECKED nodes (a rigid group), while **Redraw whole tree** is the
+current tree's own nodes PLUS the content of the modules it embeds (Э1 above) — the module-aware run,
+laid out from each tree's live anchor (role/auto/origin/point/ref). (The forest-wide **Full redraw
+(all trees and modules)…** item — every tree's records at once — was removed on 13.10: trees can be
+different layouts of the same thing, and a whole-tree redraw already covers what is embedded into it.)
 
 **Tree instances (`tree_instances:`, 2026-09-02, plan_2026_09_02_tree_instances.md; optional `cluster:`
 axis 2026-09-03, plan tree_instances_cluster):** a tree + its Entity records can be declared once as a
@@ -1414,7 +1409,8 @@ pieces were found, which tier found them, how many are missing, the reason when 
 resolve, and an explicit note that the previous selection was replaced — "not found" is a normal answer
 with its reason, not an error.
 
-The main menu's **Tools → Trees → Extract cluster...** (2026-09-03) is the NARROWER sibling of
+**Tools → Config → Extract cluster (by selection)** (2026-09-03; it was ALSO, as a duplicate, in
+Tools → Trees until 13.10 — plan_2026_10_13_trees_menus_cleanup) is the NARROWER sibling of
 **Extract tree...** for the case where you want ONLY one fully-selected Cluster as a standalone, flat
 Entity (+ its Cell generated from the cluster's own selection when it doesn't exist yet) — with NO
 tree node, NO anchor and NO `net_traces:` capture. It uses the SAME cluster detection as **Extract
@@ -1425,9 +1421,9 @@ when an Entity for this Cluster + sheet already exists (reused, never duplicated
 is written to the root config's `entities:` (and the new Cell to `cells:`) through the same
 `config_writer` chokepoint; the Config tree refreshes immediately. An Entity stores no position, so
 placing this one (a manual tree node, a `tree_instances:` template, ...) is a separate, later step —
-"Extract cluster..." never writes a position. The same flat extraction is also one click away under
-**Tools → Config → Extract cluster (by selection)** (2026-09-06) — the identical DockHub delegate,
-a second independent menu entry next to "Edit Cell..."; the Tools → Trees entry stays as-is.
+"Extract cluster..." never writes a position. The entry sits next to "Edit Cell..." in Tools → Config
+and is the ONLY one since 13.10 (the duplicate Tools → Trees entry was removed —
+plan_2026_10_13_trees_menus_cleanup).
 
 Just like the Instantiate-from-Cell tab above, the new Cell's origin is picked AUTOMATICALLY by
 default (the cluster role present exactly once). Since 2026-09-04 (plan `extract_origin_pad_restore`)
