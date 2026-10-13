@@ -14,6 +14,7 @@ from kipy.board_types import Pad, FootprintInstance
 from kicadstamp.config import (
     Config, ClonePlacement, Cell, TemplateComponentSlot, Point,
 )
+from kicadstamp.constants import CLUSTER_FIELD_NAME, ROLE_FIELD_NAME
 from kicadstamp.exceptions import ValidationError
 from kicadstamp.placement.dependency_order import resolve_execution_order, _build_items
 
@@ -27,11 +28,17 @@ def _make_pad(number, net_name):
     return pad
 
 
-def _make_fp(ref, role=None, x_mm=0.0, y_mm=0.0, nets=()):
+def _make_fp(ref, role=None, x_mm=0.0, y_mm=0.0, nets=(), cluster=None):
+    """A live footprint for the dependency graph. ``cluster`` matters since
+    2026-10-13: a clone resolves its roles ONLY among the components carrying
+    ITS OWN cluster (plan_2026_10_13_cluster_confined_roles), so every fake part
+    of a resolved role has to wear the clone's cluster tag — exactly like a real
+    board."""
     fp = MagicMock(spec=FootprintInstance)
     fp.ref = ref
     fp.position = Vector2.from_xy(int(x_mm * MM), int(y_mm * MM))
     fp._role = role
+    fp._cluster = cluster
     fp._pads = [_make_pad("1", n) for n in nets]
     return fp
 
@@ -41,7 +48,9 @@ def _adapter_for(fps):
     adapter = MagicMock()
     adapter.get_footprints.return_value = fps
     adapter.get_footprint.side_effect = lambda ref: by_ref.get(ref)
-    adapter.get_field_value.side_effect = lambda fp, name: getattr(fp, "_role", None)
+    adapter.get_field_value.side_effect = lambda fp, name: (
+        getattr(fp, "_cluster", None) if name == CLUSTER_FIELD_NAME
+        else (getattr(fp, "_role", None) if name == ROLE_FIELD_NAME else None))
     adapter.get_footprint_pads.side_effect = lambda fp: list(getattr(fp, "_pads", []))
     adapter.get_selected_items.return_value = []
     return adapter
@@ -77,7 +86,7 @@ def test_cell_mode_clone_produces_cell_roles():
     coordinate_placements' anchor-relative mode) resolves its cell's roles as
     its produced refs — the cluster-tag path it used to test was removed with
     that mode."""
-    tagged = _make_fp("J1", role="PRODUCED_ROLE", nets=["NET_A"])
+    tagged = _make_fp("J1", role="PRODUCED_ROLE", nets=["NET_A"], cluster="Conn_PM5V")
     other = _make_fp("J2", role="SOMETHING_ELSE")
 
     clone = ClonePlacement(cluster="Conn_PM5V", cell="producer_tpl",
@@ -99,7 +108,7 @@ def test_disabled_clone_is_skipped_entirely():
     it, but _build_items used to still call resolve_clone_anchor_ref on it
     unconditionally)."""
     anchor1 = _make_fp("ANCHOR1")
-    p1 = _make_fp("P1", role="PRODUCED_ROLE", nets=["NET_A"])
+    p1 = _make_fp("P1", role="PRODUCED_ROLE", nets=["NET_A"], cluster="clone_a")
 
     clone_enabled = _clone("clone_a", "ANCHOR1", "producer_tpl", {"PRODUCED_ROLE": "NET_A"})
     clone_disabled = ClonePlacement(
@@ -119,8 +128,8 @@ def test_no_dependencies_keeps_original_order():
     produces the other's anchor — order must be unchanged (stable sort)."""
     anchor1 = _make_fp("ANCHOR1")
     anchor2 = _make_fp("ANCHOR2")
-    p1 = _make_fp("P1", role="PRODUCED_ROLE", nets=["NET_A"])
-    c1 = _make_fp("C1", role="OTHER_ROLE", nets=["NET_B"])
+    p1 = _make_fp("P1", role="PRODUCED_ROLE", nets=["NET_A"], cluster="clone_a")
+    c1 = _make_fp("C1", role="OTHER_ROLE", nets=["NET_B"], cluster="clone_b")
 
     clone_a = _clone("clone_a", "ANCHOR1", "producer_tpl", {"PRODUCED_ROLE": "NET_A"})
     clone_b = _clone("clone_b", "ANCHOR2", "consumer_tpl", {"OTHER_ROLE": "NET_B"})
@@ -139,8 +148,8 @@ def test_producer_ordered_before_consumer_regardless_of_yaml_order():
     Declared FIRST in YAML (wrong order) — resolve_execution_order must still
     put the producer first. This is the exact p5v_led_spoke/p5v_pi_filter shape."""
     anchor1 = _make_fp("ANCHOR1")
-    p1 = _make_fp("P1", role="PRODUCED_ROLE", nets=["NET_A"])
-    c1 = _make_fp("C1", role="OTHER_ROLE", nets=["NET_B"])
+    p1 = _make_fp("P1", role="PRODUCED_ROLE", nets=["NET_A"], cluster="producer")
+    c1 = _make_fp("C1", role="OTHER_ROLE", nets=["NET_B"], cluster="consumer")
 
     clone_producer = _clone("producer", "ANCHOR1", "producer_tpl", {"PRODUCED_ROLE": "NET_A"})
     clone_consumer = _clone("consumer", "P1", "consumer_tpl", {"OTHER_ROLE": "NET_B"})
@@ -160,7 +169,8 @@ def test_self_anchored_item_is_not_a_cycle():
     anchor component is ALSO one of the cell's own role slots (extracted
     with itself as origin). That's a benign self-reference, not a real
     cross-item dependency, and must not be flagged as a cycle."""
-    anchor_and_role = _make_fp("R1", role="PRODUCED_ROLE", nets=["NET_A"])
+    anchor_and_role = _make_fp("R1", role="PRODUCED_ROLE", nets=["NET_A"],
+                               cluster="self_anchored")
 
     clone_self = _clone("self_anchored", "R1", "producer_tpl", {"PRODUCED_ROLE": "NET_A"})
     cfg = _cfg([clone_self])
@@ -175,8 +185,8 @@ def test_cycle_raises_validation_error():
     """clone_a is anchored on what clone_b produces, and clone_b is anchored
     on what clone_a produces — no valid order exists, must fail loudly before
     any board mutation."""
-    p_out = _make_fp("P_OUT", role="PRODUCED_ROLE", nets=["NET_A"])
-    c_out = _make_fp("C_OUT", role="OTHER_ROLE", nets=["NET_B"])
+    p_out = _make_fp("P_OUT", role="PRODUCED_ROLE", nets=["NET_A"], cluster="clone_a")
+    c_out = _make_fp("C_OUT", role="OTHER_ROLE", nets=["NET_B"], cluster="clone_b")
 
     clone_a = _clone("clone_a", "C_OUT", "producer_tpl", {"PRODUCED_ROLE": "NET_A"})
     clone_b = _clone("clone_b", "P_OUT", "consumer_tpl", {"OTHER_ROLE": "NET_B"})
@@ -220,7 +230,7 @@ class TestPointItems:
 
     def test_clone_anchor_point_resolves_to_namespaced_dependency_token(self):
         anchor1 = _make_fp("ANCHOR1")
-        p1 = _make_fp("P1", role="PRODUCED_ROLE", nets=["NET_A"])
+        p1 = _make_fp("P1", role="PRODUCED_ROLE", nets=["NET_A"], cluster="consumer")
         pt = Point(name="my_point", anchor_ref="ANCHOR1")
         clone_consumer = ClonePlacement(
             cluster="consumer", cell="producer_tpl", xy=(0.0, 0.0),
@@ -242,8 +252,8 @@ class TestPointItems:
         anchor_point namespacing — without it, `consumer` would incorrectly
         land in level 0 alongside `producer` instead of level 2."""
         anchor1 = _make_fp("ANCHOR1")
-        p1 = _make_fp("P1", role="PRODUCED_ROLE", nets=["NET_A"])
-        c1 = _make_fp("C1", role="OTHER_ROLE", nets=["NET_B"])
+        p1 = _make_fp("P1", role="PRODUCED_ROLE", nets=["NET_A"], cluster="producer")
+        c1 = _make_fp("C1", role="OTHER_ROLE", nets=["NET_B"], cluster="consumer")
 
         clone_producer = _clone("producer", "ANCHOR1", "producer_tpl", {"PRODUCED_ROLE": "NET_A"})
         pt = Point(name="my_point", anchor_ref="P1")  # P1 is produced by clone_producer

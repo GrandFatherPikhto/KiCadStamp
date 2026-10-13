@@ -132,7 +132,7 @@ class TestTwoLevelComposition:
         this to avoid re-tagging nested sub-cell components with the top
         placement's Cluster."""
         top, cfg = self._build()
-        c1 = _make_fp("C1", role="R1", nets=["NET_A"])
+        c1 = _make_fp("C1", role="R1", nets=["NET_A"], cluster="top")
         adapter = _adapter_for([c1])
         calc = ClonePositionCalculator(adapter, cfg)
 
@@ -157,8 +157,8 @@ class TestTwoLevelComposition:
                              nets={"R_MID": "NET_B"})
         cfg = Config(layer="F.Cu", cells={"leaf": leaf, "mid": mid}, clone_placements=[top])
         adapter = _adapter_for([
-            _make_fp("C1", role="R1", nets=["NET_A"]),
-            _make_fp("RM1", role="R_MID", nets=["NET_B"]),
+            _make_fp("C1", role="R1", nets=["NET_A"], cluster="top"),
+            _make_fp("RM1", role="R_MID", nets=["NET_B"], cluster="top"),
         ])
         calc = ClonePositionCalculator(adapter, cfg)
 
@@ -459,7 +459,7 @@ class TestClonePositionOverride:
             TemplateComponentSlot(role="R1", offset_along_mm=1.0, offset_across_mm=0.0,
                                   angle_deg=0.0)])
         cfg = Config(layer="F.Cu", cells={"leaf": leaf}, clone_placements=[clone])
-        c1 = _make_fp("C1", role="R1", nets=["NET_A"])
+        c1 = _make_fp("C1", role="R1", nets=["NET_A"], cluster="c")
         return cfg, _adapter_for([c1])
 
     def test_override_replaces_records_own_xy(self):

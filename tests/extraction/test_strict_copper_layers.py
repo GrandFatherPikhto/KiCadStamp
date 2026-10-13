@@ -197,7 +197,9 @@ class TestExtractWriteLoadPlanChain:
                        position=Vector2.from_xy_mm(105.0, 205.0), angle_deg=0.0,
                        layer=BoardLayer.BL_F_Cu)
         fp._role = "R1"
-        fp._cluster = None
+        # The clone addresses 'chain'; a part of another (or no) cluster is not
+        # its candidate (plan 2026-10-13).
+        fp._cluster = "chain"
         fp._nets = ["NET1"]
         pad = MagicMock()
         pad.net_name = "NET1"
@@ -205,8 +207,9 @@ class TestExtractWriteLoadPlanChain:
 
         adapter = MagicMock()
         adapter.get_footprints.return_value = [fp]
-        adapter.get_field_value.side_effect = (
-            lambda item, name: getattr(item, "_role", None))
+        adapter.get_field_value.side_effect = lambda item, name: (
+            getattr(item, "_cluster", None) if name == "Cluster"
+            else getattr(item, "_role", None))
         adapter.get_footprint_pads.return_value = [pad]
         adapter.get_selected_items.return_value = []
         return adapter

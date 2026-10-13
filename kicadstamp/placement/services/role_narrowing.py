@@ -30,6 +30,16 @@ narrows only the EXTERNAL anchor (resolve_footprint_by_role). Same
 for the internal-role cascade. The shared narrow_candidates_by_sheet()
 helper below serves BOTH this internal path and CoordinatePlacement's own
 sheet: identity (see coordinate_position_calculator.py).
+
+2026-10-13 (plan plan_2026_10_13_cluster_confined_roles.md): an entity/record
+that carries a `cluster` addresses its components BY that cluster, so a
+candidate whose Cluster field is anything else is NEVER a valid answer — not
+with one candidate and not with several. own_cluster_candidates() below is the
+ONE implementation of that rule (a filter, deliberately not a chooser). The
+old behaviour — the cascade narrowing by cluster only when 2+ candidates
+survived, and the baked literal net_template of the cell falling back to a
+component of a FOREIGN cluster — let a redraw of spoke_vdd_02_mcu drag C27/C29
+out of the SPOKE_VDDA cluster (live incident 2026-10-13).
 """
 import logging
 import math
@@ -78,6 +88,45 @@ def narrow_candidates_by_sheet(candidates, sheet: str | None,
     if narrowed and len(narrowed) < len(candidates):
         return narrowed
     return candidates
+
+
+def own_cluster_candidates(adapter, candidates, cluster) -> list:
+    """The candidates that belong to the entity's OWN Cluster — the ONE place
+    this rule is implemented (2026-10-13, plan
+    plan_2026_10_13_cluster_confined_roles.md).
+
+    An entity that carries a `cluster` addresses its components BY it
+    ((Sheet, Cluster, Role) addressing), so a candidate carrying a DIFFERENT
+    Cluster is never a valid answer — not when it is the only candidate left by
+    net matching, not when several survive. A candidate with an EMPTY Cluster
+    field is not a valid answer either: the component is not tagged as belonging
+    to this cluster, and "untagged" must not pass for "mine"; both are NAMED in
+    the refusal (see role_conflict_reasons.py), never silently taken.
+
+    An empty/None `cluster` on the RECORD (refs-only or sheet-only addressing)
+    keeps the previous behaviour: the filter is a no-op then.
+
+    The comparison is the project's ONE cluster matcher, cluster_prefix_match
+    (kicadstamp/cluster_matching.py) — segment prefix, case-insensitive — so a
+    hierarchical tag ("Channel_1/sub") still belongs to "Channel_1". Exact
+    equality would break that hierarchy.
+
+    Callers: clone_role_resolver.resolve_roles_by_nets /
+    resolve_roles_by_selection and the read-only cluster search of
+    gui/docks/live_position.py. This function only FILTERS; the WORDING of a
+    refusal lives in role_conflict_reasons.py (one text for both paths).
+
+    Cells of the plan's table: 0 own candidates while the role exists elsewhere
+    -> refuse, NAME the foreign/untagged component; 1 own candidate -> it (a
+    baked net_template never picks one, its disagreement with the live net is a
+    Log line only); 2+ own candidates -> refuse, naming either the copies of ONE
+    refdes or the several refdes that need distinct roles in the schematic.
+    """
+    if not cluster:
+        return list(candidates)
+    return [fp for fp in candidates
+            if cluster_prefix_match(
+                adapter.get_field_value(fp, CLUSTER_FIELD_NAME) or '', cluster)]
 
 
 def _narrow_by_sheet_cluster_selection(

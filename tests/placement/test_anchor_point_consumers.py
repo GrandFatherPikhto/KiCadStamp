@@ -19,6 +19,7 @@ from kicadstamp.config import (
     Config, ClonePlacement, Cell, TemplateComponentSlot,
     ThermalViaArrayConfig,
 )
+from kicadstamp.constants import CLUSTER_FIELD_NAME
 from kicadstamp.exceptions import ValidationError
 from kicadstamp.placement.services.clone_position_calculator import ClonePositionCalculator
 from kicadstamp.placement.services.via_planner import ViaPlanner
@@ -54,10 +55,11 @@ def _make_pad(number, x_mm, y_mm, net_name="NET1"):
     return pad
 
 
-def _make_fp(ref, role=None, pads=()):
+def _make_fp(ref, role=None, pads=(), cluster=None):
     fp = MagicMock(spec=FootprintInstance)
     fp.ref = ref
     fp._role = role
+    fp._cluster = cluster
     fp._pads = list(pads)
     return fp
 
@@ -78,11 +80,13 @@ class TestClonePlacementAnchorPoint:
                                anchor_point="fpga_center")
         cfg = Config(layer="F.Cu", cells={"tpl": cell}, clone_placements=[clone])
 
-        c1 = _make_fp("C1", role="R1")
+        c1 = _make_fp("C1", role="R1", cluster="cp1")
         adapter = MagicMock()
         adapter.get_footprints.return_value = [c1]
         adapter.get_selected_items.return_value = []
-        adapter.get_field_value.side_effect = lambda fp, name: getattr(fp, "_role", None)
+        adapter.get_field_value.side_effect = lambda fp, name: (
+            getattr(fp, "_cluster", None) if name == CLUSTER_FIELD_NAME
+            else getattr(fp, "_role", None))
 
         calc = ClonePositionCalculator(adapter, cfg, resolved_points=resolved_points)
         placed, _vias, _tracks = calc.compute_raw_positions([clone])

@@ -17867,3 +17867,93 @@ msgstr "у точки {name!r} есть сдвиг, она xy-литерал и�
 "{owner} нужен живой компонент, чтобы найти конкретный пад, голой координаты "
 "недостаточно. Возьмите точку, стоящую на компоненте (shift_x_mm=0/shift_y_mm=0 "
 "и без xy), либо якорь по ref/role"
+
+#: kicadstamp/role_conflict_reasons.py
+#, python-brace-format
+msgid ""
+"role {role!r}: no component with this role carries the working cluster "
+"{cluster!r}"
+msgstr ""
+"роль {role!r}: ни один компонент с этой ролью не несёт рабочий кластер "
+"{cluster!r}"
+
+#: kicadstamp/role_conflict_reasons.py
+#, python-brace-format
+msgid ""
+"nothing on this board carries the cluster tag {cluster!r} — tag this "
+"instance's components with it (Fieldstool or the schematic), or fix the "
+"working Cluster on the Source tab"
+msgstr ""
+"на этой плате никто не помечен кластером {cluster!r} — пометьте "
+"компоненты этого экземпляра этим кластером (Fieldstool или схема), либо "
+"исправьте рабочий Cluster на вкладке Source"
+
+#: kicadstamp/role_conflict_reasons.py
+#, python-brace-format
+msgid ""
+"  {component} carries this role but stands in cluster {cluster!r} — it is "
+"NOT taken"
+msgstr "  {component} несёт эту роль, но стоит в кластере {cluster!r} — НЕ берётся"
+
+#: kicadstamp/role_conflict_reasons.py
+#, python-brace-format
+msgid "  {component} carries this role but has no Cluster field — it is NOT taken"
+msgstr "  {component} несёт эту роль, но без поля Cluster — НЕ берётся"
+
+#: kicadstamp/role_conflict_reasons.py
+#, python-brace-format
+msgid ""
+"role {role!r}: {ref} stands on the board {count} times — delete the extra "
+"copy: {copies}"
+msgstr ""
+"роль {role!r}: {ref} стоит на плате {count} раз(а) — удалите лишнюю копию: "
+"{copies}"
+
+#: kicadstamp/role_conflict_reasons.py
+#, python-brace-format
+msgid ""
+"role {role!r}: {count} different components in cluster {cluster!r} carry "
+"this role — give them distinct roles in the schematic: {components}"
+msgstr ""
+"роль {role!r}: {count} разных компонентов в кластере {cluster!r} несут эту "
+"роль — дайте им разные роли в схеме: {components}"
+
+#: kicadstamp/role_conflict_reasons.py
+#, python-brace-format
+msgid "{ref} (uuid {uuid}, {position})"
+msgstr "{ref} (uuid {uuid}, {position})"
+
+#: kicadstamp/role_conflict_reasons.py
+msgid "(no refdes)"
+msgstr "(без refdes)"
+
+#: kicadstamp/role_conflict_reasons.py
+#, python-brace-format
+msgid "uuid {uuid}, {position}{orphan}"
+msgstr "uuid {uuid}, {position}{orphan}"
+
+#: kicadstamp/placement/services/clone_role_resolver.py
+#, python-brace-format
+msgid ""
+"[{name}] role {role!r} -> {ref} (single in its own cluster, no selection "
+"needed)"
+msgstr ""
+"[{name}] роль {role!r} -> {ref} (единственная в своём кластере, выделение "
+"не нужно)"
+
+#: kicadstamp/placement/services/clone_role_resolver.py
+#, python-brace-format
+msgid ""
+"[{name}] role {role!r}: the cell's baked net_template {baked!r} is not on "
+"the own cluster's component {ref} (net {live!r}) — the component decides, "
+"not the baked literal"
+msgstr ""
+"[{name}] роль {role!r}: записанная в ячейке цепь {baked!r} отсутствует у "
+"компонента своего кластера {ref} (цепь {live!r}) — решает компонент, а не "
+"записанная в ячейке цепь"
+
+#: kicadstamp/exceptions.py
+msgid "Nothing was placed or modified on the board — this was a read-only check."
+msgstr ""
+"На плате ничего не размещалось и не менялось — это была только проверка "
+"чтением."

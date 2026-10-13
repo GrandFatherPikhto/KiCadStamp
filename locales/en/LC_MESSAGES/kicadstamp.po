@@ -16961,3 +16961,77 @@ msgid "point {name!r} has a shift, is xy-literal, or chains to one that does —
 "coordinate is not enough. Use a point that sits on the component "
 "(shift_x_mm=0/shift_y_mm=0 and no xy), or anchor by ref/role instead"
 msgstr ""
+
+#: kicadstamp/role_conflict_reasons.py
+#, python-brace-format
+msgid ""
+"role {role!r}: no component with this role carries the working cluster "
+"{cluster!r}"
+msgstr ""
+
+#: kicadstamp/role_conflict_reasons.py
+#, python-brace-format
+msgid ""
+"nothing on this board carries the cluster tag {cluster!r} — tag this "
+"instance's components with it (Fieldstool or the schematic), or fix the "
+"working Cluster on the Source tab"
+msgstr ""
+
+#: kicadstamp/role_conflict_reasons.py
+#, python-brace-format
+msgid ""
+"  {component} carries this role but stands in cluster {cluster!r} — it is "
+"NOT taken"
+msgstr ""
+
+#: kicadstamp/role_conflict_reasons.py
+#, python-brace-format
+msgid "  {component} carries this role but has no Cluster field — it is NOT taken"
+msgstr ""
+
+#: kicadstamp/role_conflict_reasons.py
+#, python-brace-format
+msgid ""
+"role {role!r}: {ref} stands on the board {count} times — delete the extra "
+"copy: {copies}"
+msgstr ""
+
+#: kicadstamp/role_conflict_reasons.py
+#, python-brace-format
+msgid ""
+"role {role!r}: {count} different components in cluster {cluster!r} carry "
+"this role — give them distinct roles in the schematic: {components}"
+msgstr ""
+
+#: kicadstamp/role_conflict_reasons.py
+#, python-brace-format
+msgid "{ref} (uuid {uuid}, {position})"
+msgstr ""
+
+#: kicadstamp/role_conflict_reasons.py
+msgid "(no refdes)"
+msgstr ""
+
+#: kicadstamp/role_conflict_reasons.py
+#, python-brace-format
+msgid "uuid {uuid}, {position}{orphan}"
+msgstr ""
+
+#: kicadstamp/placement/services/clone_role_resolver.py
+#, python-brace-format
+msgid ""
+"[{name}] role {role!r} -> {ref} (single in its own cluster, no selection "
+"needed)"
+msgstr ""
+
+#: kicadstamp/placement/services/clone_role_resolver.py
+#, python-brace-format
+msgid ""
+"[{name}] role {role!r}: the cell's baked net_template {baked!r} is not on "
+"the own cluster's component {ref} (net {live!r}) — the component decides, "
+"not the baked literal"
+msgstr ""
+
+#: kicadstamp/exceptions.py
+msgid "Nothing was placed or modified on the board — this was a read-only check."
+msgstr ""

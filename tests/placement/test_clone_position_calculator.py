@@ -121,18 +121,23 @@ def _two_role_shared_net_cell():
 
 def _two_blocks_board():
     """Two physical filter blocks, all four parts on the shared +3V3 rail.
-    Block A (PIF_AVDD) sits at (0,0); block B (PIF_DVDD) at (100,200) — the
-    block the absolute clone below targets. Per role the two candidates differ
-    ONLY by position (same net, no sheet/cluster signal that would disambiguate
-    earlier), so step 5 proximity narrowing is the deciding signal."""
+    Block A sits at (0,0); block B at (100,200) — the block the absolute clone
+    below targets. Per role the two candidates differ ONLY by position (same
+    net, no sheet signal that would disambiguate earlier), so step 5 proximity
+    narrowing is the deciding signal.
+
+    BOTH blocks carry the CLONE's own Cluster — exactly like a reused
+    hierarchical sheet, whose instances all share one Cluster tag (plan
+    2026-10-13, the cascade runs INSIDE the own cluster: a part of another
+    cluster is not a candidate at all any more)."""
     return [
-        _make_fp("C_A_BYPASS", "C_IN_BYPASS", ["+3V3"], cluster="PIF_AVDD",
+        _make_fp("C_A_BYPASS", "C_IN_BYPASS", ["+3V3"], cluster="ch1_dac_buf",
                  x_mm=0.0, y_mm=0.0),
-        _make_fp("C_A_BULK", "C_IN_BULK", ["+3V3"], cluster="PIF_AVDD",
+        _make_fp("C_A_BULK", "C_IN_BULK", ["+3V3"], cluster="ch1_dac_buf",
                  x_mm=10.0, y_mm=0.0),
-        _make_fp("C_B_BYPASS", "C_IN_BYPASS", ["+3V3"], cluster="PIF_DVDD",
+        _make_fp("C_B_BYPASS", "C_IN_BYPASS", ["+3V3"], cluster="ch1_dac_buf",
                  x_mm=100.0, y_mm=200.0),
-        _make_fp("C_B_BULK", "C_IN_BULK", ["+3V3"], cluster="PIF_DVDD",
+        _make_fp("C_B_BULK", "C_IN_BULK", ["+3V3"], cluster="ch1_dac_buf",
                  x_mm=110.0, y_mm=200.0),
     ]
 
@@ -172,32 +177,38 @@ class TestAbsoluteCloneGeometricRoleNarrowing:
         anchor_position=None (the structurally-None value BEFORE this plan)
         leaves BOTH roles ambiguous and fatals — proving the end-to-end test
         above genuinely depends on the new role_narrowing_anchor (no earlier
-        cascade step happens to narrow these candidates)."""
+        cascade step happens to narrow these candidates).
+
+        The wording is the cluster-conflict refusal (2026-10-13): the candidates
+        ARE in the clone's own cluster, they are simply indistinguishable."""
         adapter = _adapter(_two_blocks_board())
         clone = _absolute_clone()
-        with pytest.raises(ValidationError, match="ambiguity"):
+        with pytest.raises(ValidationError, match="C_IN_BYPASS"):
             resolve_roles_by_nets(adapter, _two_role_shared_net_cell(), clone,
                                   anchor_position=None)
 
     def test_insufficient_proximity_gap_still_fatal(self):
         """Regression: the 2x-gap guard of step 5 must keep refusing to guess.
         With the fallback ACTIVE, two candidates EQUIDISTANT from the computed
-        role_narrowing_anchor stay ambiguous and raise the same fatal as today
-        — the new code enables an existing, honest disambiguator; it does not
-        turn a coin toss into a guess."""
+        role_narrowing_anchor stay ambiguous and raise a fatal — the new code
+        enables an existing, honest disambiguator; it does not turn a coin toss
+        into a guess. Both candidates carry the CLONE's own Cluster (plan
+        2026-10-13), so this really does exercise the proximity step."""
         cell = Cell(name="one_role", components=[
             TemplateComponentSlot(role="C_IN_BULK"),
         ])
         fps = [
-            _make_fp("C_L", "C_IN_BULK", ["+3V3"], x_mm=90.0, y_mm=200.0),
-            _make_fp("C_R", "C_IN_BULK", ["+3V3"], x_mm=110.0, y_mm=200.0),
+            _make_fp("C_L", "C_IN_BULK", ["+3V3"], cluster="block_x",
+                     x_mm=90.0, y_mm=200.0),
+            _make_fp("C_R", "C_IN_BULK", ["+3V3"], cluster="block_x",
+                     x_mm=110.0, y_mm=200.0),
         ]
         adapter = _adapter(fps)
         clone = ClonePlacement(cluster="block_x", cell="one_role", xy=(100.0, 200.0),
                                nets={"C_IN_BULK": "+3V3"})
         calc = ClonePositionCalculator(adapter, Config(layer="F.Cu", cells={cell.name: cell}))
 
-        with pytest.raises(ValidationError, match="ambiguity"):
+        with pytest.raises(ValidationError, match="C_IN_BULK"):
             calc.compute_raw_positions([clone])
 
 
@@ -210,7 +221,8 @@ class TestGeometryUnchangedRegression:
         cell = Cell(name="single", components=[
             TemplateComponentSlot(role="R1", offset_along_mm=5.0, offset_across_mm=5.0),
         ])
-        fps = [_make_fp("C1", "R1", ["NET1"], x_mm=105.0, y_mm=205.0)]
+        fps = [_make_fp("C1", "R1", ["NET1"], cluster="abs1",
+                        x_mm=105.0, y_mm=205.0)]
         adapter = _adapter(fps)
         clone = ClonePlacement(cluster="abs1", cell="single", xy=(100.0, 200.0),
                                nets={"R1": "NET1"})
@@ -233,8 +245,10 @@ class TestGeometryUnchangedRegression:
             TemplateComponentSlot(role="C_IN_BYPASS"),
         ])
         fps = [
-            _make_fp("C_FAR", "C_IN_BYPASS", ["+3V3"], x_mm=0.0, y_mm=0.0),
-            _make_fp("C_NEAR", "C_IN_BYPASS", ["+3V3"], x_mm=50.0, y_mm=60.0),
+            _make_fp("C_FAR", "C_IN_BYPASS", ["+3V3"], cluster="anchored",
+                     x_mm=0.0, y_mm=0.0),
+            _make_fp("C_NEAR", "C_IN_BYPASS", ["+3V3"], cluster="anchored",
+                     x_mm=50.0, y_mm=60.0),
         ]
         adapter = _adapter(fps)
         anchor_fp = _make_fp("ANCHOR", "FPGA", ["OTHER"])
@@ -399,7 +413,8 @@ class TestCloneTrackCopperLayer:
 
     def _run(self, track_layer, mirror=False):
         cell = self._cell(track_layer)
-        adapter = _adapter([_make_fp("C1", "R1", ["NET1"], x_mm=105.0, y_mm=205.0)])
+        adapter = _adapter([_make_fp("C1", "R1", ["NET1"], cluster="abs1",
+                                     x_mm=105.0, y_mm=205.0)])
         clone = ClonePlacement(cluster="abs1", cell=cell.name, xy=(100.0, 200.0),
                                nets={"R1": "NET1"}, mirror=mirror)
         calc = ClonePositionCalculator(
@@ -463,7 +478,8 @@ class TestMirrorKeepsInnerLayers:
                     **kwargs)
 
     def _run(self, cell, mirror):
-        adapter = _adapter([_make_fp("C1", "R1", ["NET1"], x_mm=105.0, y_mm=205.0)])
+        adapter = _adapter([_make_fp("C1", "R1", ["NET1"], cluster="abs1",
+                                     x_mm=105.0, y_mm=205.0)])
         clone = ClonePlacement(cluster="abs1", cell=cell.name, xy=(100.0, 200.0),
                                nets={"R1": "NET1"}, mirror=mirror)
         calc = ClonePositionCalculator(
@@ -560,7 +576,8 @@ class TestComponentSlotLayer:
     def _run(self, cell_layer, slot_layer=None, mirror=False):
         cell = Cell(name="slot_layer_src", layer=cell_layer,
                     components=[TemplateComponentSlot(role="R1", layer=slot_layer)])
-        adapter = _adapter([_make_fp("C1", "R1", ["NET1"], x_mm=105.0, y_mm=205.0)])
+        adapter = _adapter([_make_fp("C1", "R1", ["NET1"], cluster="abs1",
+                                     x_mm=105.0, y_mm=205.0)])
         clone = ClonePlacement(cluster="abs1", cell=cell.name, xy=(100.0, 200.0),
                                nets={"R1": "NET1"}, mirror=mirror)
         calc = ClonePositionCalculator(

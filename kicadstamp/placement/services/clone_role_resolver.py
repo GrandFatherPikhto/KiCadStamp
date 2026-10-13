@@ -39,19 +39,24 @@ from ...domain.geometry import Vector2
 
 from ...domain.board import Footprint
 
-from ...cluster_matching import cluster_prefix_match
 from ...config import Cell, CellPlacement, ClonePlacement, TemplateComponentSlot, \
     clone_placement_effective_name
 from ...exceptions import ValidationError, format_fatal_error
 from ...net_derive import PREFIX_REMAP, derive_role_nets
 from ...net_resolution import ROLELESS_NETS, resolve_net, resolve_placeholder
 from .component_pool import ROLE_FIELD_NAME
-from ...constants import CLUSTER_FIELD_NAME
 from ...i18n import _
+from ...role_conflict_reasons import (
+    has_refdes_copies,
+    narrowed_by_hint,
+    role_conflict_problems,
+    role_scope_problems,
+)
 from .role_narrowing import (
     _narrow_ambiguous_candidates,
     _narrow_by_sheet_cluster_selection,
     narrow_candidates_by_sheet,
+    own_cluster_candidates,
 )
 
 logger = logging.getLogger(__name__)
@@ -126,10 +131,13 @@ def resolve_single_role_candidate(all_fps, adapter, role: str, cluster: str,
     narrows if it actually reduces the set AND stays non-empty — a sheet that
     resolves nothing (empty/unknown sheet_names) keeps the original,
     still-ambiguous set, never a wrong guess."""
-    candidates = [fp for fp in all_fps
-                  if adapter.get_field_value(fp, ROLE_FIELD_NAME) == role
-                  and cluster_prefix_match(
-                      adapter.get_field_value(fp, CLUSTER_FIELD_NAME) or '', cluster)]
+    # The candidate set is the role's components INSIDE `cluster` — through the
+    # ONE owner of that rule (own_cluster_candidates), shared with the apply-time
+    # resolvers (plan_2026_10_13_cluster_confined_roles).
+    candidates = own_cluster_candidates(
+        adapter,
+        [fp for fp in all_fps if adapter.get_field_value(fp, ROLE_FIELD_NAME) == role],
+        cluster)
     if sheet and sheet_names and len(candidates) > 1:
         candidates = narrow_candidates_by_sheet(candidates, sheet, sheet_names)
     return candidates[0] if len(candidates) == 1 else None
@@ -357,10 +365,13 @@ def _auto_derive_live_net(adapter, all_fps, role, clone, slot, sheet_names):
       - (None, None, None) — nothing deterministic (caller's error path)."""
     cluster = getattr(clone, "cluster", None)
     sheet = getattr(clone, "sheet", None)
-    candidates = [fp for fp in all_fps
-                  if adapter.get_field_value(fp, ROLE_FIELD_NAME) == role
-                  and (cluster is None or cluster_prefix_match(
-                      adapter.get_field_value(fp, CLUSTER_FIELD_NAME) or '', cluster))]
+    # Live candidates come from the OWN cluster only, through the same owner the
+    # apply-time resolvers use (plan_2026_10_13_cluster_confined_roles) — the
+    # live net of a role is never derived from a foreign cluster's component.
+    candidates = own_cluster_candidates(
+        adapter,
+        [fp for fp in all_fps if adapter.get_field_value(fp, ROLE_FIELD_NAME) == role],
+        cluster)
     if sheet and sheet_names and len(candidates) > 1:
         narrowed = narrow_candidates_by_sheet(candidates, sheet, sheet_names)
         if narrowed:
@@ -492,6 +503,15 @@ def resolve_roles_by_selection(adapter, cell: Cell, clone: ClonePlacement,
                               "(cell roles: {roles})")
                             .format(ref=ref, role=role, roles=sorted(cell_roles)))
             continue
+        # A selection that contradicts the entity's OWN cluster is refused, not
+        # accepted quietly (plan_2026_10_13_cluster_confined_roles, cell К11):
+        # the entity addresses ITS cluster, so a picked component of another
+        # cluster (or an untagged one) is named and not taken — the same owner
+        # the by-nets path uses.
+        placement_cluster = getattr(clone, "cluster", None)
+        if placement_cluster and not own_cluster_candidates(adapter, [fp], placement_cluster):
+            problems.extend(role_scope_problems(adapter, role, placement_cluster, []))
+            continue
         if role in role_to_ref:
             problems.append(_("role {role!r} appears twice in selection: {ref1!r} and {ref2!r}")
                             .format(role=role, ref1=role_to_ref[role], ref2=ref))
@@ -512,25 +532,34 @@ def resolve_roles_by_selection(adapter, cell: Cell, clone: ClonePlacement,
                 problems.append(_("role {role!r} is in cell but not found anywhere on board")
                                 .format(role=role))
                 continue
-            if len(candidates) == 1:
-                ref = candidates[0].ref
+            # The candidate set is the role's components INSIDE the entity's own
+            # cluster — the same rule (and the same owner) as the by-nets path
+            # (plan_2026_10_13_cluster_confined_roles, rule 1).
+            placement_cluster = getattr(clone, "cluster", None)
+            own = own_cluster_candidates(adapter, candidates, placement_cluster)
+            if not own:
+                problems.extend(role_scope_problems(adapter, role, placement_cluster, own))
+                continue
+            if placement_cluster and has_refdes_copies(own):
+                problems.extend(role_conflict_problems(
+                    adapter, role, placement_cluster, own, extra=narrowed_by_hint(clone)))
+                continue
+            if len(own) == 1:
+                ref = own[0].ref
                 role_to_ref[role] = ref
-                logger.info(_("[{name}] role {role!r} -> {ref} (unique on whole board, no selection needed)")
+                logger.info(_("[{name}] role {role!r} -> {ref} (single in its own cluster, no selection needed)")
                             .format(name=clone_name, role=role, ref=ref))
                 continue
 
-            narrowed, note = _narrow_ambiguous_candidates(
-                candidates, clone, adapter, selected_refs, anchor_position, clone_name, role, sheet_names
+            narrowed, _note = _narrow_ambiguous_candidates(
+                own, clone, adapter, selected_refs, anchor_position, clone_name, role, sheet_names
             )
             if len(narrowed) == 1:
                 role_to_ref[role] = narrowed[0].ref
-            else:
-                refs = sorted(fp.ref for fp in narrowed)
-                problems.append(_("role {role!r} is in cell, not found in selection, and ambiguous on board "
-                                  "({count} candidates: {refs}){note} — check this placement's own Cluster "
-                                  "(name) is tagged correctly on the board, and/or set anchor_sheet, OR select "
-                                  "the desired instance on the board before running")
-                                .format(role=role, count=len(narrowed), refs=refs, note=note))
+                continue
+            problems.extend(role_conflict_problems(
+                adapter, role, placement_cluster, narrowed,
+                extra=narrowed_by_hint(clone)))
 
     if problems:
         raise ValidationError(format_fatal_error(
@@ -546,65 +575,38 @@ def resolve_roles_by_nets(adapter, cell: Cell, clone: ClonePlacement | CellPlace
                           anchor_position: Vector2 | None = None,
                           sheet_names: dict[str, str] | None = None) -> dict[str, str]:
     """
-    Mapping by explicit/parameterised nets (without mouse selection as the
-    PRIMARY mechanism — but current selection, if any, participates as a
-    narrowing step, see below).
+    Mapping by explicit/parameterised nets (the current selection, if any,
+    participates only as a narrowing step).
 
     Expected net per role (Phase 2 step 2.1 — nets:/params:/net_overrides are
-    OPTIONAL overrides): explicit clone.nets[role] -> cell net_template
-    (resolve_net; a LITERAL local '/Channel_0/...' net is prefix-remapped to the
-    target channel, derive_role_nets priority 2) -> auto-derived from the live
-    board via derive_role_nets (priority 1, live_pad: the unique instance's
-    designated net, or the single non-rule net shared by all candidates). The
-    old fatal "in 'by nets' mode, a net is required for every role" is gone when
-    the net can be derived automatically; a unique instance that cannot be
-    reduced to one net (bridging without net_template_pad) is mapped directly.
-    Auto-derivation only produces the EXPECTED NET (a candidate filter) — the
-    instance disambiguation below stays exclusively with this cascade (Kuhn is
-    never applied to instance selection).
+    OPTIONAL overrides): explicit clone.nets[role] -> a PARAMETRISED cell
+    net_template or a prefix-remapped literal '/Channel_0/...' -> auto-derived
+    from the live board via derive_role_nets (live_pad: the unique instance's
+    designated net, or the single non-rule net shared by all candidates). A
+    LITERAL cell net_template (no `{param}`, no channel remap) is NOT a net
+    source any more (2026-10-13): captured from the SOURCE instance, it may only
+    CORROBORATE a single own-cluster component (a Log line) — it never selects
+    and never separates candidates. Auto-derivation produces the EXPECTED NET
+    only; instance disambiguation stays with the cascade below (never Kuhn).
 
-    Ambiguity resolution cascade (each step only NARROWS, never chooses for the user):
-      0. clone.refs[role] — explicit override, bypassing search entirely. Breaks
-         on re‑annotation (refdes is not stable) — last resort, not the main path.
-      1. candidates = Role field matches AND sits on the expected net.
-      2. if several candidates AND the placement's OWN sheet (clone.sheet) is
-         set — narrow to candidates whose human‑readable hierarchical path
-         (via sheet_names, see _fp_on_sheet) contains this sheet segment. Added
-         2026-07-28 for anchor_sheet: a GLOBAL net (e.g. +3V3 shared by every
-         PI‑filter on the whole board, not per‑channel like DAC_OUT_P) leaves
-         candidates=every instance of the role board‑wide, and if the schematic
-         groups each channel's instance under its own Channel_N sheet, this is
-         the only signal that survives. Split 2026-08-15: internal narrowing now
-         reads clone.sheet (the placement's own identity), NOT anchor_sheet —
-         which narrows only the EXTERNAL anchor (resolve_footprint_by_role), the
-         same 08-14 anchor_cluster-style conflation resolved for the Sheet
-         dimension.
-      3. if several candidates AND the placement's OWN Cluster (clone.cluster —
-         the GUI's "Cluster:" field on the Source tab writes straight into
-         cluster, see gui/docks/placer.py) matches — narrow to candidates whose
-         Cluster field matches by prefix segments (see cluster_prefix_match).
-         This is the main path for the typical case "N identical roles on one
-         sheet because the net is common power, not per‑channel". Independent
-         of step 2 — a reused hierarchical sheet shares custom fields (Cluster
-         included) across every instance, so Cluster alone can't disambiguate
-         THOSE cases; anchor_sheet (step 2) is what's needed there instead.
-         Split 2026-08-14: the Cluster read here is clone.cluster, NOT
-         clone.anchor_cluster — that field narrows only the EXTERNAL anchor
-         (resolve_footprint_by_role); the two were conflated into one field
-         before (Denis: "Мы печатаем два раза кластер размещаемого целла.
-         Зачем?!").
-      4. still several — narrow to intersection with the CURRENT selection on
-         the board, if non‑empty and narrows something.
-      5. still several and anchor_position is set — narrow by physical proximity
-         to the anchor of THIS clone_placement: the closest candidate wins, but
-         only with a clear gap (closest is at least twice as close as the second)
-         — otherwise it's a coin toss, fatal. Independent of refdes/sheet/net —
-         survives re‑annotation.
-      6. still several — FATAL: candidates are indistinguishable by all
-         available means. Suggest either splitting roles by names in the
-         schematic, checking this placement's own Cluster (cluster) tagging,
-         setting this placement's sheet, selecting the desired instance, or
-         (last resort) explicit refs.
+    Candidate scope and cascade (plan_2026_10_13_cluster_confined_roles, cells
+    К1–К9 are guarded in tests/placement/test_clone_reuse_cell_across_power_rails.py):
+      0. clone.refs[role] — explicit override, bypassing the search entirely
+         (breaks on re-annotation: refdes is not stable — last resort).
+      1. `own` = the role's components whose Cluster field matches clone.cluster
+         (own_cluster_candidates); another cluster or an EMPTY Cluster field is
+         NOT a candidate — the refusal NAMES it instead (role_conflict_reasons).
+         A record without `cluster` (refs/sheet-only addressing) skips this step.
+      2. two copies of ONE refdes inside `own` — refused BEFORE any narrowing
+         ("delete the extra copy": no net, sheet, selection or proximity can
+         tell two copies of one symbol apart).
+      3. a REAL net source narrows INSIDE `own` (the only legal separator):
+         explicit nets / a parametrised net_template / the live live_pad.
+      4. still several, all in `own` — the previous cascade: the placement's own
+         sheet -> the current selection -> physical proximity to the anchor
+         (the closest wins only with a clear 2x gap, else a coin toss).
+      5. still several — FATAL through role_conflict_problems ("give them
+         distinct roles in the schematic" — the R9/D5 R_PROT case).
     """
     sheet_names = sheet_names or {}
     selected_items = adapter.get_selected_items()
@@ -622,7 +624,6 @@ def resolve_roles_by_nets(adapter, cell: Cell, clone: ClonePlacement | CellPlace
 
     role_to_ref: dict[str, str] = {}
     problems: list[str] = []
-    ambiguous: list = []   # (role, expected_net, matched) for second pass
 
     # --- step 0: explicit refs ---
     for role, ref in clone.refs.items():
@@ -639,20 +640,48 @@ def resolve_roles_by_nets(adapter, cell: Cell, clone: ClonePlacement | CellPlace
         logger.info(_("[{name}] role {role!r} -> {ref} (explicit refs)")
                     .format(name=clone_placement_effective_name(clone), role=role, ref=ref))
 
-    # --- first pass: unambiguous by Role+net ---
+    # --- first pass: Role + the OWN cluster (+ its net) ---
     for slot in cell.components:
         role = slot.role
         if role in role_to_ref:
             continue
 
-        # Expected net of the role — priority chain (Phase 2 step 2.1): explicit
-        # override clone.nets[role] -> cell net_template (with prefix_remap for a
-        # LITERAL local net) -> auto-derive from the live board (derive_role_nets,
-        # live_pad). nets:/params:/net_overrides are OPTIONAL overrides — the old
-        # fatal "a net is required for every role" is gone when the net can be
-        # derived automatically.
+        # An entity carrying a cluster addresses its components BY that cluster
+        # (2026-10-13, plan_2026_10_13_cluster_confined_roles, rule 1): a
+        # component of ANOTHER cluster, or one with an EMPTY Cluster field, is
+        # not an answer — not when the expected net leaves it as the only
+        # candidate, never. The filter lives in role_narrowing
+        # (own_cluster_candidates) — ONE place, shared with the by-selection path.
+        placement_cluster = getattr(clone, "cluster", None)
+        candidates = fps_by_role.get(role, [])
+        own = own_cluster_candidates(adapter, candidates, placement_cluster)
+
+        if not candidates:
+            problems.append(_("role {role!r}: NO component with this role on the board at all "
+                              "(check the Role field in the schematic, and that Update PCB from Schematic was run)")
+                            .format(role=role))
+            continue
+        if not own:
+            problems.extend(role_scope_problems(adapter, role, placement_cluster, own))
+            continue
+        # ONE refdes standing twice INSIDE the own cluster is refused BEFORE any
+        # narrowing (plan, cascade step 2): neither a net nor a sheet, a selection
+        # or physical proximity can tell two copies of one symbol apart, so "the
+        # closest copy" would be a silent guess.
+        if placement_cluster and has_refdes_copies(own):
+            problems.extend(role_conflict_problems(adapter, role, placement_cluster, own))
+            continue
+
+        # Expected net of the role — the priority chain of Phase 2 step 2.1 with
+        # ONE 2026-10-13 change: a LITERAL cell net_template is NOT a net source
+        # any more (it was captured from the SOURCE instance and says nothing
+        # about THIS cluster — rule 2). Real sources: explicit clone.nets[role], a
+        # PARAMETRISED net_template, a channel prefix-remap, and the live own
+        # cluster (live_pad). The baked literal may only CORROBORATE a single own
+        # candidate (a Log line) — it never selects and never narrows.
         expected_net: str | None = None
         net_source: str | None = None
+        baked_net: str | None = None
         if role in clone.nets:
             # Explicit per-clone override — the user asked for THIS net, so an
             # unresolvable placeholder here is a genuine user error (fatal,
@@ -664,105 +693,100 @@ def resolve_roles_by_nets(adapter, cell: Cell, clone: ClonePlacement | CellPlace
         elif slot.net_template is not None:
             net_template = slot.net_template
             try:
-                expected_net = resolve_net(net_template, clone.params, clone.net_overrides,
-                                           sheet=clone.sheet, cluster=clone.cluster)
+                resolved = resolve_net(net_template, clone.params, clone.net_overrides,
+                                       sheet=clone.sheet, cluster=clone.cluster)
             except ValidationError:
-                # A cell net_template with an unresolved {placeholder} (no
-                # matching params) is NOT an actionable explicit net source —
-                # no manual net coordinate was provided. Fall through to the
-                # live auto-derivation path below (Phase 2 step 2.1: nets:/
-                # params:/net_overrides are OPTIONAL overrides; the default
-                # path is automatic). Auto-derivation is deterministic, never
-                # a guess; if it also fails, the honest "no net could be
-                # derived automatically" error below reports it.
-                expected_net = None
-            if expected_net is not None:
-                net_source = "net_template"
-                # prefix_remap (derive_role_nets priority 2, TwinMap.twin_net
-                # semantics): a LITERAL local hierarchical net ('/Channel_0/...') is
-                # auto-remapped to the target channel ('/Channel_1/...') when the
-                # placement's own Cluster names a different Channel_N — a cell
-                # extracted on Channel_0 clones to Channel_1 without a manual
-                # {channel} param or nets:. Only literals: a parametrized
-                # net_template is the user's explicit choice.
-                if "{" not in net_template:
-                    remapped = _prefix_remap_local_net(expected_net, clone)
+                # A cell net_template with an unresolved {placeholder} (no matching
+                # params) is NOT an actionable explicit net source — it falls
+                # through to the live paths below (Phase 2 step 2.1).
+                resolved = None
+            if resolved is not None:
+                if "{" in net_template:
+                    # A parametrised net_template is the user's explicit choice.
+                    expected_net = resolved
+                    net_source = "net_template"
+                else:
+                    # prefix_remap (derive_role_nets priority 2, TwinMap.twin_net
+                    # semantics): a LITERAL local '/Channel_0/...' net is
+                    # auto-remapped to the target channel when the placement's own
+                    # Cluster names a different Channel_N. Otherwise the literal is
+                    # the source instance's breadcrumb, kept for corroboration only.
+                    remapped = _prefix_remap_local_net(resolved, clone)
                     if remapped is not None:
                         expected_net = remapped
                         net_source = PREFIX_REMAP
-        # Auto-nets (2026-09-05, derive_role_nets live_pad priority): a LITERAL
-        # cell net_template (no {param}, not a channel-prefixed remap) was baked
-        # from the SOURCE instance at extraction — it is NOT portable to a
-        # placement on a DIFFERENT cluster (live incident: pif_p2v5_vcca reused
-        # for PIF_1V2_VCCINT grabbed pif_p2v5_vcca_fpga's components through the
-        # baked +2V5 template, because the auto-derive path never runs when a
-        # net_template is present). When this placement has its OWN cluster and
-        # the live target board gives a deterministic net for the role, the live
-        # net wins; the baked literal remains the fallback while the target
-        # cluster has nothing on the board yet. Uses suggest_role_nets_from_cluster
-        # (not _auto_derive_live_net) so BRIDGING roles resolve too: a ferrite
-        # with net_template_same_as_role/<net_template_pad> reduces through its
-        # designated pad / sibling role's live net on this cluster (live repro:
-        # FB_PI_FLT kept stealing the source instance's ferrite via the baked
-        # +2V5 because a bridging role has no single lemma-2 net).
-        if (net_source == "net_template"
-                and "{" not in net_template
-                and getattr(clone, "cluster", None)):
+                    else:
+                        baked_net = resolved
+        if expected_net is None and placement_cluster:
+            # The LIVE own cluster — a REAL source (live_pad): the role's
+            # designated net on its own instance(s), via the same
+            # net_template_pad / net_template_same_as_role hints the GUI Auto-fill
+            # uses (a bridging role has no single lemma-2 net of its own).
             role_hint = (getattr(slot, "net_template_pad", None),
                          getattr(slot, "net_template_same_as_role", None))
             suggested = suggest_role_nets_from_cluster(
-                adapter, {role: role_hint}, getattr(clone, "cluster", ""),
+                adapter, {role: role_hint}, placement_cluster,
                 rule_nets=ROLELESS_NETS, sheet=getattr(clone, "sheet", None),
                 sheet_names=sheet_names or {})
             if role in suggested:
                 expected_net = suggested[role]
                 net_source = "live_pad"
         if expected_net is None:
-            auto_net, auto_ref, auto_source = _auto_derive_live_net(
+            # Live auto-derivation (derive_role_nets priority 1): the unique own
+            # instance's designated net, or the single non-rule net shared by ALL
+            # the role's own candidates (N identical instances on one rail).
+            auto_net, _auto_ref, auto_source = _auto_derive_live_net(
                 adapter, all_fps, role, clone, slot, sheet_names)
-            if auto_ref is not None:
-                # A unique instance of the role on the target that cannot be
-                # reduced to one net (bridging role without a designated pad) —
-                # map it directly, no net needed (deterministic).
-                role_to_ref[role] = auto_ref
-                logger.info(_("[{name}] role {role!r} -> {ref} (auto-derived: unique live instance)")
-                            .format(name=clone_placement_effective_name(clone),
-                                    role=role, ref=auto_ref))
-                continue
-            if auto_net is None:
-                problems.append(_("role {role!r}: no explicit net (nets:/cell net_template) "
-                                  "and no net could be derived automatically — the live board "
-                                  "has no unique instance of this role and its candidates do "
-                                  "not share one non-rule net; add nets: {{role: net}}, params:, "
-                                  "a cell net_template, or check the board")
-                                .format(role=role))
-                continue
-            expected_net = auto_net
-            net_source = auto_source
+            if auto_net is not None:
+                expected_net = auto_net
+                net_source = auto_source
 
         logger.debug(_("[{name}] role {role!r}: expected net {net!r} (source: {source})")
                      .format(name=clone_placement_effective_name(clone), role=role,
                              net=expected_net, source=net_source))
 
-        candidates = fps_by_role.get(role, [])
-        matched = []
-        for fp in candidates:
-            pads = adapter.get_footprint_pads(fp)
-            nets_on_fp = {p.net_name for p in pads if p.net_name}
-            if expected_net in nets_on_fp:
-                matched.append(fp)
+        # ONE own candidate IS the answer: a baked literal never overrides it
+        # (rule 2 / cascade step 3). A REAL source must still agree with it — an
+        # explicit nets:/param mismatch keeps today's fatal, never a silent skip.
+        if len(own) == 1:
+            only = own[0]
+            nets_on_only = {p.net_name for p in adapter.get_footprint_pads(only) if p.net_name}
+            if net_source is not None and expected_net not in nets_on_only:
+                problems.append(_("role {role!r}: component(s) {refs} with this role exist on the board, "
+                                  "but none is on net {expected!r} — they are actually on {found} "
+                                  "(check params/net name or the schematic connection)")
+                                .format(role=role, refs=[only.ref], expected=expected_net,
+                                        found=sorted(nets_on_only)))
+                continue
+            if (baked_net is not None and baked_net != expected_net
+                    and baked_net not in nets_on_only):
+                # A Log line, NEVER a refusal: the literal came from the source
+                # instance, the single own component IS the answer (live regress:
+                # spoke_vdd_01_mcu — its cell's baked +3V3_VDDA against the live
+                # +3V3_VDD of the own cluster).
+                logger.info(_("[{name}] role {role!r}: the cell's baked net_template {baked!r} "
+                              "is not on the own cluster's component {ref} (net {live!r}) — "
+                              "the component decides, not the baked literal")
+                            .format(name=clone_placement_effective_name(clone), role=role,
+                                    baked=baked_net, ref=only.ref, live=expected_net))
+            role_to_ref[role] = only.ref
+            continue
+
+        # Several DIFFERENT refdes in the OWN cluster (copies were refused above):
+        # narrow by the real source net, then by the PREVIOUS cascade — the sheet,
+        # the current selection, physical proximity — but only INSIDE `own`, since
+        # the own-cluster step already happened.
+        matched = ([fp for fp in own
+                    if expected_net in {p.net_name for p in adapter.get_footprint_pads(fp)}]
+                   if expected_net is not None else list(own))
 
         # Bridging-role narrowing by the DESIGNATED PAD (Phase 1 step 1.2,
-        # review 2026-08-28): a bridging role has TWO different nets on its
-        # pads and net_template_pad marks which pad carries the designated
-        # net. When several candidates carry the designated net (e.g. a
-        # shared power rail routed onto a DIFFERENT pad number per instance),
-        # narrow to candidates whose pad with that number also carries the
-        # designated net. STRICTLY a secondary discriminator — it only ever
-        # NARROWS, never turns a match into a miss: if the pad check yields
-        # an empty set (pad numbering is unreliable for electrically
-        # symmetric parts), keep the primary net-value results and let the
-        # normal ambiguity cascade decide.
+        # review 2026-08-28): a bridging role has TWO different nets on its pads
+        # and net_template_pad marks which pad carries the designated net. When
+        # several candidates carry the designated net, narrow to candidates whose
+        # pad with that number also carries it. STRICTLY a secondary discriminator
+        # — it only ever NARROWS, never turns a match into a miss: an empty pad
+        # check (unreliable numbering on symmetric parts) keeps the net results.
         if len(matched) > 1 and getattr(slot, "net_template_pad", None):
             pad_narrowed = [
                 fp for fp in matched
@@ -772,60 +796,32 @@ def resolve_roles_by_nets(adapter, cell: Cell, clone: ClonePlacement | CellPlace
             if pad_narrowed:
                 matched = pad_narrowed
 
-        if not candidates:
-            problems.append(_("role {role!r}: NO component with this role on the board at all "
-                              "(check the Role field in the schematic, and that Update PCB from Schematic was run)")
-                            .format(role=role))
-        elif not matched:
-            found_nets = sorted({n for fp in candidates for n in
+        if not matched:
+            found_nets = sorted({n for fp in own for n in
                                  {p.net_name for p in adapter.get_footprint_pads(fp) if p.net_name}})
-            refs = sorted(fp.ref for fp in candidates)
+            refs = sorted(fp.ref for fp in own)
             problems.append(_("role {role!r}: component(s) {refs} with this role exist on the board, "
                               "but none is on net {expected!r} — they are actually on {found} "
                               "(check params/net name or the schematic connection)")
                             .format(role=role, refs=refs, expected=expected_net, found=found_nets))
-        elif len(matched) > 1:
-            ambiguous.append((role, expected_net, matched))
-        else:
-            role_to_ref[role] = matched[0].ref
+            continue
 
-    # --- narrowing ambiguous: anchor_sheet -> Cluster -> selection -> physical proximity (common function) ---
-    for role, expected_net, matched in ambiguous:
-        narrowed, note = _narrow_ambiguous_candidates(
+        if len(matched) == 1:
+            role_to_ref[role] = matched[0].ref
+            continue
+
+        narrowed, _note = _narrow_ambiguous_candidates(
             matched, clone, adapter, selected_refs, anchor_position,
-            clone_placement_effective_name(clone), role, sheet_names
-        )
+            clone_placement_effective_name(clone), role, sheet_names)
 
         if len(narrowed) == 1:
             role_to_ref[role] = narrowed[0].ref
-        else:
-            refs = sorted(fp.ref for fp in narrowed)
-            # The narrowing for INTERNAL roles always tries the placement's OWN
-            # Cluster (clone.cluster — required and non-empty, see entries.py),
-            # so `placement_cluster` is effectively always set here; the else
-            # branch is a defensive fallback only (cluster missing/empty on a
-            # non-config object, e.g. a directly-constructed test double).
-            placement_sheet = getattr(clone, "sheet", None)
-            placement_cluster = getattr(clone, "cluster", None)
-            if placement_sheet or placement_cluster:
-                narrowed_by = ", ".join(
-                    (_("this placement's sheet {sheet!r}").format(sheet=placement_sheet) if placement_sheet else "",
-                     _("this placement's Cluster {cluster!r}").format(cluster=placement_cluster) if placement_cluster else "")
-                ).strip(", ")
-                cluster_hint = _(" (already narrowed by {narrowed_by}, but not enough)").format(narrowed_by=narrowed_by)
-            else:
-                cluster_hint = _(" (neither this placement's sheet nor its Cluster set — if these components are "
-                                 "physically different instances, one of them would narrow to one)")
-            problems.append(
-                _("role {role!r}: ambiguity — {count} components on net {net!r}{cluster_hint}{note}: {refs}. "
-                  "Solutions: check this placement's own Cluster (cluster) is tagged correctly on the board, "
-                  "and/or set this placement's sheet, OR select the desired instance on the board before running, "
-                  "OR split roles by net names in the schematic (e.g. DAC_PI_3V3_C1 vs DAC_PI_AVDD_C1), "
-                  "OR use explicit refs: {{ {role}: {first_ref} }}")
-                .format(role=role, count=len(narrowed), net=expected_net,
-                        cluster_hint=cluster_hint, note=note, refs=refs,
-                        first_ref=refs[0])
-            )
+            continue
+        # Nothing told these distinct components apart — the honest refusal of
+        # rule 3 (the duplicated-refdes case was refused before the cascade).
+        problems.extend(role_conflict_problems(
+            adapter, role, placement_cluster, narrowed,
+            extra=narrowed_by_hint(clone)))
 
     if problems:
         raise ValidationError(format_fatal_error(

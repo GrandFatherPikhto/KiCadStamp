@@ -30,7 +30,7 @@ from kicadstamp.config import clone_placement_effective_name
 from kicadstamp.constants import CLUSTER_FIELD_NAME, ROLE_FIELD_NAME
 from kicadstamp.domain.board import Footprint
 from kicadstamp.domain.geometry import BoardLayer, Vector2
-from kicadstamp.exceptions import ValidationError, format_fatal_error
+from kicadstamp.exceptions import ValidationError, format_read_fatal
 from kicadstamp.geometry.cell_anchor import cell_mount_offset
 from kicadstamp.geometry.clone_geometry import clone_origin_from_component
 from kicadstamp.geometry.spoke_layout import rotate_local_offset
@@ -50,6 +50,8 @@ from kicadstamp.placement.services.coordinate_position_calculator import (
     resolve_footprint_by_cluster_role,
 )
 from kicadstamp.placement.services.point_resolver import resolve_point_chain
+from kicadstamp.placement.services.role_narrowing import own_cluster_candidates
+from kicadstamp.role_conflict_reasons import role_conflict_problems
 from kicadstamp.utils.units import MM
 
 logger = logging.getLogger(__name__)
@@ -171,14 +173,14 @@ def read_clone_origin_live(adapter, cfg, clone, sheet_names) -> LiveRead:
     nothing resolved — never a guess."""
     cell = cfg.cells.get(clone.cell)
     if cell is None:
-        raise ValidationError(format_fatal_error(
+        raise ValidationError(format_read_fatal(
             _("cell {cell!r} not found in config").format(cell=clone.cell),
             [_("extract/save the cell and make sure include: is wired (see Extract)")]))
 
     role_to_ref = _resolve_clone_role_to_ref(adapter, cfg, clone, cell, sheet_names)
     slot = _reference_slot(cell, role_to_ref)
     if slot is None:
-        raise ValidationError(format_fatal_error(
+        raise ValidationError(format_read_fatal(
             _("clone {name!r}: no component resolved to read the cell origin from")
             .format(name=clone_placement_effective_name(clone)),
             [_("place the cell on the board first, or check its nets/selection "
@@ -186,7 +188,7 @@ def read_clone_origin_live(adapter, cfg, clone, sheet_names) -> LiveRead:
     ref = role_to_ref[slot.role]
     fp = adapter.get_footprint(ref)
     if fp is None:
-        raise ValidationError(format_fatal_error(
+        raise ValidationError(format_read_fatal(
             _("clone {name!r}: role {role!r} resolved to {ref!r}, but that ref "
               "is not on the live board").format(
                 name=clone_placement_effective_name(clone), role=slot.role, ref=ref),
@@ -302,7 +304,7 @@ def _role_to_fp_by_refs(adapter, cell, role_to_ref: dict[str, str], label: str
             continue
         fp = adapter.get_footprint(ref)
         if fp is None:
-            raise ValidationError(format_fatal_error(
+            raise ValidationError(format_read_fatal(
                 _("ref {ref!r} for role {role!r} is not on the live board — the "
                   "identification is stale, identify the instance again")
                 .format(ref=ref, role=slot.role),
@@ -310,7 +312,7 @@ def _role_to_fp_by_refs(adapter, cell, role_to_ref: dict[str, str], label: str
                    "then press “Fill from selection” on the Source tab")]))
         live_role = adapter.get_field_value(fp, ROLE_FIELD_NAME)
         if live_role != slot.role:
-            raise ValidationError(format_fatal_error(
+            raise ValidationError(format_read_fatal(
                 _("ref {ref} now has Role {actual!r}, the cell expects "
                   "{expected!r} — the identification is stale, identify the "
                   "instance again")
@@ -319,7 +321,7 @@ def _role_to_fp_by_refs(adapter, cell, role_to_ref: dict[str, str], label: str
                    "then press “Fill from selection” on the Source tab")]))
         role_to_fp[slot.role] = fp
     if not role_to_fp:
-        raise ValidationError(format_fatal_error(
+        raise ValidationError(format_read_fatal(
             _("none of the remembered refs of {label} is a role of this cell — "
               "the identification is stale, identify the instance again")
             .format(label=label),
@@ -383,8 +385,14 @@ def _live_cluster_frame(adapter, cell, cluster: str, sheet: str, sheet_names,
     "no footprint".
 
     Raises ValidationError with an HONEST message — "cluster X is not on the
-    live board" / "role Y occurs N times in cluster X" / "role Y of this cell
-    has no footprint in cluster X" — never the old "place the cell first".
+    live board" / the role-conflict refusal of role_conflict_reasons
+    («this refdes stands on the board twice — delete the extra copy» / «several
+    distinct components carry this role — give them distinct roles»), which is
+    the SAME wording the apply path gives, / "role Y of this cell has no
+    footprint in cluster X" — never the old "place the cell first", and never
+    the withdrawn "this is a spoke cell … Fill from selection" (2026-10-12:
+    spokes are gone). The refusal carries the read-only footer, since a read
+    places nothing (plan_2026_10_13_cluster_confined_roles, rule 4).
 
     2026-09-10 (plan stale_board_snapshot K.1): the board is REFRESHED first.
     The GUI's automatic poll tick is a deliberate no-op while connected, so
@@ -479,29 +487,31 @@ def _live_cluster_frame(adapter, cell, cluster: str, sheet: str, sheet_names,
         counts = role_multiplicity_in_cluster(adapter, cluster, set(unresolved))
         repeated = sorted((role, n) for role, n in counts.items() if n > 1)
         if repeated:
-            # A repeated role IS a spoke cluster, and "no footprint" would be a
-            # flat lie: the footprints are there, there are just several of
-            # them. The count is said out loud and the fix is named.
-            role, occurrences = repeated[0]
-            raise ValidationError(format_fatal_error(
-                _("role {role!r} occurs {count} times in cluster {cluster!r} — "
-                  "this is a spoke cell: select one pair and use “Fill from "
-                  "selection” on the Source tab")
-                .format(role=role, count=occurrences, cluster=cluster),
-                [_("a spoke repeats the cell's roles inside one cluster, so the "
-                   "cluster alone cannot say WHICH pair is edited; identifying "
-                   "the pair pins the editor to exactly those components")]))
+            # The role stands more than once inside this cluster: "no footprint"
+            # would be a flat lie, so the SAME refusal the apply path gives is
+            # raised here (role_conflict_reasons — ONE wording for both paths:
+            # a duplicated refdes says "delete the extra copy", several distinct
+            # refdes say "give them distinct roles in the schematic"), with the
+            # read-only footer: a READ places and modifies nothing, so the usual
+            # "Fix the config and run again" verdict would be false
+            # (2026-10-13, plan_2026_10_13_cluster_confined_roles, rules 3 and 4).
+            role = repeated[0][0]
+            candidates = [fp for fp in adapter.get_footprints()
+                          if adapter.get_field_value(fp, ROLE_FIELD_NAME) == role]
+            own = own_cluster_candidates(adapter, candidates, cluster)
+            raise ValidationError(format_read_fatal(
+                label, role_conflict_problems(adapter, role, cluster, own)))
         if not role_to_fp:
             on_board = {adapter.get_field_value(fp, CLUSTER_FIELD_NAME)
                         for fp in adapter.get_footprints()}
             if cluster not in on_board:
-                raise ValidationError(format_fatal_error(
+                raise ValidationError(format_read_fatal(
                     _("cluster {cluster!r} is not on the live board")
                     .format(cluster=cluster),
                     [_("check the working Cluster on the Source tab, or place "
                        "the cluster on this board")]))
             first_role = cell.components[0].role if cell.components else "?"
-            raise ValidationError(format_fatal_error(
+            raise ValidationError(format_read_fatal(
                 _("role {role!r} of this cell has no footprint in cluster "
                   "{cluster!r}").format(role=first_role, cluster=cluster),
                 [_("the cell's roles must be the components tagged with the "

@@ -29,7 +29,9 @@ import kicadstamp.exceptions as exceptions_module
 import kicadstamp.i18n as i18n_module
 from kicadstamp.exceptions import (
     ValidationError,
+    fatal_error_reason,
     format_fatal_error,
+    format_read_fatal,
     strip_fatal_block,
 )
 
@@ -133,3 +135,47 @@ def test_ru_block_is_stripped_by_its_own_localized_marker(monkeypatch, caplog):
     assert _("Placement stopped, board not modified. Fix the config and run again.") not in logged
     assert "ПРИЧИНА" in logged
     assert "✗ подсказка" in logged
+
+
+# ── the READ-ONLY footer (plan_2026_10_13_cluster_confined_roles, rule 4) ───
+
+_READ_ONLY_VERDICT = ("Nothing was placed or modified on the board — this was a "
+                      "read-only check.")
+
+
+def test_c5_the_ordinary_block_is_byte_identical_without_the_verdict_argument():
+    """verdict=None keeps the historical footer BYTE FOR BYTE — the CLI/apply/MCP
+    paths must not notice the new parameter at all (the acceptance condition of
+    the plan's rule 4)."""
+    assert (format_fatal_error(_TITLE, [_HINT])
+            == format_fatal_error(_TITLE, [_HINT], verdict=None))
+    explicit = ["", "=" * 70, "  FATAL ERROR: " + _TITLE, "=" * 70,
+                "  ✗ " + _HINT, "=" * 70, _VERDICT, ""]
+    assert format_fatal_error(_TITLE, [_HINT]) == "\n".join(explicit)
+
+
+def test_c5b_read_only_block_ends_with_its_own_honest_footer():
+    """format_read_fatal is the read path's ONE formatter: the same block, the
+    honest footer — never the false "Placement stopped … Fix the config" of a run
+    that placed nothing."""
+    text = str(ValidationError(format_read_fatal(_TITLE, [_HINT])))
+    assert _VERDICT not in text
+    assert _READ_ONLY_VERDICT in text
+    assert "FATAL ERROR: " + _TITLE in text
+    assert "✗ " + _HINT in text
+
+
+def test_c5c_both_footers_are_stripped_by_both_parsers():
+    """The Log helper and the reason parser recognise EITHER footer — otherwise
+    the read-only verdict would stay glued to the reason as if it were a problem
+    line."""
+    ordinary = str(_fatal())
+    read_only = str(ValidationError(format_read_fatal(_TITLE, [_HINT])))
+    for text in (ordinary, read_only):
+        stripped = strip_fatal_block(text)
+        assert "=" not in stripped
+        assert _VERDICT not in stripped
+        assert _READ_ONLY_VERDICT not in stripped
+        assert ("FATAL ERROR: " + _TITLE) in stripped
+        # title_only drops the localized heading too — the reason is the title.
+        assert fatal_error_reason(text, title_only=True) == _TITLE

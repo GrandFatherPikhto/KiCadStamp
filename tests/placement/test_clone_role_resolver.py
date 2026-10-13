@@ -68,11 +68,16 @@ class TestResolveRolesBySelection:
         return ClonePlacement(cluster=name, cell="crystal", xy=(0.0, 0.0))
 
     def test_exact_match_resolves(self):
+        # The selected parts carry the clone's OWN cluster (plan 2026-10-13): a
+        # selection contradicting the entity's cluster is refused (cell К11), so
+        # a realistic fake board tags them the way a real one would.
         adapter = MagicMock()
         adapter.get_selected_items.return_value = [
-            _make_fp("Y3", "XTAL"), _make_fp("C20", "LOAD_CAP_1"), _make_fp("C21", "LOAD_CAP_2"),
+            _make_fp("Y3", "XTAL", cluster="crystal2"),
+            _make_fp("C20", "LOAD_CAP_1", cluster="crystal2"),
+            _make_fp("C21", "LOAD_CAP_2", cluster="crystal2"),
         ]
-        adapter.get_field_value.side_effect = lambda fp, name: fp._role
+        adapter.get_field_value.side_effect = _role_or_cluster
         result = resolve_roles_by_selection(adapter, self._template(), self._clone())
         assert result == {"XTAL": "Y3", "LOAD_CAP_1": "C20", "LOAD_CAP_2": "C21"}
 
@@ -116,14 +121,37 @@ class TestResolveRolesBySelection:
             _make_fp("Y4", "XTAL", cluster="Other_Cluster"),
         ]
         adapter = MagicMock()
-        adapter.get_selected_items.return_value = [_make_fp("C20", "LOAD_CAP_1"),
-                                                   _make_fp("C21", "LOAD_CAP_2")]
+        adapter.get_selected_items.return_value = [
+            _make_fp("C20", "LOAD_CAP_1", cluster="Out_Cluster"),
+            _make_fp("C21", "LOAD_CAP_2", cluster="Out_Cluster"),
+        ]
         adapter.get_field_value.side_effect = _role_or_cluster
         adapter.get_footprints.return_value = fps + adapter.get_selected_items.return_value
 
         clone = ClonePlacement(cluster="Out_Cluster", cell="crystal", xy=(0, 0))
         result = resolve_roles_by_selection(adapter, tpl, clone)
         assert result == {"XTAL": "Y3", "LOAD_CAP_1": "C20", "LOAD_CAP_2": "C21"}
+
+    def test_selection_from_a_foreign_cluster_is_refused(self):
+        """К11 (2026-10-13, plan_2026_10_13_cluster_confined_roles): a selection
+        that contradicts the entity's OWN cluster is refused WITH the reason —
+        the component and the cluster it stands in are named, and it is not
+        taken. The by-selection path obeys the same rule as the by-nets one."""
+        tpl = Cell(name="crystal", components=[TemplateComponentSlot(role="XTAL")])
+        adapter = MagicMock()
+        adapter.get_selected_items.return_value = [
+            _make_fp("Y3", "XTAL", cluster="Other_Cluster")]
+        adapter.get_field_value.side_effect = _role_or_cluster
+        adapter.get_footprints.return_value = adapter.get_selected_items.return_value
+
+        clone = ClonePlacement(cluster="crystal2", cell="crystal", xy=(0, 0))
+        with pytest.raises(ValidationError) as ei:
+            resolve_roles_by_selection(adapter, tpl, clone)
+
+        msg = str(ei.value)
+        assert "Y3" in msg
+        assert "Other_Cluster" in msg
+        assert "crystal2" in msg
 
 
 class TestResolveRolesByNets:
@@ -139,17 +167,23 @@ class TestResolveRolesByNets:
         Key scenario: 3 physically indistinguishable PI‑filters — each must
         resolve to its own components, not someone else's.
         """
+        # Each filter block carries its OWN cluster tag — the clone addresses its
+        # components BY its cluster (plan 2026-10-13), so the three instances are
+        # told apart by the cluster, exactly as on a real board.
         fps = [
-            _make_fp("C10", "CAP_IN", ["GPIO12"]), _make_fp("C11", "CAP_OUT", ["GPIO12_FILTERED"]),
-            _make_fp("L1", "FERRITE", ["GPIO12", "GPIO12_FILTERED"]),
-            _make_fp("C12", "CAP_IN", ["GPIO13"]), _make_fp("C13", "CAP_OUT", ["GPIO13_FILTERED"]),
-            _make_fp("L2", "FERRITE", ["GPIO13", "GPIO13_FILTERED"]),
-            _make_fp("C14", "CAP_IN", ["GPIO14"]), _make_fp("C15", "CAP_OUT", ["GPIO14_FILTERED"]),
-            _make_fp("L3", "FERRITE", ["GPIO14", "GPIO14_FILTERED"]),
+            _make_fp("C10", "CAP_IN", ["GPIO12"], cluster="filter_gpio12"),
+            _make_fp("C11", "CAP_OUT", ["GPIO12_FILTERED"], cluster="filter_gpio12"),
+            _make_fp("L1", "FERRITE", ["GPIO12", "GPIO12_FILTERED"], cluster="filter_gpio12"),
+            _make_fp("C12", "CAP_IN", ["GPIO13"], cluster="filter_gpio13"),
+            _make_fp("C13", "CAP_OUT", ["GPIO13_FILTERED"], cluster="filter_gpio13"),
+            _make_fp("L2", "FERRITE", ["GPIO13", "GPIO13_FILTERED"], cluster="filter_gpio13"),
+            _make_fp("C14", "CAP_IN", ["GPIO14"], cluster="filter_gpio14"),
+            _make_fp("C15", "CAP_OUT", ["GPIO14_FILTERED"], cluster="filter_gpio14"),
+            _make_fp("L3", "FERRITE", ["GPIO14", "GPIO14_FILTERED"], cluster="filter_gpio14"),
         ]
         adapter = MagicMock()
         adapter.get_footprints.return_value = fps
-        adapter.get_field_value.side_effect = lambda fp, name: fp._role
+        adapter.get_field_value.side_effect = _role_or_cluster
         adapter.get_footprint_pads.side_effect = _get_pads
 
         tpl = self._pi_filter_template()
@@ -173,10 +207,13 @@ class TestResolveRolesByNets:
         tpl = Cell(name="dac", components=[
             TemplateComponentSlot(role="DAC_DB1_CAP", net_template="DAC{channel}_DB1"),
         ])
-        fps = [_make_fp("C50", "DAC_DB1_CAP", ["DAC2_DB1"]), _make_fp("C51", "DAC_DB1_CAP", ["DAC3_DB1"])]
+        fps = [
+            _make_fp("C50", "DAC_DB1_CAP", ["DAC2_DB1"], cluster="dac_ch2"),
+            _make_fp("C51", "DAC_DB1_CAP", ["DAC3_DB1"], cluster="dac_ch2"),
+        ]
         adapter = MagicMock()
         adapter.get_footprints.return_value = fps
-        adapter.get_field_value.side_effect = lambda fp, name: fp._role
+        adapter.get_field_value.side_effect = _role_or_cluster
         adapter.get_footprint_pads.side_effect = _get_pads
 
         clone = ClonePlacement(cluster="dac_ch2", cell="dac", xy=(0, 0), params={"channel": 2})
@@ -188,10 +225,10 @@ class TestResolveRolesByNets:
         tpl = Cell(name="t", components=[
             TemplateComponentSlot(role="X", net_template="SHOULD_NOT_BE_USED"),
         ])
-        fps = [_make_fp("A", "X", ["REAL_NET"])]
+        fps = [_make_fp("A", "X", ["REAL_NET"], cluster="c")]
         adapter = MagicMock()
         adapter.get_footprints.return_value = fps
-        adapter.get_field_value.side_effect = lambda fp, name: fp._role
+        adapter.get_field_value.side_effect = _role_or_cluster
         adapter.get_footprint_pads.side_effect = _get_pads
 
         clone = ClonePlacement(cluster="c", cell="t", xy=(0, 0), nets={"X": "REAL_NET"})
@@ -341,8 +378,8 @@ class TestResolveRolesByNets:
                                   net_template_pad="1"),
         ])
         fps = [
-            _make_fp("FB1", "PI_FILTER_FB", ["+5V", "+5V_DIRTY"]),
-            _make_fp("FB2", "PI_FILTER_FB", ["+3V3", "+3V3_DIRTY"]),
+            _make_fp("FB1", "PI_FILTER_FB", ["+5V", "+5V_DIRTY"], cluster="c"),
+            _make_fp("FB2", "PI_FILTER_FB", ["+3V3", "+3V3_DIRTY"], cluster="c"),
         ]
         adapter = MagicMock()
         adapter.get_footprints.return_value = fps
@@ -369,8 +406,8 @@ class TestResolveRolesByNets:
                                   net_template_pad="1"),
         ])
         fps = [
-            _make_fp("FB1", "PI_FILTER_FB", ["+5V", "+5V_DIRTY"]),    # pad1 = +5V
-            _make_fp("FB2", "PI_FILTER_FB", ["+5V_CLEAN", "+5V"]),    # pad2 = +5V
+            _make_fp("FB1", "PI_FILTER_FB", ["+5V", "+5V_DIRTY"], cluster="c"),    # pad1 = +5V
+            _make_fp("FB2", "PI_FILTER_FB", ["+5V_CLEAN", "+5V"], cluster="c"),    # pad2 = +5V
         ]
         adapter = MagicMock()
         adapter.get_footprints.return_value = fps
@@ -394,8 +431,8 @@ class TestResolveRolesByNets:
                                   net_template_pad="9"),  # exists nowhere
         ])
         fps = [
-            _make_fp("FB1", "PI_FILTER_FB", ["+5V", "+5V_DIRTY"]),
-            _make_fp("FB2", "PI_FILTER_FB", ["+5V_CLEAN", "+5V"]),
+            _make_fp("FB1", "PI_FILTER_FB", ["+5V", "+5V_DIRTY"], cluster="c"),
+            _make_fp("FB2", "PI_FILTER_FB", ["+5V_CLEAN", "+5V"], cluster="c"),
         ]
         adapter = MagicMock()
         adapter.get_footprints.return_value = fps
@@ -417,8 +454,8 @@ class TestResolveRolesByNets:
         the sheet can tell two physical copies apart."""
         tpl = Cell(name="t", components=[TemplateComponentSlot(role="PI_FB")])
         fps = [
-            _make_fp_with_sheet("FB10", "PI_FB", ["NET1"], "sheet-uuid-0"),
-            _make_fp_with_sheet("FB4", "PI_FB", ["NET1"], "sheet-uuid-1"),
+            _make_fp_with_sheet("FB10", "PI_FB", ["NET1"], "sheet-uuid-0", cluster="c"),
+            _make_fp_with_sheet("FB4", "PI_FB", ["NET1"], "sheet-uuid-1", cluster="c"),
         ]
         adapter = MagicMock()
         adapter.get_footprints.return_value = fps
@@ -441,8 +478,8 @@ class TestResolveRolesByNets:
         it (it narrows only the external anchor, see resolve_footprint_by_role)."""
         tpl = Cell(name="t", components=[TemplateComponentSlot(role="PI_FB")])
         fps = [
-            _make_fp_with_sheet("FB10", "PI_FB", ["NET1"], "sheet-uuid-0"),
-            _make_fp_with_sheet("FB4", "PI_FB", ["NET1"], "sheet-uuid-1"),
+            _make_fp_with_sheet("FB10", "PI_FB", ["NET1"], "sheet-uuid-0", cluster="c"),
+            _make_fp_with_sheet("FB4", "PI_FB", ["NET1"], "sheet-uuid-1", cluster="c"),
         ]
         adapter = MagicMock()
         adapter.get_footprints.return_value = fps
@@ -468,10 +505,11 @@ class TestResolveRolesByNets:
 
     def test_ambiguous_match_raises_with_both_refs(self):
         tpl = Cell(name="t3", components=[TemplateComponentSlot(role="X")])
-        fps = [_make_fp("A", "X", ["NET1"]), _make_fp("B", "X", ["NET1"])]
+        fps = [_make_fp("A", "X", ["NET1"], cluster="y"),
+               _make_fp("B", "X", ["NET1"], cluster="y")]
         adapter = MagicMock()
         adapter.get_footprints.return_value = fps
-        adapter.get_field_value.side_effect = lambda fp, name: fp._role
+        adapter.get_field_value.side_effect = _role_or_cluster
         adapter.get_footprint_pads.side_effect = _get_pads
 
         clone = ClonePlacement(cluster="y", cell="t3", xy=(0, 0), nets={"X": "NET1"})
@@ -480,10 +518,10 @@ class TestResolveRolesByNets:
 
     def test_no_match_found_raises(self):
         tpl = Cell(name="t4", components=[TemplateComponentSlot(role="X")])
-        fps = [_make_fp("A", "X", ["SOME_OTHER_NET"])]
+        fps = [_make_fp("A", "X", ["SOME_OTHER_NET"], cluster="z")]
         adapter = MagicMock()
         adapter.get_footprints.return_value = fps
-        adapter.get_field_value.side_effect = lambda fp, name: fp._role
+        adapter.get_field_value.side_effect = _role_or_cluster
         adapter.get_footprint_pads.side_effect = _get_pads
 
         clone = ClonePlacement(cluster="z", cell="t4", xy=(0, 0), nets={"X": "NO_SUCH_NET"})
@@ -507,10 +545,10 @@ class TestResolveRolesByNets:
         """Component(s) with the role exist, but not on the expected net — the
         message must name the nets they actually sit on."""
         tpl = Cell(name="t6", components=[TemplateComponentSlot(role="X")])
-        fps = [_make_fp("A", "X", ["ACTUAL_NET"])]
+        fps = [_make_fp("A", "X", ["ACTUAL_NET"], cluster="z")]
         adapter = MagicMock()
         adapter.get_footprints.return_value = fps
-        adapter.get_field_value.side_effect = lambda fp, name: fp._role
+        adapter.get_field_value.side_effect = _role_or_cluster
         adapter.get_footprint_pads.side_effect = _get_pads
 
         clone = ClonePlacement(cluster="z", cell="t6", xy=(0, 0), nets={"X": "EXPECTED_NET"})
@@ -536,12 +574,14 @@ class TestResolveRolesByNets:
         # PI_FILTER_FB — exists but on a different net.
         # FB_FILTER_C3 — exists and correctly connected.
         fps = [
-            _make_fp("C99", "PI_FILTER_FB", ["+3V3"]),       # wrong net (expected +3V3_VCCIO)
-            _make_fp("C100", "FB_FILTER_C3", ["+3V3_VCCIO"]),  # correct
+            _make_fp("C99", "PI_FILTER_FB", ["+3V3"],
+                     cluster="power_filter_vccio"),            # wrong net (expected +3V3_VCCIO)
+            _make_fp("C100", "FB_FILTER_C3", ["+3V3_VCCIO"],
+                     cluster="power_filter_vccio"),             # correct
         ]
         adapter = MagicMock()
         adapter.get_footprints.return_value = fps
-        adapter.get_field_value.side_effect = lambda fp, name: fp._role
+        adapter.get_field_value.side_effect = _role_or_cluster
         adapter.get_footprint_pads.side_effect = _get_pads
 
         clone = ClonePlacement(cluster="power_filter_vccio", cell="pi_filter", xy=(0, 0),
@@ -558,10 +598,11 @@ class TestResolveRolesByNets:
         """refs in ClonePlacement must have highest priority, bypassing net‑based search."""
         tpl = Cell(name="t", components=[TemplateComponentSlot(role="X")])
         # Two candidates on the same net, but refs points to a specific one
-        fps = [_make_fp("A", "X", ["NET1"]), _make_fp("B", "X", ["NET1"])]
+        fps = [_make_fp("A", "X", ["NET1"], cluster="c"),
+               _make_fp("B", "X", ["NET1"], cluster="c")]
         adapter = MagicMock()
         adapter.get_footprints.return_value = fps
-        adapter.get_field_value.side_effect = lambda fp, name: fp._role
+        adapter.get_field_value.side_effect = _role_or_cluster
         adapter.get_footprint_pads.side_effect = _get_pads
 
         clone = ClonePlacement(cluster="c", cell="t", xy=(0, 0),
@@ -598,13 +639,13 @@ class TestResolveRolesByNetsPlacementSheet:
 
     def test_narrows_ambiguous_global_net_to_one(self):
         fps = [
-            _make_fp_with_sheet("C10", "CAP_IN", ["+3V3"], "sheet-uuid-0"),
-            _make_fp_with_sheet("C20", "CAP_IN", ["+3V3"], "sheet-uuid-1"),
-            _make_fp_with_sheet("C30", "CAP_IN", ["+3V3"], "sheet-uuid-2"),
+            _make_fp_with_sheet("C10", "CAP_IN", ["+3V3"], "sheet-uuid-0", cluster="c1"),
+            _make_fp_with_sheet("C20", "CAP_IN", ["+3V3"], "sheet-uuid-1", cluster="c1"),
+            _make_fp_with_sheet("C30", "CAP_IN", ["+3V3"], "sheet-uuid-2", cluster="c1"),
         ]
         adapter = MagicMock()
         adapter.get_footprints.return_value = fps
-        adapter.get_field_value.side_effect = lambda fp, name: fp._role
+        adapter.get_field_value.side_effect = _role_or_cluster
         adapter.get_footprint_pads.side_effect = _get_pads
         adapter.get_selected_items.return_value = []
         sheet_names = {"sheet-uuid-0": "Channel_0", "sheet-uuid-1": "Channel_1", "sheet-uuid-2": "Channel_2"}
@@ -623,12 +664,12 @@ class TestResolveRolesByNetsPlacementSheet:
         NOT be substituted: the literal string matches no sheet, so the
         ambiguity is reported rather than silently narrowing."""
         fps = [
-            _make_fp_with_sheet("C10", "CAP_IN", ["+3V3"], "sheet-uuid-0"),
-            _make_fp_with_sheet("C20", "CAP_IN", ["+3V3"], "sheet-uuid-1"),
+            _make_fp_with_sheet("C10", "CAP_IN", ["+3V3"], "sheet-uuid-0", cluster="c1"),
+            _make_fp_with_sheet("C20", "CAP_IN", ["+3V3"], "sheet-uuid-1", cluster="c1"),
         ]
         adapter = MagicMock()
         adapter.get_footprints.return_value = fps
-        adapter.get_field_value.side_effect = lambda fp, name: fp._role
+        adapter.get_field_value.side_effect = _role_or_cluster
         adapter.get_footprint_pads.side_effect = _get_pads
         adapter.get_selected_items.return_value = []
         sheet_names = {"sheet-uuid-0": "Channel_0", "sheet-uuid-1": "Channel_1"}
@@ -644,13 +685,13 @@ class TestResolveRolesByNetsPlacementSheet:
         3 -> 2, not enough; the fatal message must say so (naming the sheet
         value) instead of the old Cluster-only wording."""
         fps = [
-            _make_fp_with_sheet("C10", "CAP_IN", ["+3V3"], "sheet-uuid-0"),
-            _make_fp_with_sheet("C11", "CAP_IN", ["+3V3"], "sheet-uuid-0"),
-            _make_fp_with_sheet("C20", "CAP_IN", ["+3V3"], "sheet-uuid-1"),
+            _make_fp_with_sheet("C10", "CAP_IN", ["+3V3"], "sheet-uuid-0", cluster="c1"),
+            _make_fp_with_sheet("C11", "CAP_IN", ["+3V3"], "sheet-uuid-0", cluster="c1"),
+            _make_fp_with_sheet("C20", "CAP_IN", ["+3V3"], "sheet-uuid-1", cluster="c1"),
         ]
         adapter = MagicMock()
         adapter.get_footprints.return_value = fps
-        adapter.get_field_value.side_effect = lambda fp, name: fp._role
+        adapter.get_field_value.side_effect = _role_or_cluster
         adapter.get_footprint_pads.side_effect = _get_pads
         adapter.get_selected_items.return_value = []
         sheet_names = {"sheet-uuid-0": "Channel_0", "sheet-uuid-1": "Channel_1"}
@@ -669,12 +710,12 @@ class TestResolveRolesByNetsPlacementSheet:
         the "neither sheet nor Cluster set" branch is unreachable) instead of
         the old anchor_cluster/anchor_sheet wording."""
         fps = [
-            _make_fp("A", "CAP_IN", ["+3V3"]),
-            _make_fp("B", "CAP_IN", ["+3V3"]),
+            _make_fp("A", "CAP_IN", ["+3V3"], cluster="c1"),
+            _make_fp("B", "CAP_IN", ["+3V3"], cluster="c1"),
         ]
         adapter = MagicMock()
         adapter.get_footprints.return_value = fps
-        adapter.get_field_value.side_effect = lambda fp, name: fp._role
+        adapter.get_field_value.side_effect = _role_or_cluster
         adapter.get_footprint_pads.side_effect = _get_pads
         adapter.get_selected_items.return_value = []
 
@@ -1208,7 +1249,7 @@ class TestResolveRolesByNetsAutoDerive:
         tpl = Cell(name="dac", components=[
             TemplateComponentSlot(role="DAC_DB1_CAP", net_template="/Channel_{channel}/DAC/DB1"),
         ])
-        fps = [_make_fp("C50", "DAC_DB1_CAP", ["/Channel_0/DAC/DB1"], cluster="Channel_0")]
+        fps = [_make_fp("C50", "DAC_DB1_CAP", ["/Channel_0/DAC/DB1"], cluster="Channel_1")]
         adapter = self._adapter(fps)
         # params explicitly say channel 0; the placement Cluster is Channel_1 —
         # the parametrized net is respected as written (no remap).

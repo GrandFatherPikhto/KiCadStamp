@@ -105,7 +105,10 @@ def _live_copper():
 
 class TestResolveCloneBoardItems:
     def test_by_nets_components_plus_registry_copper(self, tmp_path):
-        fps = [_make_fp("R1", "A", nets=["NET_A"]), _make_fp("R2", "B", nets=["NET_B"])]
+        # Parts wear the clone's own cluster tag (plan 2026-10-13): the by-nets
+        # resolver only considers components of the entity's cluster.
+        fps = [_make_fp("R1", "A", nets=["NET_A"], cluster="myclone"),
+               _make_fp("R2", "B", nets=["NET_B"], cluster="myclone")]
         adapter = _by_nets_adapter(fps)
         via, track = _live_copper()
         by_uuid = {"via-1": via, "track-1": track}
@@ -122,7 +125,8 @@ class TestResolveCloneBoardItems:
         assert items == [fps[0], fps[1], via, track]
 
     def test_by_selection_components(self):
-        fps = [_make_fp("R1", "A"), _make_fp("R2", "B")]
+        fps = [_make_fp("R1", "A", cluster="myclone"),
+               _make_fp("R2", "B", cluster="myclone")]
         adapter = _by_nets_adapter(fps)
         adapter.get_selected_items.return_value = fps
         clone = ClonePlacement(cluster="myclone", cell="cella", xy=(0.0, 0.0),
@@ -135,7 +139,8 @@ class TestResolveCloneBoardItems:
         assert items == fps
 
     def test_copper_excludes_other_anchor_ids(self, tmp_path):
-        fps = [_make_fp("R1", "A", nets=["NET_A"]), _make_fp("R2", "B", nets=["NET_B"])]
+        fps = [_make_fp("R1", "A", nets=["NET_A"], cluster="myclone"),
+               _make_fp("R2", "B", nets=["NET_B"], cluster="myclone")]
         adapter = _by_nets_adapter(fps)
         via, track = _live_copper()
         by_uuid = {"via-1": via, "track-1": track, "via-foreign": via}
@@ -156,7 +161,8 @@ class TestResolveCloneBoardItems:
     def test_nothing_registered_returns_components_only(self, tmp_path):
         """No registry files at all -> no copper, but the (already on board)
         components still resolve — the empty-copper case must not crash."""
-        fps = [_make_fp("R1", "A", nets=["NET_A"]), _make_fp("R2", "B", nets=["NET_B"])]
+        fps = [_make_fp("R1", "A", nets=["NET_A"], cluster="myclone"),
+               _make_fp("R2", "B", nets=["NET_B"], cluster="myclone")]
         adapter = _by_nets_adapter(fps)
         adapter.get_items_by_id = None
 
@@ -172,7 +178,8 @@ class TestResolveCloneBoardItems:
     def test_scan_fallback_when_no_get_items_by_id(self, tmp_path):
         """A bare adapter double (no get_items_by_id) falls back to a single
         get_vias()+get_tracks() scan keyed by uuid."""
-        fps = [_make_fp("R1", "A", nets=["NET_A"]), _make_fp("R2", "B", nets=["NET_B"])]
+        fps = [_make_fp("R1", "A", nets=["NET_A"], cluster="myclone"),
+               _make_fp("R2", "B", nets=["NET_B"], cluster="myclone")]
         adapter = _by_nets_adapter(fps)
         adapter.get_items_by_id = None
         via, track = _live_copper()

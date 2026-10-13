@@ -92,11 +92,31 @@ def unknown_extension_config_error(path, suffix: str) -> "ValidationError":
         [_("use .sexp (the project's main format) or .json")]))
 
 
-def format_fatal_error(title: str, problems: list) -> str:
+def read_only_verdict() -> str:
+    """The footer of a READ-ONLY refusal — the honest counterpart of the usual
+    "Placement stopped, board not modified. Fix the config and run again."
+    (2026-10-13, plan_2026_10_13_cluster_confined_roles, rule 4).
+
+    A read (the "Read current position" button, an overlay frame, a tree-node
+    live read) places and modifies NOTHING, so the ordinary footer is false
+    twice over: the run did not stop mid-placement, and the config is usually
+    not what has to be fixed — the board or the schematic is. Kept beside its
+    sibling so _fatal_block_marker can recognise both."""
+    return _("Nothing was placed or modified on the board — this was a read-only check.")
+
+
+def format_fatal_error(title: str, problems: list, *,
+                       verdict: str | None = None) -> str:
     """
     Common fatal error formatter – used both in config.py (checks at YAML load)
     and validation.py (checks after connecting to KiCad). Lives here to avoid
     circular imports (validation.py imports config.py).
+
+    `verdict` (2026-10-13, plan_2026_10_13_cluster_confined_roles, rule 4) — the
+    closing line, for the paths whose default one would be a lie. None keeps the
+    historical footer BYTE FOR BYTE (CLI, apply, MCP — every path that really
+    stops a placement); a read-only path passes read_only_verdict(), and an
+    empty string drops the footer altogether.
     """
     lines = [
         "",
@@ -107,19 +127,35 @@ def format_fatal_error(title: str, problems: list) -> str:
     for p in problems:
         lines.append(f"  ✗ {p}")
     lines.append("=" * 70)
-    lines.append(_("Placement stopped, board not modified. Fix the config and run again."))
+    if verdict is None:
+        lines.append(_("Placement stopped, board not modified. Fix the config and run again."))
+    elif verdict:
+        lines.append(verdict)
     lines.append("")
     return "\n".join(lines)
 
 
+def format_read_fatal(title: str, problems: list) -> str:
+    """format_fatal_error for a READ-ONLY path: the same block, the honest
+    footer (rule 4, 2026-10-13). ONE entry point, so a read path can never grow
+    a second formatter of its own."""
+    return format_fatal_error(title, problems, verdict=read_only_verdict())
+
+
 def _fatal_block_marker() -> tuple:
-    """(heading marker, verdict) of a format_fatal_error() block — the two
+    """(heading marker, verdict lines) of a format_fatal_error() block — the
     localized msgids the formatter BUILT the block with, so the parser and the
     formatter cannot drift apart (the same discipline fatal_error_reason's
-    docstring describes: structure, not an English prefix)."""
+    docstring describes: structure, not an English prefix).
+
+    The verdicts travel as a TUPLE because a block ends with one of two honest
+    footers since 2026-10-13 (the ordinary one, or the read-only one of rule 4)."""
     heading = _("  FATAL ERROR: {title}").split("{title}", 1)[0].strip()
-    verdict = _("Placement stopped, board not modified. Fix the config and run again.")
-    return heading, verdict
+    verdicts = (
+        _("Placement stopped, board not modified. Fix the config and run again."),
+        _("Nothing was placed or modified on the board — this was a read-only check."),
+    )
+    return heading, verdicts
 
 
 def fatal_error_reason(error, *, title_only: bool = False) -> str:
@@ -153,14 +189,14 @@ def fatal_error_reason(error, *, title_only: bool = False) -> str:
     verbatim, and the default mode keeps the previous line-per-reason join — a
     plain single-line ValidationError reads the same in both modes."""
     text = str(error)
-    heading, verdict = _fatal_block_marker()
+    heading, verdicts = _fatal_block_marker()
     raw_lines = text.splitlines()
     # A real format_fatal_error() block carries 70-character '=' rules; a lone
     # '=' inside a plain message must not count as a box.
     structured = any(len(ln.strip()) >= 3 and set(ln.strip()) == {"="}
                      for ln in raw_lines)
     body = [ln.strip() for ln in raw_lines]
-    body = [ln for ln in body if ln and set(ln) != {"="} and ln != verdict]
+    body = [ln for ln in body if ln and set(ln) != {"="} and ln not in verdicts]
     if not body:
         return text.strip()
     if heading and body[0].startswith(heading):
@@ -197,9 +233,9 @@ def strip_fatal_block(text) -> str:
     if not any(len(ln.strip()) >= 3 and set(ln.strip()) == {"="}
                for ln in raw_lines):
         return text
-    _heading, verdict = _fatal_block_marker()
+    _heading, verdicts = _fatal_block_marker()
     kept = [ln for ln in raw_lines
-            if set(ln.strip()) != {"="} and ln.strip() != verdict]
+            if set(ln.strip()) != {"="} and ln.strip() not in verdicts]
     while kept and not kept[0].strip():
         kept.pop(0)
     while kept and not kept[-1].strip():

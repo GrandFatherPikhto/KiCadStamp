@@ -16,7 +16,7 @@ from kicadstamp.config import (
     TemplateVia, TemplateComponentSlot
 )
 from kicadstamp.placement.planner import PlacementPlanner
-from kicadstamp.constants import CELL_LEVEL_ROLE_PLACEHOLDER
+from kicadstamp.constants import CELL_LEVEL_ROLE_PLACEHOLDER, CLUSTER_FIELD_NAME
 from tests.fakes.format3 import stamp_config
 
 MM = 1_000_000
@@ -44,10 +44,11 @@ def _make_pad(number, x_mm, y_mm, net_name):
     return pad
 
 
-def _make_fp(ref, role=None, nets=None):
+def _make_fp(ref, role=None, nets=None, cluster=None):
     fp = Footprint(ref=ref, uuid=f"uuid-{ref}", position=Vector2.from_xy(0, 0),
                    angle_deg=0.0, layer=BoardLayer.BL_F_Cu)
     fp._role = role
+    fp._cluster = cluster
     fp.definition = MagicMock()
     fp.definition.items = [_make_pad("1", 0, 0, n) for n in (nets or [])]
     return fp
@@ -73,13 +74,18 @@ def test_clone_placements_only_via_selection():
         clone_placements=[clone],
     )
 
-    y3 = _make_fp("Y3", role="XTAL")
-    c20 = _make_fp("C20", role="LOAD_CAP")
+    # Selected parts carry the clone's own cluster (plan 2026-10-13): a
+    # selection contradicting the entity's cluster is refused, so a fake board
+    # tags them the way a real one would.
+    y3 = _make_fp("Y3", role="XTAL", cluster="crystal2")
+    c20 = _make_fp("C20", role="LOAD_CAP", cluster="crystal2")
 
     adapter = MagicMock()
     adapter.get_footprint.side_effect = lambda ref: ic1 if ref == "IC1" else None
     adapter.get_selected_items.return_value = [y3, c20]
-    adapter.get_field_value.side_effect = lambda fp, name: fp._role
+    adapter.get_field_value.side_effect = lambda fp, name: (
+        getattr(fp, "_cluster", None) if name == CLUSTER_FIELD_NAME
+        else getattr(fp, "_role", None))
     adapter.get_net_by_name.return_value = MagicMock()
     adapter.get_bounding_boxes.return_value = []
     adapter.get_footprint_pads.return_value = []

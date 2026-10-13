@@ -49,9 +49,9 @@ from .i18n import _
 from .utils.units import MM
 
 __all__ = [
-    "DuplicateCopy", "duplicate_refdes_groups", "duplicate_log_lines",
-    "duplicate_short_reason", "orphan_short_reason", "duplicate_summary_line",
-    "refdes_duplicate_of",
+    "DuplicateCopy", "duplicate_copy_of", "duplicate_refdes_groups",
+    "duplicate_log_lines", "duplicate_short_reason", "orphan_short_reason",
+    "duplicate_summary_line", "refdes_duplicate_of",
 ]
 
 
@@ -116,15 +116,41 @@ def _on_schematic(record) -> bool:
 def _position_mm(record) -> tuple[Optional[float], Optional[float]]:
     """The record's position in millimetres, or (None, None) when the shape has
     no readable ``position`` (see the module docstring: the GUI's Part has none).
-    ``Vector2`` is in nanometres, the same unit every planner reads."""
+    ``Vector2`` is in nanometres, the same unit every planner reads.
+
+    A coordinate that is not a NUMBER counts as "not read" (a test double whose
+    ``position.x`` is itself a mock, or a foreign record shape): the sentence
+    that names a component must render, never raise — "position not read" is the
+    honest answer there (found 2026-10-13, the refusals of
+    role_conflict_reasons rendered the position of MagicMock footprints)."""
     pos = getattr(record, "position", None)
     if pos is None:
         return None, None
     x = getattr(pos, "x", None)
     y = getattr(pos, "y", None)
-    if x is None or y is None:
+    if not isinstance(x, (int, float)) or not isinstance(y, (int, float)):
         return None, None
     return x / MM, y / MM
+
+
+def duplicate_copy_of(record) -> DuplicateCopy:
+    """ONE live record as a ``DuplicateCopy`` — the shared reader of the three
+    identity fields (refdes, uuid, position) plus the schematic link.
+
+    Split out 2026-10-13 (plan plan_2026_10_13_cluster_confined_roles.md) so the
+    refusal of a role that is not unique inside its own cluster
+    (``role_conflict_reasons.py``) names its components through the SAME reader
+    as the duplicate-refdes guard below — one place that decides what a copy IS,
+    never a second copy of the ``position``/``uuid``/``sheet_path`` reading. The
+    group loop below is the code it always was, with this call in the middle."""
+    x_mm, y_mm = _position_mm(record)
+    return DuplicateCopy(
+        ref=_refdes_of(record) or "",
+        uuid=_uuid_text(record),
+        x_mm=x_mm,
+        y_mm=y_mm,
+        on_schematic=_on_schematic(record),
+    )
 
 
 def duplicate_refdes_groups(records: Iterable, refs: Iterable | None = None
@@ -144,19 +170,12 @@ def duplicate_refdes_groups(records: Iterable, refs: Iterable | None = None
     wanted = None if refs is None else {str(r) for r in refs}
     by_ref: dict[str, list[DuplicateCopy]] = {}
     for record in records or ():
-        ref = _refdes_of(record)
-        if not ref:
+        copy = duplicate_copy_of(record)
+        if not copy.ref:
             continue
-        if wanted is not None and ref not in wanted:
+        if wanted is not None and copy.ref not in wanted:
             continue
-        x_mm, y_mm = _position_mm(record)
-        by_ref.setdefault(ref, []).append(DuplicateCopy(
-            ref=ref,
-            uuid=_uuid_text(record),
-            x_mm=x_mm,
-            y_mm=y_mm,
-            on_schematic=_on_schematic(record),
-        ))
+        by_ref.setdefault(copy.ref, []).append(copy)
     return {ref: tuple(copies) for ref, copies in by_ref.items() if len(copies) > 1}
 
 

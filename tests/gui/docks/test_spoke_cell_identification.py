@@ -191,30 +191,46 @@ def test_c3_ref_absent_from_the_board_is_a_stale_fatal():
     assert "is not on the live board" in title
 
 
-# ── С4/М4 — without refs, a spoke says WHY (multiplicity), not 'no footprint' ─
+# ── С4/М4 — without refs, the refusal says WHY and names the components ─────
 
-def test_c4_spoke_without_refs_reports_the_role_multiplicity():
-    """С4: no refs (an old remembered context) on a spoke cluster — the honest
-    message names the repeated role and its count and tells the user which button
-    identifies the instance. 'has no footprint in cluster' stays reserved for a
-    role that is genuinely absent."""
+def test_c4_role_standing_several_times_reports_the_role_conflict():
+    """С4 — subject changed by Denis's decision (2026-10-13, plan
+    plan_2026_10_13_cluster_confined_roles, rules 3/4), fake board unchanged:
+    with no refs (an old remembered context) a role that stands several times in
+    the cluster is refused with the SAME wording the apply path uses — the
+    components are NAMED (ref + short uuid + position) and the fix is stated
+    ("give them distinct roles in the schematic"). 'has no footprint in cluster'
+    stays reserved for a genuinely absent role; the withdrawn "this is a spoke
+    cell … Fill from selection" wording is GONE (spokes were removed
+    2026-10-12), and the footer is the honest read-only one."""
     adapter = _SpokeAdapter(pairs=4)
 
     with pytest.raises(ValidationError) as ei:
         live_position._live_cluster_frame(adapter, _spoke_cell(), CLUSTER, "", {})
 
-    title = _fatal_title(str(ei.value))
-    assert "occurs 4 times" in title
-    assert BULK in title
-    assert CLUSTER in title
-    assert "no footprint" not in title
-    assert "Fill from selection" in str(ei.value)
+    text = str(ei.value)
+    title = _fatal_title(text)
+    # The headline names the cell and its cluster; the role and its components
+    # follow in the problem lines.
+    assert "fpga_pwr_bank" in title and CLUSTER in title
+    assert BULK in text
+    assert "no footprint" not in text
+    # The components themselves, with their short uuid and position:
+    assert "C60" in text and "u-C60" in text
+    assert "100.000, 200.000 mm" in text
+    assert "distinct roles" in text
+    # ...and none of the withdrawn wording (rule 3), nor the false config footer:
+    assert "spoke" not in text.lower()
+    assert "Fill from selection" not in text
+    assert "Fix the config" not in text
+    assert "read-only check" in text
 
 
 def test_c4b_duplicated_role_is_refused_even_when_another_role_resolves():
     """С4b: a HALF-spoke (one role repeated, another unique) must not quietly use
     the unique role — that would draw the overlay of an instance the user never
-    picked. Any repeated cell role makes the cluster search unusable."""
+    picked. Any repeated cell role makes the cluster search unusable, and the
+    refusal names the repeated role's components."""
     cell = _spoke_cell()
     adapter = _SpokeAdapter(pairs=2)
     # BYPASS is unique in the cluster now: only C61 survives.
@@ -223,9 +239,11 @@ def test_c4b_duplicated_role_is_refused_even_when_another_role_resolves():
     with pytest.raises(ValidationError) as ei:
         live_position._live_cluster_frame(adapter, cell, CLUSTER, "", {})
 
-    title = _fatal_title(str(ei.value))
-    assert "occurs 2 times" in title
-    assert BULK in title
+    text = str(ei.value)
+    _title = _fatal_title(text)
+    assert BULK in text
+    assert "C60" in text and "C62" in text
+    assert "distinct roles" in text
 
 
 # ── The genuinely-absent case keeps its own message ────────────────────────
