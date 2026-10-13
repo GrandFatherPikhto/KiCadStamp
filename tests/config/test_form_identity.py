@@ -92,7 +92,6 @@ def test_a_target_without_a_uuid_carries_nothing_and_is_not_a_refusal():
 # with (`section_uuids`).
 _RECORDS = {
     "entities": ("E1", "U-ENT"),
-    "clone_placements": ("CP1", "U-CP"),
     "coordinate_placements": ("K1", "U-COORD"),
     "net_traces": ("NT1", "U-NT"),
     "points": ("P1", "U-POINT"),

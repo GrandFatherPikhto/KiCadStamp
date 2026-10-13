@@ -40,8 +40,11 @@ _F3_FREE_SECTIONS = ("extract_profiles", "clone_profiles", "sheet_templates")
 # reference field on a record -> the section its `<field>_uuid` resolves in.
 _F3_REF_TARGET = {"cell": "cells", "imprint": "imprints", "anchor_point": "points"}
 # tree node kind -> the section its `ref_uuid` resolves in (Н2). Local kinds
-# (module/mount/copper/component) and "external" reference no record.
-_F3_NODE_KIND_TARGET = {"placement": "entities", "clone": "clone_placements",
+# (module/mount/copper/component) and "external" reference no record; the legacy
+# "clone" kind went with the retired `clone_placements:` section (2026-10-13,
+# plan_2026_10_08_remove_placer) — a clone node is refused at parse, so it can no
+# longer name a record here.
+_F3_NODE_KIND_TARGET = {"placement": "entities",
                         "coordinate": "coordinate_placements",
                         "net_trace": "net_traces", "point": "points"}
 

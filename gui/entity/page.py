@@ -61,8 +61,10 @@ from .read_only import ReadOnlyGate, reason_for
 logger = logging.getLogger(__name__)
 
 # Placement-node kinds that carry an Entity name in node.ref (kind "module"
-# refs are TREE names, never entities; kind None = auto/clone-aliased).
-_PLACEMENT_KINDS = (None, "placement", "clone")
+# refs are TREE names, never entities; kind None = auto-resolved by name). The
+# legacy "clone" kind went with the retired `clone_placements:` section
+# (2026-10-13, plan_2026_10_08_remove_placer).
+_PLACEMENT_KINDS = (None, "placement")
 
 _GREY = QColor("#888888")
 

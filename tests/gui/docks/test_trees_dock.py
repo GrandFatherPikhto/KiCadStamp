@@ -1826,7 +1826,10 @@ def test_node_dialog_read_position_fills_xy_and_rotation(main_window, tmp_path, 
     monkeypatch.setattr(td_mod, "_resolve_live_offset",
                         lambda *a, **k: ((10.0, 5.0), 90.0))
     dlg = _build_dialog(dock, tree, parent)
-    dlg.kind_combo.setCurrentIndex(dlg.kind_combo.findData("clone"))
+    # "external" (free-text ref) is the live carrier here — the retired "clone"
+    # kind left the Kind combo with Д3 (plan_2026_10_08_remove_placer); the cell's
+    # subject is the read-position flow, not the kind.
+    dlg.kind_combo.setCurrentIndex(dlg.kind_combo.findData("external"))
     dlg.ref_combo.setCurrentText("C_OUT")
     assert dlg.read_position_button.isEnabled() is True
 
@@ -1878,7 +1881,7 @@ def test_node_dialog_read_position_logs_error_when_no_live_connection(
     dlg = _NodeDialog(dock, dock._all_ref_candidates(), dock._used_refs(),
                       "Add child", cfg=dock._cfg, adapter=None,
                       sheet_names={}, tree=tree, parent_node=None)
-    dlg.kind_combo.setCurrentIndex(dlg.kind_combo.findData("clone"))
+    dlg.kind_combo.setCurrentIndex(dlg.kind_combo.findData("external"))
     dlg.ref_combo.setCurrentText("C_OUT")
     dlg._on_read_position()
 
@@ -4152,7 +4155,7 @@ def test_node_form_build_for_copper_needs_no_coordinates(monkeypatch):
     assert node.ref == "2v5_oa__dac_buf__pif_oa_n2v5"
     assert node.xy is None and node.polar is None and node.rotation == 0.0
 
-    dlg.kind_combo.setCurrentIndex(dlg.kind_combo.findData("clone"))
+    dlg.kind_combo.setCurrentIndex(dlg.kind_combo.findData("external"))
     dlg.ref_combo.setCurrentText("C_OUT")
     assert dlg.build_node() is None
     assert shown and "is required" in str(shown[-1])
@@ -4178,7 +4181,7 @@ def test_node_form_copper_rows_are_hidden_not_removed():
     assert dlg.offset_widget.parentWidget() is dlg.offset_row
     assert dlg.rotation_edit.parentWidget() is dlg.rotation_row
 
-    dlg.kind_combo.setCurrentIndex(dlg.kind_combo.findData("clone"))
+    dlg.kind_combo.setCurrentIndex(dlg.kind_combo.findData("external"))
     assert dlg.offset_row.isVisibleTo(dlg) is True
     assert dlg.rotation_row.isVisibleTo(dlg) is True
     assert dlg.read_position_button.isVisibleTo(dlg) is True
@@ -5751,7 +5754,7 @@ def test_kind_switch_shows_and_hides_the_tab_and_the_picker_together(
     idx = dlg._position_tab_index
 
     for kind, visible in (("mount", True), ("placement", False),
-                          ("mount", True), ("clone", False)):
+                          ("mount", True), ("external", False)):
         dlg.kind_combo.setCurrentIndex(dlg.kind_combo.findData(kind))
         assert dlg.tabs.isTabVisible(idx) is visible
         assert dlg.mount_anchor_widget.isHidden() is (not visible)

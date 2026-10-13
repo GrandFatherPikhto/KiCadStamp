@@ -27,8 +27,9 @@ Syntactic rules enforced here (fatal via ValidationError):
      a mount/copper ref must still be unique WITHIN its tree and must not
      collide with a positioned node's ref there (see _validate_local_refs)
   3. xy / polar are mutually exclusive, each exactly 2 numbers
-  4. kind, if present, is one of clone/placement/coordinate/net_trace/
-     point/external/module/mount/copper (see KINDS)
+  4. kind, if present, is one of placement/coordinate/net_trace/point/
+     external/module/mount/copper/component (see KINDS). The legacy "clone"
+     kind is REFUSED by name (RETIRED_NODE_KINDS) — see the KINDS note above.
   5. cycles are impossible by construction (nested s-expr structure)
   6. a nested (anchor (role ...)) is valid ONLY on a kind "mount" node; on any
      other kind it is the removed own_anchor grammar and is a load-time fatal
@@ -51,9 +52,11 @@ if TYPE_CHECKING:
 # Valid node kinds (syntactic whitelist; cross-referencing against Config
 # records is link_trees' job).
 # "placement" — the Entity/Placement split's kind for Entity-nodes (2026-08-30,
-# design_2026_08_30_entity_placement_grammar.md §2.2). "clone" is KEPT alongside
-# during the migration so legacy clone_placement-referencing trees keep working;
-# the release cutover (Phase 6 converter) rewrites "clone" -> "placement".
+# design_2026_08_30_entity_placement_grammar.md §2.2). The legacy "clone" kind
+# went with the retired `clone_placements:` section (2026-10-13, plan
+# plan_2026_10_08_remove_placer): it is still PARSED (via RETIRED_NODE_KINDS, so a
+# file that carries it is refused BY NAME with file + tree + ref), but it is no
+# longer a valid kind.
 # "net_trace" — 2026-09-01 rework, phase D: inter-cluster copper becomes a tree
 # node (ref = the net name, resolved to a net_traces: record by link_trees via
 # by_key "net_trace:<net>"). Deliberately NOT auto-searched (requires an explicit
@@ -100,7 +103,7 @@ if TYPE_CHECKING:
 # redraw and emits its own name into the redraw plan (Э3/Р2) — the placement
 # itself is materialized as a TRANSIENT CoordinatePlacement (zero phase), never
 # written into the config.
-KINDS = ("clone", "placement", "coordinate", "net_trace", "point",
+KINDS = ("placement", "coordinate", "net_trace", "point",
          "external", "module", "mount", "copper", "component")
 
 # Kinds whose ref is a NAME local to the trees file instead of a config record,
@@ -195,7 +198,7 @@ class TreeAnchor:
 @dataclass
 class TreeNode:
     ref: str
-    kind: str | None       # "clone"/"coordinate"/"point"/"external"/"module"/"mount"/"copper"/"component", or None (auto)
+    kind: str | None       # "placement"/"coordinate"/"point"/"external"/"module"/"mount"/"copper"/"component", or None (auto)
     xy: tuple[float, float] | None
     polar: tuple[float, float] | None   # (radius_mm, angle_deg)
     rotation: float
@@ -641,7 +644,7 @@ def _validate_copper_container(nodes: list[TreeNode], tree_name: str) -> None:
                      "\"net_trace\" (inter-node copper) nodes"))
 
 
-_PLACEMENT_KINDS = ("placement", "clone")
+_PLACEMENT_KINDS = ("placement",)
 
 
 def _validate_self_ref(tree_name: str, nodes: list[TreeNode],
@@ -691,7 +694,7 @@ class RolePlacementMatch:
 
     tree   — the tree that DIRECTLY contains `node` (== the queried tree, unless
              the role comes from a tree embedded through a module node);
-    node   — the kind "placement"/"clone" node placing the cell;
+    node   — the kind "placement" node placing the cell;
     path   — the node chain from `tree`'s top level down to `node` (inclusive);
     entity — the cfg.entities record `node.ref` resolves to;
     cell   — cfg.cells[entity.cell];
@@ -736,7 +739,7 @@ def find_role_placement_matches(cfg, tree: "Tree", role: str, *,
                 # A module node's OWN children are ordinary nodes of THIS tree.
                 walk(n.children, node_path)
                 continue
-            if n.kind in ("placement", "clone"):
+            if n.kind in _PLACEMENT_KINDS:
                 entity = _find_entity(cfg, n.ref)
                 if entity is None:
                     continue

@@ -53,7 +53,7 @@ from dataclasses import dataclass
 from .anchor_graph import Record, build_records, record_key
 from .exceptions import ValidationError
 from .i18n import _
-from .trees import KINDS, Tree, TreeAnchor, TreeNode
+from .trees import Tree, TreeAnchor, TreeNode
 
 # The sections a node/anchor can auto-search without an explicit kind.
 # net_trace IS a valid node kind (2026-09-01, phase D) but is NOT auto-searched:
@@ -67,8 +67,16 @@ from .trees import KINDS, Tree, TreeAnchor, TreeNode
 # place a component, but owns no config record either: its ref is a local NAME
 # and the component it places is named by its own nested (anchor ...) address,
 # resolved against the live board later — never by a config record lookup here.
-_PLACEABLE_KINDS = set(KINDS) - {"external", "net_trace", "module",
-                                 "mount", "copper", "component"}
+#
+# NOTE: this is a set of RECORD kinds (`anchor_graph.Record.kind` — "clone" for a
+# clone_placements record, "placement" for an Entity, "coordinate" for a
+# coordinate_placement), NOT of tree-node kinds. It is spelled out rather than
+# derived from `trees.KINDS` on purpose: the tree-node kind "clone" was retired in
+# Д3 (2026-10-13, plan_2026_10_08_remove_placer) while the RECORD kind "clone"
+# still exists — `anchor_graph.build_records` emits it for `cfg.clone_placements`,
+# which `materialize_entity_placements` fills. Deriving it from KINDS silently
+# dropped the clone records from the auto-search index.
+_PLACEABLE_KINDS = {"clone", "placement", "coordinate", "point"}
 
 # inline position-source fields FORK-1 checks on the resolved record's obj —
 # a tree-placed record must not ALSO carry its own anchor (two sources of truth).

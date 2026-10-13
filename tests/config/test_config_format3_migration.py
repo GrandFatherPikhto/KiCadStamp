@@ -204,9 +204,6 @@ _FORMS = {
     "node_placement":
         lambda: {"entities": [{"name": "E", "cell": "c"}], "cells": _cell(),
                  "trees": [{"name": "T", "nodes": [{"kind": "placement", "ref": "E"}]}]},
-    "node_clone":
-        lambda: {"clone_placements": [{"name": "C"}],
-                 "trees": [{"name": "T", "nodes": [{"kind": "clone", "ref": "C"}]}]},
     "node_coordinate":
         lambda: {"coordinate_placements": [{"name": "C"}],
                  "trees": [{"name": "T", "nodes": [{"kind": "coordinate", "ref": "C"}]}]},
@@ -228,7 +225,6 @@ _REF_FIELD_FORMS = {
 }
 _NODE_KIND_FORMS = {
     "placement": "node_placement",
-    "clone": "node_clone",
     "coordinate": "node_coordinate",
     "net_trace": "node_net_trace",
     "point": "node_point",
