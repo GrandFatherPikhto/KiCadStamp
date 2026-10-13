@@ -32,11 +32,14 @@ from tests.fakes.format3 import without_identity
 
 
 def _sample_tree() -> Tree:
+    # The node kind is "placement" (13.10, Ч1в-6): the retired "clone" kind and
+    # its clone_placements: carrier are gone, and every cell below only ever
+    # exercised the trees SHAPE — the live Entity record rides entities: now.
     return Tree(
         name="power_tree",
         anchor=TreeAnchor(ref="CONN_PM5V", is_origin=False),
         nodes=[
-            TreeNode(ref="AMS1117_REG", kind="clone", xy=(5.0, 2.0), polar=None,
+            TreeNode(ref="AMS1117_REG", kind="placement", xy=(5.0, 2.0), polar=None,
                      rotation=0.0, name=None, group=None,
                      children=[TreeNode(ref="C_OUT", kind="module", xy=(1.0, 0), polar=None,
                                         rotation=0.0, name=None, group=None, children=[])]),
@@ -51,7 +54,9 @@ def test_tree_to_dict_roundtrip():
     d = tree_to_dict(t)
     assert d["name"] == "power_tree"
     assert d["anchor"] == {"ref": "CONN_PM5V"}
-    assert d["nodes"][0]["kind"] == "clone"
+    # The kind VALUE is what this cell carries through the bridge; the carrier
+    # kind is "placement" since 13.10 (Ч1в-6), the retired "clone" being gone.
+    assert d["nodes"][0]["kind"] == "placement"
     assert d["nodes"][0]["xy"] == [5.0, 2.0]
     assert d["nodes"][0]["children"][0]["ref"] == "C_OUT"
     assert d["nodes"][1]["polar"] == [3.0, 45.0]
@@ -136,15 +141,17 @@ def _write(tmp_path, name, text) -> Path:
 
 SEXP_WITH_TREES = dict_to_sexp({
     "layer": "B.Cu",
-    # Row 14 ("add the source"): a clone node names a clone_placements record,
+    # Row 14 ("add the source"): a placement node names an entities: record,
     # which in turn names a cells record — the format-3 load resolves both. The
     # kind-less sibling nodes become LOCAL `module` nodes (no record).
+    # 13.10 (Ч1в-6): the carrier was a clone_placements: record + kind "clone"
+    # until that section was retired — the tree SHAPE is what these cells are
+    # about, so only the carrier changed.
     "cells": {"c_ams": {}},
-    "clone_placements": [{"name": "AMS1117_REG", "cluster": "AMS_CL",
-                          "cell": "c_ams", "xy": [0.0, 0.0]}],
+    "entities": [{"name": "AMS1117_REG", "cell": "c_ams"}],
     "trees": [
         {"name": "power_tree", "anchor": {"ref": "CONN_PM5V"},
-         "nodes": [{"ref": "AMS1117_REG", "kind": "clone", "xy": [5.0, 2.0],
+         "nodes": [{"ref": "AMS1117_REG", "kind": "placement", "xy": [5.0, 2.0],
                     "children": [{"ref": "C_OUT", "kind": "module", "xy": [1.0, 0]}]},
                    {"ref": "R_AROUND", "kind": "module", "polar": [3.0, 45.0],
                     "rotation": 90.0}]},
@@ -158,11 +165,10 @@ SEXP_WITH_TREES = dict_to_sexp({
 def test_sexp_roundtrip_trees_section(tmp_path):
     data = {"layer": "B.Cu",
             "cells": {"c_ams": {}},
-            "clone_placements": [{"name": "AMS1117_REG", "cluster": "AMS_CL",
-                                  "cell": "c_ams", "xy": [0.0, 0.0]}],
+            "entities": [{"name": "AMS1117_REG", "cell": "c_ams"}],
             "trees": [
                 {"name": "power_tree", "anchor": {"ref": "CONN_PM5V"},
-                 "nodes": [{"ref": "AMS1117_REG", "kind": "clone", "xy": [5.0, 2.0],
+                 "nodes": [{"ref": "AMS1117_REG", "kind": "placement", "xy": [5.0, 2.0],
                             "children": [{"ref": "C_OUT", "kind": "module", "xy": [1.0, 0]}]},
                            {"ref": "R_AROUND", "kind": "module", "polar": [3.0, 45.0],
                             "rotation": 90.0}]},
@@ -237,16 +243,16 @@ def test_duplicate_node_ref_across_include_graph_fatal(tmp_path):
     a fatal (single seen_refs shared across the whole graph)."""
     _write(tmp_path, "sub.sexp", dict_to_sexp({
         "trees": [{"name": "t1", "anchor": {"origin": True},
-                   "nodes": [{"ref": "DUP", "kind": "clone", "xy": [0.0, 0.0]}]}],
+                   "nodes": [{"ref": "DUP", "kind": "placement", "xy": [0.0, 0.0]}]}],
     }, format_number=2))
-    # Row 14: both trees reference ONE clone_placements record DUP (the ref
-    # collision the cell asserts), whose cell target is declared here.
+    # Row 14: both trees reference ONE entities: record DUP (the ref collision
+    # the cell asserts), whose cell target is declared here. 13.10 (Ч1в-6): the
+    # carrier was a clone_placements: record + kind "clone" until it retired.
     _write(tmp_path, "root.sexp", dict_to_sexp({
         "cells": {"c_dup": {}},
-        "clone_placements": [{"name": "DUP", "cluster": "DUP_CL",
-                              "cell": "c_dup", "xy": [0.0, 0.0]}],
+        "entities": [{"name": "DUP", "cell": "c_dup"}],
         "trees": [{"name": "t2", "anchor": {"origin": True},
-                   "nodes": [{"ref": "DUP", "kind": "clone", "xy": [1.0, 1.0]}]}],
+                   "nodes": [{"ref": "DUP", "kind": "placement", "xy": [1.0, 1.0]}]}],
         "include": ["sub.sexp"],
     }, format_number=2))
     with pytest.raises(ValidationError, match="already has a node"):
@@ -259,11 +265,11 @@ def test_migrator_moves_old_trees_into_root_config(tmp_path):
     old = tmp_path / "old.trees"
     save_trees(str(old), [_sample_tree()])
     root = tmp_path / "root.sexp"
-    # Row 14: the migrated tree's clone node names this clone_placements record
-    # (and its cell); a format-3 load resolves both.
+    # Row 14: the migrated tree's placement node names this entities: record
+    # (and its cell); a format-3 load resolves both. 13.10 (Ч1в-6): the carrier
+    # was a clone_placements: record until that section was retired.
     _root_data = {"layer": "B.Cu", "cells": {"c_ams": {}},
-                  "clone_placements": [{"name": "AMS1117_REG", "cluster": "AMS_CL",
-                                        "cell": "c_ams", "xy": [0.0, 0.0]}]}
+                  "entities": [{"name": "AMS1117_REG", "cell": "c_ams"}]}
     root.write_text(dict_to_sexp(_root_data, format_number=2), encoding="utf-8")
 
     trees = migrate(root, [old])
@@ -305,11 +311,11 @@ def test_migrator_self_verify_catches_duplicate_tree_name(tmp_path, monkeypatch,
     save_trees(str(old_b), [twin])
 
     root = tmp_path / "root.sexp"
-    # Row 14: the tree's clone node names this clone_placements record (and its
+    # Row 14: the tree's placement node names this entities: record (and its
     # cell), so load_config reaches the duplicate-NAME check the cell asserts.
+    # 13.10 (Ч1в-6): the carrier was a clone_placements: record until it retired.
     _root_data = {"layer": "B.Cu", "cells": {"c_ams": {}},
-                  "clone_placements": [{"name": "AMS1117_REG", "cluster": "AMS_CL",
-                                        "cell": "c_ams", "xy": [0.0, 0.0]}]}
+                  "entities": [{"name": "AMS1117_REG", "cell": "c_ams"}]}
     root.write_text(dict_to_sexp(_root_data, format_number=2), encoding="utf-8")
 
     monkeypatch.setattr(sys, "argv",

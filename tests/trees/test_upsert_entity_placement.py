@@ -1,9 +1,10 @@
 # tests/test_upsert_entity_placement.py
 """Direct unit tests for config_writer.upsert_entity_placement (phase 5.2,
-stage 2): the trees:-node writer behind PlacerDock's "save Origin = write
-node.xy/node.anchor". Position lives ONLY in trees, so the write must keep
-the link_trees "a ref appears in at most one node" invariant — a changed
-anchor MOVES the node to the matching tree, never duplicates it."""
+stage 2): the trees:-node writer behind the Entity placement write path (the
+"save Origin = write node.xy/node.anchor" half). Position lives ONLY in trees,
+so the write must keep the link_trees "a ref appears in at most one node"
+invariant — a changed anchor MOVES the node to the matching tree, never
+duplicates it."""
 import json
 from pathlib import Path
 
@@ -162,12 +163,12 @@ def test_moves_nested_node_to_matching_anchor_tree(tmp_path):
     "already has a node elsewhere" fatal. A nested Entity must be moved
     cleanly out of its parent to the matching-anchor tree, no fatal."""
     path = tmp_path / "root.sexp"
-    _write(path, {"cells": _CELLS, "entities": [{"name": "E1", "cell": "c"}],
-                  "clone_placements": [{"name": "PARENT", "cluster": "PARENT",
-                                        "cell": "c"}],
+    _write(path, {"cells": _CELLS,
+                  "entities": [{"name": "E1", "cell": "c"},
+                               {"name": "PARENT", "cell": "c"}],
                   "trees": [
         {"name": "t1", "anchor": {"origin": True},
-         "nodes": [{"ref": "PARENT", "kind": "clone", "xy": [0.0, 0.0],
+         "nodes": [{"ref": "PARENT", "kind": "placement", "xy": [0.0, 0.0],
                     "children": [{"ref": "E1", "kind": "placement", "xy": [1.0, 2.0]}]}]},
     ]})
     upsert_entity_placement(path, "E1", {"mode": "xy", "x": 10.0, "y": 20.0})
@@ -185,14 +186,14 @@ def test_removes_deeply_nested_node(tmp_path):
     """Two levels of nesting: the recursive prune must walk node.children on
     every level, not just the tree's own nodes list."""
     path = tmp_path / "root.sexp"
-    _write(path, {"cells": _CELLS, "entities": [{"name": "E1", "cell": "c"}],
-                  "clone_placements": [{"name": "GP", "cluster": "GP", "cell": "c"},
-                                       {"name": "PARENT", "cluster": "PARENT",
-                                        "cell": "c"}],
+    _write(path, {"cells": _CELLS,
+                  "entities": [{"name": "E1", "cell": "c"},
+                               {"name": "GP", "cell": "c"},
+                               {"name": "PARENT", "cell": "c"}],
                   "trees": [
         {"name": "t1", "anchor": {"origin": True},
-         "nodes": [{"ref": "GP", "kind": "clone", "xy": [0.0, 0.0],
-                    "children": [{"ref": "PARENT", "kind": "clone", "xy": [1.0, 1.0],
+         "nodes": [{"ref": "GP", "kind": "placement", "xy": [0.0, 0.0],
+                    "children": [{"ref": "PARENT", "kind": "placement", "xy": [1.0, 1.0],
                                   "children": [{"ref": "E1", "kind": "placement",
                                                 "xy": [2.0, 2.0]}]}]}]},
     ]})
