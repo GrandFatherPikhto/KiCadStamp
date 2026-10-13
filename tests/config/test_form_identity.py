@@ -67,15 +67,6 @@ def test_a_name_hint_resolves_the_reference_uuid():
     assert out["anchor_point_uuid"] == "U-POINT"
 
 
-def test_a_clone_placement_resolves_cell_and_anchor_point():
-    cfg = _cfg()
-    out = identify({"cluster": "C1", "cell": "c1", "anchor_point": "p1"},
-                   "clone_placements", cfg=cfg, identity="C1",
-                   identity_of=lambda m: m.name or m.cluster)
-    assert out["cell_uuid"] == "U-CELL"
-    assert out["anchor_point_uuid"] == "U-POINT"
-
-
 def test_a_reference_name_with_no_target_is_refused():
     with pytest.raises(FormReferenceMissing) as e:
         identify({"name": "tva1", "pad": "1", "anchor_point": "typo"},

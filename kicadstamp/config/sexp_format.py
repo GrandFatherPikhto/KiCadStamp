@@ -113,7 +113,9 @@ _TAG_TO_CLASS = {v: k for k, v in _TAG_BY_CLASS.items()}
 # (`chains:` is NOT here: the section is retired — refused on its raw name in
 # the parse loop, before this dispatch, see config/retired_sections.py.)
 _LIST_SECTION_CLASS = {
-    "clone_placements": ClonePlacement,
+    # `clone_placements` left this map with its section (2026-10-13, Ч1): the
+    # refusal fires on the RAW node before the section dispatch, and the map's
+    # contents are asserted against the list sections at import time.
     "thermal_via_arrays": ThermalViaArrayConfig,
     "coordinate_placements": CoordinatePlacement,
     "net_traces": NetTrace,

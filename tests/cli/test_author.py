@@ -68,32 +68,6 @@ def _fragment_profile_root(tmp_path, cells, fragment_name):
 
 
 class TestDumpRoundTrip:
-    def test_clone_placements_round_trip(self, tmp_path):
-        clones = [
-            ClonePlacement(name="channel_0_ad9707", cluster="channel_0_ad9707",
-                           cell="ad_dac",
-                           anchor_role="FPGA", anchor_sheet="Channel_{channel}",
-                           nets={"AD_DAC": "/Channel_{channel}/DAC/DAC_OUT_P"},
-                           params={"channel": 0},
-                           xy=(0.0, 25.0), rotation_deg=270.0),
-        ]
-        out = tmp_path / "generated.sexp"
-        root = _fragment_profile_root(tmp_path, ["ad_dac"], "generated.sexp")
-        dump_clone_placements(clones, str(out), graph_root=str(root))
-
-        cfg, _ = load_config(str(root))
-        assert len(cfg.clone_placements) == 1
-        loaded = cfg.clone_placements[0]
-        original = clones[0]
-        assert loaded.cluster == original.cluster
-        assert loaded.cell == original.cell
-        assert loaded.anchor_role == original.anchor_role
-        assert loaded.anchor_sheet == original.anchor_sheet
-        assert loaded.nets == original.nets
-        assert loaded.params == original.params
-        assert loaded.xy == original.xy
-        assert loaded.rotation_deg == original.rotation_deg
-
     def test_minimal_clone_placement_omits_defaults_in_sexp_text(self, tmp_path):
         """Sanity check on the actual written text, not just the round-trip —
         confirms the s-expr stays close to the hand-written minimal style."""
@@ -104,26 +78,6 @@ class TestDumpRoundTrip:
         text = out.read_text(encoding="utf-8")
         assert "rotation_deg" not in text
         assert "retired" not in text
-
-    def test_polar_clone_placement_omits_xy_and_round_trips(self, tmp_path):
-        """2026-08-12, Group 2 fix: _prune_defaults used to ALWAYS write xy
-        (it has no dataclass default), so a dumped polar clone
-        (radius_mm/angle_deg) reloaded fatally with "has both xy and
-        radius_mm/angle_deg" — the round-trip that used to work was broken
-        for any script-generated polar clone."""
-        clones = [ClonePlacement(name="polar", cluster="polar", cell="t",
-                                 xy=(0.0, 0.0), radius_mm=5.0, angle_deg=37.0)]
-        out = tmp_path / "polar.sexp"
-        root = _fragment_profile_root(tmp_path, ["t"], "polar.sexp")
-        dump_clone_placements(clones, str(out), graph_root=str(root))
-        text = out.read_text(encoding="utf-8")
-        assert "xy" not in text
-
-        cfg, _ = load_config(str(root))
-        cp = cfg.clone_placements[0]
-        assert cp.radius_mm == 5.0 and cp.angle_deg == 37.0
-        assert cp.xy == (0.0, 0.0)  # loader default, not a dumped field
-
 
 class TestDumpRefusesWithoutGraphRoot:
     """У3.5 Ф2: under format 3 a fragment write WITHOUT its graph root is

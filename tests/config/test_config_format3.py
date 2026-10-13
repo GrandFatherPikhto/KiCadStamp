@@ -266,21 +266,6 @@ def _wrap3(body: str) -> str:
 
 # ── П1/П2 ──────────────────────────────────────────────────────────────────
 
-def test_duplicate_full_name_within_one_file_is_fatal(format3, tmp_path):
-    """П1: same name + different UUIDs in ONE file — still a duplicate (Р43)."""
-    data = {"cells": {"c": {"layer": "B.Cu", "uuid": D_CELL}},
-            "clone_placements": [
-                {"cluster": "K1", "cell": "c", "cell_uuid": D_CELL,
-                 "xy": [0.0, 0.0], "name": "same", "uuid": D_ENTITY},
-                {"cluster": "K2", "cell": "c", "cell_uuid": D_CELL,
-                 "xy": [1.0, 0.0], "name": "same", "uuid": D_FOLDER_P}]}
-    p = tmp_path / "config.sexp"
-    _write_sexp(p, data)
-    with pytest.raises(ValidationError) as e:
-        load_config(str(p))
-    assert "duplicate full name" in str(e.value)
-
-
 def test_unnamed_record_is_fatal_not_a_phantom_duplicate(format3, tmp_path):
     """П2: two unnamed records of one list section in two files -> "no name",
     not "duplicate name"."""

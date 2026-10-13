@@ -56,18 +56,19 @@ from ._common import read_data, write_data
 CASCADE_FIELD = {"cells": "cell", "points": "anchor_point"}
 
 DICT_SECTIONS = ("cells", "points", "extract_profiles", "clone_profiles")
-LIST_SECTIONS = ("clone_placements", "thermal_via_arrays", "chains", "net_traces")
+# `clone_placements` (2026-10-13, the Placer refusal) and `chains`
+# (2026-10-11, Д1) left this tuple with their sections: a file carrying either
+# is refused while its text is parsed, before any rename could see it
+# (config/retired_sections.py).
+LIST_SECTIONS = ("thermal_via_arrays", "net_traces")
 
-# chains: entries fall back to net: as their effective name when name: is
-# absent (config/models.py's chain_effective_name()) — the only section with
-# a fallback identifying field. Public (2026-08-05): gui/docks/entity_delete.py
-# needs the same "name or net" identity to match a chains: entry for removal.
-# net_traces: same "single field fallback" shape (2026-08-21, plan
-# net_trace_dock) — since 2026-09-12 the identity is name: with net: as the
-# fallback (config/models.py's net_trace_effective_name(), plan_2026_09_12_
-# internode_copper_core Э2), and entry_effective_name() below already reads
-# name: FIRST, so no code change is needed here — only the fallback target.
-FALLBACK_KEY = {"chains": "net", "net_traces": "net"}
+# net_traces: entries fall back to net: as their effective name when name: is
+# absent ("single field fallback" shape, 2026-08-21 plan net_trace_dock) —
+# since 2026-09-12 the identity is name: with net: as the fallback
+# (config/models.py's net_trace_effective_name(), plan_2026_09_12_internode_
+# copper_core Э2), and entry_effective_name() below already reads name: FIRST,
+# so no code change is needed here — only the fallback target.
+FALLBACK_KEY = {"net_traces": "net"}
 
 
 def _coordinate_placement_effective_name(entry: dict) -> str | None:
@@ -80,30 +81,18 @@ def _coordinate_placement_effective_name(entry: dict) -> str | None:
         if entry.get("cluster") and entry.get("role") else None)
 
 
-def _clone_placement_effective_name(entry: dict) -> str | None:
-    """clone_placements: name if set, else cluster (the Cluster tag) —
-    same split as config/models.py's clone_placement_effective_name(),
-    2026-08-15 (cluster: renamed from name: 2026-08-24). Without this, the
-    tree/Rename/Delete would show and match by the physical Cluster tag
-    instead of the save/--only identity the user actually manages."""
-    return entry.get("name") or entry.get("cluster")
-
-
 # Sections whose effective name is a COMPOSED fallback (not a single field) —
 # callable(entry) -> identity, alongside FALLBACK_KEY's single-field fallbacks.
 EFFECTIVE_NAME_FN = {
     "coordinate_placements": _coordinate_placement_effective_name,
-    "clone_placements": _clone_placement_effective_name,
 }
 
 
-# clone_placements: which field Rename actually writes — name once an entry
-# already has one (2026-08-15 split: Cluster is a physical board tag, only the
-# save/--only identity is what Rename is for), else cluster (pre-split
-# entries, single field, unchanged).
-RENAME_TARGET_FIELD = {
-    "clone_placements": lambda entry: "name" if entry.get("name") else "cluster",
-}
+# A section whose Rename writes a DIFFERENT field than its identity's first
+# field — none today (`clone_placements`, the one that did, went with its
+# section on 2026-10-13). Kept as the ONE seam `rename_list_entry` consults,
+# so a future section needs a table line, not a branch.
+RENAME_TARGET_FIELD: dict = {}
 
 
 def entry_effective_name(section: str, entry: dict):

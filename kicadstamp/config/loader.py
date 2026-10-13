@@ -50,7 +50,6 @@ from .entries import (
     _check_layer_value,
     _load_cell,
     _load_cell_placement,
-    _load_clone_placement,
     _load_coordinate_placement,
     _load_entity,
     _load_net_trace,
@@ -346,11 +345,13 @@ def _load_config_uncached(path: str) -> tuple[Config, RuntimeContext]:
     points_data = dict(data.get('points', {}) or {})
     points = {name: _load_point(name, pdata) for name, pdata in points_data.items()}
 
-    # `chains:` is NOT loaded: the section is RETIRED (2026-10-11, decision Д1)
-    # and refused while the file text is parsed (config/retired_sections.py,
-    # called from sexp_format.sexp_to_dict / aliases.normalize_section_aliases),
-    # so no load path can reach this point with chains data at all.
-    clone_placements = [_load_clone_placement(cp) for cp in data.get('clone_placements', [])]
+    # `chains:` and `clone_placements:` are NOT loaded: both sections are
+    # RETIRED (2026-10-11 Д1 / 2026-10-13, plan_2026_10_08_remove_placer) and
+    # refused while the file text is parsed (config/retired_sections.py, called
+    # from sexp_format.sexp_to_dict and by includes' JSON entry), so no load
+    # path can reach this point with either section's data. The list stays as
+    # the in-memory CARRIER the pipeline materializes Entity placements into.
+    clone_placements: list = []
 
     # entities: — NEW section (design_2026_08_30_entity_placement_grammar.md):
     # the "what" of a placement, WITHOUT position (position lives only in a

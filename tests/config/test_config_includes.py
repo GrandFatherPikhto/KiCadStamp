@@ -251,7 +251,7 @@ def test_walk_single_file_no_includes(tmp_path):
 
     assert node.path == root.resolve()
     assert list(node.sections["cells"].keys()) == ["one_role"]
-    assert node.sections["clone_placements"] == []
+    assert node.sections["thermal_via_arrays"] == []
     assert node.children == []
 
 

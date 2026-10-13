@@ -738,19 +738,6 @@ _THERMAL_VIA_ARRAY_KNOWN_KEYS = {
 }
 
 
-_CLONE_PLACEMENT_KNOWN_KEYS = {
-    'cluster', 'cell', 'xy', 'rotation_deg',
-    'nets', 'params', 'net_overrides', 'retired', 'skip', 'ignore_selection',
-    'anchor_ref', 'anchor_pad', 'anchor_role', 'anchor_sheet', 'anchor_cluster',
-    'anchor_point', 'layer', 'mirror', 'refs', 'by_selection',
-    'sheet', 'name', 'comment',
-    'radius_mm', 'angle_deg',
-    'side',  # deprecated – recognised separately to give a migration message
-    'origin_x_mm', 'origin_y_mm',  # deprecated – recognised to give a migration message
-    'uuid', 'cell_uuid', 'anchor_point_uuid',
-}
-
-
 # Positional keys that are FORBIDDEN on an Entity by construction — an Entity
 # is the "what" of a placement and carries NO position (position lives only in
 # a trees: node, kind "placement", or a tree anchor; see
@@ -773,8 +760,8 @@ _ENTITY_KNOWN_KEYS = {
 
 def _load_entity(data: dict[str, Any]) -> Entity:
     """One entities: entry — the "what" of a placement, WITHOUT position
-    (see Entity's docstring in config/models.py). Loader mirrors
-    _load_clone_placement's per-field discipline: EXACTLY ONE of cell:/
+    (see Entity's docstring in config/models.py). Loader mirrors the per-field
+    discipline of the other placement records: EXACTLY ONE of cell:/
     imprint: required, unknown keys fatal, positional keys fatal,
     by_selection+nets fatal, layer value checked.
 
@@ -1130,190 +1117,11 @@ def _load_imprint(data: dict[str, Any]) -> ImprintConfig:
     )
 
 
-def _load_clone_placement(data: dict[str, Any]) -> ClonePlacement:
-    cluster = data.get('cluster')
-    if not cluster:
-        raise ValidationError(format_fatal_error(
-            _("clone_placement without cluster"),
-            [_("every clone_placement must have a cluster – the physical Cluster "
-               "tag written onto the board's components (read by role_narrowing.py); "
-               "write cluster: <string>. The save/--only identity (name:) is "
-               "optional and falls back to cluster")]
-        ))
-    check_unknown_keys(data, _CLONE_PLACEMENT_KNOWN_KEYS,
-                       _("unknown fields in clone_placement {name!r}").format(name=cluster),
-                       extra_hint=_(" (e.g. 'pad' won't work; use 'anchor_pad')"))
-
-    anchor_ref = data.get('anchor_ref')
-    anchor_pad = data.get('anchor_pad')
-    anchor_role = data.get('anchor_role')
-    anchor_sheet = data.get('anchor_sheet')
-    anchor_cluster = data.get('anchor_cluster')
-    anchor_point = data.get('anchor_point')
-    # Own-identity sheet (split 2026-08-15 from anchor_sheet — see
-    # ClonePlacement's field comment in models.py): narrows ambiguous roles
-    # INSIDE the cell, unlike anchor_sheet which narrows only the external
-    # anchor. Deliberately NOT resolved through resolve_placeholder (own
-    # identity, not a templated external field).
-    sheet = data.get('sheet')
-    name = data.get('name')
-
-    cell = data.get('cell')
-    if not cell:
-        raise ValidationError(format_fatal_error(
-            _("clone_placement {name!r} without cell").format(name=name),
-            [_("cell: <name from cells:> is REQUIRED — the role:/cluster: single-component "
-               "modes were migrated to coordinate_placements: (anchor-relative mode) on "
-               "2026-08-12; use coordinate_placements: for a single-component placement, "
-               "or give this clone_placement a real cell:")]
-        ))
-
-    if anchor_ref is not None and anchor_role is not None:
-        raise ValidationError(format_fatal_error(
-            _("anchor_ref and anchor_role together in clone_placement {name!r}").format(name=name),
-            [_("these are mutually exclusive ways to define the anchor – either by refdes "
-               "(anchor_ref) or by Role field (anchor_role), not both")]
-        ))
-
-    if anchor_sheet is not None and anchor_role is None:
-        raise ValidationError(format_fatal_error(
-            _("anchor_sheet without anchor_role in clone_placement {name!r}").format(name=name),
-            [_("anchor_sheet={sheet!r} is set but anchor_role is missing – "
-               "anchor_sheet only narrows ambiguity of anchor_role, it is not an anchor itself")
-             .format(sheet=anchor_sheet)]
-        ))
-
-    if anchor_point is not None and (anchor_ref is not None or anchor_role is not None):
-        raise ValidationError(format_fatal_error(
-            _("anchor_point together with anchor_ref/anchor_role in clone_placement {name!r}")
-            .format(name=name),
-            [_("anchor_point={point!r} names a points: entry that already carries its own "
-               "anchor — mutually exclusive with anchor_ref/anchor_role").format(point=anchor_point)]
-        ))
-    if anchor_point is not None and anchor_pad is not None:
-        raise ValidationError(format_fatal_error(
-            _("anchor_point together with anchor_pad in clone_placement {name!r}").format(name=name),
-            [_("anchor_point already resolves to a full position — anchor_pad has no "
-               "meaning on top of it; set anchor_pad on the points: entry itself instead")]
-        ))
-
-    if anchor_pad is not None and anchor_ref is None and anchor_role is None and anchor_point is None:
-        raise ValidationError(format_fatal_error(
-            _("anchor_pad without anchor_ref/anchor_role in clone_placement {name!r}").format(name=name),
-            [_("anchor_pad={pad!r} is set but no anchor specified – "
-               "use anchor_ref: IC1 or anchor_role: SOME_ROLE").format(pad=anchor_pad)]
-        ))
-
-    has_anchor = anchor_ref is not None or anchor_role is not None or anchor_point is not None
-    # Position — EXACTLY ONE of two mutually exclusive modes, via the shared
-    # _load_mutually_exclusive_position: xy (Cartesian) OR polar
-    # radius_mm/angle_deg. xy keeps its implicit (0,0) default and stays
-    # valid; fatal only when BOTH are set, or when only ONE polar field is
-    # (confirmed with Denis 2026-08-12). The both/half fatals live in the
-    # shared validator — this block only adds the anchor-less "no absolute
-    # position at all" check. Note: xy-activation is by VALUE (is not None),
-    # so a degenerate `xy: null` no longer counts as a second active mode
-    # next to polar (previously `'xy' in data` fatalled on that too).
-    mode = _load_mutually_exclusive_position(
-        data,
-        [("xy", ("xy",), False),
-         ("polar", ("radius_mm", "angle_deg"), True)],
-        _("clone_placement {name!r}").format(name=name),
-    )
-    has_polar = mode == "polar"
-
-    if not has_anchor and 'xy' not in data and not has_polar:
-        raise ValidationError(format_fatal_error(
-            _("no anchor and no absolute coordinates in clone_placement {name!r}").format(name=name),
-            [_("either set xy: [x, y] (absolute point on board), "
-               "or radius_mm/angle_deg (polar absolute position), "
-               "or anchor_ref/anchor_role (+ optionally anchor_pad), or anchor_point, "
-               "for anchor‑based placement")]
-        ))
-
-    if 'side' in data:
-        raise ValidationError(format_fatal_error(
-            _("deprecated field 'side' in clone_placement {name!r}").format(name=name),
-            [_("side is now set by an explicit pair: layer: F.Cu|B.Cu (where we place – fact) "
-               "+ mirror: true (how we place – operation, only meaningful when the layer changes "
-               "relative to the cell)")]
-        ))
-    if 'origin_x_mm' in data or 'origin_y_mm' in data:
-        raise ValidationError(format_fatal_error(
-            _("deprecated fields 'origin_x_mm'/'origin_y_mm' in clone_placement {name!r}").format(name=name),
-            [_("renamed to xy: [x, y] — write xy: [{x}, {y}] instead")
-             .format(x=data.get('origin_x_mm', 0.0), y=data.get('origin_y_mm', 0.0))]
-        ))
-
-    xy_raw = data.get('xy')
-    if xy_raw is not None:
-        if not (isinstance(xy_raw, (list, tuple)) and len(xy_raw) == 2):
-            raise ValidationError(format_fatal_error(
-                _("xy must be a 2-element [x, y] list in clone_placement {name!r}").format(name=name),
-                [_("got: {xy!r}").format(xy=xy_raw)]
-            ))
-        xy = (float(xy_raw[0]), float(xy_raw[1]))
-    else:
-        xy = (0.0, 0.0)
-
-    # has_polar guarantees BOTH radius_mm and angle_deg (shared validator).
-    if has_polar:
-        radius_mm = float(data['radius_mm'])
-        angle_deg = float(data['angle_deg'])
-    else:
-        radius_mm = None
-        angle_deg = None
-
-    by_selection = bool(data.get('by_selection', False))
-    nets = data.get('nets', {}) or {}
-    if by_selection and nets:
-        raise ValidationError(format_fatal_error(
-            _("by_selection: true with non-empty nets in clone_placement {name!r}").format(name=name),
-            [_("nets is an explicit role->net mapping for 'by nets' mode; in selection mode "
-               "roles are resolved by mouse selection, not by nets – nets is meaningless here. "
-               "Either remove nets, or remove by_selection: true")]
-        ))
-
-    layer = data.get('layer')
-    _check_layer_value(layer, _("in clone_placement {name!r}").format(name=name))
-
-    return ClonePlacement(
-        cluster=cluster,
-        cell=cell,
-        xy=xy,
-        radius_mm=radius_mm,
-        angle_deg=angle_deg,
-        rotation_deg=data.get('rotation_deg', 0.0),
-        nets=nets,
-        params=data.get('params', {}) or {},
-        net_overrides=data.get('net_overrides', {}) or {},
-        retired=data.get('retired', False),
-        skip=data.get('skip', False),
-        ignore_selection=data.get('ignore_selection', False),
-        anchor_ref=anchor_ref,
-        anchor_pad=str(anchor_pad) if anchor_pad is not None else None,
-        anchor_role=anchor_role,
-        anchor_sheet=anchor_sheet,
-        anchor_cluster=anchor_cluster,
-        anchor_point=anchor_point,
-        sheet=sheet,
-        name=name,
-        layer=layer,
-        mirror=bool(data.get('mirror', False)),
-        refs=data.get('refs', {}) or {},
-        by_selection=by_selection,
-        comment=data.get('comment'),
-        uuid=data.get('uuid'),
-        cell_uuid=data.get('cell_uuid'),
-        anchor_point_uuid=data.get('anchor_point_uuid'),
-    )
-
-
 def _load_thermal_via_array(tva_data: dict[str, Any]) -> ThermalViaArrayConfig:
     """One thermal_via_arrays: entry — split out of load_config()'s loop
     (2026-08-03) so the GUI's ThermalViaArrayDock can validate a single
-    entry before writing it, the same way _load_clone_placement (public as
-    load_clone_placement) already does for clone_placements. The list-level
+    entry before writing it, the same way the other single-record loaders
+    already let their GUI docks validate an entry. The list-level
     duplicate-name check stays in load_config() — it needs the whole list,
     not a single entry."""
     if 'target_ref' in tva_data:

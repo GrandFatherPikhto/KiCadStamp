@@ -365,46 +365,6 @@ def test_rename_entry_refuses_a_graph_wide_collision_before_writing_anything(tmp
 # clone_placement_effective_name(): display/match/rename must use placer_name
 # (the save/--only identity), not the raw Cluster tag `name`. ─────────────
 
-def test_entry_effective_name_uses_name_for_clone_placements():
-    """clone_placements identity is name when set, else cluster (the Cluster
-    tag) — the tree/Rename/Delete must show/match the save/--only identity,
-    not the physical tag."""
-    assert entry_effective_name("clone_placements",
-                                {"cluster": "PIF_AVDD", "name": "CH0_PIF_AVDD"}) == "CH0_PIF_AVDD"
-    assert entry_effective_name("clone_placements", {"cluster": "PIF_AVDD"}) == "PIF_AVDD"
-
-
-def test_rename_list_entry_finds_entry_by_name(tmp_path):
-    """Rename must locate a clone_placement by its name (the identity the tree
-    shows) — and write the new value to name, leaving the Cluster tag
-    untouched."""
-    path = _write(tmp_path / "config.sexp", {
-        "cells": {"ldo": {}},
-        "clone_placements": [{"cluster": "PIF_AVDD", "name": "CH0_PIF_AVDD", "cell": "ldo"}]})
-
-    rename_list_entry(path, "clone_placements", "CH0_PIF_AVDD", "CH1_PIF_AVDD")
-
-    data = _load(path)["clone_placements"][0]
-    assert data["name"] == "CH1_PIF_AVDD"
-    assert data["cluster"] == "PIF_AVDD"  # Cluster tag untouched
-
-
-def test_rename_list_entry_writes_cluster_when_no_name_yet(tmp_path, pin_format2):
-    """Regression guard: an entry that never diverged still renames its
-    single `cluster` field, exactly as before the split.
-
-    SUBJECT is the format-2 nameless grammar (no name:, identity = cluster);
-    the format-3 lift mints a name — pinned to 2."""
-    path = _write(tmp_path / "config.sexp", {
-        "clone_placements": [{"cluster": "spoke_1", "cell": "ldo"}]})
-
-    rename_list_entry(path, "clone_placements", "spoke_1", "spoke_1_renamed")
-
-    data = _load(path)["clone_placements"][0]
-    assert data["cluster"] == "spoke_1_renamed"
-    assert "name" not in data
-
-
 def test_rename_list_entry_collision_checks_by_name(tmp_path):
     """The new_name collision check must also use the effective identity —
     renaming to a name another entry already has must be refused."""

@@ -46,7 +46,7 @@ logger = logging.getLogger(__name__)
 # dependency_order.py already reorders clone_placements by real anchor
 # dependency at apply time. (`chains:` left this tuple with the retired
 # section, 2026-10-11 — see config/retired_sections.py.)
-_LIST_SECTIONS = ('clone_placements', 'thermal_via_arrays', 'coordinate_placements',
+_LIST_SECTIONS = ('thermal_via_arrays', 'coordinate_placements',
                   'net_traces', 'entities', 'trees', 'tree_instances', 'imprints')
 
 # Dict sections: merged key-by-key, fatal on a key defined in two different

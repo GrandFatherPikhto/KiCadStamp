@@ -40,6 +40,7 @@ from ..i18n import _
 RETIRED_SECTIONS: dict[str, str] = {
     "chains": "chains",
     "rules": "chains (legacy `rules`)",
+    "clone_placements": "clone_placements",
 }
 
 # Retired tree NODE kind -> the human name used in the refusal message. `rule`
@@ -47,6 +48,7 @@ RETIRED_SECTIONS: dict[str, str] = {
 RETIRED_NODE_KINDS: dict[str, str] = {
     "chain": "chain",
     "rule": "chain (legacy `rule`)",
+    "clone": "clone",
 }
 
 # One hint both refusals share: never a silent drop — remove the data, or open

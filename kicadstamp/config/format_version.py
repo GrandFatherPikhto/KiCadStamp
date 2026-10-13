@@ -205,7 +205,6 @@ def _step_1_to_2(data: dict[str, Any], ctx: UpgradeContext) -> dict[str, Any]:
 # test pins this table against the product's `_F3_LIST_SECTIONS`, so a new list
 # section cannot slip in without a singular (and a cell).
 _SECTION_SINGULAR = {
-    "clone_placements": "clone_placement",
     "thermal_via_arrays": "thermal_via_array",
     "coordinate_placements": "coordinate_placement",
     "net_traces": "net_trace",

@@ -28,7 +28,9 @@ from .name_hint import close_name_hint
 logger = logging.getLogger(__name__)
 
 # ── the §0 sections and the reference forms (moved from loader.py) ─────────
-_F3_LIST_SECTIONS = ("clone_placements", "thermal_via_arrays",
+# `clone_placements` left this table with its section (2026-10-13, Ч1):
+# the refusal fires while the text is parsed, so no dict ever carries it.
+_F3_LIST_SECTIONS = ("thermal_via_arrays",
                      "coordinate_placements", "net_traces", "entities",
                      "imprints")
 _F3_DICT_SECTIONS = ("cells", "points")

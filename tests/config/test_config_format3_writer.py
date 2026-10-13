@@ -32,7 +32,6 @@ from kicadstamp.config_writer import (
     merge_write,
     read_data,
     set_reference,
-    upsert_clone_placement,
     upsert_entity,
     upsert_entity_placement,
     upsert_list_entry,
@@ -346,9 +345,6 @@ def _graph_root(tmp_path):
         True, id="upsert_list_entry"),
     pytest.param(lambda r: upsert_entity(r, {"name": "e2", "cell": "cap"}),
                  True, id="upsert_entity"),
-    pytest.param(lambda r: upsert_clone_placement(
-        r, {"name": "cp1", "cluster": "CP", "cell": "cap", "anchor_ref": "IC1"}),
-        True, id="upsert_clone_placement"),
     pytest.param(lambda r: upsert_entity_placement(r, "e1", {"mode": "xy", "x": 1.0, "y": 2.0}),
                  True, id="upsert_entity_placement"),
     pytest.param(lambda r: append_tree_child_node(

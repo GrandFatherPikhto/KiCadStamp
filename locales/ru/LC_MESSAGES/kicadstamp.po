@@ -18546,3 +18546,12 @@ msgstr "перемещение {ref}"
 #, python-brace-format
 msgid "imprint {name}"
 msgstr "импринт {name}"
+
+#: kicadstamp/config/sheet_templates.py
+#, python-brace-format
+msgid "sheet_template {name!r} instantiates a retired clone_placements: block"
+msgstr "sheet_template {name!r} инстанциирует снятую секцию clone_placements:"
+
+#: kicadstamp/config/sheet_templates.py
+msgid "remove it: a template may only instantiate coordinate_placements:"
+msgstr "уберите её: шаблон может инстанциировать только coordinate_placements:"

@@ -129,7 +129,7 @@ def stamp_config(cfg):
 # product's `loader._f3_refs`, so the test cannot drift from the shipped form
 # table.
 _DICT_SECTIONS = ("cells", "points")
-_LIST_SECTIONS = ("clone_placements", "thermal_via_arrays",
+_LIST_SECTIONS = ("thermal_via_arrays",
                   "coordinate_placements", "net_traces", "entities", "imprints")
 _FREE_SECTIONS = ("extract_profiles", "clone_profiles", "sheet_templates")
 

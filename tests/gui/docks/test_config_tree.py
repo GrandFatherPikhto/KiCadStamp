@@ -741,22 +741,6 @@ def test_entities_and_trees_categories_with_entity_click(main_window, tmp_path):
     assert picked == ["E1"]
 
 
-def test_add_placer_emits_request_instead_of_writing_directly(main_window, tmp_path):
-    root = tmp_path / "root.sexp"
-    _write(root, {"clone_placements": []})
-
-    dock = ConfigTreeDock(main_window)
-    dock.set_root_file(root)
-
-    requested = []
-    dock.add_placer_requested.connect(requested.append)
-    dock.add_placer_requested.emit(root)
-
-    assert requested == [root]
-    # nothing written — Add placer defers to PlacerDock's own Save path
-    assert _load(root) == {"clone_placements": []}
-
-
 def test_add_included_file_creates_missing_file_and_wires_include(main_window, tmp_path, monkeypatch):
     root = tmp_path / "root.sexp"
     _write(root, {"cells": {}})

@@ -185,47 +185,7 @@ class TestBoardOriginPoint:
         with pytest.raises(ValidationError, match="has no footprint to anchor on"):
             load_config(str(config_file))
 
-    def test_clone_placement_anchor_point_to_board_origin_is_fine(self, tmp_path):
-        """ClonePlacement only ever needs a coordinate."""
-        config_file = _write(tmp_path, "point.sexp", _cfg(
-            points={"board_zero": {"anchor_origin": "drill"}},
-            cells={"one_role": {"components": [{"role": "THE_ROLE"}]}},
-            clone_placements=[{"cluster": "cp1", "cell": "one_role",
-                               "anchor_point": "board_zero"}]))
-        cfg, _ = load_config(str(config_file))
-        assert cfg.clone_placements[0].anchor_point == "board_zero"
-
-
 class TestAnchorPointOnConsumers:
-    def test_clone_placement_anchor_point_loads(self, tmp_path):
-        config_file = _write(tmp_path, "point.sexp", _cfg(
-            points={"fpga_center": {"anchor_role": "FPGA"}},
-            cells={"one_role": {"components": [{"role": "THE_ROLE"}]}},
-            clone_placements=[{"cluster": "cp1", "cell": "one_role",
-                               "anchor_point": "fpga_center", "rotation_deg": 0.0}]))
-        cfg, _ = load_config(str(config_file))
-
-        assert cfg.clone_placements[0].anchor_point == "fpga_center"
-
-    def test_clone_placement_anchor_point_with_shifted_point_is_fine(self, tmp_path):
-        """ClonePlacement only ever needs a coordinate — a shifted point is OK."""
-        config_file = _write(tmp_path, "point.sexp", _cfg(
-            points={"shifted": {"anchor_role": "FPGA", "shift_x_mm": 5.0}},
-            cells={"one_role": {"components": [{"role": "THE_ROLE"}]}},
-            clone_placements=[{"cluster": "cp1", "cell": "one_role",
-                               "anchor_point": "shifted"}]))
-        cfg, _ = load_config(str(config_file))
-        assert cfg.clone_placements[0].anchor_point == "shifted"
-
-    def test_clone_placement_anchor_point_with_anchor_ref_is_fatal(self, tmp_path):
-        config_file = _write(tmp_path, "point.sexp", _cfg(
-            points={"fpga_center": {"anchor_role": "FPGA"}},
-            cells={"one_role": {"components": [{"role": "THE_ROLE"}]}},
-            clone_placements=[{"cluster": "cp1", "cell": "one_role",
-                               "anchor_ref": "U5", "anchor_point": "fpga_center"}]))
-        with pytest.raises(ValidationError, match="anchor_point together with anchor_ref/anchor_role"):
-            load_config(str(config_file))
-
     def test_coordinate_placement_anchor_point_with_anchor_pad_is_fatal(self, tmp_path):
         """12.10 (Ч1в-4b): the mutual-exclusion rule is the CONSUMER's, so it
         needs a live consumer carrying BOTH fields — `thermal_via_arrays` has no

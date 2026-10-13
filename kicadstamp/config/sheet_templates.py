@@ -135,6 +135,12 @@ def expand_sheet_templates(data: dict) -> dict:
             raise ValidationError(format_fatal_error(
                 _("sheet_template {name!r} must be a mapping").format(name=tpl_name),
                 [_("expected 'sheets:' plus clone_placements:/coordinate_placements: entries")]))
+        if tpl.get('clone_placements'):
+            raise ValidationError(format_fatal_error(
+                _("sheet_template {name!r} instantiates a retired "
+                  "clone_placements: block").format(name=tpl_name),
+                [_("remove it: a template may only instantiate "
+                   "coordinate_placements:")]))
         unsupported = sorted(k for k in tpl if k not in _TEMPLATE_KEYS)
         if unsupported:
             raise ValidationError(format_fatal_error(

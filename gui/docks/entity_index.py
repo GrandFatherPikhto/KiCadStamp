@@ -38,14 +38,13 @@ from typing import Iterator, Optional
 from kicadstamp.config.includes import IncludeTreeNode
 
 __all__ = [
-    "PLACED_BY_CLONE", "PLACED_BY_NESTED",
+    "PLACED_BY_NESTED",
     "RecordRef", "EntityRef", "PlacedBy", "EntityIndex", "build_entity_index",
     "file_parent_map",
 ]
 
 # The WHAT token of a "placed by" note (3б). The human sentence is built where
 # it is shown (config_tree), so this module stays i18n-free.
-PLACED_BY_CLONE = "clone_placement"
 PLACED_BY_NESTED = "nested_cell"
 
 
@@ -205,11 +204,6 @@ def build_entity_index(root: IncludeTreeNode) -> EntityIndex:
                 entities.append(EntityRef(rec, node.path,
                                           rec.get("cell_uuid"),
                                           rec.get("imprint_uuid")))
-
-        for cp in (sections.get("clone_placements") or []):
-            if isinstance(cp, dict) and cp.get("cell") is not None:
-                _add_placed(placed, cp.get("cell_uuid"),
-                            PLACED_BY_CLONE, "clone_placements", cp)
 
     cells_by_uuid: dict = {}
     cells_by_name: dict = {}

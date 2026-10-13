@@ -19,7 +19,7 @@ from gui.docks._common import (ERROR_STYLE, SUCCESS_STYLE, WARN_STYLE,
                                display_path, merge_write, non_includable_keys,
                                refresh_file_combo_choices, set_combo_items,
                                set_file_combo_selection, show_message,
-                               upsert_clone_placement, upsert_list_entry)
+                               upsert_list_entry)
 import gui.docks._common as common_mod
 from kicadstamp.config.sexp_format import dict_to_sexp, sexp_to_dict
 from tests.fakes.format3 import without_identity
@@ -160,30 +160,6 @@ def test_add_list_entry_refuses_non_list_section(config_path):
 
 
 # ── upsert_clone_placement ──────────────────────────────────────────────
-
-def test_upsert_clone_placement_replaces_by_name_and_appends(config_path):
-    config_path.write_text(
-        _dump(config_path, {"cells": {"c1": {}, "c2": {}},
-                            "clone_placements": [{"name": "A", "cell": "c1"}]}),
-        encoding="utf-8")
-    assert upsert_clone_placement(config_path, {"name": "A", "cell": "c2"}) is True
-    assert upsert_clone_placement(config_path, {"name": "B", "cell": "c1"}) is False
-    data = _load(config_path)
-    assert [e["name"] for e in data["clone_placements"]] == ["A", "B"]
-    assert data["clone_placements"][0]["cell"] == "c2"  # replaced in place, not appended
-
-
-def test_upsert_clone_placement_refuses_non_list(config_path):
-    if config_path.suffix == ".sexp":
-        pytest.skip("the s-expr writer normalizes clone_placements: to a list — a "
-                    "non-list section is only representable in JSON")
-    config_path.write_text(_dump(config_path, {"clone_placements": "nope"}), encoding="utf-8")
-    with pytest.raises(OSError):
-        upsert_clone_placement(config_path, {"name": "A"})
-
-
-# ── upsert_list_entry (general form, 2026-08-03 — ConfigTreeDock's Add ───
-# thermal via pad; upsert_clone_placement above now delegates to this) ────
 
 def test_upsert_list_entry_replaces_by_key_and_appends(config_path):
     config_path.write_text(

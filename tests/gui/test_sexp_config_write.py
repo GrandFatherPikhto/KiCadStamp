@@ -11,7 +11,6 @@ import pytest
 from gui.docks._common import (
     merge_write,
     read_data,
-    upsert_clone_placement,
     upsert_list_entry,
 )
 from kicadstamp.config.sexp_format import dict_to_sexp
@@ -132,24 +131,6 @@ def test_upsert_list_entry_sexp_replaces_by_key(tmp_path):
         {"name": "B", "pad": "1"},
     ]
 
-
-def test_upsert_clone_placement_sexp(tmp_path):
-    path = tmp_path / "cfg.sexp"
-    path.write_text(dict_to_sexp({
-        "cells": {"dac_buf": {}},
-        "clone_placements": [
-            # explicit name: the upsert key is the record's name, and under the
-            # gate a nameless record is minted a name that would not match.
-            {"name": "CH0", "cluster": "CH0", "cell": "dac_buf", "xy": [0.0, 0.0]},
-        ],
-    }, format_number=2), encoding="utf-8")
-    assert upsert_clone_placement(path, {"name": "CH0", "cluster": "CH0",
-                                         "cell": "dac_buf", "xy": [1.0, 2.0]}) is True
-    data = _load(path)
-    assert data["clone_placements"][0]["xy"] == [1.0, 2.0]
-
-
-# ── broken .sexp on the write path -> OSError (not ValidationError) ────────
 
 def test_merge_write_sexp_raises_os_error_on_malformed(tmp_path):
     """Same contract as YAML (test_dock_common.py): a malformed .sexp file on

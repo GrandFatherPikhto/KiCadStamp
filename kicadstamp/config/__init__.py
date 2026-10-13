@@ -39,7 +39,6 @@ from .loader import (
     _load_cell,
     _load_cell_placement,
     _load_point,
-    _load_clone_placement,
     _load_thermal_via_array,
     _load_coordinate_placement,
     _load_net_trace,
@@ -56,7 +55,7 @@ from .loader import (
 # load_cell/load_template_component_slot/load_template_via/
 # load_template_track/load_cell_placement (2026-08-06) — the cell editor's
 # own validators, same "gui/ must not import the private names" reasoning
-# as load_clone_placement/load_rule/load_point above.
+# as load_cell_placement/load_point above.
 load_cell = _load_cell
 load_template_component_slot = _load_template_component_slot
 load_template_via = _load_template_via
@@ -79,12 +78,11 @@ load_tree_instance = _load_tree_instance
 
 # Public aliases for the loader entry points the GUI uses to validate/rebuild
 # a single entry (Phase 4.2 — gui/ must not import the private names).
-load_clone_placement = _load_clone_placement
 load_thermal_via_array = _load_thermal_via_array
 load_coordinate_placement = _load_coordinate_placement
 # load_point takes (name, data) — points: is a dict section (keyed by name),
-# unlike the list-of-dicts thermal_via_arrays/clone_placements above, whose
-# own dict already carries its name inline (see _load_point's signature).
+# unlike the list-of-dicts thermal_via_arrays above, whose own dict already
+# carries its name inline (see _load_point's signature).
 load_point = _load_point
 __all__ = [
     "ThermalViaArrayConfig",
@@ -108,7 +106,6 @@ __all__ = [
     "load_template_via",
     "load_template_track",
     "load_cell_placement",
-    "load_clone_placement",
     "load_thermal_via_array",
     "load_coordinate_placement",
     "load_net_trace",

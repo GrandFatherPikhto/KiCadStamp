@@ -18,7 +18,6 @@ from pathlib import Path
 from kicadstamp.config.includes import walk_include_tree
 from kicadstamp.config.sexp_format import dict_to_sexp
 from gui.docks.entity_index import (
-    PLACED_BY_CLONE,
     PLACED_BY_NESTED,
     build_entity_index,
 )
@@ -179,19 +178,6 @@ def test_entity_without_any_reference_is_an_orphan(tmp_path):
 # ═══════════════════════════════════════════════════════════════════════════
 # «Кто ставит ячейку» (3б) — тем же проходом
 # ═══════════════════════════════════════════════════════════════════════════
-
-def test_cell_placed_by_clone_placement_and_nested(tmp_path):
-    idx, _ = _index(tmp_path, {
-        "cells": {"c_a": _cell(CELL_A),
-                  "c_outer": {**_cell(CELL_B),
-                              "clone_placements": [{"name": "n1", "cell": "c_a",
-                                                    "cell_uuid": CELL_A}]}},
-        "clone_placements": [{"name": "cp", "cell": "c_a",
-                              "cell_uuid": CELL_A}],
-    })
-    kinds = sorted(p.kind for p in idx.placed_by_cell(CELL_A))
-    assert kinds == sorted([PLACED_BY_CLONE, PLACED_BY_NESTED])
-
 
 def test_cell_referenced_by_name_only_is_not_placed(tmp_path):
     """Ссылка без `*_uuid` (сырая запись) цель не называет — «кто ставит» по

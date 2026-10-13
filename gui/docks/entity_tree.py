@@ -30,7 +30,7 @@ from kicadstamp.i18n import _
 
 from ._common import upsert_list_entry
 from .entity_delete import backup_file
-from .entity_index import PLACED_BY_CLONE, PLACED_BY_NESTED
+from .entity_index import PLACED_BY_NESTED
 from .rename import entry_effective_name
 
 logger = logging.getLogger(__name__)
@@ -56,7 +56,6 @@ _CELL_UNUSED = "unused"
 _CELL_PLACED = "placed"
 # "placed by" kind -> its human label, the {what} of the cell hint.
 _PLACED_BY_LABEL = {
-    PLACED_BY_CLONE: _("clone placement"),
     PLACED_BY_NESTED: _("nested placement in cell"),
 }
 
