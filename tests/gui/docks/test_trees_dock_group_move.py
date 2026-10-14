@@ -15,7 +15,12 @@ WHAT IS PINNED DOWN HERE:
     the tree is byte-for-byte what it was and the Log names the node (Ч1 п.6);
   * picking the parent the group already hangs under does nothing at all;
   * ONE selected node still goes through the single-node flow, and an ancestor
-    with its own descendant is that ONE node (Ч1 п.3 — the descendant rides).
+    with its own descendant is that ONE node (Ч1 п.3 — the descendant rides);
+  * a REFUSED structural half rolls the group's numbers back — every node stays
+    byte for byte what it was (M5 of the Ч1 acceptance);
+  * the GROUP'S old anchor gone from the board falls back to the live read (M7):
+    the group still moves, its board places are preserved, and the Log names the
+    source (offset read from the board) with the reason.
 
 NOT covered here, named rather than implied: the busy-socket deferral and the
 rebuild count of the group path (the single path's own cells in
@@ -33,6 +38,7 @@ from kicadstamp.utils.units import MM
 
 import gui.docks.trees_dock as trees_dock_mod
 from gui.docks.trees_dock import TreesDock
+from gui.docks.trees_move_flow import _OFFSET_READ_FROM_BOARD
 
 from tests.fakes.write_later import write_later
 
@@ -227,3 +233,95 @@ def test_an_ancestor_and_its_descendant_are_that_one_node(
     dock._move_nodes_flow(tree, _row_node(dock, "R_ONE"))
 
     assert single == ["mnt_a"], "the ancestor is the group"
+
+
+# ── ДОДЕЛКА п.2 (M5): a refused structural half rolls the numbers back ──────
+
+def test_a_refused_structural_half_leaves_every_number_as_it_was(
+        main_window, tmp_path, monkeypatch):
+    """M5 of the Ч1 acceptance (доделка п.2): `apply_group_move` writes the
+    planned offsets BEFORE the structural move so the rebuild renders the nodes
+    in their new frame — and it must ROLL THEM BACK when the structural half
+    refuses. Without the rollback the two nodes keep numbers measured for the
+    NEW parent while still hanging under the old one, so they really jump on the
+    board even though nothing moved in the tree.
+
+    `dock._reparent_nodes` is the ONE structural half (Ч1 п.8); it refusing is
+    the programming-error cover the candidate list makes unreachable, and a
+    refused group must leave every node byte for byte as it was.
+
+    Mutation check: drop the rollback loop in trees_move_flow.apply_group_move
+    and the xy values below come back re-expressed (-8 / -6) under mnt_a."""
+    dock = _dock_with(main_window, tmp_path)
+    tree = dock._current_tree()
+    _pose_stub(monkeypatch)
+    _pick(monkeypatch, "mnt_b")
+    monkeypatch.setattr(dock, "_reparent_nodes", lambda *a, **k: False)
+    _select_rows(dock, "R_ONE", "R_TWO")
+    before = tree_to_sexp(tree)
+    numbers = [(n.xy, n.polar, n.rotation) for n in tree.nodes[0].children]
+
+    dock._move_nodes_flow(tree, _row_node(dock, "R_ONE"))
+
+    assert [(n.xy, n.polar, n.rotation) for n in tree.nodes[0].children] == numbers, \
+        "a refused group must roll EVERY node's numbers back"
+    assert [n.ref for n in tree.nodes[0].children] == ["R_ONE", "R_TWO"]
+    assert tree_to_sexp(tree) == before, "…and the tree is byte for byte as it was"
+
+
+# ── ДОДЕЛКА п.3 (M7): the group's OLD anchor is gone from the board ─────────
+
+def test_the_group_falls_back_to_the_live_read_when_the_old_anchor_is_gone(
+        main_window, tmp_path, monkeypatch, caplog):
+    """M7 of the Ч1 acceptance (доделка п.3) — the case the whole feature is for:
+    the OLD mount's anchor is NOT on the board any more (the fake raises for it,
+    answering for the NEW one). The recalculation is therefore impossible, so the
+    source order falls back to the LIVE read — each node's CURRENT place read
+    relative to the new parent — and the group still moves.
+
+    The point of the cell: nothing is lost by that fallback. Every node's BOARD
+    place is exactly where it was (the numbers change, the place does not), and
+    the Log NAMES the source (`_OFFSET_READ_FROM_BOARD`) with the reason, because
+    the board and the config may disagree and the source must be visible.
+
+    Mutation check: drop the live-read leg from trees_move_flow.plan_rehang and
+    the whole plan is refused — the group does not move at all."""
+    dock = _dock_with(main_window, tmp_path)
+    tree = dock._current_tree()
+    abs_x = {"R_ONE": MOUNT_X_MM["mnt_a"] + 12.0,
+             "R_TWO": MOUNT_X_MM["mnt_a"] + 14.0}
+
+    def _old_anchor_gone(cfg, adapter, sheet_names, tree_, parent_node,
+                         base_anchor=None, *args, **kwargs):
+        ref = getattr(parent_node, "ref", None)
+        if ref == "mnt_a":
+            raise trees_dock_mod.ValidationError(
+                "the old mount's anchor is not on the board")
+        return (Vector2.from_xy(int(round(MOUNT_X_MM.get(ref, 0.0) * MM)), 0),
+                0.0, False)
+    monkeypatch.setattr(trees_dock_mod, "_resolve_node_base_pose", _old_anchor_gone)
+
+    def _read_live(cfg, adapter, sheet_names, tree_, new_parent, ref, kind,
+                   component_address=None, *args, **kwargs):
+        # The real read answers with the node's place against the NEW parent.
+        return ((abs_x[ref] - MOUNT_X_MM["mnt_b"], 0.0), 0.0)
+    monkeypatch.setattr(trees_dock_mod, "_resolve_live_offset", _read_live)
+
+    _pick(monkeypatch, "mnt_b")
+    _select_rows(dock, "R_ONE", "R_TWO")
+    before = [_absolute_x_mm(node, "mnt_a") for node in tree.nodes[0].children]
+
+    caplog.clear()
+    dock._move_nodes_flow(tree, _row_node(dock, "R_ONE"))
+
+    assert [n.ref for n in tree.nodes[1].children] == ["R_ONE", "R_TWO"], \
+        "the group still moves even though the recalculation was impossible"
+    assert [n.xy for n in tree.nodes[1].children] == [(-8.0, 0.0), (-6.0, 0.0)]
+    after = [_absolute_x_mm(node, "mnt_b") for node in tree.nodes[1].children]
+    assert after == before, "every node stayed exactly where it was on the board"
+
+    told = [r.message for r in caplog.records]
+    for ref in ("R_ONE", "R_TWO"):
+        assert any(_OFFSET_READ_FROM_BOARD.format(
+            node=ref, reason="the old mount's anchor is not on the board") == m
+            for m in told), f"the Log must name the source for {ref} — got {told!r}"
