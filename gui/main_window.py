@@ -84,8 +84,8 @@ from kicadstamp.constants import DEFAULT_RECONNECT_INTERVAL_MS
 from kicadstamp.domain.board import Footprint
 from PyQt6.QtCore import QByteArray, Qt, QTimer
 from PyQt6.QtGui import QAction
-from PyQt6.QtWidgets import (QApplication, QLabel, QMainWindow, QMenu,
-                              QMessageBox, QPushButton, QSystemTrayIcon)
+from PyQt6.QtWidgets import (QApplication, QMainWindow, QMenu, QMessageBox,
+                              QSystemTrayIcon)
 
 from kicadstamp.config_working_set import WORKING_SET
 from kicadstamp.explore import selection_signature
@@ -95,14 +95,14 @@ from . import settings
 from .board_nets import board_filename, board_net_names, copper_net_names
 from .connection import (BoardConnection, LATENCY_KIND_FAST,
                          LATENCY_KIND_SLOW)
-from .connection_badge import ConnectionBadge
 from .dock_hub import DockHub
 from .app_icon import build_app_icon
 from .docks._common import display_path, format_ms
 from .docks.profile_import import run_import_dialog
 from .hotkeys import build_action
 from .kicad_processes_dialog import KicadProcessesDialog
-from .worker import (GENERIC_BUSY_TEXT, PollWorkerHandle, set_busy_reporter,
+from .status_bar import build_status_bar
+from .worker import (GENERIC_BUSY_TEXT, PollWorkerHandle,
                      timeout_recommendation)
 
 # Stable QAction ids for the global project save model (2026-09-01, plan
@@ -149,67 +149,11 @@ class MainWindow(QMainWindow):
         self.connection = BoardConnection(timeout_ms=timeout_ms)
         self._tray_icon: Optional[QSystemTrayIcon] = None
 
-        # One-off messages ONLY since 2026-10-14 (plan_2026_10_14_connection_
-        # badge): the connection state lives in the badge below, because a save
-        # used to erase it from right here (Д1 of that plan).
-        self.status_label = QLabel("")
-        self.action_button = QPushButton(_("Reconnect"))
-        self.action_button.clicked.connect(lambda: self._poll(manual=True))
-        self.statusBar().addWidget(self.status_label, 1)
-
-        # The connection badge (same plan) — FIRST of the permanent widgets, fed
-        # by the two poll finish handlers; see gui/connection_badge.py.
-        self.connection_badge = ConnectionBadge(self)
-        self.statusBar().addPermanentWidget(self.connection_badge)
-
-        # Project-dirty indicator (2026-09-01, plan project_save_model) — a ●
-        # whenever the config working set has unsaved edits. Driven by
-        # DockHub._update_dirty_indicator on every stage/clear.
-        self.dirty_label = QLabel("")
-        self.statusBar().addPermanentWidget(self.dirty_label)
-
-        # Busy indicator (2026-09-12, plan_2026_09_12_busy_indicator Э1) — a
-        # permanent status-bar label naming the operation the user started
-        # ("Working with the board: placing"), empty when nothing runs. Same
-        # shape as dirty_label above: one long-lived widget, written from one
-        # place (_set_busy). The writer is gui/worker's busy-reporter hook, so
-        # ONLY LongOpController operations reach it — the automatic poll ticks
-        # go through PollWorkerHandle, which deliberately has no reporter (see
-        # the hook's own comment in gui/worker.py).
-        self.busy_label = QLabel("")
-        self.statusBar().addPermanentWidget(self.busy_label)
-        set_busy_reporter(self._set_busy)
-
-        # Latency readout (plan_2026_09_13_ipc_timeout_and_latency Э3) — the
-        # MEDIAN response time of the fast selection tick, e.g. "KiCad: 1.2 ms".
-        # Same long-lived-widget shape as busy_label: one widget, written from
-        # one place (_update_latency_label). Empty while there is no connection
-        # — and NOT keyed on long_op_active, which the 400ms tick raises too.
-        self.latency_label = QLabel("")
-        self.statusBar().addPermanentWidget(self.latency_label)
-
-        # Always on top / Tray icon checkboxes moved to the Settings tab
-        # (ConfiguratorDock) 2026-08-15 — see gui/docks/configurator.py. The
-        # actual window-flag/tray-icon LOGIC stays here (_set_always_on_top/
-        # _set_tray_enabled); only the UI moved. DockHub wires the
-        # configurator's always_on_top_toggled/tray_enabled_toggled signals
-        # back onto these two methods (see gui/dock_hub.py), and
-        # _restore_window_state/_persist_settings read the checkboxes through
-        # self._dock_hub.configurator_dock below.
-
-        self.open_fieldstool_button = QPushButton(_("Open fieldstool"))
-        self.open_fieldstool_button.clicked.connect(self.open_fieldstool)
-        self.statusBar().addPermanentWidget(self.open_fieldstool_button)
-
-        # 2026-08-03 — a crashed/frozen kicad.exe left running alongside a
-        # fresh one blocked the fresh one's IPC connection; this is a
-        # shortcut for "look in Task Manager, pick the stuck one, kill it by
-        # hand", not an automated decision (see gui/kicad_processes_dialog.py).
-        self.kicad_processes_button = QPushButton(_("KiCad processes..."))
-        self.kicad_processes_button.clicked.connect(self._show_kicad_processes)
-        self.statusBar().addPermanentWidget(self.kicad_processes_button)
-
-        self.statusBar().addPermanentWidget(self.action_button)
+        # The status bar's widgets — the connection badge, the dirty/busy/latency
+        # indicators and the three buttons — are built in gui/status_bar.py and
+        # land here as attributes of this window (the follow-up of 2026-10-14 that
+        # keeps this file shrinking; the widgets' own "why" travels with them).
+        build_status_bar(self)
 
         # All docks + their layout and inter-dock signal wiring live in
         # DockHub (Phase 3.3) — MainWindow keeps ownership of the window and
