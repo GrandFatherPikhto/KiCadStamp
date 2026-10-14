@@ -205,7 +205,7 @@ All such places are **documented** in the code and covered by unit tests, allowi
 
 ## Dependencies
 
-- `kipy` – official Python library for KiCad IPC (installed separately, version 0.7.1 or newer). Imported ONLY by `adapter.py`; nothing outside `kicad/` touches it.
+- `kipy` – official Python library for KiCad IPC (installed separately, version 0.8.0 or newer). Imported ONLY by `adapter.py`; nothing outside `kicad/` touches it.
 - `kipy.board_types` – KiCad data types (FootprintInstance, Pad, Via, Track, Net, Field, Group, BoardLayer, etc.) — internal to `adapter.py`.
 - `kipy.geometry` – geometric primitives (Vector2, Box2, Angle) — internal to `adapter.py`.
 - `kipy.errors.ApiError`, `kipy.errors.ConnectionError` – for IPC error handling.

@@ -314,7 +314,7 @@ Install them with `pip install -e ".[dev]"`. CI does NOT resolve extras: it inst
 the LOCK `requirements.txt`, then `pip install -e . --no-deps`.
 
 **`requirements.txt` is a GENERATED lock — never edit it by hand.** The pin source is
-`pyproject.toml`; regenerate with uv (the version CI pins, 0.5.9):
+`pyproject.toml`; regenerate with uv (the version CI pins, 0.13.1):
 
 ```bash
 uv pip compile pyproject.toml --extra dev --extra mcp --universal -o requirements.txt

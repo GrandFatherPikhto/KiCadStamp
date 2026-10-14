@@ -341,7 +341,7 @@ class KiCadBoardAdapter(IBoardAdapter):
         one long-lived GUI session, several live sockets pile up and get
         finalized by the GC at unpredictable points on unpredictable
         threads — a plausible trigger for a native crash in a C-extension
-        async socket library (pynng). kipy 0.7.1 exposes no public close()
+        async socket library (pynng). kipy 0.7.1 and 0.8.0 expose no public close()
         on KiCad/KiCadClient (checked kicad.py/client.py directly) — this
         reaches into KiCadClient's private _conn, so failure here must never
         propagate (the socket may already be broken, which is often exactly

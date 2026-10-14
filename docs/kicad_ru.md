@@ -280,7 +280,7 @@ print(f"Новый слой: {fp.layer}")
 
 ## Зависимости и требования
 
-- `kipy` – официальная Python-библиотека для IPC KiCad (устанавливается отдельно, версия 0.7.1 или новее). Импортируется ТОЛЬКО в `adapter.py`; ничего вне `kicad/` её не трогает.
+- `kipy` – официальная Python-библиотека для IPC KiCad (устанавливается отдельно, версия 0.8.0 или новее). Импортируется ТОЛЬКО в `adapter.py`; ничего вне `kicad/` её не трогает.
 - `kipy.board_types` – типы данных KiCad (FootprintInstance, Pad, Via, Track, Net, Field, Group, BoardLayer и др.) — внутреннее дело `adapter.py`.
 - `kipy.geometry` – геометрические примитивы (Vector2, Box2, Angle) — внутреннее дело `adapter.py`.
 - `kipy.errors.ApiError`, `kipy.errors.ConnectionError` – для обработки ошибок IPC.

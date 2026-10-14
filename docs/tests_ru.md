@@ -313,7 +313,7 @@ mtime на одну миллисекунду вперёд от прежнего.
 LOCK `requirements.txt`, затем `pip install -e . --no-deps`.
 
 **`requirements.txt` — СГЕНЕРИРОВАННЫЙ lock, руками не править никогда.** Источник
-пинов — `pyproject.toml`; пересобирать uv (версии CI — 0.5.9):
+пинов — `pyproject.toml`; пересобирать uv (версии CI — 0.13.1):
 
 ```bash
 uv pip compile pyproject.toml --extra dev --extra mcp --universal -o requirements.txt

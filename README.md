@@ -102,7 +102,7 @@ pip install -e .
 ```
 
 Dependencies are installed automatically and version-pinned. The ones that carry the runtime:
-`kicad-python==0.7.1` (the KiCad IPC wrapper, imported as `kipy`), `PyQt6==6.11.0`, `sexpdata==1.0.2`,
+`kicad-python==0.8.0` (the KiCad IPC wrapper, imported as `kipy`), `PyQt6==6.11.0`, `sexpdata==1.0.2`,
 `pynng==0.9.0`, `protobuf==5.29.6`.
 
 Optional extras:

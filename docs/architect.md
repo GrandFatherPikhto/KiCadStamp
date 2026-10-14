@@ -281,7 +281,7 @@ All such uses are **documented in the code** and covered by unit tests.
 
 - **Python 3.8+** (recommended 3.9+).
 - **KiCad 10.0.4+** with IPC API enabled.
-- **`kipy`** – official Python client for KiCad IPC (version 0.7.1 or newer).
+- **`kipy`** – official Python client for KiCad IPC (version 0.8.0 or newer).
 - Additional packages: `pyyaml`, `sexpdata`, `json5` (optional), `tomli` (optional).
 
 ---

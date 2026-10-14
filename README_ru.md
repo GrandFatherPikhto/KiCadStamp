@@ -100,7 +100,7 @@ source .venv/bin/activate        # Windows: .venv\Scripts\activate
 pip install -e .
 ```
 
-Зависимости ставятся автоматически и закреплены по версиям. Рабочие: `kicad-python==0.7.1`
+Зависимости ставятся автоматически и закреплены по версиям. Рабочие: `kicad-python==0.8.0`
 (обёртка над KiCad IPC, импортируется как `kipy`), `PyQt6==6.11.0`, `sexpdata==1.0.2`,
 `pynng==0.9.0`, `protobuf==5.29.6`.
 

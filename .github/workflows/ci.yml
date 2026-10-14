@@ -40,12 +40,12 @@ jobs:
           cache-dependency-path: requirements.txt
 
       # uv is the LOCK toolchain. The guard below regenerates requirements.txt with
-      # the SAME uv version the lock was authored with (0.5.9): a different uv may
+      # the SAME uv version the lock was authored with (0.13.1): a different uv may
       # format the file differently and the guard would redden on nothing.
       - name: Set up uv (lock toolchain, pinned)
         uses: astral-sh/setup-uv@v5
         with:
-          version: "0.5.9"
+          version: "0.13.1"
 
       # PyQt6 needs a few Qt runtime libraries to run headless (the GUI
       # tests set QT_QPA_PLATFORM=offscreen themselves in tests/gui/conftest.py).

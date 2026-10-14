@@ -11,7 +11,9 @@ license = { text = "MIT" }
 authors = [{ name = "Denis" }]
 dynamic = ["version"]
 dependencies = [
-    "kicad-python==0.7.1",
+    # kicad-python 0.8.0 (2026-10-14, plan_2026_10_14_bump_dependency_pins): bumped
+    # from 0.7.1 after the live-board reads were measured identical on both.
+    "kicad-python==0.8.0",
     "PyYAML==6.0.3",
     "sexpdata==1.0.2",
     "PyQt6==6.11.0",
@@ -43,7 +45,12 @@ dev = [
     # a single test under pdb or a crash dump needs the plain in-process run.
     "pytest-xdist==3.8.0",
     "babel==2.18.0",
-    "pyflakes==3.4.0",
+    # pyflakes 4.0.3 (2026-10-14, plan_2026_10_14_bump_dependency_pins): bumped from
+    # 3.4.0. Measured: its report over the shipped tree is byte-identical to
+    # 3.4.0's (444 pre-existing findings, mostly unused imports) — the bump adds
+    # none. The gate stays what it always was: clean on the TOUCHED files, not a
+    # tree-wide run (that debt is its own task).
+    "pyflakes==4.0.3",
     # psutil (2026-10-01): the schematic_safety cells run the psutil branch of
     # list_kicad_pids/list_kicad_processes (test_list_kicad_pids_posix_*,
     # test_list_kicad_processes_posix_*), so the suite does not COLLECT-run without
@@ -53,8 +60,8 @@ dev = [
     "psutil==7.2.2",
 ]
 diagnostics = [
-    "numpy==2.5.1",
-    "scipy==1.18.0",
+    "numpy==2.5.4",
+    "scipy==1.18.1",
     "psutil==7.2.2",
     "rich==15.0.0",
     "watchdog==6.0.0",
@@ -64,9 +71,10 @@ diagnostics = [
 # resolves to the tests/mcp/ DIRECTORY as a namespace package, so the run dies in
 # collection (measured 2026-10-01: `ModuleNotFoundError: No module named
 # 'mcp.server'`). Optional for the GUI/CLI at RUNTIME only.
-# mcp 2.x renamed FastMCP to MCPServer (verified 2026-08-29).
+# mcp 2.x renamed FastMCP to MCPServer (verified 2026-08-29, and re-verified on
+# 2.3.0 — 2026-10-14, plan_2026_10_14_bump_dependency_pins).
 mcp = [
-    "mcp==2.1.1",
+    "mcp==2.3.0",
 ]
 
 [project.scripts]
