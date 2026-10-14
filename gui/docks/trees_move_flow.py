@@ -1,6 +1,7 @@
 # gui/docks/trees_move_flow.py
-"""The PURE half of the group "Move to…" of the trees dock — which nodes a
-selection moves, and which parents may take them
+"""The "Move to…" flows of the trees dock and the PURE half they are built on —
+which nodes a selection moves, which parents may take them, and how a node's
+numbers are re-expressed when its base changes
 (plan_2026_10_14_tree_group_move_and_mount_rebase, Ч1 п.2–п.7).
 
 Why this module exists at all: `gui/docks/trees_dock.py` is a giant (7323 lines

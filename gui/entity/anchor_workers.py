@@ -273,30 +273,37 @@ def find_pad_owner(adapter, footprints, pad_uuid: str):
     return None
 
 
-def read_anchor_source(adapter, items, cell_roles, cell_name: str,
-                       label: str = "cell anchor") -> dict:
-    """Read the current board selection and classify it into the Role anchor
-    tab's three cases (§0.2 / C.2):
+def classify_selection_anchor(adapter, items, label: str = "anchor") -> dict:
+    """The board SELECTION classified into the (kind, role, pad, cluster) an
+    anchor is made of — the PURE half of `read_anchor_source`, with NO knowledge
+    of a CELL.
 
-      - a pad is selected -> its owner footprint is found by uuid scan; the
-        footprint's Role + Cluster and the pad's number are returned;
-      - a footprint is selected -> Role + Cluster, pad left unset;
-      - only a Via/Track (or non-content graphics) -> kind 'via'/'other' (NOT
-        an error — the caller tells the user this is the Marker tab's case).
+    That split is Ч2-1 of plan_2026_10_14_tree_group_move_and_mount_rebase: a
+    mount node's anchor is taken from the board selection too, and a mount node
+    has no cell at all — so the CELL-shaped checks belong to the caller, never
+    to the classification. "Is this role a component of THIS cell" is a question
+    only a caller with a cell can ask.
 
-    Fatal (ValidationError, never a silent guess): nothing selected; the
-    selection spans several Clusters; several roles among the selected content;
-    a pad whose owner footprint is not on the board; the inferred role is not
-    one of this cell's components. `cell_roles` may be [] — the last check is
-    then skipped."""
+    Returns a GENERIC dict:
+        {"kind": "pad" | "footprint" | "via" | "other",
+         "role": str | None, "pad": str | None, "cluster": str | None,
+         "footprint": Footprint | None}
+    `footprint` is the footprint the anchor names (the pad's OWNER when a pad was
+    selected) — not part of the anchor: it is what a caller needs to resolve the
+    SHEET the component stands on.
+
+    Raises ValidationError (never a silent guess) for the selection's OWN
+    defects, in the wording the cell-anchor tab has always shown (`label` is the
+    caller's): nothing selected; the selection spans several clusters; several
+    roles among the selected content; a selected footprint with no Role field; a
+    selected pad whose owner footprint is not on the board."""
     items = list(items or [])
     if not items:
         raise ValidationError(format_fatal_error(
             _("{label}: nothing is selected on the board — select one component "
-              "(or one of its pads) of cell {cell!r}").format(
-                  label=label, cell=cell_name),
-            [_("click a component (or one of its pads) of this cell in the PCB "
-               "editor, then press the button again")]))
+              "(or one of its pads)").format(label=label),
+            [_("click a component (or one of its pads) in the PCB editor, then "
+               "press the button again")]))
 
     content: list = []
     pad_numbers: dict = {}
@@ -322,7 +329,7 @@ def read_anchor_source(adapter, items, cell_roles, cell_name: str,
     if not content:
         has_via_track = any(isinstance(i, (Via, Track)) for i in items)
         return {"kind": "via" if has_via_track else "other",
-                "role": None, "pad": None, "cluster": None}
+                "role": None, "pad": None, "cluster": None, "footprint": None}
 
     clusters: dict = {}
     for fp in content:
@@ -336,9 +343,8 @@ def read_anchor_source(adapter, items, cell_roles, cell_name: str,
         raise ValidationError(format_fatal_error(
             _("{label}: the selection spans several clusters — {listing}")
             .format(label=label, listing=listing),
-            [_("an anchor belongs to ONE placed instance of the cell; select "
-               "components of a single cluster only, then press the button "
-               "again")]))
+            [_("an anchor belongs to ONE placed instance; select components of "
+               "a single cluster only, then press the button again")]))
     cluster = next(iter(clusters), None)
 
     roles: dict = {}
@@ -347,12 +353,14 @@ def read_anchor_source(adapter, items, cell_roles, cell_name: str,
         if role:
             roles.setdefault(role, []).append(fp.ref)
 
+    named_fp = content[0]
     if len(content) == 1:
         fp = content[0]
         role = adapter.get_field_value(fp, ROLE_FIELD_NAME)
         pad = pad_numbers.get(fp.uuid)
     elif pad_numbers:
         owner = next(fp for fp in content if fp.uuid in pad_numbers)
+        named_fp = owner
         role = adapter.get_field_value(owner, ROLE_FIELD_NAME)
         pad = pad_numbers[owner.uuid]
     else:
@@ -363,8 +371,8 @@ def read_anchor_source(adapter, items, cell_roles, cell_name: str,
             raise ValidationError(format_fatal_error(
                 _("{label}: the selection contains several roles — {listing}")
                 .format(label=label, listing=listing),
-                [_("select exactly ONE component (or its pad) of this cell, "
-                   "then press the button again")]))
+                [_("select exactly ONE component (or its pad), then press the "
+                   "button again")]))
         role = next(iter(roles), None)
         pad = None
 
@@ -373,14 +381,50 @@ def read_anchor_source(adapter, items, cell_roles, cell_name: str,
             _("{label}: the selected footprint has no Role field").format(label=label),
             [_("tag the component with a Role (Tools -> tree -> Tag selected) "
                "or pick another component")]))
-    if cell_roles and role not in cell_roles:
+    return {"kind": "pad" if pad is not None else "footprint",
+            "role": role, "pad": pad, "cluster": cluster, "footprint": named_fp}
+
+
+def read_anchor_source(adapter, items, cell_roles, cell_name: str,
+                       label: str = "cell anchor") -> dict:
+    """Read the current board selection and classify it into the Role anchor
+    tab's three cases (§0.2 / C.2):
+
+      - a pad is selected -> its owner footprint is found by uuid scan; the
+        footprint's Role + Cluster and the pad's number are returned;
+      - a footprint is selected -> Role + Cluster, pad left unset;
+      - only a Via/Track (or non-content graphics) -> kind 'via'/'other' (NOT
+        an error — the caller tells the user this is the Marker tab's case).
+
+    The selection ITSELF is classified by the SHARED
+    `classify_selection_anchor` (Ч2-1) — this function adds the ONE check that
+    needs a cell ("is the role a component of THIS cell") and the one wording
+    that needs its name (the empty selection, where the map from the button to
+    the click is otherwise invisible in a dock with several cells).
+
+    Fatal (ValidationError, never a silent guess): nothing selected; the
+    selection spans several Clusters; several roles among the selected content;
+    a pad whose owner footprint is not on the board; the inferred role is not
+    one of this cell's components. `cell_roles` may be [] — the last check is
+    then skipped."""
+    items = list(items or [])
+    if not items:
+        raise ValidationError(format_fatal_error(
+            _("{label}: nothing is selected on the board — select one component "
+              "(or one of its pads) of cell {cell!r}").format(
+                  label=label, cell=cell_name),
+            [_("click a component (or one of its pads) of this cell in the PCB "
+               "editor, then press the button again")]))
+    read = classify_selection_anchor(adapter, items, label)
+    role = read["role"]
+    if cell_roles and role and role not in cell_roles:
         raise ValidationError(format_fatal_error(
             _("{label}: role {role!r} is not a component of cell {cell!r}")
             .format(label=label, role=role, cell=cell_name),
             [_("the cell anchor must name one of this cell's own components — "
                "select a component of cell {cell!r}").format(cell=cell_name)]))
-    return {"kind": "pad" if pad is not None else "footprint",
-            "role": role, "pad": pad, "cluster": cluster}
+    return {"kind": read["kind"], "role": role, "pad": read["pad"],
+            "cluster": read["cluster"]}
 
 
 def roles_for_cluster(snapshot, cell_roles, cluster: str) -> list:
