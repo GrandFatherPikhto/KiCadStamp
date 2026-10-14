@@ -17127,3 +17127,73 @@ msgstr "Record {ref!r} {where} — a record has exactly one position source; mov
 msgid "the rotation of the cell's single component could not be determined (no live footprint, or the board side is unknown) — 0° is used, which may be wrong for a turned instance"
 msgstr "the rotation of the cell's single component could not be determined (no live footprint, or the board side is unknown) — 0° is used, which may be wrong for a turned instance"
 
+
+#: gui/docks/trees_dock.py:2703 gui/docks/trees_mount_rebase.py:376 tests/gui/docks/test_trees_dock_mount_rebase.py:491 tests/gui/docks/test_trees_dock_mount_rebase.py:495
+msgid "Change anchor from selection…"
+msgstr "Change anchor from selection…"
+
+
+#: gui/docks/trees_mount_rebase.py:71
+msgid "Change anchor: select exactly one footprint or one pad on the board"
+msgstr "Change anchor: select exactly one footprint or one pad on the board"
+
+
+#: gui/docks/trees_mount_rebase.py:78
+#, python-brace-format
+msgid "{mount}: axes taken from the new anchor ({angle}°)"
+msgstr "{mount}: axes taken from the new anchor ({angle}°)"
+
+
+#: gui/docks/trees_mount_rebase.py:84
+#, python-brace-format
+msgid "{mount}: old anchor not found on the board — children re-read from the board ({n})"
+msgstr "{mount}: old anchor not found on the board — children re-read from the board ({n})"
+
+
+#: gui/docks/trees_mount_rebase.py:92
+#, python-brace-format
+msgid "Change anchor: the group cannot be held still — \"Group stays in place\" is not offered ({reasons})"
+msgstr "Change anchor: the group cannot be held still — \"Group stays in place\" is not offered ({reasons})"
+
+
+#: gui/docks/trees_mount_rebase.py:310
+msgid "mount anchor"
+msgstr "mount anchor"
+
+
+#: gui/docks/trees_mount_rebase.py:339
+msgid "Group stays in place"
+msgstr "Group stays in place"
+
+
+#: gui/docks/trees_mount_rebase.py:340
+msgid "Group moves to the new anchor"
+msgstr "Group moves to the new anchor"
+
+
+#: gui/docks/trees_mount_rebase.py:377
+msgid "What happens to the group?"
+msgstr "What happens to the group?"
+
+
+#: gui/entity/anchor_workers.py:303
+#, python-brace-format
+msgid "{label}: nothing is selected on the board — select one component (or one of its pads)"
+msgstr "{label}: nothing is selected on the board — select one component (or one of its pads)"
+
+
+#: gui/entity/anchor_workers.py:305
+msgid "click a component (or one of its pads) in the PCB editor, then press the button again"
+msgstr "click a component (or one of its pads) in the PCB editor, then press the button again"
+
+
+#: gui/entity/anchor_workers.py:346
+msgid "an anchor belongs to ONE placed instance; select components of a single cluster only, then press the button again"
+msgstr "an anchor belongs to ONE placed instance; select components of a single cluster only, then press the button again"
+
+
+#: gui/entity/anchor_workers.py:374
+msgid "select exactly ONE component (or its pad), then press the button again"
+msgstr "select exactly ONE component (or its pad), then press the button again"
+
+

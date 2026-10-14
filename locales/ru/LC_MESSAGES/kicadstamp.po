@@ -18051,3 +18051,73 @@ msgstr "Запись {ref!r} {where} — у записи ровно один и�
 msgid "the rotation of the cell's single component could not be determined (no live footprint, or the board side is unknown) — 0° is used, which may be wrong for a turned instance"
 msgstr "поворот единственной детали ячейки определить не удалось (живого футпринта нет или сторона платы неизвестна) — принят 0°, что может быть неверно для повёрнутого экземпляра"
 
+
+#: gui/docks/trees_dock.py:2703 gui/docks/trees_mount_rebase.py:376 tests/gui/docks/test_trees_dock_mount_rebase.py:491 tests/gui/docks/test_trees_dock_mount_rebase.py:495
+msgid "Change anchor from selection…"
+msgstr "Сменить опору по выделению…"
+
+
+#: gui/docks/trees_mount_rebase.py:71
+msgid "Change anchor: select exactly one footprint or one pad on the board"
+msgstr "Сменить опору: выделите ровно один футпринт или один пад на плате"
+
+
+#: gui/docks/trees_mount_rebase.py:78
+#, python-brace-format
+msgid "{mount}: axes taken from the new anchor ({angle}°)"
+msgstr "{mount}: оси взяты от новой опоры ({angle}°)"
+
+
+#: gui/docks/trees_mount_rebase.py:84
+#, python-brace-format
+msgid "{mount}: old anchor not found on the board — children re-read from the board ({n})"
+msgstr "{mount}: старая опора не найдена на плате — дети перечитаны с платы ({n})"
+
+
+#: gui/docks/trees_mount_rebase.py:92
+#, python-brace-format
+msgid "Change anchor: the group cannot be held still — \"Group stays in place\" is not offered ({reasons})"
+msgstr "Сменить опору: группу нельзя удержать на месте — вариант «Группа остаётся на месте» не предлагается ({reasons})"
+
+
+#: gui/docks/trees_mount_rebase.py:310
+msgid "mount anchor"
+msgstr "опора mount"
+
+
+#: gui/docks/trees_mount_rebase.py:339
+msgid "Group stays in place"
+msgstr "Группа остаётся на месте"
+
+
+#: gui/docks/trees_mount_rebase.py:340
+msgid "Group moves to the new anchor"
+msgstr "Группа переезжает на новую опору"
+
+
+#: gui/docks/trees_mount_rebase.py:377
+msgid "What happens to the group?"
+msgstr "Что делать с группой?"
+
+
+#: gui/entity/anchor_workers.py:303
+#, python-brace-format
+msgid "{label}: nothing is selected on the board — select one component (or one of its pads)"
+msgstr "{label}: на плате ничего не выделено — выделите одну деталь (или один её пад)"
+
+
+#: gui/entity/anchor_workers.py:305
+msgid "click a component (or one of its pads) in the PCB editor, then press the button again"
+msgstr "щёлкните деталь (или один её пад) в редакторе платы и нажмите кнопку ещё раз"
+
+
+#: gui/entity/anchor_workers.py:346
+msgid "an anchor belongs to ONE placed instance; select components of a single cluster only, then press the button again"
+msgstr "якорь принадлежит ОДНОМУ размещённому экземпляру; выделите детали только одного кластера и нажмите кнопку ещё раз"
+
+
+#: gui/entity/anchor_workers.py:374
+msgid "select exactly ONE component (or its pad), then press the button again"
+msgstr "выделите ровно ОДНУ деталь (или её пад) и нажмите кнопку ещё раз"
+
+

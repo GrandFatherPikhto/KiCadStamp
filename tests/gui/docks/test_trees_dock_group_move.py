@@ -325,3 +325,40 @@ def test_the_group_falls_back_to_the_live_read_when_the_old_anchor_is_gone(
         assert any(_OFFSET_READ_FROM_BOARD.format(
             node=ref, reason="the old mount's anchor is not on the board") == m
             for m in told), f"the Log must name the source for {ref} — got {told!r}"
+
+
+# ── Ч2-9: the SINGLE path rolls its numbers back too ───────────────────────
+
+def test_a_refused_structural_half_leaves_the_single_node_as_it_was(
+        main_window, tmp_path, monkeypatch):
+    """Ч2-9 of plan_2026_10_14_tree_group_move_and_mount_rebase — the cell the Ч1
+    acceptance asked for: the mutation "no rollback on the SINGLE path" survived
+    the whole of Ч1, because the hole was there BEFORE the task (the group half
+    was guarded, the single half was not).
+
+    `run_single_move` writes the re-expressed offset BEFORE `_reparent_node`, so
+    the (immediate) rebuild renders the node in its new frame — and it must roll
+    that back when the structural half refuses, or the node keeps numbers measured
+    for a parent it does not hang under, i.e. it really jumps on the board while
+    the tree did not change.
+
+    `_reparent_node` refusing is the programming-error cover the candidate list
+    makes unreachable. Mutation check: drop the `previous` restore in
+    trees_move_flow.run_single_move and the xy below comes back re-expressed for
+    mnt_b (−8) instead of the stored 12."""
+    dock = _dock_with(main_window, tmp_path)
+    tree = dock._current_tree()
+    before = tree_to_sexp(tree)
+    monkeypatch.setattr(dock, "_rehang_offset_or_ask",
+                        lambda *a, **k: (True, ((-8.0, 0.0), None, 0.0)))
+    monkeypatch.setattr(dock, "_reparent_node", lambda *a, **k: False)
+    _pick(monkeypatch, "mnt_b")
+    _select_rows(dock, "R_ONE")
+    node = _row_node(dock, "R_ONE")
+
+    dock._move_nodes_flow(tree, node)
+
+    assert (node.xy, node.polar, node.rotation) == ((12.0, 0.0), None, 0.0), \
+        "a refused single move must leave the node byte for byte as it was"
+    assert [n.ref for n in tree.nodes[0].children] == ["R_ONE", "R_TWO"]
+    assert tree_to_sexp(tree) == before, "…and the tree is byte for byte as it was"

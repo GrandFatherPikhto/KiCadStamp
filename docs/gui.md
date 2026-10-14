@@ -698,7 +698,29 @@ its own anchor pad) and is named in the Log. The moved nodes keep their mutual
 document order under the new parent, and the whole group is ONE structural change
 (one rebuild, one "modified" mark). A single selected node keeps the original flow
 and its own question ("re-hang WITHOUT recalculating?"), which is now asked only
-after the board read has failed too. The anchor editor covers all six anchor modes:
+after the board read has failed too.
+
+**Change anchor from selection… on a mount node** (2026-10-14, same plan, Ч2): the context menu of a
+mount node offers one new action, and it is the reason the group move above exists — a mount's point of
+reference can be re-seated on ANOTHER support without deleting the node. Select on the board EXACTLY
+one footprint or exactly one pad (the anchor is taken as role + cluster + sheet, plus the pad when a pad
+was picked; the root sheet is addressed as "/"), then choose what happens to the group hanging under the
+node. **Group stays in place** keeps the mount's absolute BOARD pose — position AND angle: the stored
+numbers are re-expressed through the new support's frame, so a support standing at another angle really
+does change them, while the group does not turn. **Group moves to the new anchor** is a move WITHOUT a
+turn: the stored offset keeps meaning the same board vector from the anchor, so the group travels with
+the support by its displacement. When the OLD support is gone from the board — the case the action is
+for — "stays in place" has nothing to hold the group with, so the row is not offered at all: the
+mount's numbers stay as they are, its axes become the new support's (the Log says so, because the
+numbers do not show it) and every DIRECT child is re-read off the board against the node's new pose (a
+child-mount is skipped — its frame is its own anchor). One child the board cannot answer for removes
+the row as well, with the reason in the Log, and a child whose read failed halfway is never written: a
+partly re-read group does not exist. Ambiguity and cycles are the LOADER's own verdicts, named in the
+Log by the same resolver that would refuse the config at the next load. Nothing is written to the
+board: the config is marked modified, the form shows the new anchor, and Redraw is what reaches the
+board.
+
+The anchor editor covers all six anchor modes:
 **Origin (board 0,0)**, **Config record** (a name
 from the config, resolved at Save; a **Kind** filter narrows the ref list to one section —
 Entity/Coordinate/Point/Clone/All — a picker aid only, the anchor grammar has no kind),
