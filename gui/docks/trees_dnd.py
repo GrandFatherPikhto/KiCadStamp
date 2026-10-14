@@ -149,6 +149,21 @@ class NodeTreeWidget(QTreeWidget):
                 self._tree, node, candidate)) is None
 
     def dragMoveEvent(self, event) -> None:  # noqa: N802 — Qt API name
+        """The BASE handler runs FIRST, and that order is the whole point.
+
+        `dropIndicatorPosition()`, the painted indicator and the auto-scroll all
+        live in `QAbstractItemView.dragMoveEvent`. Without it the position stays
+        frozen at whatever `dragEnterEvent` left (measured 2026-10-14, the Ч3
+        acceptance), and then a drop on the EMPTY SPACE still reads as "on a row"
+        (so "(top level)" is unreachable), a drop BETWEEN rows is accepted (Д-6
+        broken) and dragging down a long tree never scrolls it.
+
+        Our verdict comes SECOND and overrides whatever the base accepted: the
+        same `drop_refusal` the drop itself runs, so the cursor can never allow
+        what the move would refuse. `dropEvent` deliberately does NOT call
+        `super()` — Qt's own move would edit the items while the model is the
+        `Tree` (see `dropEvent`)."""
+        super().dragMoveEvent(event)
         if not self._allowed_at(event):
             event.ignore()
             return

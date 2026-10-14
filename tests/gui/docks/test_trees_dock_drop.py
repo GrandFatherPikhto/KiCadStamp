@@ -37,6 +37,20 @@ NOT covered here, named rather than implied: a real mouse drag (Qt's own event
 synthesis in a headless run), the shared-socket deferral (the Ч1/Ч2 cells and
 tests/gui/test_board_door_offenders.py own it) and the cursor's LOOK (the
 predicate is pinned, the painted cursor is not).
+
+WHAT THE CELLS WITH `dropIndicatorPosition()` SUBSTITUTED DO — AND DO NOT —
+CHECK. Five cells below replace `dropIndicatorPosition()` on purpose, because
+what they pin is the TARGET RULE (`drop_refusal`): which target is accepted and
+that a refusal stays silent. They deliberately do NOT observe Qt's hit-testing —
+they would keep passing if the position were computed wrongly. That half is
+pinned separately and STRUCTURALLY, and the choice is measured, not assumed:
+`diagnostics/probe_2026_10_14_drag_position_update.py` shows that a synthetic
+drag event carries `source() is None`, and the base class then leaves
+`dropIndicatorPosition()` at its default for EVERY position (the empty space and
+a row both answer OnItem), so no honestly driven cell can see the computation in
+a headless run. The cell
+`test_drag_move_event_runs_the_base_handler_first` therefore pins the DELEGATION
+and its ORDER — and fails the moment `super().dragMoveEvent(event)` is dropped.
 """
 from PyQt6.QtCore import QMimeData, QPointF, Qt
 from PyQt6.QtGui import QDropEvent
@@ -425,6 +439,43 @@ def test_a_drop_between_rows_is_not_accepted(
 
     assert not event.isAccepted(), "a between-rows drop must not be accepted"
     assert called == [], "the flow must not be reached"
+
+
+def test_drag_move_event_runs_the_base_handler_first(
+        main_window, tmp_path, monkeypatch):
+    """The Ч3 acceptance's fix, pinned where it can be: the drop POSITION
+    (`dropIndicatorPosition()`), the painted indicator and the auto-scroll all
+    live in `QAbstractItemView.dragMoveEvent`, so OUR handler must run it FIRST
+    and only then override the verdict.
+
+    Structural on purpose — the reason is in the file docstring: a synthetic drag
+    event has `source() is None`, and the base class then never computes a
+    position, so a driven cell cannot observe the computation headlessly. Order
+    is checked by recording both calls into one list: `["base", "verdict"]` means
+    the base ran before our own `_allowed_at`, which is what the fix asks for.
+
+    Mutation checks: drop `super().dragMoveEvent(event)` -> `["verdict"]`; call it
+    AFTER the verdict -> `["verdict", "base"]`. Both fail below."""
+    dock = _drop_dock(main_window, tmp_path)
+    tree = dock._current_tree()
+    monkeypatch.setattr(dock, "_selected_real_nodes",
+                        lambda t: [_row_node(dock, "R_ONE")])
+    widget = dock._tree_widget_for(tree)
+    monkeypatch.setattr(widget, "dropIndicatorPosition", lambda: _POSITION.OnItem)
+    monkeypatch.setattr(widget, "itemAt",
+                        lambda pos: dock._node_items["mnt_b"])
+    order: list[str] = []
+    monkeypatch.setattr(QTreeWidget, "dragMoveEvent",
+                        lambda self, event: order.append("base"))
+    monkeypatch.setattr(widget, "_allowed_at",
+                        lambda event: (order.append("verdict"), True)[1])
+
+    widget.dragMoveEvent(_drop_event())
+
+    assert order == ["base", "verdict"], (
+        "the BASE dragMoveEvent must run FIRST — it computes the drop position, "
+        "paints the indicator and scrolls a long tree; our verdict overrides "
+        "what it accepted (got {order!r})".format(order=order))
 
 
 def test_a_drop_refuses_a_target_that_is_not_a_row(
