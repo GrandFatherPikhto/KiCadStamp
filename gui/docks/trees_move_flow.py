@@ -5,9 +5,21 @@ selection moves, and which parents may take them
 
 Why this module exists at all: `gui/docks/trees_dock.py` is a giant (7323 lines
 before this plan, and the plan forbids growing it), so every NEW branch of the
-group flow lands here instead. What lives here is deliberately the part that
-needs no widgets, no adapter and no config: it is a walk over a `Tree`'s nodes,
-so it can be read and tested as data.
+group flow lands here instead.
+
+The module has TWO halves, and they are deliberately kept apart by name:
+
+  * the PURE half — a walk over a `Tree`'s nodes with no widgets, no adapter and
+    no config, so it can be read and tested as data (`group_roots`,
+    `forbidden_subtrees`, `move_candidates`, `split_untouchable`,
+    `reexpress_offset`, `local_polar_from_xy`, `plan_rehang` and friends);
+  * the FLOW BODIES — `run_single_move`, `run_group_move` and `apply_group_move`,
+    which DO need the dock (its parent picker, its status/log channels, its
+    guard methods). Each takes the dock as its first argument and reaches every
+    read through `dock.<name>` or the `trees_dock` module attribute, never
+    through a `from … import` at module level: the door guards patch those names
+    BY MODULE ATTRIBUTE, so a smuggled import would be invisible to them and a
+    broken one would never be caught (Д3 of the Ч0 review).
 
 What does NOT live here, and why (Д3 of the Ч0 review):
 
@@ -35,9 +47,12 @@ the document order.
 """
 from __future__ import annotations
 
+import logging
 import math
 from dataclasses import dataclass, field
 from typing import Callable, Optional, Sequence
+
+from PyQt6.QtWidgets import QInputDialog
 
 from kicadstamp.domain.geometry import Vector2
 from kicadstamp.i18n import _
@@ -48,6 +63,10 @@ from kicadstamp.tree_position import (_snap_mm, board_offset_to_local_mm,
                                       rotate_offset_mm)
 from kicadstamp.trees import Tree, TreeNode
 from kicadstamp.utils.units import MM
+
+from ..worker import defer_while_socket_busy
+
+logger = logging.getLogger(__name__)
 
 
 def group_roots(tree: Tree, nodes: Sequence[TreeNode]) -> list[TreeNode]:
@@ -325,9 +344,296 @@ def plan_rehang(nodes: Sequence[TreeNode],
                 shift = read_live(node)
             except Exception as read_exc:   # noqa: BLE001 — the refusal path
                 plan.refused.append(
-                    (node, "{first}; reading it from the board failed too: "
-                           "{second}".format(first=reason, second=read_exc)))
+                    (node, _("{first}; reading it from the board failed too: "
+                             "{second}").format(first=reason, second=read_exc)))
                 continue
             plan.from_board.append((node, reason))
         plan.shifts.append((node, shift))
     return plan
+
+
+# ── Group "Move to…" (Ч1 of plan_2026_10_14_tree_group_move_and_mount_rebase) ──
+#
+# Ч1 п.2: several SELECTED nodes, ONE new parent, inside the SAME tree. Ч1 п.6:
+# all or nothing — one node that can neither be recalculated nor read from the
+# board cancels the whole move. Ч1 п.10: every refusal is a Log line, never a
+# dialog (rule 43); the right-hand panel and the status row show the group's
+# COUNT instead of an editor, so nothing in this flow can be written by accident.
+
+#: The door sign of a re-hang's base resolve — ONE wording for EVERY entry that
+#: resolves bases to hold a node (or a group) still: the single "Move to…", the
+#: group move and the dropped-on-node move of Ч3. What it covers is measured to
+#: the LEAVES (diagnostics/probe_2026_09_22_rehang_offset_cost.py): per node TWO
+#: anchor resolves — the OLD and the NEW base — and, per Entity-typed parent, ONE
+#: whole-board `adapter.refresh_board()` PLUS the full-board re-read it forces on
+#: the very next line (the adapter's caches are emptied, so the first
+#: `get_footprint(ref)` walks all 332 footprints over IPC). Neither is removed by
+#: the snapshot, which is why the sign names them (Кj: signing a cost without
+#: naming it is what this project refuses).
+_REHANG_SIGN = (
+    "resolve the new parent's live base for a re-hang (two anchor resolves, "
+    "identity from the snapshot) — plus, per Entity-typed parent, ONE whole-board "
+    "adapter.refresh_board() AND the full-board re-read it forces on the next "
+    "line, both sent from the UI thread")
+
+#: The door sign of the FALLBACK read: the recalculation was impossible (usually
+#: because the OLD base is gone from the board, which is why the node is being
+#: moved at all), so the node's CURRENT place is read relative to the NEW parent
+#: — one base resolve plus the child's own record/address read.
+_READ_LIVE_SIGN = (
+    "read the node's CURRENT place from the board for a re-hang whose "
+    "recalculation was impossible — one new-parent base resolve plus the "
+    "node's own live read (identity from the snapshot)")
+
+#: Where a re-hang's numbers came from when the recalculation was impossible: the
+#: board and the config may disagree (the board may simply not be redrawn yet), so
+#: the SOURCE is named instead of assumed.
+_OFFSET_READ_FROM_BOARD = _(
+    "{node}: offset read from the board (recalculation impossible: {reason})")
+
+#: Ч1 п.6/п.10 — ONE line naming the nodes and the reasons; nothing moves.
+_GROUP_MOVE_REFUSED = _(
+    "{nodes}: offset neither recalculated nor read from the board — move "
+    "cancelled ({reason})")
+
+#: The SINGLE-node twin of the line above (доделка п.4.3 of the Ч1 acceptance):
+#: one node DOES get a question right after the refusal, so "move cancelled"
+#: would contradict the question the very next line asks. Same reason, no verdict.
+_MOVE_OFFSET_REFUSED = _(
+    "{node}: offset neither recalculated nor read from the board ({reason})")
+
+#: Ч1 п.5 — a copper node cannot ride with the group (its copper is offset from
+#: its OWN anchor pad), so it is NAMED rather than silently left behind.
+_GROUP_COPPER_SKIPPED = _(
+    "Move to…: copper nodes do not move ({nodes}) — a copper node's copper is "
+    "offset from its own anchor pad")
+
+#: "What just happened", the same sentence Ч3 п.5 asks for on a drop, so both
+#: entries into the group move read alike in the Log.
+_TREE_MOVE_DONE = _("moved: {nodes} — new parent: {parent}")
+
+
+def run_single_move(dock, tree: Tree, node: TreeNode) -> None:
+    """FORK-C: a parent-picker dialog, no drag&drop. The candidate list
+    excludes the node itself and its own descendants (a structural
+    invariant — you cannot move a node into its own subtree) and, when the
+    node IS the tree's pivot-ref, every mount node with its whole subtree:
+    a re-hang there pins the node's base to a LIVE component and the LOADER
+    would refuse the config at the next load (kicadstamp.trees
+    _validate_tree_pivot_ref, reason "mount-ancestor"). Both rules are
+    enforced by CONSTRUCTION through the shared _pivot_ref_mount_parent —
+    the same single expression of the pivot-ref rule the form's combo uses,
+    never a second copy of it.
+
+    The offset is recalculated so the node does NOT physically move — the
+    form's own arithmetic, on the TreeNode itself (dock._reparented_offset,
+    reached through dock._rehang_plan). The structural half belongs to
+    _reparent_node alone: it owns the ONE removal path (by identity, never
+    list.remove) and the ONE rebuild trigger. This flow has neither, and it
+    rebuilds IMMEDIATELY (defer_rebuild=False): there is no embedded form to
+    destroy here — the one-turn deferral exists only because the form's combo
+    calls _reparent_node from inside its own apply() (Л.4).
+
+    When the new base does not resolve there is nothing to hold the node
+    still with: the Log says so and the user is asked, in the form's own
+    words, whether to re-hang WITHOUT recalculating; a "No" leaves the tree
+    and the node exactly as they were."""
+    from . import trees_dock
+
+    forbidden = dock._collect_subtree(node)
+    candidates: list[tuple[str, Optional[TreeNode]]] = [(_("(top level)"), None)]
+    for top in tree.nodes:
+        dock._collect_move_candidates(top, forbidden, candidates)
+    candidates = [row for row in candidates
+                  if trees_dock._pivot_ref_mount_parent(tree, node, row[1]) is None]
+
+    labels = [label for label, _t in candidates]
+    choice, ok = QInputDialog.getItem(
+        dock, _("Move to…"), _("New parent:"), labels, 0, False)
+    if not ok:
+        return
+    new_parent = candidates[labels.index(choice)][1]
+    if new_parent is node or dock._in_list(new_parent, forbidden):
+        return  # structural invariant — the dialog never offered it
+    pinned = trees_dock._pivot_ref_mount_parent(tree, node, new_parent)
+    if pinned is not None:
+        # Never offered above, so reaching this means the dialog was
+        # bypassed: refuse instead of writing a tree the loader will kill.
+        logger.warning(
+            "Refusing to move %r under mount node %r: %r is the tree's "
+            "pivot-ref and a node under a mount node does not follow the "
+            "tree", node.ref, pinned.ref, node.ref)
+        return
+    old_parent = dock._find_parent(tree, node)
+    if old_parent is new_parent:
+        # Picking the parent the node already has is not a re-hang — the
+        # form's combo treats it the same way (its _apply_parent_change
+        # returns early): no board read, no dirty flag, no rebuild.
+        return
+    def _rehang() -> None:
+        proceed, shift = dock._rehang_offset_or_ask(tree, node, old_parent,
+                                                    new_parent)
+        if not proceed:
+            return   # the user refused a re-hang that cannot be held still
+        previous = (node.xy, node.polar, node.rotation)
+        if shift is not None:
+            # Written BEFORE the structural move so the (immediate) rebuild
+            # renders the node in its new frame; rolled back below if the
+            # structural half refuses — its guards are programming-error
+            # covers (the candidate list never offers such a parent), and a
+            # refused move must leave the node byte-for-byte as it was.
+            node.xy, node.polar, node.rotation = shift
+        if not dock._reparent_node(tree, node, new_parent,
+                                   defer_rebuild=False):
+            node.xy, node.polar, node.rotation = previous
+
+    # ONE deferred retry when another owner holds the shared socket, then the
+    # user is TOLD — the file's own measure (Т2-4б of
+    # plan_2026_09_22_live_adapter_class). The refusal used to be SILENT: the
+    # read returned (False, None) and the caller's `if not proceed: return`
+    # said nothing, while the trigger is a DRAG — the node simply stayed put.
+    # The tick holds that socket 16.4 % of a run (the figure this file measured
+    # for the dialog-driven base reads), so the re-hang gets the same single
+    # deferred attempt every other shared-socket read here gets; if the retry
+    # still finds the socket busy, the user is TOLD (dock._warn_rehang_busy —
+    # its OWN wording: where the removed Instantiate flow spoke about a
+    # selection, this flow never asks for one).
+    #
+    # TWO THINGS THIS SHAPE DOES NOT GUARD — named (Кj's "мелочи"), not hidden:
+    #
+    # 1. `_rehang` does its work SYNCHRONOUSLY instead of starting a worker, so
+    #    defer_while_socket_busy's "proceed() must NOT touch the adapter itself"
+    #    is bent here. What closes the race is not the helper but the
+    #    `socket_busy` check INSIDE dock._rehang_offset_or_ask, made one line
+    #    before the read; the helper contributes the deferral and the liveness
+    #    check. The helper's docstring carries that second legitimate shape, so
+    #    the document and the code agree again (Кj asked for exactly that).
+    # 2. The retry's liveness check asks only whether the DOCK was deleted
+    #    (the helper's own _gone(); `owner=dock`). `tree`, `node` and
+    #    `new_parent` are CAPTURED BY THE CLOSURE, so a root switch inside the
+    #    120 ms window would write into a tree the config no longer holds. There
+    #    is no board write, the window is 120 ms and the owner usually loses
+    #    liveness first — accepted and named here rather than growing a second
+    #    staleness mechanism beside the dock's own root tracking.
+    defer_while_socket_busy(getattr(dock._main_window, "connection", None),
+                            (), _rehang, dock._warn_rehang_busy,
+                            owner=dock)
+
+
+def run_group_move(dock, tree: Tree, clicked: TreeNode) -> None:
+    """Ч1 п.2 — "Move to…" for the SELECTION: several nodes, ONE new parent,
+    inside the SAME tree. Falls back to the single-node flow (with its own
+    question) when only one node really moves.
+
+    The group is the SELECTION, not the clicked row: Ч1 п.1 makes a
+    right-click outside the selection collapse it onto the clicked row first,
+    and a right-click INSIDE it keeps the group — which is how a group move is
+    asked for from any row of the group.
+
+    A copper node is NAMED and dropped from the group (Ч1 п.5): it carries no
+    position of its own (its copper is offset from its own anchor pad), and
+    moving "most of" a selection silently would be a lie about what happened.
+
+    Nothing here is a dialog on the refusal path (Ч1 п.10): a group that
+    cannot be held still says so in the Log, in ONE line, and the tree and
+    every node stay exactly as they were."""
+    from . import trees_dock
+
+    selection = dock._selected_real_nodes(tree)
+    if not dock._in_list(clicked, selection):
+        selection = [clicked]        # a bypassed right-click rule
+    movable, excluded = split_untouchable(selection, trees_dock._COPPER_ROW_KINDS)
+    if excluded:
+        logger.warning(_GROUP_COPPER_SKIPPED.format(
+            nodes=", ".join(sorted(node.ref for node in excluded))))
+    roots = group_roots(tree, movable)
+    if len(roots) < 2:
+        # Ч1 п.3 can leave ONE root out of a large selection (an ancestor
+        # whose descendants are selected too): that IS the single-node case,
+        # so it goes through the single flow — one picker, one question, no
+        # second path to keep in step.
+        dock._move_node_flow(tree, roots[0] if roots else clicked)
+        return
+
+    def _pivot_rejects(node, candidate):
+        """The ONE pivot-ref rule, bound to THIS tree — `move_candidates` asks
+        it per group node, and the rule itself stays in the dock module (Ч1 п.4:
+        one expression, never a second copy in the flow module)."""
+        return trees_dock._pivot_ref_mount_parent(tree, node, candidate)
+
+    candidates = move_candidates(tree, roots, _pivot_rejects)
+    labels = [label for label, _parent in candidates]
+    choice, ok = QInputDialog.getItem(
+        dock, _("Move to…"), _("New parent:"), labels, 0, False)
+    if not ok:
+        return
+    new_parent = candidates[labels.index(choice)][1]
+    for node in roots:
+        pinned = trees_dock._pivot_ref_mount_parent(tree, node, new_parent)
+        if pinned is not None:
+            # Never offered above, so reaching this means the picker was
+            # bypassed: refuse instead of writing a tree the loader kills.
+            logger.warning(
+                "Refusing to move %r under mount node %r: %r is the tree's "
+                "pivot-ref and a node under a mount node does not follow "
+                "the tree", node.ref, pinned.ref, node.ref)
+            return
+    if all(dock._find_parent(tree, node) is new_parent for node in roots):
+        return                       # every node already hangs there
+
+    def _rehang() -> None:
+        plan = dock._rehang_plan(
+            tree, roots, new_parent,
+            {id(node): dock._find_parent(tree, node) for node in roots})
+        if not plan.ok:
+            # Ч1 п.6 — ALL OR NOTHING: ONE line names the nodes and the
+            # reasons, and the structural half is never reached.
+            logger.error(_GROUP_MOVE_REFUSED.format(
+                nodes=", ".join(node.ref for node, _why in plan.refused),
+                reason="; ".join(
+                    "{ref}: {why}".format(ref=node.ref, why=why)
+                    for node, why in plan.refused)))
+            return
+        for from_node, reason in plan.from_board:
+            logger.info(_OFFSET_READ_FROM_BOARD.format(
+                node=from_node.ref, reason=reason))
+        if not apply_group_move(dock, tree, plan.shifts, new_parent):
+            logger.warning(
+                "Refusing to move %s: the structural half refused (see the "
+                "line above)", ", ".join(node.ref for node in roots))
+            return
+        logger.info(_TREE_MOVE_DONE.format(
+            nodes=", ".join(node.ref for node in roots),
+            parent=_("(top level)") if new_parent is None else new_parent.ref))
+
+    # ONE deferred retry when another owner holds the shared socket, exactly
+    # like the single-node path (Т2-4б): the whole re-hang — reads, offsets
+    # and the structural half — is one call, so a deferred retry is one call
+    # too, and nothing is half-applied while the tick owns the socket.
+    connection = getattr(dock._main_window, "connection", None)
+    defer_while_socket_busy(connection, (), _rehang, dock._warn_rehang_busy,
+                            owner=dock)
+
+
+def apply_group_move(dock, tree: Tree, shifts, new_parent) -> bool:
+    """Write the planned offsets and re-hang the group in ONE structural step.
+    `shifts` — [(node, (xy, polar, rotation) | None)] in document order, where
+    None means "nothing to change" (a mount node's frame is its own anchor, a
+    node storing no offset has no frame to rewrite).
+
+    The offsets are written BEFORE the structural move, so the immediate
+    rebuild renders the nodes in their new frame, and rolled back if the
+    structural half refuses — a refused group leaves every node byte for byte
+    as it was, exactly like the single-node path."""
+    written: list = []
+    for node, shift in shifts:
+        if shift is None:
+            continue
+        written.append((node, (node.xy, node.polar, node.rotation)))
+        node.xy, node.polar, node.rotation = shift
+    if not dock._reparent_nodes(tree, [node for node, _shift in shifts],
+                                new_parent, defer_rebuild=False):
+        for node, previous in written:
+            node.xy, node.polar, node.rotation = previous
+        return False
+    return True

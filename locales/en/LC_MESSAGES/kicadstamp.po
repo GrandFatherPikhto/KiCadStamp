@@ -6023,9 +6023,19 @@ msgstr "{n} nodes selected"
 msgid "{node}: offset read from the board (recalculation impossible: {reason})"
 msgstr "{node}: offset read from the board (recalculation impossible: {reason})"
 
-#: gui/docks/trees_dock.py:270
+#: gui/docks/trees_move_flow.py:395
 msgid "{nodes}: offset neither recalculated nor read from the board — move cancelled ({reason})"
 msgstr "{nodes}: offset neither recalculated nor read from the board — move cancelled ({reason})"
+
+#: gui/docks/trees_move_flow.py:402
+#, python-brace-format
+msgid "{node}: offset neither recalculated nor read from the board ({reason})"
+msgstr "{node}: offset neither recalculated nor read from the board ({reason})"
+
+#: gui/docks/trees_move_flow.py:347
+#, python-brace-format
+msgid "{first}; reading it from the board failed too: {second}"
+msgstr "{first}; reading it from the board failed too: {second}"
 
 #: gui/docks/trees_dock.py:276
 msgid "Move to…: copper nodes do not move ({nodes}) — a copper node's copper is offset from its own anchor pad"
@@ -6112,11 +6122,18 @@ msgstr "(top level)"
 msgid "New parent:"
 msgstr "New parent:"
 
-#: gui/docks/trees_dock.py:3869 gui/docks/trees_dock.py:5337
+#: gui/docks/trees_dock.py:4761
 #, python-brace-format
 msgid ""
 "Node {ref!r}: the base of the new parent did not resolve on the live "
 "board — the offset can NOT be recalculated."
+msgstr ""
+
+#: gui/docks/trees_dock.py:3677
+#, python-brace-format
+msgid ""
+"Node {ref!r}: the offset can NOT be recalculated and was not read from the "
+"board either — the base of the new parent did not resolve on the live board."
 msgstr ""
 
 #: gui/docks/trees_dock.py:3875 gui/docks/trees_dock.py:5343
