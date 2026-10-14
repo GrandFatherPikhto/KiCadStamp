@@ -317,14 +317,24 @@ the LOCK `requirements.txt`, then `pip install -e . --no-deps`.
 `pyproject.toml`; regenerate with uv (the version CI pins, 0.13.1):
 
 ```bash
-uv pip compile pyproject.toml --extra dev --extra mcp --universal -o requirements.txt
+uv pip compile pyproject.toml --extra dev --extra mcp --universal --python-version 3.12 -o requirements.txt
 ```
 
 `--universal` is not optional: without it the lock resolves for the CURRENT OS and
-drops the Windows-only pins (`colorama`, `pywin32`) the Windows leg needs. A CI step
-on Linux re-runs this command and fails when `git diff --exit-code requirements.txt`
-is non-empty. **Rule: change a pin or an extra in `pyproject.toml` → run the command
-→ commit BOTH files together.**
+drops the Windows-only pins (`colorama`, `pywin32`) the Windows leg needs.
+
+`--python-version 3.12` is not optional either, and it is NOT taken from
+`requires-python`: `--universal` starts from the version of the interpreter uv RUNS
+ON, so one and the same command gave different locks on different machines. That is
+how the guard went red on a lock built locally with 3.14 — the four `# via` comment
+lines of `typing-extensions` (httpx2, kicad-python, referencing and starlette
+require it only below 3.13) were missing, while every package version matched.
+Naming the version in the command makes the lock independent of where it was built;
+3.12 is the interpreter CI runs the suite on.
+
+A CI step on Linux re-runs this command and fails when `git diff --exit-code
+requirements.txt` is non-empty. **Rule: change a pin or an extra in `pyproject.toml`
+→ run the command → commit BOTH files together.**
 
 ### Integration tests (with real KiCad)
 

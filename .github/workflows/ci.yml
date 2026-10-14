@@ -58,13 +58,23 @@ jobs:
       # leg only and fails when a pin or an extra changed without regenerating the
       # lock — the failure behind the 25.08–01.10 CI red: the hand-kept copy had
       # lost `mcp`, `psutil` and `python-ptrace`. Rule and command: docs/tests.md.
+      #
+      # `--python-version 3.12` is NOT optional and is NOT derived from
+      # `requires-python`: `uv pip compile --universal` starts from the version of
+      # the interpreter it RUNS ON, so the same command produced different locks on
+      # different machines — this guard failed in CI (Python 3.12) on a lock
+      # generated on a dev machine (3.14). The difference is four `# via` comment
+      # lines for `typing-extensions` (httpx2, kicad-python, referencing,
+      # starlette require it only below 3.13), never a package version. Pinning the
+      # version in the command makes the lock independent of where it was built;
+      # 3.12 is the interpreter this workflow actually runs the suite on.
       - name: requirements.txt is in sync with pyproject.toml (Linux)
         if: runner.os == 'Linux'
         run: |
-          uv pip compile pyproject.toml --extra dev --extra mcp --universal -o requirements.txt
+          uv pip compile pyproject.toml --extra dev --extra mcp --universal --python-version 3.12 -o requirements.txt
           if ! git diff --exit-code -- requirements.txt; then
             echo "::error::requirements.txt is STALE — regenerate and commit both files:"
-            echo "  uv pip compile pyproject.toml --extra dev --extra mcp --universal -o requirements.txt"
+            echo "  uv pip compile pyproject.toml --extra dev --extra mcp --universal --python-version 3.12 -o requirements.txt"
             exit 1
           fi
 

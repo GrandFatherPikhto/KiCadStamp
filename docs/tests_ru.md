@@ -316,11 +316,21 @@ LOCK `requirements.txt`, затем `pip install -e . --no-deps`.
 пинов — `pyproject.toml`; пересобирать uv (версии CI — 0.13.1):
 
 ```bash
-uv pip compile pyproject.toml --extra dev --extra mcp --universal -o requirements.txt
+uv pip compile pyproject.toml --extra dev --extra mcp --universal --python-version 3.12 -o requirements.txt
 ```
 
 `--universal` не опционален: без него lock собирается под ТЕКУЩУЮ ОС и из него
 выпадают пины только-для-Windows (`colorama`, `pywin32`), которые нужны ноге Windows.
+
+`--python-version 3.12` тоже не опционален, и версия берётся НЕ из
+`requires-python`: `--universal` начинает с версии того интерпретатора, НА КОТОРОМ
+запущен uv, поэтому одна и та же команда давала разные lock-файлы на разных машинах.
+Именно так сторож и покраснел на lock, собранном локально на 3.14: под
+`typing-extensions` не хватало четырёх строк-комментариев `# via` (httpx2,
+kicad-python, referencing и starlette требуют его только до 3.13), а версии пакетов
+совпадали все. Версия, названная в команде, делает lock независимым от машины
+сборки; 3.12 — тот интерпретатор, на котором CI реально гоняет тесты.
+
 Шаг CI на Linux повторяет команду и падает, если `git diff --exit-code
 requirements.txt` не пуст. **Правило: поменял пин или extra в `pyproject.toml` →
 прогнал команду → закоммитил ОБА файла вместе.**
