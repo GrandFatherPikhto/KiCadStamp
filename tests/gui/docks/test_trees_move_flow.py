@@ -31,11 +31,16 @@ And the branch table of the candidate list:
 import pytest
 
 from kicadstamp.domain.geometry import Vector2
+from kicadstamp.exceptions import ValidationError
+from kicadstamp.tree_position import (local_offset_to_board_mm,
+                                      local_rotation_to_board_deg,
+                                      rotate_offset_mm)
 from kicadstamp.trees import Tree, TreeAnchor, TreeNode
 from kicadstamp.utils.units import MM
 
 from gui.docks.trees_move_flow import (forbidden_subtrees, group_roots,
-                                       move_candidates, reexpress_offset,
+                                       local_polar_from_xy, move_candidates,
+                                       plan_rehang, reexpress_offset,
                                        split_untouchable)
 
 
@@ -289,3 +294,106 @@ def test_reexpress_offset_keeps_the_absolute_board_place(
     not move on the board; the representation (xy vs polar) is preserved, and a
     base with no angle concept stores 0.0 exactly like the form does."""
     assert reexpress_offset(xy, polar, rotation, old_base, new_base) == expected
+
+
+def test_local_polar_from_xy_is_the_twin_reexpress_offset_reads_back():
+    """The board read answers in xy while a polar node must stay polar (Л.2), so
+    the two forms must describe ONE board vector: the polar pair, taken back to
+    the board frame the way reexpress_offset does, is that vector."""
+    xy, base_rot = (0.0, -8.0), 90.0
+    radius, angle = local_polar_from_xy(xy, base_rot)
+
+    assert rotate_offset_mm(
+        radius, 0.0, local_rotation_to_board_deg(angle, base_rot)) == \
+        pytest.approx(local_offset_to_board_mm(xy, base_rot))
+
+    # …and it agrees with the arithmetic itself: reexpressing the polar twin of
+    # that local xy through the same bases must land on the numbers the arithmetic
+    # gives for the polar node.
+    twin_xy, _polar, _rot = reexpress_offset((5.0, 0.0), None, 0.0,
+                                             _base(0.0, 0.0), _base(0.0, 90.0))
+    assert local_polar_from_xy(twin_xy, 90.0) == (5.0, -90.0)
+
+
+# ── plan_rehang: the source order (recalculate → read → refuse) ─────────────
+#
+# The TABLE of this function's cells (rule 35), per node:
+#
+#   recalculation      | board read       | expected
+#   -------------------|------------------|--------------------------------
+#   answers numbers    | NOT CALLED       | those numbers, nothing read
+#   answers None       | NOT CALLED       | "nothing to change", not a failure
+#   raises             | answers numbers  | the READ numbers + the reason
+#   raises             | raises           | REFUSED with both reasons
+#   raises (one node)  | answers (others) | the WHOLE plan is not ok
+
+def _plan_nodes(*refs):
+    return [_node(ref) for ref in refs]
+
+
+def test_plan_rehang_uses_the_recalculation_when_it_works():
+    """Ступень 1 of the source order — and the board is NOT touched for a node the
+    arithmetic could hold still (the read is the rare path, not a second opinion)."""
+    a, b = _plan_nodes("A", "B")
+    read: list = []
+
+    plan = plan_rehang([a, b], lambda node: (("xy", node.ref), None, 0.0),
+                       lambda node: read.append(node.ref))
+
+    assert plan.ok
+    assert read == [], "the board must not be read when the recalculation worked"
+    assert plan.shifts == [(a, (("xy", "A"), None, 0.0)),
+                           (b, (("xy", "B"), None, 0.0))]
+    assert plan.from_board == []
+
+
+def test_plan_rehang_reads_from_the_board_and_names_the_reason():
+    """Ступень 2 — the usual case for a node being moved at all: its OLD base is
+    gone from the board, so the CURRENT place is read relative to the new parent.
+    The node travels in `from_board` WITH the reason, because the board and the
+    config may disagree and the source has to be visible."""
+    a, = _plan_nodes("A")
+
+    def _gone(node):
+        raise ValidationError("the OLD base is not on the board")
+
+    plan = plan_rehang([a], _gone, lambda node: ((1.0, 2.0), None, 0.0))
+
+    assert plan.ok
+    assert plan.shifts == [(a, ((1.0, 2.0), None, 0.0))]
+    assert plan.from_board == [(a, "the OLD base is not on the board")]
+
+
+def test_plan_rehang_nothing_to_change_is_not_a_failure():
+    """A `None` from the recalculation is the node SAYING it has no frame to
+    rewrite (a mount node's frame is its own anchor; a node with no offset has
+    none): the re-hang proceeds and writes nothing. Reading the board "instead"
+    would be a second, unwanted answer — and asking the user about it, a lie."""
+    a, = _plan_nodes("A")
+    read: list = []
+
+    plan = plan_rehang([a], lambda node: None, lambda node: read.append(node))
+
+    assert plan.ok
+    assert plan.shifts == [(a, None)]
+    assert plan.from_board == [] and read == []
+
+
+def test_plan_rehang_refuses_the_whole_group_when_one_node_cannot_be_held():
+    """Ступень 3 — Ч1 п.6, all or nothing: one node that can be neither
+    recalculated nor read makes the WHOLE plan not-ok, and it carries BOTH reasons
+    so the caller's single Log line can name the node and why."""
+    a, b = _plan_nodes("A", "B")
+
+    def _recalc(node):
+        raise ValidationError("no base for {}".format(node.ref))
+
+    def _read(node):
+        raise ValidationError("no live record for {}".format(node.ref))
+
+    plan = plan_rehang([a, b], _recalc, _read)
+
+    assert not plan.ok
+    assert [node for node, _why in plan.refused] == [a, b]
+    assert "no base for A" in plan.refused[0][1]
+    assert "no live record for A" in plan.refused[0][1]

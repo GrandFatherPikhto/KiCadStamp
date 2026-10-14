@@ -36,6 +36,7 @@ the document order.
 from __future__ import annotations
 
 import math
+from dataclasses import dataclass, field
 from typing import Callable, Optional, Sequence
 
 from kicadstamp.domain.geometry import Vector2
@@ -233,3 +234,100 @@ def reexpress_offset(xy: Optional[tuple[float, float]],
     new_xy = board_offset_to_local_mm(
         (_snap_mm(bx + dx_mm), _snap_mm(by + dy_mm)), new_rot)
     return (new_xy, None, new_rotation)
+
+
+def local_polar_from_xy(xy: tuple[float, float], base_rot: float
+                        ) -> tuple[float, float]:
+    """The `(radius, angle)` twin of a LOCAL `xy` offset in a base turned
+    `base_rot` — the polar convention `reexpress_offset` reads back, expressed
+    through the SAME two primitives (the vector is taken to the board frame by the
+    base rotation, and the angle is expressed against the base again) rather than
+    a hand-rolled atan2 that could pick the other sign.
+
+    Needed because a board READ answers in xy (`_resolve_live_offset`), while a
+    polar node must stay polar (Л.2): turning it into xy would read as somebody
+    else's edit in the s-expr diff."""
+    bx, by = local_offset_to_board_mm(xy, base_rot)
+    radius = _snap_mm(math.hypot(bx, by))
+    angle = _snap_mm(math.degrees(math.atan2(-by, bx)))
+    return (radius, board_rotation_to_local_deg(angle, base_rot))
+
+
+# ── The source order of a re-hang: recalculate, else read, else refuse ──────
+#
+# Denis, 14.10: "при смене родительской ноды координаты должны пересчитываться",
+# and "если нельзя пересчитать — просто прочитать текущие координаты с платы".
+# THIS is that order, as data. The two readers are handed in — they are the dock's,
+# and they own the door signs and the caches — so the rule itself can be read and
+# tested without a board.
+
+
+@dataclass
+class RehangPlan:
+    """What a re-hang will write, node by node — the answer of `plan_rehang`.
+
+    `shifts`     — [(node, (xy, polar, rotation) | None)], in the order the nodes
+                   were given. `None` means "nothing to change": a mount node's
+                   frame is its own anchor, and a node storing no offset has no
+                   frame to rewrite. The caller writes nothing for those.
+    `from_board` — [(node, reason)] whose numbers were READ off the board because
+                   the recalculation was impossible, with that reason. The board
+                   and the config may disagree (the board may simply not be
+                   redrawn yet), so the SOURCE has to be visible in the Log.
+    `refused`    — [(node, reason)] that could be neither recalculated nor read,
+                   with both reasons. A non-empty list means NOTHING moves at all
+                   (plan Ч1 п.6): the caller refuses the whole re-hang and names
+                   these nodes in one Log line."""
+
+    shifts: list[tuple[TreeNode, Optional[ReexpressedOffset]]] = field(
+        default_factory=list)
+    from_board: list[tuple[TreeNode, str]] = field(default_factory=list)
+    refused: list[tuple[TreeNode, str]] = field(default_factory=list)
+
+    @property
+    def ok(self) -> bool:
+        """True when the re-hang can happen — every node either recomputed or
+        read. All-or-nothing is THIS property, not a convention the callers keep."""
+        return not self.refused
+
+
+def plan_rehang(nodes: Sequence[TreeNode],
+                recalculate: Callable[[TreeNode], Optional[ReexpressedOffset]],
+                read_live: Callable[[TreeNode], ReexpressedOffset],
+                ) -> RehangPlan:
+    """The offsets of a re-hang, per node, in the source order of the plan's
+    "сквозное правило":
+
+      1. `recalculate(node)` — the arithmetic of `reexpress_offset` (old base →
+         new base). A `None` answer is NOT a failure: it is the node saying its
+         numbers do not depend on the parent (a mount node's frame is its own
+         anchor) or that it stores no offset at all — nothing to hold still, so
+         nothing is written and nothing is asked. A raised exception means the
+         recalculation really was impossible;
+      2. `read_live(node)` — the node's CURRENT place read off the board relative
+         to the NEW parent. Reached ONLY when the recalculation raised: that is
+         the case the plan is about (the old base is gone from the board, which is
+         usually why the node is being moved);
+      3. neither — the node is refused with BOTH reasons.
+
+    The two callables are the caller's: the dock's own readers, with their door
+    signs, so no board call is hidden in here. This function owns the ORDER, the
+    per-node exception bookkeeping and the all-or-nothing answer, so that rule
+    exists ONCE — the group (Ч1), the single node (which then asks the user) and
+    the drop (Ч3) all run through it."""
+    plan = RehangPlan()
+    for node in nodes:
+        try:
+            shift = recalculate(node)
+        except Exception as exc:        # noqa: BLE001 — see the clauses below
+            reason = str(exc)
+            try:
+                shift = read_live(node)
+            except Exception as read_exc:   # noqa: BLE001 — the refusal path
+                plan.refused.append(
+                    (node, "{first}; reading it from the board failed too: "
+                           "{second}".format(first=reason, second=read_exc)))
+                continue
+            plan.from_board.append((node, reason))
+        plan.shifts.append((node, shift))
+    return plan

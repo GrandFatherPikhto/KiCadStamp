@@ -6433,6 +6433,22 @@ msgstr "Переместить в…"
 msgid "{n} nodes selected"
 msgstr "Выделено узлов: {n}"
 
+#: gui/docks/trees_dock.py:260
+msgid "{node}: offset read from the board (recalculation impossible: {reason})"
+msgstr "{node}: смещение прочитано с платы (пересчёт невозможен: {reason})"
+
+#: gui/docks/trees_dock.py:270
+msgid "{nodes}: offset neither recalculated nor read from the board — move cancelled ({reason})"
+msgstr "{nodes}: смещение не пересчитано и не прочитано с платы — перенос отменён ({reason})"
+
+#: gui/docks/trees_dock.py:276
+msgid "Move to…: copper nodes do not move ({nodes}) — a copper node's copper is offset from its own anchor pad"
+msgstr "Move to…: медные узлы не переносятся ({nodes}) — медь медного узла отсчитывается от собственного контактного пятака-якоря"
+
+#: gui/docks/trees_dock.py:282
+msgid "moved: {nodes} — new parent: {parent}"
+msgstr "перенесено: {nodes} — новый родитель: {parent}"
+
 #: gui/docks/trees_dock.py:2846
 msgid "Move up"
 msgstr "Поднять"
