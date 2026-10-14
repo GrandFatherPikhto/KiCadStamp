@@ -13,9 +13,14 @@ The profile stores neither cluster nor sheet, so the SELECTION (cluster tag +
 sheet) is what picks the instance — this module finds which clusters are FULLY
 selected and maps each to its entity -> cell -> extract_profiles recipe.
 """
-from gui.docks.reead import fully_selected_clusters
+from gui.docks.reead import (
+    REASON_SHEET_UNRESOLVED,
+    fully_selected_clusters,
+    match_entity,
+)
 from kicadstamp.config.models import Entity
 from kicadstamp.explore import Selected
+from kicadstamp.sheet_names import ROOT_SHEET
 
 
 def _sel(ref, cluster, sheet):
@@ -134,3 +139,107 @@ def test_sheet_names_resolve_gui_stale_chains():
     assert clusters[0].sheet == "Channel_0"
     assert clusters[0].entity_name == "CH0_PIF_AVDD"
     assert clusters[0].cell == "dac_pif_avdd"
+
+
+# ── ROOT-sheet clusters (plan_2026_10_13_root_sheet_clusters, Ч1) ───────────
+
+def _gui_root_sel(ref, cluster):
+    """A Selected standing on the ROOT sheet as the GUI snapshot hands it over:
+    the chain is all-None and the raw fp carries ONE hop — the symbol's own uuid
+    — so the re-resolution (resolve_sheet_path_names) yields an EMPTY chain."""
+    return Selected(ref=ref, role=None, cluster=cluster, sheet=[None], nets={},
+                    fp=_FakeFP((f"{ref}-own",)))
+
+
+def _sel_root(ref, cluster):
+    """A Selected whose ALREADY-RESOLVED chain is empty (the CLI/caller shape:
+    Board.select builds it with resolve_sheet_path_names, which returns [] for a
+    root symbol whatever the dictionary holds)."""
+    return Selected(ref=ref, role=None, cluster=cluster, sheet=[], nets={},
+                    fp=object())
+
+
+def test_denis_fact_four_mounting_holes_on_the_root_are_extracted():
+    """Denis 13.10, live board: H1–H4 (Cluster MOUNTING_HOLES) stand on the ROOT
+    sheet and "Extract cluster" refused them with "its sheet did not resolve".
+
+    A root symbol has NOTHING above it to resolve — its chain is EMPTY — so the
+    cluster must be extracted, with the ROOT_SHEET identity and no rejection at
+    all. `schematic_dir` is set (the sheets map exists) exactly as on the board
+    where Denis hit this."""
+    refs = ["H1", "H2", "H3", "H4"]
+    snapshot = [_gui_root_sel(ref, "MOUNTING_HOLES") for ref in refs]
+    rejections: list = []
+    clusters = fully_selected_clusters(snapshot, snapshot, [], [],
+                                       sheet_names={"ch0": "Channel_0"},
+                                       rejections=rejections)
+
+    assert rejections == []
+    assert len(clusters) == 1
+    c = clusters[0]
+    assert c.cluster == "MOUNTING_HOLES"
+    assert c.sheet == ROOT_SHEET
+    assert c.entity_name is None            # no entities entry — auto-derived
+    assert c.cell == "mounting_holes"       # the Cluster slug
+    assert sorted(c.refs) == refs
+
+
+def test_a_root_cluster_needs_no_sheet_map_at_all():
+    """The chain of a root symbol has no entry to look up, so an EMPTY sheet map
+    (no schematic_dir) is no obstacle. The old gate answered
+    REASON_SHEET_MAP_EMPTY for the root group too; it must not any more."""
+    snapshot = [_sel_root("H1", "MOUNTING_HOLES"), _sel_root("H2", "MOUNTING_HOLES")]
+    rejections: list = []
+    clusters = fully_selected_clusters(snapshot, snapshot, [], [],
+                                       sheet_names={}, rejections=rejections)
+
+    assert [c.sheet for c in clusters] == [ROOT_SHEET]
+    assert [r.reason for r in rejections] == []
+
+
+def test_the_same_tag_on_the_root_and_in_a_sub_sheet_is_two_instances():
+    """One Cluster tag standing BOTH on the root sheet and on a sub-sheet must
+    never be one instance: two groups, and neither holds the other's refs.
+    The membership rule asks the chain — an EMPTY chain is the root, a chain
+    naming MCU is MCU, and the two are disjoint."""
+    snapshot = [
+        _sel_root("H1", "MOUNTING_HOLES"), _sel_root("H2", "MOUNTING_HOLES"),
+        _sel("H3", "MOUNTING_HOLES", "MCU"), _sel("H4", "MOUNTING_HOLES", "MCU"),
+    ]
+    rejections: list = []
+    clusters = fully_selected_clusters(snapshot, snapshot, [], [],
+                                       rejections=rejections)
+
+    assert rejections == []
+    assert {c.sheet: sorted(c.refs) for c in clusters} == {
+        ROOT_SHEET: ["H1", "H2"], "MCU": ["H3", "H4"]}
+
+
+def test_a_genuinely_unresolved_uuid_keeps_the_old_reason():
+    """Denis's rule: "не разрешилось" is ONLY when a uuid IS in the chain and the
+    dictionary cannot name it. Such a group keeps REASON_SHEET_UNRESOLVED — the
+    root marker must not swallow it (that would be the mirror-image bug)."""
+    fp = _FakeFP(("unknown-uuid", "own-uuid"))
+    sel = Selected(ref="C1", role=None, cluster="PIF_AVDD", sheet=[None],
+                   nets={}, fp=fp)
+    rejections: list = []
+    clusters = fully_selected_clusters([sel], [sel], [], [],
+                                       sheet_names={"ch0": "Channel_0"},
+                                       rejections=rejections)
+
+    assert clusters == []
+    assert [r.reason for r in rejections] == [REASON_SHEET_UNRESOLVED]
+
+
+def test_an_entity_on_the_root_matches_only_the_root_footprint():
+    """match_entity through the ONE membership rule: an Entity carrying
+    ROOT_SHEET names the root footprint (EMPTY chain) and NOT a sub-sheet one,
+    and a sub-sheet Entity names only its own channel — the two can never be
+    each other's instance, which is what makes the same tag on both safe."""
+    entities = [
+        _entity("MH_ROOT", "mounting_holes", "MOUNTING_HOLES", ROOT_SHEET),
+        _entity("MH_MCU", "mounting_holes", "MOUNTING_HOLES", "MCU"),
+    ]
+    assert match_entity(entities, "MOUNTING_HOLES", []) is entities[0]
+    assert match_entity(entities, "MOUNTING_HOLES", ["MCU"]) is entities[1]
+    assert match_entity(entities, "OTHER", []) is None

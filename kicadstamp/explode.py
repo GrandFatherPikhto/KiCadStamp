@@ -62,7 +62,7 @@ from .selection_narrowing import (
     group_selection,
     is_own_key,
 )
-from .sheet_names import resolve_sheet_path_names
+from .sheet_names import instance_label, resolve_sheet_path_names
 from .utils.layers import layer_to_str
 from .utils.units import MM
 
@@ -203,7 +203,10 @@ class ExplodePlan:
 # ── small geometry helpers ──────────────────────────────────────────────────
 
 def _cluster_label(cluster: Any, sheet: Any) -> str:
-    return f"{cluster}/{sheet}" if sheet else str(cluster)
+    """The instance's display label — the ONE owner of the shape is
+    sheet_names.instance_label (a ROOT instance is just the cluster: there is one
+    root sheet, so "<cluster>//" would be noise)."""
+    return instance_label(cluster, sheet)
 
 
 def _box_map(adapter, items) -> dict:

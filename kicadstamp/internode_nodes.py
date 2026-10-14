@@ -41,6 +41,7 @@ from .internode_copper import CopperUnit, PadRef
 # would bless a record apply-without-selection then refuses.
 from .placement.services.clone_role_resolver import _role_candidates
 from .placement.services.role_narrowing import _narrow_by_sheet_cluster_selection
+from .sheet_names import instance_label
 from .trees import Tree, _find_tree
 
 __all__ = [
@@ -109,7 +110,10 @@ class TreeNodes(_Mapping):
         if self.owners.get(key) is None:
             return label
         cluster, sheet = key
-        return f"{cluster}/{sheet}" if sheet else label
+        # The shape lives in ONE owner (sheet_names.instance_label): a ROOT node
+        # (sheet is ROOT_SHEET) is named by the Cluster alone — "<cluster>//" names
+        # nothing, and there is exactly one root sheet.
+        return instance_label(cluster, sheet) if sheet else label
 
 
 def tree_node_keys(tree: Tree, cfg) -> TreeNodes:

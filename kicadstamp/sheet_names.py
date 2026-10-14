@@ -11,14 +11,24 @@ NOT via kipy — see discussion:
     UUID chain from the schematic files, with zero conflicts on a real project
     (mishin‑coil, 331 footprints, 15 groups, 0 conflicts, 0 unresolved UUIDs).
 
-Used only for ClonePlacement.anchor_sheet (narrowing ambiguity of anchor_role) —
-not needed at all if anchor_sheet is not used in the config.
+Used for ClonePlacement.anchor_sheet (narrowing ambiguity of anchor_role) and —
+since 2026-10-13/14 — for the (Cluster, Sheet) instance addressing of the whole
+project (role_narrowing, reead, selection_narrowing, internode_capture): this
+module owns BOTH the chain resolution and the ONE "does this sheet name this
+instance" predicate, so no caller re-implements either.
+
+ROOT_SHEET ("/") — the ONE marker of the ROOT sheet of the hierarchy
+(plan_2026_10_13_root_sheet_clusters Ч1): a symbol on the root sheet has an
+EMPTY chain (resolve_sheet_path_names drops the symbol's own uuid, and there is
+nothing above it), and that emptiness used to be indistinguishable from "the
+sheet did not resolve", which dropped every root cluster. An ABSENT sheet (None
+/ "") stays what it always was — "not set", no narrowing — so the marker is the
+only way to say "the root instance" explicitly.
 """
 import glob
 import logging
 from collections.abc import Iterable, Mapping
 from pathlib import Path
-
 
 import sexpdata
 
@@ -189,21 +199,99 @@ def resolve_sheet_path_names(fp, sheet_names: dict[str, str]) -> list[str | None
     return [sheet_names.get(u) for u in chain]
 
 
+# The ONE marker of the root sheet (plan_2026_10_13_root_sheet_clusters, Ч1).
+ROOT_SHEET = "/"
+
+
+def is_root_sheet(sheet) -> bool:
+    """True when `sheet` is the ROOT_SHEET marker ("/") — the ONE test every
+    caller uses instead of comparing the literal itself."""
+    return sheet == ROOT_SHEET
+
+
+def instance_label(name: object, sheet: object) -> str:
+    """`"<name>/<sheet>"` — THE one way an instance's (Cluster, Sheet) pair is
+    written for people: the explode plan's rows and their `touches`, the CLI's
+    labels, the inter-node node keys and the names derived from them.
+
+    An ABSENT sheet contributes nothing, exactly as before. The ROOT_SHEET marker
+    contributes nothing EITHER: "<cluster>//" is noise, and there is exactly ONE
+    root sheet of the hierarchy, so the cluster alone already names that instance
+    (plan_2026_10_13_root_sheet_clusters Ч1)."""
+    if not sheet or sheet == ROOT_SHEET:
+        return str(name)
+    return f"{name}/{sheet}"
+
+
+def sheet_display(sheet, absent: str = "—") -> str:
+    """The sheet ALONE as a label for people — the ONE wording host for the three
+    states an instance's sheet can be in (the instance picker's rows, the Entity
+    page's own Sheet field):
+
+      * ROOT_SHEET ("/") -> "(root sheet)": the marker is the config's VALUE, not
+        something to show a user; the root is the one sheet with no name;
+      * an absent sheet -> `absent` (the caller's own wording: the Entity page
+        shows "—", the picker says "(no sheet)");
+      * anything else -> the name itself."""
+    if is_root_sheet(sheet):
+        return _("(root sheet)")
+    return str(sheet) if sheet else absent
+
+
+def sheet_of_names(names: Iterable[str | None]) -> str | None:
+    """The INSTANCE-identity of a resolved sheet chain — the ONE owner of that
+    derivation (gui/docks/reead.sheet_of and
+    selection_narrowing._sheet_identity both delegate here, so the two can never
+    group a selection differently):
+
+      * an EMPTY chain (no entries at all) = the symbol stands on the ROOT
+        sheet -> ROOT_SHEET. This is exactly what resolve_sheet_path_names
+        returns for a root symbol, map or no map — the depth is a property of
+        the symbol's own path, not of the name dictionary;
+      * else the FIRST named segment (the channel identity: Channel_0/DAC);
+      * else (entries present, none named) the chain genuinely did NOT resolve
+        -> None, honestly, never ROOT_SHEET. Denis's rule: "не разрешилось" is
+        only when a uuid IS in the chain and the dictionary cannot name it.
+
+    `names is None` (the caller has NO chain at all — an unknown input, not an
+    empty chain) is also None: unknown must not pass for the root."""
+    if names is None:
+        return None
+    names = tuple(names)
+    if not names:
+        return ROOT_SHEET
+    for seg in names:
+        if seg:
+            return seg
+    return None
+
+
 def sheet_in_path(names: Iterable[str | None], sheet: str | None) -> bool:
-    """True when `sheet` is ONE OF THE SEGMENTS of a resolved sheet-name path —
-    not necessarily the LAST one: the component may live deeper than the sheet we
-    are looking for (a DAC sub-sheet inside Channel_0 is still Channel_0's).
+    """True when `sheet` names the instance standing on the resolved chain
+    `names`. THE one rule for "does this sheet name this component", shared by
+    the role-narrowing cascade (role_narrowing._fp_on_sheet, i.e. every
+    anchor_role/sheet search), the inter-node copper capture's node matching
+    (internode_capture), the cluster extraction (gui/docks/reead) and the
+    address comparison (selection_narrowing) — the callers used to answer the
+    same question in several different ways (leaf segment vs any segment), and a
+    tree's anchor resolved while its copper did not.
 
-    This is THE one rule for "does this sheet name this component", shared by the
-    role-narrowing cascade (role_narrowing._fp_on_sheet, i.e. every
-    anchor_role/sheet search) and by the inter-node copper capture's node
-    matching (internode_capture) — the two used to answer the same question in
-    two different ways (leaf segment vs any segment), and a tree's anchor
-    resolved while its copper did not.
-
-    A None/empty `sheet` names nothing and matches nothing: "no sheet given" is
-    NOT a wildcard here. Callers that mean "any sheet" (a config entry with no
-    sheet at all) decide that themselves, explicitly."""
-    if not sheet:
+      * ROOT_SHEET ("/") names the ROOT instance — and ONLY an EMPTY chain is
+        root: resolve_sheet_path_names returns [] for a symbol on the root sheet
+        and [None] (one entry, unnamed) for a sub-sheet whose uuid the
+        dictionary cannot name. That distinction is what keeps a root cluster
+        from swallowing a same-tagged sub-sheet cluster (and vice versa);
+      * any other name is ONE OF THE SEGMENTS, not necessarily the LAST one: the
+        component may live deeper than the sheet we are looking for (a DAC
+        sub-sheet inside Channel_0 is still Channel_0's);
+      * a None/empty `sheet` names nothing and matches nothing: "no sheet given"
+        is NOT a wildcard and NOT the root. Callers that mean "any sheet" (a
+        config entry with no sheet at all) decide that themselves, explicitly;
+      * `names is None` (no chain at all — an unknown input) names nothing
+        either: only a real EMPTY chain is the root."""
+    if not sheet or names is None:
         return False
+    names = tuple(names)
+    if sheet == ROOT_SHEET:
+        return not names
     return any(name == sheet for name in names)

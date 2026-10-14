@@ -70,7 +70,7 @@ from .internode_nodes import (
     tree_node_keys,
 )
 from .net_trace_planner import resolve_live_anchor
-from .sheet_names import resolve_sheet_path_names, sheet_in_path
+from .sheet_names import instance_label, resolve_sheet_path_names, sheet_in_path
 from .trees import Tree
 from .utils.units import MM
 
@@ -209,9 +209,13 @@ def _area_components(adapter, footprints: Iterable[Any],
 
 
 def _node_key_label(label: str, sheet: str | None) -> str:
-    """One tree node key as the report and the ambiguity warning name it —
-    "PIF_DVDD/Channel_0", or just the label for a sheet-less key."""
-    return f"{label}/{sheet}" if sheet else label
+    """One tree node key as the report, the ambiguity warning and the NEW record
+    names derived from it spell it — "PIF_DVDD/Channel_0", or just the label for
+    a key with no sheet. The shape lives in ONE owner
+    (sheet_names.instance_label), so a ROOT node (sheet is ROOT_SHEET) is spelled
+    by its label alone: "<label>//" would be noise, and there is exactly one root
+    sheet of the hierarchy."""
+    return instance_label(label, sheet)
 
 
 def _match_node(

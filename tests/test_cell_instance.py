@@ -78,3 +78,50 @@ def test_resolve_context_footprints_sheet_narrowing_delegates(monkeypatch):
         adapter, adapter.footprints, "PIF_3V3_VDD", "FPGA", {"x": "y"})
     assert called == ["FPGA"]
     assert [fp.uuid for fp in got] == ["fp1"]
+
+
+def _two_sheet_roots_adapter(cluster):
+    """One cluster tag standing on the ROOT sheet AND on a sub-sheet — the case
+    the (Cluster, Sheet) instance addressing must never merge.
+
+    The chain convention is the project's own: the LAST uuid of a footprint's
+    path is the symbol itself (resolve_sheet_path_names drops it), so ONE hop =
+    the root sheet and TWO hops = a named sub-sheet."""
+    root = _fp("fp-root", "H1")
+    root.sheet_path_uuids = ("h1-own",)
+    sub = _fp("fp-sub", "H2")
+    sub.sheet_path_uuids = ("mcu", "h2-own")
+    adapter = _FakeAdapter([root, sub])
+    for fp in (root, sub):
+        adapter.set_field(fp, CLUSTER_FIELD_NAME, cluster)
+    return adapter
+
+
+def test_a_root_request_clamps_to_the_root_components_only():
+    """ROOT_SHEET ("/") asks for the components standing on the ROOT sheet of the
+    hierarchy. A same-tagged sub-sheet component is NOT part of that instance —
+    that is the narrowing the extracted root Entity's own `sheet "/"` carries
+    (plan_2026_10_13_root_sheet_clusters Ч1), so the root instance can never
+    swallow (or be swallowed by) the sub-sheet one."""
+    from kicadstamp.sheet_names import ROOT_SHEET
+
+    adapter = _two_sheet_roots_adapter("MOUNTING_HOLES")
+    sheet_names = {"mcu": "MCU"}
+
+    got = resolve_context_footprints(
+        adapter, adapter.footprints, "MOUNTING_HOLES", ROOT_SHEET, sheet_names)
+    assert [fp.uuid for fp in got] == ["fp-root"]
+
+    # ...and the mirror image: the sub-sheet instance takes only its own part.
+    got = resolve_context_footprints(
+        adapter, adapter.footprints, "MOUNTING_HOLES", "MCU", sheet_names)
+    assert [fp.uuid for fp in got] == ["fp-sub"]
+
+
+def test_no_sheet_at_all_still_narrows_nothing():
+    """The pre-existing convention, kept: an ABSENT sheet (a record that never
+    stored one) is not a wildcard and not the root — it just does not narrow."""
+    adapter = _two_sheet_roots_adapter("MOUNTING_HOLES")
+    got = resolve_context_footprints(
+        adapter, adapter.footprints, "MOUNTING_HOLES", None, {"mcu": "MCU"})
+    assert {fp.uuid for fp in got} == {"fp-root", "fp-sub"}

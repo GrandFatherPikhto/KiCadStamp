@@ -20,6 +20,7 @@ from .exceptions import PlacerError
 from .explode_format import format_plan as _format_plan
 from .explode_format import format_status as _format_status
 from .i18n import _
+from .sheet_names import instance_label
 
 logger = logging.getLogger(__name__)
 
@@ -43,7 +44,9 @@ def _adapter(config_path):
 
 
 def _label(cluster, sheet) -> str:
-    return f"{cluster}/{sheet}" if sheet else str(cluster)
+    """One instance's label — the ONE owner of the shape is
+    sheet_names.instance_label (a ROOT instance is just the cluster)."""
+    return instance_label(cluster, sheet)
 
 
 def _resolve_instance(cfg, cell_name, cluster, sheet) -> tuple:

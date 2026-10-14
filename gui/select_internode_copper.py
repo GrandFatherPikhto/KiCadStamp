@@ -31,6 +31,7 @@ from __future__ import annotations
 import logging
 
 from kicadstamp.i18n import _
+from kicadstamp.sheet_names import instance_label
 
 from .connection import worker_timeout_ms
 
@@ -49,10 +50,15 @@ __all__ = [
 def _node_key_labels(tree, cfg) -> list[str]:
     """The tree's own node keys, "label/sheet" — the same wording the re-read
     report uses for "the tree's nodes expect: …". Only needed when nothing was
-    taken, so it names WHAT the tree was waiting for."""
+    taken, so it names WHAT the tree was waiting for.
+
+    The shape has ONE owner (sheet_names.instance_label — the same one
+    internode_nodes.name_label and internode_capture._node_key_label use, so a
+    report can never be read against a differently-spelled name): a ROOT node
+    (its sheet is ROOT_SHEET) is spelled by its label alone."""
     from kicadstamp.internode_nodes import tree_node_keys
 
-    return [f"{label}/{sheet}" if sheet else label
+    return [instance_label(label, sheet)
             for (_cluster, sheet), label in tree_node_keys(tree, cfg).items()]
 
 

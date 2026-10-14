@@ -29,7 +29,7 @@ from .exceptions import ValidationError, format_fatal_error
 from .i18n import _
 from .placement.services.clone_role_resolver import resolve_footprint_by_role
 from .placement.services.component_resolver import resolve_footprint_by_ref
-from .sheet_names import resolve_sheet_path_names
+from .sheet_names import ROOT_SHEET, resolve_sheet_path_names
 
 logger = logging.getLogger(__name__)
 
@@ -91,8 +91,17 @@ def component_sheet_hint(fp, anchor, sheet_names=None) -> str | None:
     else the leaf of the resolved footprint's hierarchical path — which its own
     path always contains, so the narrowing can never drop the very footprint the
     address just resolved to (see role_narrowing.narrow_candidates_by_sheet:
-    a sheet that matches nothing leaves the candidate list untouched)."""
+    a sheet that matches nothing leaves the candidate list untouched).
+
+    An EMPTY chain (a component standing on the ROOT sheet) carries ROOT_SHEET
+    ("/") instead, so the record narrows to ROOT components and never to a
+    same-tagged sub-sheet one; a chain that is non-empty but unnamed genuinely
+    did not resolve and stays None (no narrowing — the honest best-effort of the
+    whole cascade). 2026-10-14, plan_2026_10_13_root_sheet_clusters Ч1."""
     if anchor is not None and anchor.anchor_sheet:
         return anchor.anchor_sheet
-    names = [n for n in resolve_sheet_path_names(fp, sheet_names or {}) if n]
-    return names[-1] if names else None
+    names = resolve_sheet_path_names(fp, sheet_names or {})
+    named = [n for n in names if n]
+    if named:
+        return named[-1]
+    return ROOT_SHEET if not names else None

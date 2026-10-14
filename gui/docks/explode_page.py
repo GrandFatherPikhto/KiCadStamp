@@ -27,6 +27,7 @@ from PyQt6.QtWidgets import (QDoubleSpinBox, QHBoxLayout, QHeaderView, QLabel,
                              QVBoxLayout, QWidget)
 
 from kicadstamp.i18n import _
+from kicadstamp.sheet_names import instance_label
 
 from .. import settings
 from ..worker import start_long_op
@@ -504,12 +505,17 @@ class ExplodePage(QWidget):
 
     def _show_journal(self) -> None:
         journal = self._guard.journal or {}
+        # The instance is named as ONE label through the ONE owner
+        # (sheet_names.instance_label): a ROOT instance is just the cluster, and
+        # the old "{cluster}/{sheet}" pair printed "<cluster>//" for it
+        # (plan_2026_10_13_root_sheet_clusters Ч1).
         show_message(_(
-            "explode journal: board {board}, cell {cell} on {cluster}/{sheet}, "
+            "explode journal: board {board}, cell {cell} on {where}, "
             "{when}, {n} item(s)").format(
                 board=journal.get("board", "?"), cell=journal.get("cell", "?"),
-                cluster=journal.get("cluster", "?"),
-                sheet=journal.get("sheet") or "-", when=journal.get("time", "?"),
+                where=instance_label(journal.get("cluster", "?"),
+                                     journal.get("sheet")),
+                when=journal.get("time", "?"),
                 n=len(journal.get("items", {}) or {})), WARN_STYLE, logger)
 
     def _forget_journal(self) -> None:

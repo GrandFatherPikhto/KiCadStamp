@@ -290,7 +290,13 @@ def test_the_transfer_path_reads_the_board_once(gate, tmp_path):
     _write_registries(tmp_path)
     nt = _record("NT1")
     cfg = _cfg([nt])
-    fp = _fp("C1", "DA", "DAC_BUF", 0.0, 0.0, ("ch0",))
+    # TWO hops, the last being the symbol's OWN uuid (the project's chain
+    # convention: resolve_sheet_path_names drops it) — so the cell instance
+    # resolves to Channel_0, the sheet the config entity names. A single hop
+    # would be the symbol standing on the ROOT sheet (identity ROOT_SHEET "/"),
+    # which is a different instance and no longer narrows by nothing
+    # (plan_2026_10_13_root_sheet_clusters Ч1).
+    fp = _fp("C1", "DA", "DAC_BUF", 0.0, 0.0, ("ch0", "c1-own"))
     anchor = _fp("U1", "FPGA", None, 10.0, 10.0)
     selected_via = _via("sel-v", net="NT1", x_mm=10.0, y_mm=10.0)
     adapter = _CountingAdapter({"C1": ("DA", "DAC_BUF"), "U1": ("FPGA", None)},

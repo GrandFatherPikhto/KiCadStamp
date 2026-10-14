@@ -156,10 +156,21 @@ def test_cluster_prefix_matches_a_refined_board_tag():
 
 # ── Клетка: лист (участвует в ключе экземпляра и в отборе) ──────────────────
 
-def test_sheet_none_still_forms_an_instance():
-    """Деталь без разрешённого листа — экземпляр с листом None (ключ (кластер,
-    None)); подпись честная, а не пустая."""
+def test_a_root_part_forms_an_instance_labelled_root():
+    """Деталь с ПУСТОЙ цепью листа стоит на КОРНЕВОМ листе (plan_2026_10_13_root_sheet_
+    clusters, Ч1): экземпляр получает метку корня (ROOT_SHEET, "/"), а в подписи
+    читается "(root sheet)" — сам маркер пользователю не показываем."""
+    from kicadstamp.sheet_names import ROOT_SHEET
+
     out = instance_candidates([_p("R1", "RES", "CL", ())], ("RES",))
+    assert out[0].sheet == ROOT_SHEET
+    assert "(root sheet)" in out[0].label
+
+
+def test_a_part_with_no_sheet_identity_at_all_keeps_the_no_sheet_wording():
+    """Лист, которого НЕТ вовсе (Part.sheet is None — «неизвестно», не пустая
+    цепь), — по-прежнему честное "(no sheet)": маркер корня сюда не подставляется."""
+    out = instance_candidates([_p("R1", "RES", "CL", None)], ("RES",))
     assert out[0].sheet is None
     assert "(no sheet)" in out[0].label
 

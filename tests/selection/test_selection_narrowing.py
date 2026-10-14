@@ -28,6 +28,7 @@ from kicadstamp.selection_narrowing import (
     group_selection,
     subtract_foreign_copper,
 )
+from kicadstamp.sheet_names import ROOT_SHEET
 from tests.fakes.format3 import det_uuid, identity_value, registry_schema
 
 
@@ -66,7 +67,11 @@ class _Copper:
 
 
 def _fi(ref, role, cluster, sheet=()):
-    """A FootprintInfo whose sheet chain is already RESOLVED names."""
+    """A FootprintInfo whose sheet chain is already RESOLVED names.
+
+    The DEFAULT (no chain at all) is an EMPTY chain = the symbol stands on the
+    ROOT sheet, whose instance identity is ROOT_SHEET ("/") — NOT None, which
+    means "did not resolve" (plan_2026_10_13_root_sheet_clusters Ч1)."""
     return FootprintInfo(item=_FP(ref), role=role, cluster=cluster,
                          sheet=tuple(sheet))
 
@@ -84,13 +89,13 @@ def test_mixed_selection_chooses_the_cells_cluster(gate):
              _fi("C3", "PA", "PIF_AVDD"), _fi("C4", "PB", "PIF_AVDD"),
              _fi("C5", "PC", "PIF_OA_N2V5")]
     groups = group_selection(infos, cfg.entities)
-    assert set(groups) == {("DAC_BUF", None), ("PIF_AVDD", None),
-                           ("PIF_OA_N2V5", None)}
+    assert set(groups) == {("DAC_BUF", ROOT_SHEET), ("PIF_AVDD", ROOT_SHEET),
+                           ("PIF_OA_N2V5", ROOT_SHEET)}
     choice = choose_instance(groups, {"DA", "DB"}, cell_clusters(cfg, "dac_buf"))
-    assert choice.chosen_key == ("DAC_BUF", None)
+    assert choice.chosen_key == ("DAC_BUF", ROOT_SHEET)
     assert [m.item.ref for m in choice.members] == ["C1", "C2"]
-    assert {key for key, _count in choice.others} == {("PIF_AVDD", None),
-                                                      ("PIF_OA_N2V5", None)}
+    assert {key for key, _count in choice.others} == {("PIF_AVDD", ROOT_SHEET),
+                                                      ("PIF_OA_N2V5", ROOT_SHEET)}
 
 
 # ── С2: two instances of the cell are ambiguous ─────────────────────────────
@@ -135,9 +140,9 @@ def test_known_cell_cluster_ignores_the_role_set(gate):
              _fi("P1", "PX", "PIF_AVDD")]
     groups = group_selection(infos)
     choice = choose_instance(groups, {"DA", "DB", "DC"}, {"DAC_BUF"})
-    assert choice.chosen_key == ("DAC_BUF", None)
+    assert choice.chosen_key == ("DAC_BUF", ROOT_SHEET)
     assert [m.item.ref for m in choice.members] == ["C1", "C2"]
-    assert {key for key, _count in choice.others} == {("PIF_AVDD", None)}
+    assert {key for key, _count in choice.others} == {("PIF_AVDD", ROOT_SHEET)}
     assert not choice.no_own_cluster
 
 
@@ -155,7 +160,7 @@ def test_several_cell_labels_on_one_sheet_use_the_role_set(gate):
     groups = group_selection(infos)
     # cell cluster "CL" prefix-matches BOTH labels -> two own groups, one sheet.
     choice = choose_instance(groups, roles, {"CL"})
-    assert choice.chosen_key == ("CL/AVDD", None)
+    assert choice.chosen_key == ("CL/AVDD", ROOT_SHEET)
     assert [m.item.ref for m in choice.members] == ["C1", "C2"]
 
 
@@ -186,7 +191,7 @@ def test_pif_instance_chosen_by_cell_cluster(gate):
              _fi("Q2", "C_IN_BYPASS", "PIF_OA_N2V5")]
     groups = group_selection(infos, cfg.entities)
     choice = choose_instance(groups, roles, cell_clusters(cfg, "pif_avdd"))
-    assert choice.chosen_key == ("PIF_AVDD", None)
+    assert choice.chosen_key == ("PIF_AVDD", ROOT_SHEET)
     # Without the cluster step the roles alone would make TWO candidates.
     role_only = choose_instance(groups, roles, ())
     assert len(role_only.candidate_groups) == 2

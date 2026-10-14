@@ -49,7 +49,7 @@ from kicadstamp.refdes_duplicates import (duplicate_refdes_groups,
                                           duplicate_short_reason,
                                           orphan_short_reason,
                                           refdes_duplicate_of)
-from kicadstamp.sheet_names import sheet_in_path
+from kicadstamp.sheet_names import sheet_display, sheet_in_path
 
 from .reead import sheet_of
 
@@ -125,10 +125,15 @@ class InstanceCandidate:
 
     @property
     def label(self) -> str:
-        """The dropdown/table line of the instance: "CLUSTER — sheet"."""
+        """The dropdown/table line of the instance: "CLUSTER — sheet".
+
+        The sheet part has ONE wording host (sheet_names.sheet_display): the
+        ROOT instance (its sheet is ROOT_SHEET, "/") reads "(root sheet)" instead
+        of a bare marker, and a stored nothing keeps the old "(no sheet)"
+        (plan_2026_10_13_root_sheet_clusters Ч1)."""
         return "{cluster}{sep}{sheet}".format(
             cluster=self.cluster, sep=INSTANCE_LABEL_SEP,
-            sheet=self.sheet or _("(no sheet)"))
+            sheet=sheet_display(self.sheet, absent=_("(no sheet)")))
 
 
 @dataclasses.dataclass(frozen=True)

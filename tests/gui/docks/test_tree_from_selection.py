@@ -26,6 +26,7 @@ from kicadstamp.config.models import Cell, Entity, TemplateComponentSlot
 from kicadstamp.domain.board import Track, Via
 from kicadstamp.domain.geometry import Vector2
 from kicadstamp.explore import Selected
+from kicadstamp.sheet_names import ROOT_SHEET
 from kicadstamp.utils.units import MM
 from kicadstamp.link_trees import link_trees
 from kicadstamp.tree_position import (
@@ -1291,3 +1292,73 @@ def test_tree_round_trip_and_link_trees_with_role_anchor_and_n_nodes():
     assert all(ln.record.kind == "placement" for ln in linked[0].nodes)
     # role anchor links to no config record (silently external) — no fatal.
     assert linked[0].anchor.anchor.role == "REMOTE"
+
+
+# ── ROOT-sheet clusters: the extraction side (plan_2026_10_13_root_sheet_clusters) ──
+
+def test_a_root_cluster_gets_the_bare_slug_name():
+    """The auto-derived Entity of a ROOT cluster is the bare Cluster slug: there
+    is ONE root sheet of the hierarchy, so the marker is not an instance name and
+    must not leak into the entity name as a stray "_"."""
+    cfg = _cfg(entities=[])
+    c = ReReadCluster(cluster="MOUNTING_HOLES", sheet=ROOT_SHEET, entity_name=None,
+                      cell="mounting_holes", profile_key=None, refs=["H1"])
+    assert resolve_cluster_entity(c, cfg) == \
+        ("mounting_holes", "mounting_holes", True)
+
+
+def test_the_root_and_the_sub_sheet_instances_get_different_entities():
+    """The same Cluster tag on the root sheet AND on a sub-sheet is TWO instances
+    with two Entities — the entity name is unique per (cluster, sheet) instance,
+    so neither can be mistaken for the other (and the root one does NOT get the
+    marker written into its name)."""
+    cfg = _cfg(entities=[])
+    c_root = ReReadCluster(cluster="MOUNTING_HOLES", sheet=ROOT_SHEET,
+                           entity_name=None, cell="mounting_holes",
+                           profile_key=None, refs=["H1", "H2"])
+    c_sub = ReReadCluster(cluster="MOUNTING_HOLES", sheet="MCU", entity_name=None,
+                          cell="mounting_holes", profile_key=None,
+                          refs=["H3", "H4"])
+    name_root, _, new_root = resolve_cluster_entity(c_root, cfg)
+    name_sub, _, new_sub = resolve_cluster_entity(c_sub, cfg)
+    assert (name_root, new_root) == ("mounting_holes", True)
+    assert (name_sub, new_sub) == ("mounting_holes_mcu", True)
+    assert name_root != name_sub
+
+
+def test_the_extracted_root_entity_carries_the_root_marker():
+    """Extraction WRITES sheet "/" on a root Entity. That marker is what makes
+    the placement/read narrowing take the ROOT components only — without it the
+    record would narrow by nothing and a same-tagged sub-sheet cluster could be
+    taken instead."""
+    cfg = _cfg(entities=[], cells=[Cell(name="mounting_holes",
+                                        components=[_slot("MNT")])])
+    c = ReReadCluster(cluster="MOUNTING_HOLES", sheet=ROOT_SHEET, entity_name=None,
+                      cell="mounting_holes", profile_key=None, refs=["H1"])
+
+    ent = create_cell_and_entity_for_cluster(
+        None, c, cfg, {}, selection_footprints=[], selection_raw_items=[])
+
+    assert ent == {"name": "mounting_holes", "cell": "mounting_holes",
+                   "cluster": "MOUNTING_HOLES", "sheet": ROOT_SHEET}
+
+
+def test_the_extracted_root_entity_round_trips_through_the_read():
+    """The full Denis scenario's seam: extract -> (the Entity is saved) -> the
+    next read of the same selection FINDS that Entity again and takes the
+    identity from IT (sheet "/"), instead of falling back to a chain guess. Root
+    and sub-sheet can therefore never swap on a re-read."""
+    entities = [Entity(name="mounting_holes", cell="mounting_holes",
+                       cluster="MOUNTING_HOLES", sheet=ROOT_SHEET)]
+
+    def _root_sel(ref):
+        return Selected(ref=ref, role="MNT", cluster="MOUNTING_HOLES",
+                        sheet=[], nets={}, fp=object())
+
+    sel = [_root_sel("H1"), _root_sel("H2")]
+    clusters = fully_selected_clusters(sel, sel, entities, [])
+
+    assert len(clusters) == 1
+    assert clusters[0].entity_name == "mounting_holes"
+    assert clusters[0].sheet == ROOT_SHEET
+    assert sorted(clusters[0].refs) == ["H1", "H2"]

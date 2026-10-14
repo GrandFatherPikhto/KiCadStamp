@@ -4169,13 +4169,12 @@ msgstr "разношу кластеры"
 msgid "putting back"
 msgstr "возвращаю"
 
-#: gui/docks/explode_page.py:508
+#: gui/docks/explode_page.py:513
 #, python-brace-format
 msgid ""
-"explode journal: board {board}, cell {cell} on {cluster}/{sheet}, {when},"
-" {n} item(s)"
+"explode journal: board {board}, cell {cell} on {where}, {when}, {n} item(s)"
 msgstr ""
-"журнал разноса: плата {board}, ячейка {cell} на {cluster}/{sheet}, "
+"журнал разноса: плата {board}, ячейка {cell} на {where}, "
 "{when}, предметов: {n}"
 
 #: gui/docks/explode_page.py:517
@@ -9815,13 +9814,13 @@ msgstr "  межкластерная медь:"
 msgid "no explode journal for this board"
 msgstr "журнала разноса для этой платы нет"
 
-#: kicadstamp/explode_format.py:51
+#: kicadstamp/explode_format.py:57
 #, python-brace-format
 msgid ""
-"clusters exploded {when}: cell {cell} on {cluster}/{sheet}, {n} item(s); "
+"clusters exploded {when}: cell {cell} on {where}, {n} item(s); "
 "journal kept — run 'explode restore' to undo"
 msgstr ""
-"кластеры разнесены {when}: ячейка {cell} на {cluster}/{sheet}, {n} "
+"кластеры разнесены {when}: ячейка {cell} на {where}, {n} "
 "предмет(ов); журнал сохранён — запусти 'explode restore' для возврата"
 
 #: kicadstamp/explode_journal.py:201

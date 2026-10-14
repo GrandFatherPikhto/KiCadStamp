@@ -28,7 +28,11 @@ from dataclasses import dataclass, field
 from typing import Any, Iterable, Mapping, Optional
 
 from kicadstamp.explore import Selected
-from kicadstamp.sheet_names import resolve_sheet_path_names
+from kicadstamp.sheet_names import (
+    resolve_sheet_path_names,
+    sheet_in_path,
+    sheet_of_names,
+)
 
 
 @dataclass
@@ -111,28 +115,45 @@ def _sheet_chain(s: Selected, sheet_names: Optional[Mapping[str, str]] = None) -
 
 
 def sheet_of(fp_sheet) -> Optional[str]:
-    """Canonical sheet identity of a footprint's sheet chain: the first non-None
-    segment. Used only as a best-effort fallback when no Entity matches."""
-    for seg in fp_sheet or ():
-        if seg:
-            return seg
-    return None
+    """Canonical sheet identity of a footprint's sheet chain — the ONE owner of
+    that derivation (kicadstamp.sheet_names.sheet_of_names, which the mixed-read
+    narrowing delegates to as well, so the two can never group a selection
+    differently):
+
+      * the first named segment (the channel identity, e.g. Channel_0);
+      * ROOT_SHEET ("/") for an EMPTY chain — a symbol standing on the ROOT sheet
+        of the hierarchy (2026-10-14, plan_2026_10_13_root_sheet_clusters: it
+        used to come back None and was then refused as "the sheet did not
+        resolve");
+      * None only when the chain genuinely did not resolve (entries present, none
+        named).
+
+    Used as a best-effort fallback when no Entity matches the footprint."""
+    return sheet_of_names(fp_sheet)
 
 
 def match_entity(entities, cluster: str, fp_sheet) -> Optional[Any]:
     """The Entity (entities:) that places this footprint: same Cluster tag AND
-    entity.sheet appears in the footprint's sheet chain (the same
-    'sheet in fp_sheet' convention Board.select(sheet=) uses)."""
+    entity.sheet NAMES the footprint's instance — through the project's ONE
+    "does this sheet name this component" rule (sheet_names.sheet_in_path), the
+    same one Board.select(sheet=) applies to a chain.
+
+    The membership test (rather than "e.sheet is one of the chain's entries") is
+    what makes an Entity carrying ROOT_SHEET ("/") match a symbol on the ROOT
+    sheet: its chain is EMPTY, so "/" is in no entry and the old test could never
+    find it (2026-10-14, plan_2026_10_13_root_sheet_clusters). A sub-sheet Entity
+    still matches its own channel and nothing else."""
     for e in entities:
-        if e.cluster == cluster and e.sheet and e.sheet in (fp_sheet or ()):
+        if e.cluster == cluster and e.sheet and sheet_in_path(fp_sheet or (), e.sheet):
             return e
     return None
 
 
 def instance_sheet(fp: Selected, entities, sheet_names: Optional[Mapping[str, str]] = None) -> Optional[str]:
     """Sheet identity of a footprint for grouping: its matched Entity's sheet
-    (exact for hierarchical channels like Channel_0/1/2), else the first
-    non-None chain segment as a best-effort fallback."""
+    (exact for hierarchical channels like Channel_0/1/2), else the chain's own
+    identity (sheet_of: the first named segment, or ROOT_SHEET for an empty
+    chain — a symbol on the root sheet)."""
     chain = _sheet_chain(fp, sheet_names)
     e = match_entity(entities, fp.cluster or "", chain)
     if e is not None:
@@ -160,10 +181,20 @@ def fully_selected_clusters(selected: Iterable[Selected], snapshot: Iterable[Sel
                             rejections: Optional[list] = None) -> list[ReReadCluster]:
     """Clusters of the selection that are FULLY selected: every board component
     of the (Cluster tag, sheet) instance (snapshot footprints with the same
-    Cluster whose sheet chain contains the group's sheet) is in the selection.
+    Cluster whose sheet chain NAMES the group's sheet — sheet_names.sheet_in_path,
+    the project's ONE membership rule) is in the selection.
     Each maps to its Entity -> cell -> extract_profiles key (if any).
     `sheet_names` (RuntimeContext) re-resolves the GUI snapshot's otherwise-None
     sheet chains from the raw footprints — see _sheet_chain.
+
+    ROOT clusters (2026-10-14, plan_2026_10_13_root_sheet_clusters Ч1): a symbol
+    on the ROOT sheet of the hierarchy has an EMPTY chain — there is no sheet
+    above it, so there is nothing to "resolve" and `schematic_dir` is not needed
+    at all. Its instance identity is ROOT_SHEET ("/") (sheet_of_names), so the
+    group is neither refused as "the sheet did not resolve" nor confused with a
+    same-tagged cluster standing on a sub-sheet: the two become two groups
+    ("/" and the sub-sheet's name) with disjoint members, and the extraction
+    writes `sheet "/"` onto the root Entity.
 
     `rejections` (plan_2026_09_11_extract_selection_diagnostics V.2): an
     OPTIONAL out-list the caller passes in; every dropped group appends one
@@ -173,7 +204,10 @@ def fully_selected_clusters(selected: Iterable[Selected], snapshot: Iterable[Sel
     every existing caller/test keeps working; the diagnostics are additive.
     With `sheet_names` empty the sheet gate cannot work at all — that is
     reported as REASON_SHEET_MAP_EMPTY, distinct from a single sheet that
-    failed to resolve (REASON_SHEET_UNRESOLVED)."""
+    failed to resolve (REASON_SHEET_UNRESOLVED). A ROOT cluster is unaffected by
+    that: the GUI's stale all-None chain is the only thing an empty map hides,
+    and even then a chain built by resolve_sheet_path_names is [] for a root
+    symbol regardless of the dictionary."""
     sheet_names = _materialize_sheet_names(sheet_names)
     selected_list = list(selected)
     selected_by_ref = {s.ref for s in selected_list}
@@ -189,14 +223,26 @@ def fully_selected_clusters(selected: Iterable[Selected], snapshot: Iterable[Sel
     for (cluster, sheet), members in groups.items():
         member_refs = [s.ref for s in members]
         if not sheet:
+            # No identity at all: either the sheet map is EMPTY (nothing can be
+            # resolved — REASON_SHEET_MAP_EMPTY) or the chain has entries the
+            # dictionary cannot name (REASON_SHEET_UNRESOLVED, the honest
+            # "did not resolve" of the plan). A symbol on the ROOT sheet is NOT
+            # this case any more: its identity is ROOT_SHEET ("/") — truthy — and
+            # it proceeds (2026-10-14, plan_2026_10_13_root_sheet_clusters).
             if rejections is not None:
                 rejections.append(ClusterRejection(
                     reason=(REASON_SHEET_MAP_EMPTY if sheet_map_empty
                             else REASON_SHEET_UNRESOLVED),
                     cluster=cluster, refs=member_refs))
             continue
+        # Membership by the project's ONE rule, not by "the name is one of the
+        # chain's entries": the root group's sheet is ROOT_SHEET ("/") and its
+        # footprints' chain is EMPTY, which no entry ever equals — the old test
+        # turned the (then refused) root group into a REASON_PAIR_NOT_IN_SNAPSHOT
+        # once the gate above let it through.
         snapshot_members = [s for s in snapshot
-                            if s.cluster == cluster and sheet in _sheet_chain(s, sheet_names)]
+                            if s.cluster == cluster
+                            and sheet_in_path(_sheet_chain(s, sheet_names), sheet)]
         if not snapshot_members:
             if rejections is not None:
                 rejections.append(ClusterRejection(

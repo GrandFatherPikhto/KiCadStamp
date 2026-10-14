@@ -11,6 +11,7 @@ summary and the warnings.
 from __future__ import annotations
 
 from .i18n import _
+from .sheet_names import instance_label
 
 __all__ = ["format_plan", "format_status"]
 
@@ -44,13 +45,18 @@ def format_plan(plan) -> list:
 
 def format_status(journal) -> list:
     """The journal status as one CLI-ready line ("clusters exploded …"), or the
-    "no journal" line when ``journal`` is None."""
+    "no journal" line when ``journal`` is None.
+
+    The instance is named through the ONE label owner
+    (sheet_names.instance_label) as a single `{where}` — a ROOT instance (its
+    sheet is ROOT_SHEET) is just the cluster, and the old "{cluster}/{sheet}"
+    pair used to print "<cluster>//" for it."""
     if journal is None:
         return [_("no explode journal for this board")]
     return [_(
-        "clusters exploded {when}: cell {cell} on {cluster}/{sheet}, "
+        "clusters exploded {when}: cell {cell} on {where}, "
         "{n} item(s); journal kept — run 'explode restore' to undo").format(
             when=journal.get("time", "?"), cell=journal.get("cell", "?"),
-            cluster=journal.get("cluster", "?"),
-            sheet=journal.get("sheet") or "-",
+            where=instance_label(journal.get("cluster", "?"),
+                                 journal.get("sheet")),
             n=len(journal.get("items", {})) or 0)]

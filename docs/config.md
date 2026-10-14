@@ -598,7 +598,7 @@ So "an Entity no tree node references" is a legitimate, explicitly *not placed* 
 | `params` | Optional `{placeholder: value}` — fills `{placeholder}`s in the cell's `net_template:`/via/track `net:` fields. |
 | `net_overrides` | Optional `{resolved_net: replacement_net}` — final substitution after the rest of net resolution. |
 | `cluster` | Optional (unlike `ClonePlacement`) — the Cluster TAG written onto the board at Apply; an entity may exist "not placed" (no tree node) without a tag. |
-| `sheet` | Optional own-identity sheet — narrows ambiguous Cluster+Role inside the cell across reused sheets. |
+| `sheet` | Optional own-identity sheet — narrows ambiguous Cluster+Role inside the cell across reused sheets. The **root sheet** of the hierarchy is written `"/"` (2026-10-14, plan_2026_10_13_root_sheet_clusters): a symbol standing on the root sheet has no sheet above it, so the marker is the only way to say "the root instance" and to keep it from mixing with a same-tagged Cluster on a sub-sheet. An ABSENT `sheet` keeps its old meaning ("not set" — nothing is narrowed), never the root. |
 | `retired` / `skip` | Optional, default `false` — same convention as `Chain`. |
 | `ignore_selection` | Optional, default `false` — per-item counterpart of `--no-selection`. |
 | `by_selection` | Optional, default `false` — per-instance selection-based role resolution. |

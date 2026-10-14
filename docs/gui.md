@@ -1523,6 +1523,18 @@ the **Show advanced net settings** checkbox reveals them for manual overrides.
   the saved profile) is reused unchanged — only the source of the extracted items differs.
 - The extracted Cell and its profile recipe are both written into the project root file, so the
   root file is immediately ready to use what was just extracted (no separate `include:` wiring).
+- **Root-sheet clusters (2026-10-14, plan_2026_10_13_root_sheet_clusters).** A Cluster standing on
+  the **root sheet** of the schematic is extracted like any other: a symbol on the root sheet has
+  NO sheet above it, so its sheet chain is EMPTY, and that emptiness is now the instance's identity
+  instead of the old "the sheet did not resolve" refusal (which is what made "Extract cluster"
+  answer with a "check that the schematic files cover this footprint's sheet path" line for e.g.
+  four `MOUNTING_HOLES` mounting holes). The root instance's identity is written as `sheet "/"` on
+  the Entity — the ONE marker of the root sheet (`kicadstamp/sheet_names.py:ROOT_SHEET`), which also
+  keeps a same-tagged cluster on a SUB-sheet a DIFFERENT instance: the two never take each other's
+  components, in extraction, in "Select cell", in the read and at apply. The display says
+  `(root sheet)` (the Entity page's Sheet field, the instance picker's rows); an ABSENT `sheet`
+  keeps its old meaning — "not set", no narrowing. The old `REASON_SHEET_UNRESOLVED` message now
+  appears only for a genuinely unresolved uuid (a chain entry the sheet dictionary cannot name).
 
 ## Placer
 

@@ -83,7 +83,16 @@ def test_gate1a_empty_schematic_dir_is_named():
 # ── (1b) sheet unresolved although schematic_dir IS set ───────────────────
 
 def test_gate1b_sheet_unresolved_with_a_non_empty_map_is_worded_differently():
-    selected = [_sel("R1", "PIF_AVDD", None)]
+    """The chain CARRIES a uuid the dictionary cannot name (two hops, the last one
+    being the symbol's own) — that is the honest "did not resolve", and it is NOT
+    the root sheet: a root symbol's chain is EMPTY
+    (plan_2026_10_13_root_sheet_clusters Ч1, where the root cluster used to be
+    reported through this very reason)."""
+    class _Fp:
+        sheet_path_uuids = ("unknown-uuid", "own-uuid")
+
+    selected = [Selected(ref="R1", role=None, cluster="PIF_AVDD", sheet=[None],
+                         nets={}, fp=_Fp())]
     clusters, rejections, message = _detect(
         selected, selected, sheet_names={"some-uuid": "Channel_0"})
 

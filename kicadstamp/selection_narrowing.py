@@ -46,6 +46,7 @@ from typing import Any, Iterable
 from .cluster_matching import cluster_prefix_match
 from .i18n import _
 from .registry import record_key_part
+from .sheet_names import sheet_in_path, sheet_of_names
 
 logger = logging.getLogger(__name__)
 
@@ -214,10 +215,18 @@ def cell_entity_naming_address(cfg, cell_name: str | None,
 def _sheet_identity(chain: Iterable[str | None], cluster: str | None,
                     entities) -> str | None:
     """The instance-sheet identity of a footprint: the Entity's ``sheet`` when an
-    Entity with the same Cluster names it (exact for hierarchical channels like
-    Channel_0/1/2), else the first non-None segment of the resolved chain — the
-    SAME rule ``gui/docks/reead.instance_sheet`` uses, so the two never group a
-    selection differently."""
+    Entity with the same Cluster NAMES this instance (exact for hierarchical
+    channels like Channel_0/1/2), else the resolved chain's own identity — the
+    SAME rule ``gui/docks/reead.instance_sheet`` uses (both delegate to
+    ``sheet_names.sheet_of_names`` / ``sheet_in_path``, the ONE owners), so the
+    two never group a selection differently.
+
+    ROOT (2026-10-14, plan_2026_10_13_root_sheet_clusters Ч1): an EMPTY chain is
+    a symbol on the ROOT sheet and its identity is ROOT_SHEET ("/"), not None —
+    the address then carries the marker into the instance narrowing, so a root
+    cluster and a same-tagged sub-sheet cluster can never be merged into one
+    instance. An Entity carrying ``sheet "/"`` is matched by the same membership
+    rule, which is why the root instance can also be named explicitly."""
     chain = tuple(chain or ())
     if cluster:
         for e in entities or ():
@@ -225,12 +234,9 @@ def _sheet_identity(chain: Iterable[str | None], cluster: str | None,
             e_sheet = getattr(e, "sheet", None)
             if (e_cluster and e_sheet
                     and cluster_prefix_match(str(cluster), str(e_cluster))
-                    and e_sheet in chain):
+                    and sheet_in_path(chain, e_sheet)):
                 return e_sheet
-    for seg in chain:
-        if seg:
-            return seg
-    return None
+    return sheet_of_names(chain)
 
 
 def group_selection(infos: Iterable[FootprintInfo], entities=()

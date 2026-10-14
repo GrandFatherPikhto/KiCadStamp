@@ -20,7 +20,7 @@ from .constants import CLUSTER_FIELD_NAME, DEFAULT_TIMEOUT_MS, ROLE_FIELD_NAME
 from .adapter_factory import create_board_adapter
 from .cluster_matching import cluster_prefix_match
 from .kicad.adapter import KiCadBoardAdapter
-from .sheet_names import build_sheet_name_map, resolve_sheet_path_names
+from .sheet_names import build_sheet_name_map, resolve_sheet_path_names, sheet_in_path
 
 
 def selection_signature(items) -> tuple:
@@ -350,8 +350,12 @@ class Board:
           - cluster: segment-prefix match (cluster_prefix_match, same
             function the real anchor_cluster resolver uses) — NOT exact
             equality, so this previews what apply would actually pick.
-          - sheet: membership in the footprint's resolved sheet-instance
-            chain (Channel_0/Channel_1/... for a reused hierarchical sheet).
+          - sheet: the footprint's resolved sheet-instance chain NAMES this
+            sheet (Channel_0/Channel_1/... for a reused hierarchical sheet) —
+            through the project's ONE membership rule (sheet_in_path), so the
+            ROOT_SHEET marker ("/") selects the components standing on the ROOT
+            sheet of the hierarchy (an empty chain). Not to be confused with the
+            filter's own "None = no narrowing".
           - net: the footprint has this net on at least one pad.
         """
         result = Selection()
@@ -366,7 +370,7 @@ class Board:
             if cluster is not None and not cluster_prefix_match(fp_cluster or '', cluster):
                 continue
             fp_sheet = self._sheet(fp)
-            if sheet is not None and sheet not in fp_sheet:
+            if sheet is not None and not sheet_in_path(fp_sheet, sheet):
                 continue
             fp_nets = self._nets(fp)
             if net is not None and net not in fp_nets.values():

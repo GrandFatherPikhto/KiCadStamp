@@ -46,6 +46,7 @@ from kicadstamp.config_writer import read_data, upsert_entity
 from kicadstamp.exceptions import ValidationError
 from kicadstamp.field_overrides import load_field_overrides
 from kicadstamp.i18n import _
+from kicadstamp.sheet_names import sheet_display
 from kicadstamp.utils.paths import overrides_path_for_config
 
 from ..docks._common import (ERROR_STYLE as _ERROR_STYLE,
@@ -294,7 +295,11 @@ class EntityPage(QWidget):
             self._set_imprint_visible(True)
         else:
             self._set_imprint_visible(False)
-        self.sheet_label.setText(str(raw.get("sheet") or "—"))
+        # The sheet part has ONE wording host (sheet_names.sheet_display): a ROOT
+        # entity stores sheet "/" and reads "(root sheet)" instead of a bare
+        # marker, while an absent sheet keeps "—"
+        # (plan_2026_10_13_root_sheet_clusters Ч1).
+        self.sheet_label.setText(sheet_display(raw.get("sheet")))
         self.cluster_label.setText(str(raw.get("cluster") or "—"))
         self._fill_cell_combo()
         self._load_placements(name)

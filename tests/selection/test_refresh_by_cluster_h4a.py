@@ -408,11 +408,19 @@ _JOURNAL = {"cell": "dac_buf", "cluster": "DAC_BUF", "sheet": "Channel_0"}
 
 
 def _one_track_read(tmp_path, monkeypatch, *, journal, explode_transfer=True):
-    """The DAC_BUF instance's read with one net_traces-owned track selected."""
+    """The DAC_BUF instance's read with one net_traces-owned track selected.
+
+    The chain carries TWO hops on purpose: the project's convention is that the
+    LAST one is the symbol's OWN uuid (resolve_sheet_path_names drops it), so
+    ("ch0", "<own>") resolves the instance to Channel_0. A single-hop chain
+    would be the symbol standing on the ROOT sheet (identity ROOT_SHEET), which
+    since plan_2026_10_13_root_sheet_clusters is a different address and no
+    longer narrows to anything (it used to narrow by nothing at all, which is
+    what hid this inaccuracy)."""
     from gui.mixed_selection import narrow_mixed_selection
 
-    fp_c1 = _fp("C1", "DA", "DAC_BUF", 10.0, 10.0, ("ch0",))
-    fp_c2 = _fp("C2", "DB", "DAC_BUF", 15.0, 10.0, ("ch0",))
+    fp_c1 = _fp("C1", "DA", "DAC_BUF", 10.0, 10.0, ("ch0", "c1-own"))
+    fp_c2 = _fp("C2", "DB", "DAC_BUF", 15.0, 10.0, ("ch0", "c2-own"))
     adapter = _Adapter({"C1": ("DA", "DAC_BUF"), "C2": ("DB", "DAC_BUF")},
                        footprints=[fp_c1, fp_c2])
     t_nt = _track("t-nt")

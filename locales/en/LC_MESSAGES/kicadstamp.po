@@ -3916,11 +3916,10 @@ msgstr ""
 msgid "putting back"
 msgstr ""
 
-#: gui/docks/explode_page.py:508
+#: gui/docks/explode_page.py:513
 #, python-brace-format
 msgid ""
-"explode journal: board {board}, cell {cell} on {cluster}/{sheet}, {when},"
-" {n} item(s)"
+"explode journal: board {board}, cell {cell} on {where}, {when}, {n} item(s)"
 msgstr ""
 
 #: gui/docks/explode_page.py:517
@@ -9185,10 +9184,10 @@ msgstr ""
 msgid "no explode journal for this board"
 msgstr ""
 
-#: kicadstamp/explode_format.py:51
+#: kicadstamp/explode_format.py:57
 #, python-brace-format
 msgid ""
-"clusters exploded {when}: cell {cell} on {cluster}/{sheet}, {n} item(s); "
+"clusters exploded {when}: cell {cell} on {where}, {n} item(s); "
 "journal kept — run 'explode restore' to undo"
 msgstr ""
 
