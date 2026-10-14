@@ -682,7 +682,23 @@ double-click, **Edit node…**, **Set anchor…**, and the "whose copper is this
 right-click OUTSIDE the current selection replaces it with the clicked row (the standard tree
 behaviour, which keeps a single right-click on one row behaving exactly as it did before); a
 right-click INSIDE it keeps the group on purpose, because that is how group actions (see the group
-"Move to…" below) are reached from any row of the group. The anchor editor covers all six anchor modes:
+"Move to…" below) are reached from any row of the group.
+
+**Move to… on a GROUP** (2026-10-14, same plan, Ч1 п.2–п.8): with two or more
+nodes selected, ONE parent picker runs for the whole group, inside the same tree,
+and every node's stored `xy`/`polar`/`rotation` is re-expressed so that it does NOT
+move on the board — by the recalculation when that is possible, and, when it is not
+(typically the OLD base is gone from the board, which is why the node is being
+moved at all), by READING the node's current place off the board relative to the
+new parent; the Log names the source, because the board and the config may
+disagree. If one node can be neither recalculated nor read, NOTHING moves: one Log
+line names the nodes and the reason (no dialog — refusals are Log lines here). A
+copper node in the selection cannot ride with the group (its copper is offset from
+its own anchor pad) and is named in the Log. The moved nodes keep their mutual
+document order under the new parent, and the whole group is ONE structural change
+(one rebuild, one "modified" mark). A single selected node keeps the original flow
+and its own question ("re-hang WITHOUT recalculating?"), which is now asked only
+after the board read has failed too. The anchor editor covers all six anchor modes:
 **Origin (board 0,0)**, **Config record** (a name
 from the config, resolved at Save; a **Kind** filter narrows the ref list to one section —
 Entity/Coordinate/Point/Clone/All — a picker aid only, the anchor grammar has no kind),
