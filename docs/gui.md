@@ -907,6 +907,18 @@ an ordinary node no longer gets an empty tab at all), and a DISABLED offset/rota
 cause — the role/ref that did not resolve, also written to the Log — instead of always blaming the
 connection. "No live board connection" is shown only when there really is no board.
 
+**UPDATE 2026-10-14 (plan_2026_10_14_tree_group_move_and_mount_rebase, the mount-parent-base доделка):**
+the frame a mount node's CHILDREN are measured in is the node's **POINT** — its anchor's pose composed with
+the node's own `xy`/`rotation` — because that is the frame the redraw itself lays them from
+(`mount_node_poses`: the ONE place a mount node's two frames are answered from one board read). **Read
+current position**, the board-frame value the form shows and both **Move to…** entries used to measure
+against the bare ANCHOR instead, so a child of a mount with a non-zero offset or rotation was written in one
+frame and redrawn in the other (Denis's `avdd_18`: pad 18 of AD_DAC, turned 45°). Only what the dock READS
+AND WRITES changed — the redraw was always right, so no saved config has to be converted. The mount node's
+OWN numbers keep their anchor frame, and **Change anchor from selection…** asks both frames from that same
+read; its Log line now prints the RESULTING axes — the new anchor's angle plus the node's own `rotation`,
+not the bare base angle.
+
 **UPDATE 2026-09-16 (plan_2026_09_16_mount_point_marker):** that same Position tab now carries the mount
 node's own **point marker** — a mount node's offset is the one offset in the tree with nothing to drag on
 the board (a clone/placement/chain node's record IS on the board, a `points:` entry has its own circle, and

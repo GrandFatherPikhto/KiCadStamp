@@ -496,9 +496,39 @@ def test_capture_warning_drops_the_fatal_board_verdict(monkeypatch, caplog):
 _SEAM_WALKS = {
     "kicadstamp/placement/entity_placement.py": ("_walk",),
     "kicadstamp/tree_position.py": ("_node_path_pose", "layout_tree_from_base",
-                                    "capture_rigid_state", "_mount_parent_base_pose"),
+                                    "capture_rigid_state", "_mount_parent_base_pose",
+                                    "mount_node_poses"),
     "kicadstamp/imprint_apply.py": ("_collect_scheme_nodes",),
 }
+
+
+#: The seam functions a walk may reach the mount base through. `mount_node_poses`
+#: (2026-10-14) is the wrapper that hands the base out together with the point it
+#: implies; its OWN body is registered below, so it is checked too.
+_SEAM_CALLS = {"mount_node_base", "_mount_parent_base_pose", "mount_node_poses"}
+
+
+def _called_names(node) -> set:
+    """The plain function names CALLED inside `node` — a mention in a docstring or
+    a comment is not a call.
+
+    Measured 2026-10-14: the check below used to look for the seam's NAME in the
+    source SEGMENT, so a walk that had LOST the call but kept the word in its
+    prose still passed (the approved mutation of the доделка — drop the call from
+    `mount_node_poses` — did NOT turn this cell red). The AST makes the claim the
+    docstring of this cell states actually true."""
+    import ast
+
+    out: set = set()
+    for sub in ast.walk(node):
+        if not isinstance(sub, ast.Call):
+            continue
+        fn = sub.func
+        if isinstance(fn, ast.Name):
+            out.add(fn.id)
+        elif isinstance(fn, ast.Attribute):
+            out.add(fn.attr)
+    return out
 
 
 def test_every_registered_mount_walk_goes_through_the_seam():
@@ -521,11 +551,18 @@ def test_every_registered_mount_walk_goes_through_the_seam():
                    if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))}
         for name in names:
             assert name in by_name, f"{rel}::{name} — registered seam user is gone"
-            segment = ast.get_source_segment(text, by_name[name]) or ""
-            assert "mount_node_base" in segment or "_mount_parent_base_pose" in segment, (
-                f"{rel}::{name} handles a mount node without the seam "
-                "(mount_node_base) — a mount base resolved any other way is the "
-                "defect plan_2026_09_14 Э2 fixed")
+            # 2026-10-14 (the mount-parent-base доделка): the two walks that
+            # compose a mount node's POINT go through `mount_node_poses` — the
+            # wrapper that hands the base out together with the point it implies.
+            # The wrapper is registered above, so its OWN body is checked to CALL
+            # the seam; the rule this cell states is unchanged (a walk that
+            # handles a mount node must reach the seam). No prose here: what is
+            # asserted is a CALL (`_called_names`), measured red when the seam
+            # call is dropped and the name is merely mentioned.
+            assert _called_names(by_name[name]) & _SEAM_CALLS, (
+                f"{rel}::{name} handles a mount node without CALLING the seam "
+                "(mount_node_base / mount_node_poses) — a mount base resolved any "
+                "other way is the defect plan_2026_09_14 Э2 fixed")
 
     doc = mount_node_base.__doc__ or ""
     for token in ("entity_placement._walk", "node-path walk",

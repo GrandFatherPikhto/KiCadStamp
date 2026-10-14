@@ -44,6 +44,7 @@ from kicadstamp.link_trees import (
     link_trees,
 )
 from kicadstamp.tree_position import (
+    MountFrames,
     _anchor_base_live_position,
     _root_entity_ref,
     _snap_mm,
@@ -51,7 +52,7 @@ from kicadstamp.tree_position import (
     board_rotation_to_local_deg,
     local_offset_to_board_mm,
     local_rotation_to_board_deg,
-    mount_node_base,
+    mount_node_poses,
     node_position,
     rotate_offset_mm,
     tree_layout_base,
@@ -586,6 +587,44 @@ def _live_adapter_for(adapter, connection):
     return getattr(board, "adapter", None)
 
 
+def _mount_anchor_pose(cfg, adapter, sheet_names, tree: Tree,
+                       mount_node: TreeNode, *, snapshot=None) -> MountFrames:
+    """BOTH frames of ONE mount node, from ONE board read — the dock's seam over
+    tree_position.mount_node_poses (plan_2026_10_14_tree_group_move_and_mount_
+    rebase, the mount-parent-base доделка; boundary №3 of the Ч2 acceptance).
+
+    `anchor_pos`/`anchor_rot` — the pose of the node's OWN ANCHOR: the frame
+    the node's own `xy`/`rotation` are stored in. This is what a re-hang or a
+    re-anchor must write the node's OWN numbers against.
+
+    `point_pos`/`point_rot` — the node's POINT: that anchor composed with the
+    node's own `xy`/rotation. This is the frame EVERYTHING UNDER the node is
+    stored against — the frame a CHILD's numbers are read and written in, and
+    the frame the redraw lays the child from (`_node_path_pose`,
+    `layout_tree_from_base`).
+
+    The two travel together because the second is PURE COMPOSITION of the first:
+    asking for them separately would mean two identical board resolves and, far
+    worse, a second copy of the composition rule — which is exactly how the dock
+    and the redraw drifted apart on 2026-10-14 (a child of a mount with a
+    non-zero `xy` was written in one frame and read back in the other).
+
+    A mount node's ref is a LOCAL NAME and is never resolved against the config
+    (rule Б1), so this is its only path. The forest is derived from cfg.trees —
+    the dock pins `cfg.trees is self._trees` (trees_dock_cfg_trees_desync), so
+    this is the dictionary the form's own all_trees would give — and the node's
+    base is laid from the tree's OWN layout base (tree_layout_base) exactly like
+    gui/docks/cascade.py's stage-2 layout. mount_node_base picks INTERNAL vs
+    LIVE structurally, so a mount anchored to a role this tree places itself
+    needs no board here."""
+    forest = {t.name: t for t in (getattr(cfg, "trees", None) or [])}
+    tree_base_pos, tree_base_rot = tree_layout_base(
+        adapter, cfg, tree, sheet_names, forest, snapshot=snapshot)
+    return mount_node_poses(mount_node, tree, tree_base_pos, tree_base_rot,
+                            adapter, cfg, sheet_names, forest,
+                            snapshot=snapshot)
+
+
 def _resolve_node_base_pose(cfg, adapter, sheet_names, tree: Tree,
                             parent_node: Optional[TreeNode],
                             base_anchor: Optional[TreeAnchor], *, snapshot=None
@@ -601,13 +640,17 @@ def _resolve_node_base_pose(cfg, adapter, sheet_names, tree: Tree,
       instance, so it has no mirror concept (mirror=False).
     - parent_node is None — the tree's OWN anchor, via
       _anchor_base_live_position (every anchor mode: origin/auto/role/point/ref).
-    - a MOUNT parent node — its OWN base via mount_node_base (plan
-      plan_2026_09_12_node_form_mount_parent_base §Л.2.1), laid from the tree's
-      own base (tree_layout_base) exactly like gui/docks/cascade.py. A mount
-      node's ref is a LOCAL NAME and is never resolved against the config (rule
-      Б1), so the record path below can never find it; mirror=False — the
-      anchor names a COMPONENT, not a cell instance (the same reasoning as the
-      base_anchor branch above).
+    - a MOUNT parent node — the frame the CALLER's node is STORED in is that
+      mount node's POINT: its ANCHOR (plan plan_2026_09_12_node_form_mount_
+      parent_base §Л.2.1, `_mount_anchor_pose`) composed with the node's own
+      xy/rotation. That is the frame the REDRAW lays its children from
+      (tree_position.mount_node_poses — the composition `_node_path_pose` and
+      `layout_tree_from_base` use), and handing out the bare anchor here is what
+      made a child of an offset or rotated mount land elsewhere (boundary №3 of
+      the Ч2 acceptance, 2026-10-14). A mount node's ref is a LOCAL NAME and is
+      never resolved against the config (rule Б1), so the record path below can
+      never find it; mirror=False — the anchor names a COMPONENT, not a cell
+      instance (the same reasoning as the base_anchor branch above).
     - any other parent NODE — its live pose via read_record_live_pose: a
       placement Entity is read from its LIVE CLUSTER, not from the tree that
       places it (the BASE has the same disease as the child, plan §2.2).
@@ -631,24 +674,20 @@ def _resolve_node_base_pose(cfg, adapter, sheet_names, tree: Tree,
         return parent_pos, parent_deg, False
     if parent_node.kind == "mount":
         # Л.2.1: a mount node's ref is a local NAME (never a config record), so
-        # the generic branch below would look for a refdes that cannot exist.
-        # Its base is mount_node_base — THE single seam every recursive walk
-        # uses — fed from the tree's own layout base (tree_layout_base), the
-        # same pair gui/docks/cascade.py's stage-2 layout calls. mount_node_base
-        # picks INTERNAL vs LIVE structurally, so a mount anchored to a role
-        # this tree places itself needs no board here.
+        # the generic branch below would look for a refdes that cannot exist;
+        # `_mount_anchor_pose` is its only path (the SAME seam every recursive
+        # walk goes through, fed from the tree's own layout base).
         #
-        # The forest is derived from cfg.trees: the dock pins
-        # `cfg.trees is self._trees` (trees_dock_cfg_trees_desync), so this is
-        # the dictionary the form's own all_trees would give, without widening
-        # this function's signature (and its monkeypatched test doubles).
-        forest = {t.name: t for t in (getattr(cfg, "trees", None) or [])}
-        tree_base_pos, tree_base_rot = tree_layout_base(
-            adapter, cfg, tree, sheet_names, forest, snapshot=snapshot)
-        parent_pos, parent_deg = mount_node_base(
-            parent_node, tree, tree_base_pos, tree_base_rot, adapter, cfg,
-            sheet_names, forest, snapshot=snapshot)
-        return parent_pos, parent_deg, False
+        # The caller's node hangs from the mount's POINT, never from the bare
+        # anchor: its stored xy/rotation live in that frame, and so does every
+        # number the dock reads or writes for it (formalized by the доделка of
+        # 2026-10-14 — before it, a child of a mount with a non-zero xy or
+        # rotation was written against the anchor and redrawn against the
+        # point). mirror=False: the anchor names a COMPONENT, not a cell
+        # instance.
+        frames = _mount_anchor_pose(cfg, adapter, sheet_names, tree,
+                                    parent_node, snapshot=snapshot)
+        return frames.point_pos, frames.point_rot, False
     parent_record, _is_external = _resolve_probe_ref(
         cfg, parent_node.ref, parent_node.kind)
     pose = read_record_live_pose(adapter, cfg, parent_node.ref, parent_record,

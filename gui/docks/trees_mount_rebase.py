@@ -30,11 +30,17 @@ option too: a PARTLY re-read group must never exist.
 
 WHERE THE READS LIVE. Every board read is the dock's own, reached through the
 module attribute — `dock._live_adapter()`, `trees_dock.ui_thread_board_read`,
-`trees_dock._resolve_node_base_pose`, `trees_dock._resolve_live_offset` — exactly
-like `trees_move_flow`'s flow bodies and for the same reason (Д3 of the Ч0
-review): the door guards patch those names BY MODULE ATTRIBUTE, so a smuggled
-`from … import` would be invisible to them and a broken one would never be
-caught.
+`trees_dock._mount_anchor_pose` (the node's OWN ANCHOR frame, and its POINT frame
+from the same read), `trees_dock._resolve_live_offset` (a child, in the POINT
+frame) — exactly like `trees_move_flow`'s flow bodies and for the same reason
+(Д3 of the Ч0 review): the door guards patch those names BY MODULE ATTRIBUTE, so
+a smuggled `from … import` would be invisible to them and a broken one would
+never be caught.
+
+WHICH FRAME IS WHICH (the 2026-10-14 доделка). The node's `xy`/`rotation` are
+stored against its ANCHOR; its CHILDREN are stored against its POINT (anchor +
+own xy/rotation) — the frame the redraw composes them from. The dock answers both
+from one read, which is why this module never composes the point itself.
 
 WHAT IS *NOT* HERE: the offset arithmetic (ONE expression of it lives in
 `trees_move_flow.reexpress_offset`, this module only names the two bases), the
@@ -176,27 +182,44 @@ class RebasePlan:
     """The answer of `_plan` — what the three branches of Ч2 work from.
 
     `old_base` / `new_base` — `(position_nm, rotation_deg | None)` of the poses
-    the mount's numbers are measured from. `None` for the OLD one is NOT an error:
-    it is the case the action exists for (the old support is gone from the board),
-    and it is why "group stays in place" may have to be withheld. `None` for the
-    NEW one IS a refusal — nothing to stand on.
+    the mount's OWN numbers are measured from: the ANCHOR poses. `None` for the
+    OLD one is NOT an error: it is the case the action exists for (the old
+    support is gone from the board), and it is why "group stays in place" may
+    have to be withheld. `None` for the NEW one IS a refusal — nothing to stand
+    on.
+
+    `new_point_rot` — the rotation of the node's POINT under the NEW anchor (the
+    anchor's angle plus the node's own `rotation`): the frame its CHILDREN are
+    stored in, and therefore the angle the node's axes now lie in. Taken from the
+    SAME read as `new_base` (`trees_dock._mount_anchor_pose`), so the children's
+    frame and the angle the Log prints can never disagree with the anchor pose
+    the arithmetic used.
 
     `children` — [(child, (xy, polar, rotation))] of the DIRECT children re-read
-    against the node's new pose, in document order, filled ONLY when the old base
-    did not resolve. `child_failures` — [(child, reason)] of the ones the board
-    could not answer for: non-empty means the children were NOT re-read (the
-    caller withholds the option instead of writing half a group)."""
+    against the node's new POINT pose, in document order, filled ONLY when the
+    old base did not resolve. `child_failures` — [(child, reason)] of the ones
+    the board could not answer for: non-empty means the children were NOT re-read
+    (the caller withholds the option instead of writing half a group)."""
 
     old_base: Optional[tuple] = None
     new_base: Optional[tuple] = None
     old_reason: str = ""
     new_reason: str = ""
+    new_point_rot: Optional[float] = None
     children: list = field(default_factory=list)
     child_failures: list = field(default_factory=list)
 
 
 def _plan(dock, tree: Tree, node: TreeNode, anchor: TreeAnchor) -> RebasePlan:
     """Everything the action needs from the board, read once.
+
+    `_mount_anchor_pose` answers BOTH frames of the node from that one read: the
+    node's OWN numbers are measured against its ANCHOR (what `rebased_offset`
+    re-expresses, and what a re-anchor really changes), while its CHILDREN hang
+    from its POINT — the anchor composed with the node's own xy/rotation. The
+    2026-10-14 доделка split the two: the dock used to hand out the anchor frame
+    for the children as well, so the numbers written into them and the numbers the
+    redraw read out of them lived in different frames.
 
     The NEW anchor is put on the node IN PLACE while it is resolved and taken off
     again on every path (including the failure one). That is not a trick: the
@@ -216,10 +239,10 @@ def _plan(dock, tree: Tree, node: TreeNode, anchor: TreeAnchor) -> RebasePlan:
 
     with trees_dock.ui_thread_board_read(reason=_OLD_ANCHOR_SIGN):
         try:
-            old = trees_dock._resolve_node_base_pose(
-                dock._cfg, dock._live_adapter(), sheet_names, tree, node, None,
+            old = trees_dock._mount_anchor_pose(
+                dock._cfg, dock._live_adapter(), sheet_names, tree, node,
                 snapshot=snapshot)
-            plan.old_base = (old[0], old[1])
+            plan.old_base = (old.anchor_pos, old.anchor_rot)
         except Exception as exc:    # noqa: BLE001 — the old support being GONE is the case
             plan.old_reason = str(exc)
 
@@ -227,24 +250,26 @@ def _plan(dock, tree: Tree, node: TreeNode, anchor: TreeAnchor) -> RebasePlan:
     try:
         try:
             with trees_dock.ui_thread_board_read(reason=_NEW_ANCHOR_SIGN):
-                new = trees_dock._resolve_node_base_pose(
+                new = trees_dock._mount_anchor_pose(
                     dock._cfg, dock._live_adapter(), sheet_names, tree, node,
-                    None, snapshot=snapshot)
-            plan.new_base = (new[0], new[1])
+                    snapshot=snapshot)
+            plan.new_base = (new.anchor_pos, new.anchor_rot)
+            plan.new_point_rot = new.point_rot
         except Exception as exc:    # noqa: BLE001 — the refusal path
             plan.new_reason = str(exc)
         if plan.new_base is not None and plan.old_base is None:
             plan.children, plan.child_failures = _reread_children(
-                dock, tree, node, plan.new_base, sheet_names, snapshot)
+                dock, tree, node, plan.new_point_rot, sheet_names, snapshot)
     finally:
         node.anchor = old_anchor
     return plan
 
 
-def _reread_children(dock, tree: Tree, node: TreeNode, new_base, sheet_names,
+def _reread_children(dock, tree: Tree, node: TreeNode, point_rot, sheet_names,
                      snapshot):
     """`(shifts, failures)` for every DIRECT child of `node`, re-read off the
-    board against the node's NEW pose — the Д1 fallback of "group stays in
+    board against the node's NEW POINT pose (`point_rot`) — the frame the
+    children's numbers are stored in — the Д1 fallback of "group stays in
     place" when the OLD anchor is gone.
 
     A child-mount carrying an anchor of its OWN is SKIPPED: its frame is its own
@@ -274,7 +299,7 @@ def _reread_children(dock, tree: Tree, node: TreeNode, new_base, sheet_names,
         except Exception as exc:    # noqa: BLE001 — a refusal is a result here
             failures.append((child, str(exc)))
             continue
-        new_rot = new_base[1] if new_base[1] is not None else 0.0
+        new_rot = point_rot if point_rot is not None else 0.0
         rot = rotation if rotation is not None else child.rotation
         if child.polar is None:
             shifts.append((child, (offset, None, rot)))
@@ -410,8 +435,11 @@ def _apply(dock, node: TreeNode, anchor: TreeAnchor, plan: RebasePlan,
             node.xy, node.polar, node.rotation = shift
     node.anchor = anchor
     if plan.old_base is None:
+        # The node's RESULTING axes — the new anchor's angle plus the node's own
+        # rotation: exactly the angle its children now lie in (the point frame),
+        # not the bare base angle, which is only half of the turn.
         logger.info(_AXES_FROM_NEW_ANCHOR.format(
-            mount=node.ref, angle=_degrees(plan.new_base[1])))
+            mount=node.ref, angle=_degrees(plan.new_point_rot)))
     if mode == "stay" and plan.old_base is None:
         logger.info(_OLD_ANCHOR_GONE.format(mount=node.ref,
                                            n=len(plan.children)))

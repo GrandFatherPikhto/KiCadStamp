@@ -150,7 +150,11 @@ def mount_node_base(node: TreeNode, tree: "Tree | None", tree_base_pos: Vector2,
     _mount_parent_base_pose): that was the FIFTH walk over the same trees and
     the one that had been left outside this seam, so a mount node standing as a
     rigid-group PARENT used to be fed to resolve_base_live_position as if its
-    ref were a board refdes — which a mount ref never is. `tree` is the plain
+    ref were a board refdes — which a mount ref never is. The node's POINT
+    (this base composed with the node's own xy/rotation — the frame everything
+    UNDER the mount hangs from) is handed out TOGETHER with this base by
+    mount_node_poses (2026-10-14), so a walk composes it in one place instead of
+    keeping its own copy. `tree` is the plain
     Tree whose nodes are being laid and
     `tree_base_pos`/`tree_base_rot` the EFFECTIVE base its content is laid from
     (the same (pos, rot) the walk starts its top level from) — the internal
@@ -201,23 +205,81 @@ def mount_node_base(node: TreeNode, tree: "Tree | None", tree_base_pos: Vector2,
     return pos, rot
 
 
+@dataclasses.dataclass(frozen=True)
+class MountFrames:
+    """BOTH frames of ONE kind "mount" node (plan_2026_10_14_tree_group_move_and_
+    mount_rebase, the mount-parent-base доделка).
+
+    `anchor_*` — the pose of the mount's ANCHOR: the frame the node's OWN
+    `xy`/`rotation` are stored in (mount_node_base's answer, its historical and
+    only meaning).
+
+    `point_*` — the pose of the node's POINT: the anchor composed with the
+    node's own `xy` (rotated into the anchor's frame) and its own `rotation`
+    added — the frame everything UNDER the mount hangs from, exactly as
+    `_node_path_pose` / `layout_tree_from_base` compose it.
+
+    Both are answered TOGETHER, from ONE board read, because they are two views
+    of the same resolve and because the dock used to hand out the anchor frame
+    where the children's frame was meant (a child of a mount with a non-zero
+    `xy` was then written in one frame and read back by the redraw in the
+    other)."""
+    anchor_pos: Vector2
+    anchor_rot: float
+    point_pos: Vector2
+    point_rot: float
+
+
+def mount_node_poses(node: TreeNode, tree: "Tree | None", tree_base_pos: Vector2,
+                     tree_base_rot: float, adapter, cfg, sheet_names,
+                     forest: "dict[str, Tree] | None" = None,
+                     visited: frozenset = frozenset(), *, snapshot=None
+                     ) -> MountFrames:
+    """The mount node's ANCHOR frame and its POINT frame, from ONE call to the
+    seam (mount_node_base) — `MountFrames` above explains what the two are and
+    why they travel together.
+
+    THE place the point is composed: `node_position(node, anchor_pos,
+    anchor_rot)` (the node's `xy` in its anchor's frame, the same primitive
+    every other node's offset uses) plus `anchor_rot + node.rotation`. Every
+    walk uses it instead of spelling those two lines out again — a second copy
+    is exactly how the dock and the redraw drifted apart on 2026-10-14."""
+    anchor_pos, anchor_rot = mount_node_base(
+        node, tree, tree_base_pos, tree_base_rot, adapter, cfg, sheet_names,
+        forest, visited, snapshot=snapshot)
+    return MountFrames(
+        anchor_pos=anchor_pos,
+        anchor_rot=anchor_rot,
+        point_pos=node_position(node, anchor_pos, anchor_rot),
+        point_rot=anchor_rot + node.rotation)
+
+
 def _node_path_pose(tree: Tree, path: list[TreeNode], base_pos: Vector2,
                     base_rot: float, adapter, cfg, sheet_names,
                     chain: frozenset, *, snapshot=None) -> tuple[Vector2, float]:
     """Absolute (pos, rot) of a node reached along `path` from the tree's own
     base — the SAME composition every walk uses (node_position + rotation
     accumulation). A mount node on the path substitutes its own base with the
-    SAME tree base and chain, so an internal mount inside a resolved path is
-    handled one level deeper and a cycle is caught. Deliberately NOT a full-tree
-    layout: only the path to the wanted node is posed, so unrelated mount nodes
-    elsewhere in the tree are never touched (their bases are not needed) — a
-    full layout would re-enter the very mount node being resolved."""
+    SAME tree base and chain (mount_node_poses), and the path then continues
+    from the node's POINT — that base composed with its own xy/rotation, which
+    is the mount node's own absolute pose — so an internal mount inside a
+    resolved path is handled one level deeper and a cycle is caught.
+    Deliberately NOT a full-tree layout: only the path to the wanted node is
+    posed, so unrelated mount nodes elsewhere in the tree are never touched
+    (their bases are not needed) — a full layout would re-enter the very mount
+    node being resolved."""
     pos, rot = base_pos, base_rot
     for n in path:
         if n.kind == "mount":
-            pos, rot = mount_node_base(n, tree, base_pos, base_rot, adapter, cfg,
-                                       sheet_names, None, chain,
-                                       snapshot=snapshot)
+            # The point ALREADY carries the node's own xy/rotation, so the
+            # ordinary composition below must not run a second time on the same
+            # numbers (that double application is what a hand-rolled copy of
+            # this loop gets wrong).
+            frames = mount_node_poses(n, tree, base_pos, base_rot, adapter, cfg,
+                                      sheet_names, None, chain,
+                                      snapshot=snapshot)
+            pos, rot = frames.point_pos, frames.point_rot
+            continue
         pos = node_position(n, pos, rot)
         rot = rot + n.rotation
     return pos, rot
@@ -544,16 +606,19 @@ def layout_tree_from_base(tree: Tree, base_pos: Vector2, base_rot_deg: float,
             tbl_pos: Vector2, tbl_rot: float) -> None:
         for n in nodes:
             # Mount node: its base is its anchor's position (internal or live),
-            # not the parent frame. Siblings keep the parent frame; the mount
-            # node's children inherit ITS absolute frame through the ordinary
-            # recursion below (the one base rule). It places nothing itself.
+            # not the parent frame, and its OWN absolute pose is its POINT —
+            # that base composed with its own xy/rotation (mount_node_poses),
+            # which is what its children inherit through the recursion below
+            # (the one base rule). Siblings keep the parent frame. It places
+            # nothing itself.
             base_pos, base_rot = pos, rot
             if n.kind == "mount":
-                base_pos, base_rot = mount_node_base(
-                    n, cur_tree, tbl_pos, tbl_rot, adapter, cfg, sheet_names,
-                    forest)
-            abs_pos = node_position(n, base_pos, base_rot)
-            abs_rot = base_rot + n.rotation
+                frames = mount_node_poses(n, cur_tree, tbl_pos, tbl_rot,
+                                          adapter, cfg, sheet_names, forest)
+                abs_pos, abs_rot = frames.point_pos, frames.point_rot
+            else:
+                abs_pos = node_position(n, base_pos, base_rot)
+                abs_rot = base_rot + n.rotation
             if n.kind == "module":
                 lay(n.children, abs_pos, abs_rot, cur_tree, tbl_pos, tbl_rot)
                 child = forest.get(n.ref)                   # stage 2

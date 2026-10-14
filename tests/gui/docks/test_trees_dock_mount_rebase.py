@@ -42,7 +42,7 @@ from kicadstamp.config.sexp_format import dict_to_sexp
 from kicadstamp.domain.board import Footprint, Via
 from kicadstamp.domain.geometry import Vector2
 from kicadstamp.sheet_names import ROOT_SHEET
-from kicadstamp.tree_position import (local_offset_to_board_mm,
+from kicadstamp.tree_position import (MountFrames, local_offset_to_board_mm,
                                       local_rotation_to_board_deg)
 from kicadstamp.trees import tree_to_sexp
 from kicadstamp.utils.units import MM
@@ -93,26 +93,50 @@ def _dock_with(main_window, tmp_path):
     return dock
 
 
+def _frames(node, base_mm, base_deg):
+    """The node's TWO frames for an anchor standing at (base_mm, 0) with
+    `base_deg` — the shape the REAL `_mount_anchor_pose` hands back, built with
+    the product's own conversion pair (never a copied literal): `anchor_*` is the
+    anchor's own pose, `point_*` is it composed with the node's xy/rotation."""
+    anchor = Vector2.from_xy(int(round(base_mm * MM)), 0)
+    bx, by = local_offset_to_board_mm(node.xy, base_deg)
+    return MountFrames(
+        anchor_pos=anchor,
+        anchor_rot=base_deg,
+        point_pos=Vector2.from_xy(int(round((base_mm + bx) * MM)),
+                                  int(round(by * MM))),
+        point_rot=base_deg + node.rotation)
+
+
+def _point_mm(node, base_mm, base_deg):
+    """The node's POINT in board mm — the frame its CHILDREN's numbers are
+    stored in. Same composition as the product's (local_offset_to_board_mm)."""
+    frames = _frames(node, base_mm, base_deg)
+    return frames.point_pos.x / MM, frames.point_pos.y / MM
+
+
 def _bases(monkeypatch, *, old_gone=False, new_fails=None):
     """Pin BOTH anchor poses by ROLE: the tree's own anchor answers (0, 0), the
-    old support (10 mm, 0°) and the new one (30 mm, 90°)."""
-    def _fake(cfg, adapter, sheet_names, tree, parent_node, base_anchor=None,
-              *args, **kwargs):
-        role = getattr(getattr(parent_node, "anchor", None), "role", None)
+    old support (10 mm, 0°) and the new one (30 mm, 90°).
+
+    The stand-in is `_mount_anchor_pose` — the dock seam the flow really asks (the
+    2026-10-14 доделка) — and it answers BOTH frames, exactly like the real one:
+    the node's own numbers are measured against `anchor_*`, its children against
+    `point_*`."""
+    def _fake(cfg, adapter, sheet_names, tree, node, *args, **kwargs):
+        role = getattr(getattr(node, "anchor", None), "role", None)
         if role == "OLD_MOUNT" and old_gone:
             raise trees_dock_mod.ValidationError(
                 "the old mount's anchor is not on the board")
         if role == "NEW_MOUNT" and new_fails:
             raise trees_dock_mod.ValidationError(new_fails)
         if role == "NEW_MOUNT":
-            return (Vector2.from_xy(int(round(NEW_BASE_MM * MM)), 0),
-                    NEW_BASE_DEG, False)
+            return _frames(node, NEW_BASE_MM, NEW_BASE_DEG)
         if role == "OLD_MOUNT" or role == "INNER":
-            return (Vector2.from_xy(int(round(OLD_BASE_MM * MM)), 0),
-                    OLD_BASE_DEG, False)
-        return (Vector2.from_xy(0, 0), 0.0, False)
+            return _frames(node, OLD_BASE_MM, OLD_BASE_DEG)
+        return _frames(node, 0.0, 0.0)
 
-    monkeypatch.setattr(trees_dock_mod, "_resolve_node_base_pose", _fake)
+    monkeypatch.setattr(trees_dock_mod, "_mount_anchor_pose", _fake)
 
 
 def _footprint(role="NEW_MOUNT", cluster="CL_NEW", ref="U1", sheet_chain=()):
@@ -265,11 +289,15 @@ def test_the_old_anchor_gone_rereads_every_direct_child(
     _select(monkeypatch, dock, [_footprint()])
     _pick(monkeypatch)
 
+    px, py = _point_mm(mount, NEW_BASE_MM, NEW_BASE_DEG)
+
     def _read_live(cfg, adapter, sheet_names, tree_, parent_node, ref, kind,
                    component_address=None, *args, **kwargs):
         if ref == "M_CH":
             raise AssertionError("a child-mount must not be re-read")
-        return (({"R_ONE": 13.0, "R_TWO": 14.0}[ref] - NEW_BASE_MM, 0.0), 0.0)
+        # The child stands at 13/14 mm on the board; its numbers are expressed in
+        # the node's POINT frame (what the real read hands back).
+        return (({"R_ONE": 13.0, "R_TWO": 14.0}[ref] - px, 0.0 - py), 0.0)
     monkeypatch.setattr(trees_dock_mod, "_resolve_live_offset", _read_live)
     _reloads(dock, monkeypatch)
     numbers = (mount.xy, mount.polar, mount.rotation)
@@ -280,9 +308,10 @@ def test_the_old_anchor_gone_rereads_every_direct_child(
     assert (mount.xy, mount.polar, mount.rotation) == numbers, \
         "the mount's own numbers are NOT touched when there is no old place"
     assert [child.xy for child in mount.children] == \
-        [(-17.0, 0.0), (-16.0, 0.0), (1.0, 0.0)], \
-        "both record children were re-read against the new pose; the child-mount \
-was left alone"
+        [(13.0 - px, 0.0 - py), (14.0 - px, 0.0 - py), (1.0, 0.0)], \
+        "both record children were re-read against the node's new POINT pose — \
+those numbers put them back exactly where they stand on the board (13/14 mm); \
+the child-mount was left alone"
     assert mount.anchor.role == "NEW_MOUNT"
     told = [r.message for r in caplog.records]
     assert _AXES_FROM_NEW_ANCHOR.format(mount="MNT", angle="90") in told, \
@@ -306,13 +335,15 @@ def test_a_child_that_cannot_be_read_withholds_stays_in_place(
     record: dict = {}
     _pick(monkeypatch, "Group moves to the new anchor", record)
 
+    px, py = _point_mm(mount, NEW_BASE_MM, NEW_BASE_DEG)
+
     def _read_live(cfg, adapter, sheet_names, tree_, parent_node, ref, kind,
                    component_address=None, *args, **kwargs):
         if ref == "M_CH":
             raise AssertionError("a child-mount must not be re-read")
         if ref == "R_TWO":
             raise trees_dock_mod.ValidationError("no live record for R_TWO")
-        return ((13.0 - NEW_BASE_MM, 0.0), 0.0)
+        return ((13.0 - px, 0.0 - py), 0.0)
     monkeypatch.setattr(trees_dock_mod, "_resolve_live_offset", _read_live)
     _reloads(dock, monkeypatch)
     before = tree_to_sexp(tree)
