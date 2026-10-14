@@ -6429,6 +6429,10 @@ msgstr "Переименовать…"
 msgid "Move to…"
 msgstr "Переместить в…"
 
+#: gui/docks/trees_dock.py:1940 gui/docks/trees_dock.py:2298
+msgid "{n} nodes selected"
+msgstr "Выделено узлов: {n}"
+
 #: gui/docks/trees_dock.py:2846
 msgid "Move up"
 msgstr "Поднять"

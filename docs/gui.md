@@ -673,7 +673,17 @@ FOLLOWS THE SELECTION: select the tree's ROOT row (its anchor — now SELECTABLE
 to edit the tree ANCHOR; select a REAL node (any kind, `mount` included) to edit that node. A single
 click loads an editor, the panel's rows are **Apply** / **Redraw** (no OK/Cancel — it stays open).
 Editing a generated INSTANCE tree shows the same read-only notice as its context menu instead of an
-editor. The anchor editor covers all six anchor modes: **Origin (board 0,0)**, **Config record** (a name
+editor. **UPDATED 2026-10-14 (plan_2026_10_14_tree_group_move_and_mount_rebase Ч1 п.1):** the node list
+is a MULTI-select tree — Ctrl/Shift select several rows, the same `ExtendedSelection` the Config tree
+turned on for its Export. A GROUP of selected REAL nodes has no editor by construction: the panel shows
+**"{n} nodes selected"** (no form, no **Apply** row, so a group cannot be written by accident) and the
+status row shows the same count. Every entry that means ONE node collapses the group onto its own row —
+double-click, **Edit node…**, **Set anchor…**, and the "whose copper is this?" highlight — and a
+right-click OUTSIDE the current selection replaces it with the clicked row (the standard tree
+behaviour, which keeps a single right-click on one row behaving exactly as it did before); a
+right-click INSIDE it keeps the group on purpose, because that is how group actions (see the group
+"Move to…" below) are reached from any row of the group. The anchor editor covers all six anchor modes:
+**Origin (board 0,0)**, **Config record** (a name
 from the config, resolved at Save; a **Kind** filter narrows the ref list to one section —
 Entity/Coordinate/Point/Clone/All — a picker aid only, the anchor grammar has no kind),
 **External refdes** (a live-board component outside the config), **Self (component this tree places)**

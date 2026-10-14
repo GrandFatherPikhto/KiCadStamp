@@ -19,7 +19,7 @@ from typing import Optional
 
 from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QBrush, QColor
-from PyQt6.QtWidgets import (QComboBox, QDialog,
+from PyQt6.QtWidgets import (QAbstractItemView, QComboBox, QDialog,
                              QFormLayout, QGroupBox, QHBoxLayout, QInputDialog,
                              QLabel, QLineEdit, QMenu, QMessageBox, QPushButton,
                              QScrollArea, QSizePolicy, QSplitter, QStackedWidget,
@@ -218,6 +218,15 @@ def _is_copper_group_item(data) -> bool:
 # _refresh_form_panel's "same selection, keep the form" guard would confuse the
 # empty panel with the anchor form and keep the wrong one.
 _COPPER_GROUP_PANEL = object()
+
+# Panel identity of a MULTI-node selection (Ч1 п.9 of
+# plan_2026_10_14_tree_group_move_and_mount_rebase, once the tree allows
+# ExtendedSelection): two or more selected real nodes have no single editor, so
+# the panel shows the COUNT instead. The identity is a TUPLE with that count,
+# because `_refresh_form_panel` keeps the current page while the identity is
+# unchanged — with a bare marker the panel would keep showing "2 nodes selected"
+# after the selection grew to three.
+_MULTI_SELECTION_PANEL = "multi-selection"
 
 # Node kinds that NEVER get a row in their file position any more: they are
 # drawn under the "Copper" pseudo-node instead (Т1.1) — every "net_trace" row,
@@ -1217,6 +1226,19 @@ class TreesDock(QWidget):
             # wants. 1, not 0 (see the placeholder comment / log_panel test).
             tree_widget.setMinimumWidth(1)
             tree_widget.setHeaderHidden(True)
+            # Multi-select (Ч1 п.1 of plan_2026_10_14_tree_group_move_and_mount_
+            # rebase, Denis 14.10: "перемещение в другую корневую ноду группой
+            # (по выделению? галочками)" — ПО ВЫДЕЛЕНИЮ, не галочками): the group
+            # is Ctrl/Shift-selected rows, so the node tree needs the SAME
+            # ExtendedSelection the Config tree turned on for its Export
+            # (gui/docks/config_tree.py:458 — that precedent is copied, not
+            # reinvented). The two consequences of the mode are handled where
+            # they belong and are named here because a reader will look for
+            # them: a right-click OUTSIDE the selection replaces it with that one
+            # row (_on_context_menu), and every entry point that means ONE node
+            # collapses a group (_select_only).
+            tree_widget.setSelectionMode(
+                QAbstractItemView.SelectionMode.ExtendedSelection)
             tree_widget.setStyleSheet(highlight_stylesheet_for("QTreeView::item:selected"))
             tree_widget.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
             tree_widget.customContextMenuRequested.connect(self._on_context_menu)
@@ -1643,11 +1665,12 @@ class TreesDock(QWidget):
         if data.kind == "module":
             self._switch_to_tree(data.ref)
             return
-        tree_widget = self._current_tree_widget()
-        if tree_widget is not None:
-            tree_widget.setCurrentItem(item)
-        # Z.3: selecting the node is enough — the single right-hand panel follows
-        # the selection, so there is no Node tab to bring to the front any more.
+        # Ч1 п.1: the double-click means ONE node, so it collapses a group
+        # selection (otherwise the panel would keep showing "N nodes selected"
+        # for a row the user just asked about). Selecting the node is enough —
+        # the single right-hand panel follows the selection, so there is no Node
+        # tab to bring to the front any more (Z.3).
+        self._select_only(self._current_tree_widget(), item)
 
     def _switch_to_tree(self, name: str) -> None:
         """Activate the tab of the tree named `name` (no-op if not loaded)."""
@@ -1670,10 +1693,10 @@ class TreesDock(QWidget):
         selected (a right-click does not select by default); the panel then
         follows the selection. No modal, no separate edit action, no tab."""
         tree_widget = self._tree_widget_for(tree) or self._current_tree_widget()
-        if tree_widget is not None:
-            item = self._node_items.get(node.ref)
-            if item is not None:
-                tree_widget.setCurrentItem(item)
+        # Ч1 п.1: "Edit node…" means ONE node — the group selection (if any)
+        # collapses onto the row being edited, so the panel really shows the
+        # editor the action promises.
+        self._select_only(tree_widget, self._node_items.get(node.ref))
 
     def _anchor_duplicate_refs(self, tree: Tree) -> set[str]:
         """Refs of `tree`'s top-level kind="placement" nodes that duplicate the
@@ -1908,17 +1931,26 @@ class TreesDock(QWidget):
         if not items:
             self._show_status("")
             return
-        node = items[0].data(0, Qt.ItemDataRole.UserRole)
-        if _is_copper_group_item(node):
-            # The "Copper" pseudo-node is a fold over copper rows, not data of
-            # its own (Т1.2) — an empty status, exactly like the anchor row.
+        nodes = self._real_nodes_of_items(items)
+        if len(nodes) > 1:
+            # Ч1 п.9: the offset preview of ONE node would be a lie about a
+            # group, so a group shows the COUNT — and it is the same count the
+            # right-hand panel shows instead of an editor, so the two never
+            # disagree about what is selected.
+            self._show_status(_("{n} nodes selected").format(n=len(nodes)))
+            return
+        if not nodes:
+            # NO real node is selected: the anchor pseudo-root, a navigation
+            # pseudo-row (a str) or the "Copper" pseudo-node (Т1.2 — a fold over
+            # copper rows, not data of its own) — nothing to preview, exactly as
+            # before the group existed. Read off the REAL nodes rather than off
+            # `items[0]`, because with ExtendedSelection the first selected row
+            # may be a pseudo-row while real nodes are selected too — the panel
+            # (its own reader) and this row must never describe one selection
+            # differently.
             self._show_status("")
             return
-        if not isinstance(node, TreeNode):
-            # The pseudo-root anchor item carries no node — show nothing.
-            self._show_status("")
-            return
-        self._show_status(self._node_preview_text(node))
+        self._show_status(self._node_preview_text(nodes[0]))
 
     @staticmethod
     def _node_preview_text(node: TreeNode) -> str:
@@ -2116,12 +2148,17 @@ class TreesDock(QWidget):
         """The ref of the real node whose editor the panel currently shows,
         _COPPER_GROUP_PANEL for the "Copper" pseudo-node's empty page (Т1.2 —
         recognised by the page's own property, so a tab round-trip cannot turn it
-        back into the anchor form), or None for the anchor form / a stub / the
-        placeholder — keeps the §7.1.5 rebuild guard in sync with the form
-        actually on screen."""
+        back into the anchor form), (_MULTI_SELECTION_PANEL, count) for the
+        group-count page (Ч1 п.9, same property round trip and the count read
+        back WITH it), or None for the anchor form / a stub / the placeholder —
+        keeps the §7.1.5 rebuild guard in sync with the form actually on
+        screen."""
         page = self._panel_page(panel)
         if page is not None and bool(page.property("_copper_group_page")):
             return _COPPER_GROUP_PANEL
+        if page is not None and bool(page.property("_multi_selection_page")):
+            return (_MULTI_SELECTION_PANEL,
+                    int(page.property("_multi_selection_count")))
         form = self._embedded_form_of(page)
         existing = getattr(form, "_existing", None) if form is not None else None
         return existing.ref if isinstance(existing, TreeNode) else None
@@ -2136,7 +2173,10 @@ class TreesDock(QWidget):
             or self._current_tree_widget()
         root = tree_widget.invisibleRootItem() if tree_widget is not None else None
         if root is not None and root.childCount():
-            tree_widget.setCurrentItem(root.child(0))
+            # Ч1 п.1: the anchor row means ONE row — a group selection collapses
+            # onto it (and it is not a TreeNode, so the panel shows the anchor
+            # form either way; the collapse is about what is SELECTED).
+            self._select_only(tree_widget, root.child(0))
             return
         panel = self._active_form_panel()
         if panel is not None and tree is not None:
@@ -2201,7 +2241,9 @@ class TreesDock(QWidget):
         """Set `panel`'s content to the form the CURRENT tree + selection call
         for; returns the IDENTITY of what is shown — the ref of the node whose
         editor it is, _COPPER_GROUP_PANEL for the "Copper" pseudo-node's EMPTY
-        panel, or None for the anchor form / the read-only stub / no tree."""
+        panel, (_MULTI_SELECTION_PANEL, count) for a GROUP of selected real nodes
+        (Ч1 п.9 — a count page, never an editor), or None for the anchor form /
+        the read-only stub / no tree."""
         tree = self._current_tree()
         if tree is None:
             return None
@@ -2217,7 +2259,15 @@ class TreesDock(QWidget):
             # below: that one means the anchor row and shows the anchor form.
             self._set_page_content(panel, self._empty_selection_page())
             return _COPPER_GROUP_PANEL
-        node = self._selected_real_node(tree)
+        nodes = self._selected_real_nodes(tree)
+        if len(nodes) > 1:
+            # Ч1 п.9: a GROUP has no single editor — the panel names the count,
+            # and there is nothing to write from it by construction (no editor,
+            # no Apply row), so a group can never be applied by accident. ONE
+            # node keeps its editor exactly as before.
+            self._set_page_content(panel, self._multi_selection_page(len(nodes)))
+            return (_MULTI_SELECTION_PANEL, len(nodes))
+        node = nodes[0] if nodes else None
         if node is not None:
             self._set_page_content(
                 panel, self._form_action_row(self._build_node_form(tree, node)))
@@ -2236,30 +2286,101 @@ class TreesDock(QWidget):
         page.setProperty("_copper_group_page", True)
         return page
 
-    def _selected_real_node(self, tree: Tree) -> Optional[TreeNode]:
-        """The currently selected REAL TreeNode of `tree`'s widget, or None —
-        pseudo-roots (anchor, "⇐ embedded in", "→ instance:") carry a str /
-        nothing and are not editable nodes, and the "Copper" pseudo-node (Т1.2)
-        carries a marker object, so it is not one either."""
+    @staticmethod
+    def _multi_selection_page(count: int) -> QWidget:
+        """The right-hand panel page for a MULTI-node selection (Ч1 п.9): the
+        count and nothing else — no editor, no Apply row. Recognised back from
+        its own property, COUNT included, exactly like _empty_selection_page, so
+        a tab round-trip restores the same page and a changed count re-fills it."""
+        page = QWidget()
+        page.setProperty("_multi_selection_page", True)
+        page.setProperty("_multi_selection_count", int(count))
+        layout = QVBoxLayout(page)
+        label = QLabel(_("{n} nodes selected").format(n=int(count)))
+        label.setWordWrap(True)
+        layout.addWidget(label)
+        layout.addStretch(1)
+        return page
+
+    @staticmethod
+    def _real_nodes_of_items(items) -> list[TreeNode]:
+        """The REAL TreeNodes of a selection, in selection order — the ONE
+        decoder of "which selected rows are editable nodes". Pseudo-roots (the
+        anchor, "⇐ embedded in X", "→ instance: X") carry a str or nothing, and
+        the "Copper" pseudo-node (Т1.2) carries a marker object, so neither is
+        ever a member: `isinstance(data, TreeNode)` is the whole rule, and it is
+        asked HERE rather than at each reader (Ч1 п.1 turned the selection into a
+        LIST, so every reader would otherwise re-walk it)."""
+        out: list[TreeNode] = []
+        for item in items or ():
+            data = item.data(0, Qt.ItemDataRole.UserRole)
+            if isinstance(data, TreeNode):
+                out.append(data)
+        return out
+
+    def _selected_real_nodes(self, tree: Tree) -> list[TreeNode]:
+        """EVERY selected real TreeNode of `tree`'s widget, in selection order —
+        the multi-select reader the panel (Ч1 п.9) and the group operations read;
+        the single-node callers keep _selected_real_node below."""
         tree_widget = self._tree_widget_for(tree)
         if tree_widget is None:
-            return None
-        items = tree_widget.selectedItems()
-        if not items:
-            return None
-        node = items[0].data(0, Qt.ItemDataRole.UserRole)
-        return node if isinstance(node, TreeNode) else None
+            return []
+        return self._real_nodes_of_items(tree_widget.selectedItems())
+
+    @staticmethod
+    def _select_only(tree_widget: Optional[QTreeWidget],
+                     item: Optional[QTreeWidgetItem]) -> None:
+        """Make `item` the ONLY selected row of `tree_widget` (Ч1 п.1) — the ONE
+        place an entry point that means ONE node collapses a multi-selection:
+        double-click, "Edit node…", "Set anchor…" and the identified-copper
+        highlight. Without it a group selection would survive the action and the
+        master-detail panel would keep showing "N nodes selected" for something
+        the user asked about one row.
+
+        The clear+select is stated EXPLICITLY rather than left to
+        `setCurrentItem`'s own selection flag, which is Qt-internal and depends
+        on the selection mode and on the modifier keys held at that moment.
+        Measured 2026-10-14 (mutation run of
+        tests/gui/docks/test_trees_dock_group_selection.py): in THIS Qt build a
+        bare `setCurrentItem` already collapses the group, so that mutation
+        SURVIVES as an equivalent one — the explicit form is kept as the
+        guarantee that does not depend on that coincidence, and the group cells
+        (one of them on the row that is ALREADY current, where `setCurrentItem`
+        has its own early return) pin the behaviour down either way."""
+        if tree_widget is None or item is None:
+            return
+        tree_widget.clearSelection()
+        item.setSelected(True)
+        tree_widget.setCurrentItem(item)
+
+    def _selected_real_node(self, tree: Tree) -> Optional[TreeNode]:
+        """The FIRST selected real TreeNode of `tree`'s widget, or None — the
+        single-node reader (the existing guards read it by name, and the
+        single-node flows that mean ONE node read the first element of the same
+        list); a GROUP is read through _selected_real_nodes. Pseudo-roots (anchor,
+        "⇐ embedded in", "→ instance:") carry a str / nothing and are not editable
+        nodes, and the "Copper" pseudo-node (Т1.2) carries a marker object, so it
+        is not one either — all three are skipped rather than "the first row
+        decides"."""
+        nodes = self._selected_real_nodes(tree)
+        return nodes[0] if nodes else None
 
     def _selected_copper_group(self, tree: Tree) -> bool:
         """True when the CURRENT selection of `tree`'s widget is the "Copper"
         pseudo-node (Т1.2) — the one selection whose right-hand panel must stay
         EMPTY. Asked separately from _selected_real_node because "not a real
-        node" is ALSO the anchor row, which shows the anchor form."""
+        node" is ALSO the anchor row, which shows the anchor form.
+
+        The pseudo-node's rule is about a selection OF the pseudo-node: it is the
+        ONLY selected row (Ч1 п.1 of plan_2026_10_14_tree_group_move_and_mount_
+        rebase). A MIXED selection — the pseudo-node plus real nodes — is the
+        group case (_MULTI_SELECTION_PANEL), so the panel and the status line
+        cannot disagree about what the user has selected."""
         tree_widget = self._tree_widget_for(tree)
         if tree_widget is None:
             return False
         items = tree_widget.selectedItems()
-        return bool(items) and _is_copper_group_item(
+        return len(items) == 1 and _is_copper_group_item(
             items[0].data(0, Qt.ItemDataRole.UserRole))
 
     def _tree_widget_for(self, tree: Tree) -> Optional[QTreeWidget]:
@@ -2294,14 +2415,18 @@ class TreesDock(QWidget):
         tree = self._current_tree()
         if tree is None:
             return False
-        node = self._selected_real_node(tree)
+        nodes = self._selected_real_nodes(tree)
         # Т1.2: "the "Copper" pseudo-node selected" is an identity of its own —
         # it must NOT compare equal to the anchor's None (the two are different
         # panels), hence _COPPER_GROUP_PANEL rather than a plain None.
         if self._selected_copper_group(tree):
             new_ref = _COPPER_GROUP_PANEL
+        elif len(nodes) > 1:
+            # Ч1 п.9: the COUNT is part of the identity — 2 -> 3 selected must
+            # re-fill the page, or the panel would keep the older number.
+            new_ref = (_MULTI_SELECTION_PANEL, len(nodes))
         else:
-            new_ref = node.ref if node is not None else None
+            new_ref = nodes[0].ref if nodes else None
         if new_ref == self._current_node_ref:
             return False  # same selection — keep the form (or the empty panel)
         discarded = self._discard_if_touched(
@@ -2622,6 +2747,18 @@ class TreesDock(QWidget):
         tree = self._current_tree()
         if tree is None:
             return
+
+        # Ч1 п.1: with ExtendedSelection on, a right-click OUTSIDE the current
+        # selection replaces it with just this row — the standard tree UX, and
+        # what keeps a plain single right-click behaving exactly as it did before
+        # the mode was turned on (the config_tree precedent, gui/docks/
+        # config_tree.py:1219, copied rather than reinvented). A right-click
+        # INSIDE the selection KEEPS the group on purpose: that is what makes the
+        # group actions ("Move to…" over the whole selection, Ч1 п.2) reachable
+        # from any row of the group.
+        if item not in tree_widget.selectedItems():
+            tree_widget.clearSelection()
+            item.setSelected(True)
 
         inst = self._instance_of(tree)
         if inst is not None:
@@ -3472,9 +3609,9 @@ class TreesDock(QWidget):
                 continue
             self._switch_to_tree(tree.name)
             tree_widget = self._tree_widget_for(tree) or self._current_tree_widget()
-            item = self._node_items.get(identity)
-            if tree_widget is not None and item is not None:
-                tree_widget.setCurrentItem(item)
+            # Ч1 п.1: "whose copper is this?" names ONE node — the highlight
+            # collapses any group selection onto it.
+            self._select_only(tree_widget, self._node_items.get(identity))
             return
 
     def _tree_of_ref(self, ref: str):

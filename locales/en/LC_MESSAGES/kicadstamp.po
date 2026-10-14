@@ -6015,6 +6015,10 @@ msgstr "Rename…"
 msgid "Move to…"
 msgstr "Move to…"
 
+#: gui/docks/trees_dock.py:1940 gui/docks/trees_dock.py:2298
+msgid "{n} nodes selected"
+msgstr "{n} nodes selected"
+
 #: gui/docks/trees_dock.py:2846
 msgid "Move up"
 msgstr "Move up"
