@@ -15,8 +15,15 @@ What does NOT live here, and why (Д3 of the Ч0 review):
     handed in as the `pivot_rejects` callable — one expression of the rule, the
     same one the node form's Parent combo uses, and the same one the existing
     guards monkeypatch;
-  * the offset arithmetic, the board reads and every widget (the parent picker,
-    the messages) stay in the dock, which owns the door signs;
+  * the offset arithmetic LIVES HERE (`reexpress_offset`) — the Ч0 review's Д3
+    allows exactly this much to move: `_reparented_offset` STAYS in the dock (the
+    existing guards patch that name by module attribute and must keep driving the
+    real thing) and calls this, so the formula has ONE expression every entry of
+    the plan can be run through — the single re-hang, the group, and the mount
+    anchor rebase of Ч2;
+  * the base RESOLUTION (which frame a node's numbers are expressed against), the
+    board reads and every widget (the parent picker, the messages) stay in the
+    dock, which owns the door signs;
   * the copper kinds set is passed in (`TreesDock._COPPER_ROW_KINDS`), never
     re-listed here — a second copy of "which kinds are rows under the Copper
     fold" is exactly the drift this project refuses.
@@ -28,10 +35,18 @@ the document order.
 """
 from __future__ import annotations
 
+import math
 from typing import Callable, Optional, Sequence
 
+from kicadstamp.domain.geometry import Vector2
 from kicadstamp.i18n import _
+from kicadstamp.tree_position import (_snap_mm, board_offset_to_local_mm,
+                                      board_rotation_to_local_deg,
+                                      local_offset_to_board_mm,
+                                      local_rotation_to_board_deg,
+                                      rotate_offset_mm)
 from kicadstamp.trees import Tree, TreeNode
+from kicadstamp.utils.units import MM
 
 
 def group_roots(tree: Tree, nodes: Sequence[TreeNode]) -> list[TreeNode]:
@@ -147,3 +162,74 @@ def split_untouchable(nodes: Sequence[TreeNode], copper_kinds
     for node in nodes:
         (excluded if node.kind in copper_kinds else movable).append(node)
     return movable, excluded
+
+
+# ── The offset arithmetic: one base replaced by another ─────────────────────
+#
+# THE single expression of "the base under these numbers changed, so the numbers
+# must change with it". `_reparented_offset` (a re-hang) and the mount anchor
+# rebase of Ч2 are two CALLERS of it, not two copies: the formula is subtle
+# enough (a board-frame hop, a snap that mirrors the offset widget's own round
+# trip) that a second copy would drift within one commit.
+
+#: A node's (xy | polar, rotation) after a base change: `(xy, polar, rotation)`.
+ReexpressedOffset = tuple[Optional[tuple[float, float]],
+                          Optional[tuple[float, float]], float]
+
+
+def reexpress_offset(xy: Optional[tuple[float, float]],
+                     polar: Optional[tuple[float, float]],
+                     rotation: float,
+                     old_base: tuple[Vector2, Optional[float]],
+                     new_base: tuple[Vector2, Optional[float]],
+                     ) -> ReexpressedOffset:
+    """`(xy, polar, rotation)` for a node whose base moved from `old_base` to
+    `new_base`, chosen so the node does NOT move on the BOARD.
+
+    A node's `xy`/`polar` are stored in its base's local frame and its `rotation`
+    is RELATIVE to that base, so replacing the base silently changes what the
+    stored numbers mean. The absolute board pose is preserved here: the board
+    offset against the new base is the old one plus the base SHIFT (old - new),
+    and the absolute board angle is untouched, so only the stored relative angle
+    changes when the base turned.
+
+    Each base is `(position_nm, rotation_deg | None)`: a base with no angle
+    concept (an origin/point anchor) stores rotation exactly like the form does —
+    0.0 is the definition there, not a guess.
+
+    The representation is preserved: a polar node comes back polar (a silent
+    switch to xy would read as somebody else's edit in the s-expr diff), and a
+    node with no stored offset is the CALLER's case to refuse (it has no frame to
+    rewrite) — this function always answers with numbers.
+
+    WHY the snap: `_snap_mm` mirrors the offset widget's own round trip (the form
+    stores what it shows), so a re-hang through the menu and the same re-hang
+    through the form land on bit-identical numbers."""
+    old_pos, old_deg = old_base
+    new_pos, new_deg = new_base
+    old_rot = old_deg if old_deg is not None else 0.0
+    new_rot = new_deg if new_deg is not None else 0.0
+
+    # abs = base + board offset  =>  new board offset = old + (old base - new).
+    dx_mm = (old_pos.x - new_pos.x) / MM
+    dy_mm = (old_pos.y - new_pos.y) / MM
+
+    board_rot = local_rotation_to_board_deg(rotation, old_rot)
+    new_rotation = board_rotation_to_local_deg(board_rot, new_rot)
+
+    if polar is not None:
+        # The offset takes the SAME board-frame hop the form's widget does
+        # (rotate to the board frame, shift, read the radius and angle back).
+        bx, by = rotate_offset_mm(
+            polar[0], 0.0, local_rotation_to_board_deg(polar[1], old_rot))
+        bx = _snap_mm(bx + dx_mm)
+        by = _snap_mm(by + dy_mm)
+        radius = _snap_mm(math.hypot(bx, by))
+        angle = _snap_mm(math.degrees(math.atan2(-by, bx)))
+        return (None, (radius, board_rotation_to_local_deg(angle, new_rot)),
+                new_rotation)
+
+    bx, by = local_offset_to_board_mm(xy, old_rot)
+    new_xy = board_offset_to_local_mm(
+        (_snap_mm(bx + dx_mm), _snap_mm(by + dy_mm)), new_rot)
+    return (new_xy, None, new_rotation)

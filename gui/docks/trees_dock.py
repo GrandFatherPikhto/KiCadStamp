@@ -79,6 +79,7 @@ from ..ui_utils import (persist_dialog_size, restore_dialog_size,
                         wrap_in_scroll_area)
 from ..worker import defer_while_socket_busy, socket_busy, start_long_op
 from ._anchor_origin import AnchorOriginWidget, build_role_anchor_fields
+from .trees_move_flow import reexpress_offset
 from .trees_node_form import (kind_menu_rows, mark_used_items, ref_combo_rows,
                               used_ref_locations, used_ref_refusal)
 from .trees_node_row import apply_node_form
@@ -704,6 +705,11 @@ def _reparented_offset(cfg, adapter, sheet_names, tree: Tree, node: TreeNode,
     they are stored relative to THIS node, whose pose does not change, so the
     subtree follows on its own (Л.3).
 
+    The FORMULA itself is trees_move_flow.reexpress_offset's — ONE expression of
+    it, shared with the group move (Ч1) and with the mount anchor rebase (Ч2);
+    what this function owns is the two BASE RESOLUTIONS and the "nothing to do"
+    cases above them.
+
     Raises whatever _resolve_node_base_pose raises when a base does not resolve
     (no live board, missing component): there is no "roughly" answer here and no
     silent 0° fallback — the caller decides between asking the user and
@@ -718,38 +724,8 @@ def _reparented_offset(cfg, adapter, sheet_names, tree: Tree, node: TreeNode,
         cfg, adapter, sheet_names, tree, old_parent, None, snapshot=snapshot)
     new_pos, new_deg, _new_mirror = _resolve_node_base_pose(
         cfg, adapter, sheet_names, tree, new_parent, None, snapshot=snapshot)
-    # A base with no angle concept (origin/point anchor) stores rotation exactly
-    # like the form does — 0.0 is the definition there, not a guess.
-    old_rot = old_deg if old_deg is not None else 0.0
-    new_rot = new_deg if new_deg is not None else 0.0
-
-    # abs = base + board offset  =>  new board offset = old + (old base - new).
-    # _snap_mm mirrors the offset widget's own round trip (the form stores what
-    # it shows), so both re-hang paths land on bit-identical numbers.
-    dx_mm = (old_pos.x - new_pos.x) / MM
-    dy_mm = (old_pos.y - new_pos.y) / MM
-
-    board_rot = local_rotation_to_board_deg(node.rotation, old_rot)
-    new_rotation = board_rotation_to_local_deg(board_rot, new_rot)
-
-    if node.polar is not None:
-        # Л.2: polar stays polar. The offset takes the SAME board-frame hop the
-        # form's widget does (rotate to the board frame, shift, read the radius
-        # and angle back), so neither path rewrites the config's shape.
-        bx, by = rotate_offset_mm(
-            node.polar[0], 0.0,
-            local_rotation_to_board_deg(node.polar[1], old_rot))
-        bx = _snap_mm(bx + dx_mm)
-        by = _snap_mm(by + dy_mm)
-        radius = _snap_mm(math.hypot(bx, by))
-        angle = _snap_mm(math.degrees(math.atan2(-by, bx)))
-        return (None, (radius, board_rotation_to_local_deg(angle, new_rot)),
-                new_rotation)
-
-    bx, by = local_offset_to_board_mm(node.xy, old_rot)
-    new_xy = board_offset_to_local_mm(
-        (_snap_mm(bx + dx_mm), _snap_mm(by + dy_mm)), new_rot)
-    return (new_xy, None, new_rotation)
+    return reexpress_offset(node.xy, node.polar, node.rotation,
+                            (old_pos, old_deg), (new_pos, new_deg))
 
 
 def _component_footprint_is_mirrored(fp) -> bool:

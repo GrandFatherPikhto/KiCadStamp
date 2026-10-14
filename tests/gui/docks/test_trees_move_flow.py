@@ -28,10 +28,15 @@ And the branch table of the candidate list:
   a node the rule rejects for ONE group node | never (the whole group must fit)
   anything else                              | yes, by ref
 """
+import pytest
+
+from kicadstamp.domain.geometry import Vector2
 from kicadstamp.trees import Tree, TreeAnchor, TreeNode
+from kicadstamp.utils.units import MM
 
 from gui.docks.trees_move_flow import (forbidden_subtrees, group_roots,
-                                       move_candidates, split_untouchable)
+                                       move_candidates, reexpress_offset,
+                                       split_untouchable)
 
 
 def _node(ref, kind="external", children=()):
@@ -240,3 +245,47 @@ def test_the_split_keeps_the_order_and_excludes_nothing_when_all_are_movable():
     movable, excluded = split_untouchable([refs["C"], refs["A"]], {"net_trace"})
     assert _refs(movable) == ["C", "A"], "order is the caller's, untouched"
     assert excluded == []
+
+
+# ── reexpress_offset: the base changed, the BOARD place must not ───────────
+#
+# The TABLE of this function's cells (rule 35), all mm / degrees:
+#
+#   stored            | old base    | new base    | expected
+#   ------------------|-------------|-------------|---------------------------
+#   xy (12, 0), rot 0 | (10, 0)     | (30, 0)     | xy (-8, 0), rot 0
+#   xy (12, 0), rot 0 | (10, 0)     | (30, 90)    | xy (0, -8), rot -90
+#   pol (5, 0), rot 10| (10, 0)     | (10, 90)    | pol (5, -90), rot -80
+#   pol (5, 0), rot 0 | (0, 0)      | (3, 0)      | pol (2, 0), rot 0
+#   xy (12, 0), rot 0 | (10, no °)  | (30, no °)  | xy (-8, 0), rot 0
+#
+# The first four rows are the SAME absolute-place cases the dock-level cells of
+# `_reparented_offset` pin (tests/gui/docks/test_trees_dock.py) — those drive the
+# two base resolutions through the dock, these drive the formula alone, so a
+# change to either half fails on its own side.
+
+
+def _base(x_mm, deg):
+    return (Vector2.from_xy(int(round(x_mm * MM)), 0), deg)
+
+
+@pytest.mark.parametrize(
+    "xy, polar, rotation, old_base, new_base, expected",
+    [
+        pytest.param((12.0, 0.0), None, 0.0, _base(10.0, 0.0), _base(30.0, 0.0),
+                     ((-8.0, 0.0), None, 0.0), id="xy-node-shifted"),
+        pytest.param((12.0, 0.0), None, 0.0, _base(10.0, 0.0), _base(30.0, 90.0),
+                     ((0.0, -8.0), None, -90.0), id="xy-node-turned-base"),
+        pytest.param(None, (5.0, 0.0), 10.0, _base(10.0, 0.0), _base(10.0, 90.0),
+                     (None, (5.0, -90.0), -80.0), id="polar-stays-polar"),
+        pytest.param(None, (5.0, 0.0), 0.0, _base(0.0, 0.0), _base(3.0, 0.0),
+                     (None, (2.0, 0.0), 0.0), id="polar-radius-follows-shift"),
+        pytest.param((12.0, 0.0), None, 0.0, _base(10.0, None), _base(30.0, None),
+                     ((-8.0, 0.0), None, 0.0), id="base-with-no-angle"),
+    ])
+def test_reexpress_offset_keeps_the_absolute_board_place(
+        xy, polar, rotation, old_base, new_base, expected):
+    """The stored numbers are re-expressed through the NEW base so the node does
+    not move on the board; the representation (xy vs polar) is preserved, and a
+    base with no angle concept stores 0.0 exactly like the form does."""
+    assert reexpress_offset(xy, polar, rotation, old_base, new_base) == expected
