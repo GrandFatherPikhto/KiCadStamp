@@ -167,12 +167,7 @@ def _unique_entity_name(cluster: str, sheet: Optional[str],
                         entities: Iterable[Any]) -> str:
     """A unique Entity name for an auto-derived entity — the cluster slug plus
     the sheet instance (Channel_0/1/2 share the cluster tag, so the instance
-    must disambiguate), suffixed until unique against cfg.entities.
-
-    A ROOT cluster (sheet is ROOT_SHEET, "/") gets the bare slug: there is only
-    one root sheet, so the marker is not an instance name and must not leak into
-    the entity name as a stray "_" (2026-10-14, plan_2026_10_13_root_sheet_
-    clusters Ч1)."""
+    must disambiguate), suffixed until unique. A ROOT cluster keeps the slug."""
     base = cluster_cell_name(cluster)
     if sheet and not is_root_sheet(sheet):
         base += "_" + re.sub(r"[^0-9a-zA-Z]+", "_", sheet.strip().lower()).strip("_")
@@ -375,10 +370,6 @@ def create_cell_and_entity_for_cluster(
     # The auto-derived Entity (cluster+sheet identity) so link_trees and apply
     # resolve this tree node (extract_tree), or so the user can place it later
     # by any existing mechanism (extract_cluster — an Entity stores no position).
-    # A ROOT cluster writes sheet "/" (ROOT_SHEET): the marker is what tells the
-    # placement/read narrowing "root components ONLY", so a same-tagged sub-sheet
-    # cluster can never be taken instead (2026-10-14, plan_2026_10_13_root_sheet_
-    # clusters Ч1).
     ent = {"name": entity_name, "cell": cell_name}
     if c.cluster:
         ent["cluster"] = c.cluster

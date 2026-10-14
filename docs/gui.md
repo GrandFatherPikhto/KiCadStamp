@@ -1535,6 +1535,12 @@ the **Show advanced net settings** checkbox reveals them for manual overrides.
   `(root sheet)` (the Entity page's Sheet field, the instance picker's rows); an ABSENT `sheet`
   keeps its old meaning — "not set", no narrowing. The old `REASON_SHEET_UNRESOLVED` message now
   appears only for a genuinely unresolved uuid (a chain entry the sheet dictionary cannot name).
+  The marker's value is RESERVED (KiCad does not allow `/` in a sheet name): a sheet that carried
+  it anyway is reported ONCE in the Log, and cannot be addressed by its own name. An OLDER version
+  of the program does not know the marker — it takes nothing foreign (extraction refuses, the role
+  resolution refuses on the ambiguity; only "Select cell" may widen to the whole cluster) — and the
+  profile format is deliberately NOT bumped, so **update the code on every machine BEFORE opening
+  such a profile**.
 
 ## Placer
 

@@ -28,6 +28,8 @@ narrowing, the extraction, the display).
   * M7  the extraction writes the marker into the Entity NAME    -> red
   * M8  instance_label joins the marker into "CLUSTER//"         -> red
   * M9  sheet_display shows the raw marker instead of "(root sheet)" -> red
+  * M10 the reserved-name WARNING goes silent (debug)             -> red (доделка
+        of the acceptance: a sheet literally named "/" must be NAMED once)
   * K1  a cosmetic comment                                       -> MUST survive
 
 Run with the main checkout's interpreter; point it at another tree with
@@ -136,6 +138,12 @@ MUTATIONS = [
     ("M9 sheet_display shows the raw marker", SHEET_NAMES,
      _DISPLAY_TAIL,
      '    return str(sheet) if sheet else absent  # MUTATION',
+     "die", GUARDS, ()),
+    ("M10 the reserved-name warning goes silent", SHEET_NAMES,
+     "    _reserved_name_warned = True\n"
+     "    logger.warning(_(",
+     "    _reserved_name_warned = True\n"
+     "    logger.debug(_(  # MUTATION",
      "die", GUARDS, ()),
     ("K1 cosmetic comment (control)", SHEET_NAMES,
      "        return not names\n",

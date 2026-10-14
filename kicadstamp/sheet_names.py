@@ -24,6 +24,17 @@ nothing above it), and that emptiness used to be indistinguishable from "the
 sheet did not resolve", which dropped every root cluster. An ABSENT sheet (None
 / "") stays what it always was — "not set", no narrowing — so the marker is the
 only way to say "the root instance" explicitly.
+
+The marker's VALUE is reserved (KiCad does not allow "/" in a sheet name): a
+sheet that carried it anyway cannot be addressed by its own name, and that case
+is WARNED about once by the ONE producer of names (resolve_sheet_path_names).
+
+An OLDER version of the program meeting `sheet "/"` in a profile takes nothing
+foreign: the cluster extraction refuses (the Entity is not matched) and the
+role resolution refuses on the ambiguity — only "Select cell" can widen to the
+whole cluster, exactly as it does for any sheet that matched nothing. That is
+why the profile format is NOT bumped; the code is updated on every machine
+BEFORE such a profile is opened (Denis, 14.10).
 """
 import glob
 import logging
@@ -196,11 +207,39 @@ def resolve_sheet_path_names(fp, sheet_names: dict[str, str]) -> list[str | None
     the store lost its key for a week."""
     path_uuids = list(sheet_path_uuids_of(fp))
     chain = path_uuids[:-1]
-    return [sheet_names.get(u) for u in chain]
+    names = [sheet_names.get(u) for u in chain]
+    _warn_reserved_sheet_name(names)
+    return names
 
 
 # The ONE marker of the root sheet (plan_2026_10_13_root_sheet_clusters, Ч1).
+# Its VALUE is reserved: KiCad does not allow "/" in a sheet name (Denis, 14.10),
+# and a sheet that carried it anyway could not be addressed by its own name any
+# more — sheet_in_path would read the marker as the root and sheet_of_names would
+# report it as the instance identity. That case is WARNED about once, by the ONE
+# producer of names (see _warn_reserved_sheet_name), never swallowed silently.
 ROOT_SHEET = "/"
+
+# True once the reserved-name warning has been written. A full-board read calls
+# resolve_sheet_path_names PER FOOTPRINT, so an undeduped line would number in
+# the hundreds for one click; one honest line per process names the fact (a
+# module global so a test can reset it).
+_reserved_name_warned = False
+
+
+def _warn_reserved_sheet_name(names) -> None:
+    """Say ONCE, loudly, that a schematic sheet is literally named ROOT_SHEET —
+    the marker's value is reserved (see the constant above). Silent when there is
+    no such name, which is every real profile."""
+    global _reserved_name_warned
+    if _reserved_name_warned or ROOT_SHEET not in names:
+        return
+    _reserved_name_warned = True
+    logger.warning(_(
+        "a schematic sheet is named {marker!r} — that value is reserved for the "
+        "ROOT sheet of the hierarchy, so this sheet can no longer be addressed "
+        "by its own name (its chain: {chain!r})").format(
+            marker=ROOT_SHEET, chain=list(names)))
 
 
 def is_root_sheet(sheet) -> bool:

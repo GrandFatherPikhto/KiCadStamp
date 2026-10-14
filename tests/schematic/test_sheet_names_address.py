@@ -18,8 +18,13 @@ The whole phase rests on ONE distinction this module pins down:
 
 Everything else (the root marker's meaning, "absent is not a wildcard") follows
 from the same two predicates, which is why this file tests THEM and not the
-callers.
+callers. The last two cells pin the RESERVED VALUE: a sheet literally named "/"
+cannot be addressed by its own name, and the ONE producer of names says so —
+once, not once per footprint (доделка приёмки Ч1, Денис 14.10).
 """
+import logging
+
+import kicadstamp.sheet_names as sheet_names_module
 from kicadstamp.sheet_names import (
     ROOT_SHEET,
     is_root_sheet,
@@ -137,3 +142,35 @@ def test_the_identity_is_the_first_named_segment():
 
 def test_the_identity_of_no_chain_at_all_is_unknown():
     assert sheet_of_names(None) is None
+
+
+# ── the marker's VALUE is reserved ─────────────────────────────────────────
+
+def test_a_sheet_named_with_the_marker_is_warned_about_once(monkeypatch, caplog):
+    """KiCad does not allow "/" in a sheet name, so a chain segment that CARRIES
+    it is a hand-edited file — and such a sheet can no longer be addressed by its
+    own name (the marker means "root"). Said LOUDLY by the ONE producer of names,
+    and only ONCE: a full-board read calls resolve_sheet_path_names per footprint,
+    so an undeduped line would number in the hundreds for one click."""
+    monkeypatch.setattr(sheet_names_module, "_reserved_name_warned", False)
+    fp = _FakeFP(("sheet-uuid", "own-uuid"))
+    with caplog.at_level(logging.WARNING, logger="kicadstamp.sheet_names"):
+        assert resolve_sheet_path_names(fp, {"sheet-uuid": ROOT_SHEET}) == \
+            [ROOT_SHEET]
+        resolve_sheet_path_names(fp, {"sheet-uuid": ROOT_SHEET})
+
+    warned = [r for r in caplog.records if "reserved" in r.getMessage()]
+    assert len(warned) == 1, [r.getMessage() for r in caplog.records]
+
+
+def test_an_ordinary_chain_is_silent(caplog):
+    """The warning is about the RESERVED name only: an ordinary chain (named, or
+    not resolved at all) never says a word."""
+    with caplog.at_level(logging.WARNING, logger="kicadstamp.sheet_names"):
+        assert resolve_sheet_path_names(
+            _FakeFP(("sheet-uuid", "own-uuid")), {"sheet-uuid": "Channel_0"}) == \
+            ["Channel_0"]
+        assert resolve_sheet_path_names(_FakeFP(("sheet-uuid", "own-uuid")), {}) \
+            == [None]
+
+    assert [r.getMessage() for r in caplog.records] == []
