@@ -84,6 +84,7 @@ from .trees_move_flow import (RehangPlan, _MOVE_OFFSET_REFUSED,
                               _OFFSET_READ_FROM_BOARD, _READ_LIVE_SIGN,
                               _REHANG_SIGN, local_polar_from_xy, plan_rehang,
                               reexpress_offset, run_group_move, run_single_move)
+from .trees_dnd import make_node_tree_widget
 from .trees_mount_rebase import run_mount_rebase
 from .trees_selection import (empty_selection_page, multi_selection_page,
                               on_selection_changed, select_only,
@@ -1244,7 +1245,11 @@ class TreesDock(QWidget):
         # like today (design §1.2 — not a regression, just no data to restore).
         saved_tree_state = self._saved_trees_state()
         for tree in self._trees:
-            tree_widget = QTreeWidget()
+            # Ч3 (plan_2026_10_14_tree_group_move_and_mount_rebase, Д-5): the
+            # node widget is born in gui/docks/trees_dnd.py — the one place its
+            # drag&drop behaviour lives (rule 45: the giant keeps the wiring).
+            # Everything below stays THIS dock's own configuration of it.
+            tree_widget = make_node_tree_widget(self, tree)
             # Same 2026-08-30 width-floor fix as the placeholder above: the
             # tree scrolls long node refs (e.g. Entity names) horizontally on
             # its own, so it must never force the dock wider than the layout

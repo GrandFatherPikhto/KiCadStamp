@@ -716,6 +716,18 @@ document order under the new parent, and the whole group is ONE structural chang
 and its own question ("re-hang WITHOUT recalculating?"), which is now asked only
 after the board read has failed too.
 
+**Dragging a selection onto a node** (2026-10-14, same plan, Ч3): drag the selected rows and drop them
+ON another node — that is the same group "Move to…" with the parent chosen by the drop, and nothing is
+offered that the picker would not offer (the same candidate rules, one implementation). Only a drop ON a
+row and on the empty space below the rows count; the empty space means "(top level)". A drop BETWEEN rows
+would mean "reorder", which is what "Move up / Move down" is for, so it is not accepted. An impossible
+target (the node itself, its own subtree, a copper row, a mount that would pin the tree's `pivot-ref`) is
+refused by the cursor, and the Log stays empty; a drop that cannot hold the group still says so in the Log
+and changes nothing. A drag does not even start for a copper row or an empty selection. **A dropped node
+is never asked anything** — the "re-hang WITHOUT recalculating?" question belongs to the "Move to…" menu
+entry only, because a modal question in the middle of a drag is the wrong gesture. Qt never moves the rows
+itself: the widget is rebuilt from the model, so the view can never disagree with the config.
+
 **Change anchor from selection… on a mount node** (2026-10-14, same plan, Ч2): the context menu of a
 mount node offers one new action, and it is the reason the group move above exists — a mount's point of
 reference can be re-seated on ANOTHER support without deleting the node. Select on the board EXACTLY
