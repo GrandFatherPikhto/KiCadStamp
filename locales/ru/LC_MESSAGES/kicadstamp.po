@@ -512,9 +512,9 @@ msgstr "Выбрать корневой лист..."
 msgid "Rescan"
 msgstr "Пересканировать"
 
-#: gui/fieldstool_window.py:196 gui/main_window.py:151
+#: gui/connection_badge.py:119 gui/fieldstool_window.py:196
 msgid "Not connected"
-msgstr "Нет подключения"
+msgstr "Не подключено"
 
 #: gui/fieldstool_window.py:202 gui/fieldstool_window.py:525
 msgid "Nothing selected"
@@ -1182,10 +1182,19 @@ msgstr ""
 msgid "● &Save"
 msgstr "● &Сохранить"
 
-#: gui/main_window.py:1121
+#: gui/connection_badge.py:99
 #, python-brace-format
-msgid "Connected — {count} components (as of the last board read)"
-msgstr "Подключено — {count} компонентов (на момент последнего чтения платы)"
+msgid "{board} · {count} components"
+msgstr "{board} · компонентов: {count}"
+
+#: gui/connection_badge.py:101
+#, python-brace-format
+msgid "Connected · {count} components"
+msgstr "Подключено · компонентов: {count}"
+
+#: gui/connection_badge.py:106
+msgid "Components as of the last board read"
+msgstr "Компоненты — по последнему чтению платы"
 
 #: gui/main_window.py:1229
 #, python-brace-format

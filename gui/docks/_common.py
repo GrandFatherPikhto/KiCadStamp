@@ -44,9 +44,26 @@ logger = logging.getLogger(__name__)
 
 # Message-label styles — one definition shared by every dock's status
 # label, instead of each dock declaring the same three CSS color strings.
-ERROR_STYLE = "color: #a00;"
+# The two COLOURS are named separately since 2026-10-14 (plan
+# plan_2026_10_14_connection_badge): the status bar's connection badge paints
+# the same green/red as a FILLED pill instead of a text colour, and a second
+# copy of "#070"/"#a00" would be exactly the drift these constants exist to
+# prevent. The message styles' values are unchanged, byte for byte.
+_ERROR_COLOR = "#a00"
+_SUCCESS_COLOR = "#070"
+ERROR_STYLE = f"color: {_ERROR_COLOR};"
 WARN_STYLE = "color: #a60;"
-SUCCESS_STYLE = "color: #070;"
+SUCCESS_STYLE = f"color: {_SUCCESS_COLOR};"
+
+# The status bar's connection badge (gui/connection_badge.py): the same two
+# colours as a rounded FILL with light text on top. The fill is the widget's
+# OWN background, so the badge reads identically in the dark and the light theme
+# (the theme's palette is never asked), and the colour stays decoration —
+# the state is legible from the text alone.
+BADGE_CONNECTED_STYLE = (f"background: {_SUCCESS_COLOR}; color: #ffffff; "
+                         "border-radius: 7px; padding: 1px 8px;")
+BADGE_DISCONNECTED_STYLE = (f"background: {_ERROR_COLOR}; color: #ffffff; "
+                            "border-radius: 7px; padding: 1px 8px;")
 
 # The Qt-FREE level names a Qt-free module hands back (the mixed-selection
 # prelude's log_lines, gui/subtract_copper.subtract_report_lines) mapped onto

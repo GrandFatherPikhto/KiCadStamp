@@ -36,11 +36,27 @@ tabified with the Log):
     that follows the selection — no Anchor/Node tabs).
 - **Bottom**: **Log**, with the **Copper duplicates** panel (2026-10-01) as a
   second tab next to it.
-- **Status bar**: connection state, the **KiCad response** latency readout
+- **Status bar**: the **connection badge**, the **KiCad response** latency readout
   (median of the selection-poll round trip, e.g. `KiCad: 1.2 ms`; empty while
   disconnected), the busy indicator while a long operation runs, Reconnect/Refresh
   button, Always on top / Tray icon (Settings), Open fieldstool button, KiCad
   processes... button.
+
+The **connection badge** is the status bar's persistent pill (2026-10-14, plan
+`plan_2026_10_14_connection_badge`, `gui/connection_badge.py`) — the ONE home of "is KiCad
+connected": a rounded green fill with the board's name and the component count
+(`3CH-AWG-TIA-v103 · 73 components`; the counter sits after a colon so no plural forms are
+needed), or a red fill reading **Not connected**, with the poll's error text in its tooltip.
+The count is the snapshot's size **as of the last board read** — the same honest qualifier the
+old sentence in the left label carried: the automatic tick never refreshes a connected board, so
+"now" would be a promise nothing keeps. The badge turns red on whichever poll tick lost KiCad
+(the ≤ 400 ms selection tick usually notices first) and green again only after a successful SLOW
+poll. Two deliberate exclusions: a momentary, intentional disconnect that no poll saw
+(fieldstool's *Apply* drops the shared connection while it writes the schematic) is NOT mirrored
+— if KiCad is really gone, the next tick (≤ 5 s, the reconnect interval) turns the badge red;
+and the one-off messages (`Project saved`, `Nothing to save`, "unsaved config changes
+discarded") live in the stretchable LEFT label and never touch the badge. That label used to
+carry the connection state as well, which is exactly why saving the project erased it.
 
 The **KiCad processes...** button opens a picker listing every running `kicad.exe` (PID, Windows
 "Not Responding"/"Running" status, window title) — a shortcut for "look in Task Manager, pick the

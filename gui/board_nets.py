@@ -1,6 +1,7 @@
 # gui/board_nets.py
-"""The net-name lists the Refresh path hands to the docks — collected on the
-poll WORKER, never on the UI thread.
+"""What the poll WORKER reads off the adapter for the refresh path: the two
+net-name lists the docks are handed, and the board's filename for the status
+bar's connection badge. Collected on the poll WORKER, never on the UI thread.
 
 Why this module exists (plan_2026_09_13_ui_thread_net_reads Э1): four docks
 (thermal_via, chain, tools, net_trace) used to be handed the live BOARD by
@@ -18,6 +19,9 @@ same genre as gui/board_layers.py. Keeping them out of the docks is the point:
 a dock that can reach the adapter is a dock that can read the board on the UI
 thread again (the mutation Э4.4 of the plan guards).
 """
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 def board_net_names(adapter) -> list:
@@ -44,3 +48,31 @@ def copper_net_names(adapter) -> list:
     nets = {track.net_name for track in adapter.get_tracks() if track.net_name}
     nets |= {via.net_name for via in adapter.get_vias() if via.net_name}
     return sorted(nets)
+
+
+def board_filename(adapter) -> str | None:
+    """The live board's filename as KiCad reports it ('3CH-AWG-TIA-v103.
+    kicad_pcb'), or None when there is no adapter, no board, or nothing to say.
+
+    The status bar's connection badge shows WHICH board the last reading was
+    about (2026-10-14, plan_2026_10_14_connection_badge), so this is collected on
+    the same worker pass as the two lists above — same reasoning, same thread,
+    same socket. AND THE PRICE IS ZERO: `get_board_filename` returns the STORED
+    DocumentSpecifier's filename (kipy Board.name), never a fresh request —
+    measured by kicadstamp/diagnostics/probe_document_switch.py:24-26.
+
+    The ONE difference from the two readers above, and it is deliberate: this one
+    NEVER RAISES. Those two are part of the poll's own contract, so their failure
+    must surface; a name is a nicety, and an adapter that cannot answer (a test
+    stand-in with no such method, or a plain adapter before its first
+    refresh_board, where the getter answers None) must not fail the poll it rides
+    on. The badge then shows the count without a name (C7 of that plan) and the
+    Log keeps the reason."""
+    name_of_board = getattr(adapter, "get_board_filename", None)
+    if adapter is None or name_of_board is None:
+        return None
+    try:
+        return name_of_board()
+    except Exception:  # noqa: BLE001 — see the docstring: a nicety, not a read
+        logger.debug("Board filename read failed", exc_info=True)
+        return None

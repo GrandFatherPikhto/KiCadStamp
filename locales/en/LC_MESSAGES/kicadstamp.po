@@ -458,7 +458,7 @@ msgstr "Pick root sheet..."
 msgid "Rescan"
 msgstr "Rescan"
 
-#: gui/fieldstool_window.py:196 gui/main_window.py:151
+#: gui/connection_badge.py:119 gui/fieldstool_window.py:196
 msgid "Not connected"
 msgstr "Not connected"
 
@@ -1122,9 +1122,18 @@ msgstr "Project has unsaved config changes — press Ctrl+S to save"
 msgid "● &Save"
 msgstr "● &Save"
 
-#: gui/main_window.py:1121
+#: gui/connection_badge.py:99
 #, python-brace-format
-msgid "Connected — {count} components (as of the last board read)"
+msgid "{board} · {count} components"
+msgstr ""
+
+#: gui/connection_badge.py:101
+#, python-brace-format
+msgid "Connected · {count} components"
+msgstr ""
+
+#: gui/connection_badge.py:106
+msgid "Components as of the last board read"
 msgstr ""
 
 #: gui/main_window.py:1229

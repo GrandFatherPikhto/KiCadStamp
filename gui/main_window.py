@@ -92,9 +92,10 @@ from kicadstamp.explore import selection_signature
 from kicadstamp.i18n import _
 
 from . import settings
-from .board_nets import board_net_names, copper_net_names
+from .board_nets import board_filename, board_net_names, copper_net_names
 from .connection import (BoardConnection, LATENCY_KIND_FAST,
                          LATENCY_KIND_SLOW)
+from .connection_badge import ConnectionBadge
 from .dock_hub import DockHub
 from .app_icon import build_app_icon
 from .docks._common import display_path, format_ms
@@ -148,10 +149,18 @@ class MainWindow(QMainWindow):
         self.connection = BoardConnection(timeout_ms=timeout_ms)
         self._tray_icon: Optional[QSystemTrayIcon] = None
 
-        self.status_label = QLabel(_("Not connected"))
+        # One-off messages ONLY since 2026-10-14 (plan_2026_10_14_connection_
+        # badge): the connection state lives in the badge below, because a save
+        # used to erase it from right here (Д1 of that plan).
+        self.status_label = QLabel("")
         self.action_button = QPushButton(_("Reconnect"))
         self.action_button.clicked.connect(lambda: self._poll(manual=True))
         self.statusBar().addWidget(self.status_label, 1)
+
+        # The connection badge (same plan) — FIRST of the permanent widgets, fed
+        # by the two poll finish handlers; see gui/connection_badge.py.
+        self.connection_badge = ConnectionBadge(self)
+        self.statusBar().addPermanentWidget(self.connection_badge)
 
         # Project-dirty indicator (2026-09-01, plan project_save_model) — a ●
         # whenever the config working set has unsaved edits. Driven by
@@ -1068,7 +1077,9 @@ class MainWindow(QMainWindow):
         if adapter is None:
             return {"net_names": [], "copper_net_names": []}
         return {"net_names": board_net_names(adapter),
-                "copper_net_names": copper_net_names(adapter)}
+                "copper_net_names": copper_net_names(adapter),
+                # WHICH board the badge names (zero-cost read, gui/board_nets.py)
+                "board_name": board_filename(adapter)}
 
     def _finish_poll(self, result: dict) -> None:
         """UI thread: reflect the worker's result into widgets."""
@@ -1076,7 +1087,8 @@ class MainWindow(QMainWindow):
         error = result["error"]
         if error:
             self._log_timeout_hint(result.get("duration_s"))
-            self.status_label.setText(_("Not connected: {error}").format(error=error))
+            # Red on the FIRST tick that lost KiCad, slow or fast (no hook — Д3).
+            self.connection_badge.show_poll_result(error=error)
             self._dock_hub.clear_components()
         else:
             # connect()/refresh() already rebuilt BoardConnection.snapshot —
@@ -1085,15 +1097,11 @@ class MainWindow(QMainWindow):
             # refresh_known_roles used to build a second full snapshot here;
             # the fast selection-watch tick used to build one every 400ms).
             snapshot = self.connection.snapshot
-            # T.2 (K.2 #4, plan_2026_09_11_stale_snapshot_minor.md): the count is
-            # the size of the snapshot as of its LAST rebuild (this very poll, a
-            # manual Refresh/Reconnect, or connect()) — the automatic tick is a
-            # no-op once connected, so the old wording ("Connected — N
-            # components") promised a "now" it could not deliver. Say what the
-            # number actually is instead of showing a silently lying count.
-            self.status_label.setText(
-                _("Connected — {count} components (as of the last board read)")
-                .format(count=len(snapshot)))
+            # Green only after a SUCCESSFUL slow poll (Д5): the board's name and
+            # this count, with T.2's qualifier (K.2 #4) in the badge's tooltip —
+            # the count is the snapshot's size as of its LAST rebuild, not "now".
+            self.connection_badge.show_poll_result(
+                board_name=result.get("board_name"), count=len(snapshot))
             # The BOARD handle is deliberately not handed out any more — the
             # four net-consuming docks get the names the worker collected
             # (Э2). Passing the board is what let them read KiCad here, on the
@@ -1164,7 +1172,8 @@ class MainWindow(QMainWindow):
         if result["error"]:
             logger.warning("Lost connection while polling board selection: %s", result["error"])
             self._log_timeout_hint(result.get("duration_s"))
-            self.status_label.setText(_("Not connected: {error}").format(error=result["error"]))
+            # The FAST tick is the sooner of the two writers (≤ 400 ms).
+            self.connection_badge.show_poll_result(error=result["error"])
             self.action_button.setText(_("Reconnect"))
             return
         items = result["items"]
