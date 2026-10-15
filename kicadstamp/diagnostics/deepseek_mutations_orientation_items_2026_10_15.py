@@ -17,8 +17,11 @@ WHAT IS BEING PROVEN. The guard is tests/kicad/test_adapter_orientation_items.py
   * M3 the zero-angle shortcut is removed     -> К2 red (a zero delta rebuilds the list) and
                                                 К9 red (a 270-vs--90 write)
   * M4 dropped items appended, not slotted    -> К5 red (the order of definition.items)
-  * M5 the adapter bypasses the shim          -> К3 red (a pure move strips the model) and
-                                                К10 red (it never reaches the proto)
+  * M5 the adapter bypasses the guard        -> К3 red (a pure move strips the model) and
+                                                К10 red (it never reaches the proto); the
+                                                mutation restores the pre-Ч1 raw sync, so it
+                                                also names the line Д-2 moved out of the
+                                                adapter
   * K  a cosmetic comment                     -> MUST survive
 
 Run: .venv/bin/python kicadstamp/diagnostics/deepseek_mutations_orientation_items_2026_10_15.py
@@ -53,10 +56,11 @@ ROWS = [
      "    if len(after) == expected_survivors:",
      "    if False:  # MUTATION",
      "die", GUARDS, ()),
-    ("M5 the adapter bypasses the shim", ADAPTER,
-     "            restored = set_footprint_orientation(\n"
-     "                kipy_item, KipyAngle.from_degrees(dto.angle_deg))",
-     "            kipy_item.orientation = KipyAngle.from_degrees(dto.angle_deg)  # MUTATION\n"
+    ("M5 the adapter bypasses the guard", ADAPTER,
+     "            restored = sync_dto_to_kipy(dto, kipy_item)",
+     "            kipy_item.position = KipyVector2.from_xy(dto.position.x, dto.position.y)  # MUTATION\n"
+     "            kipy_item.orientation = kipy.geometry.Angle.from_degrees(dto.angle_deg)  # MUTATION\n"
+     "            kipy_item.layer = layer_to_kipy(dto.layer)  # MUTATION\n"
      "            restored = 0",
      "die", GUARDS, ()),
     ("K cosmetic comment (control)", SAFETY,

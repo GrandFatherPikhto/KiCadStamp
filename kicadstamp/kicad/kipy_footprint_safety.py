@@ -35,14 +35,17 @@ objects the same day: everything outside that chain goes (``Footprint3DModel``,
   KiCad may store 270 deg where a DTO says -90 and ``Angle.__eq__`` compares RAW degrees
   (kipy/geometry.py:345).
 
-REMOVAL CONDITION — the day kipy stops dropping items, delete this module and put the plain
-``kipy_fp.orientation = angle`` back inline. The signal is the canary cell
+REMOVAL CONDITION — the day kipy stops dropping items, delete this module and move the sync
+back into the adapter (where it lived before Д-2 of the same plan), setting the angle inline
+with the plain ``kipy_fp.orientation = angle``. The signal is the canary cell
 ``test_raw_kipy_orientation_setter_still_drops_the_3d_model`` in
 tests/kicad/test_adapter_orientation_items.py going RED: it pins the UPSTREAM bug, not our
 behaviour, and is meant to be deleted together with this file.
 """
 from kipy.board_types import BoardShape, BoardText, Field, Pad, Zone
-from kipy.geometry import Angle
+from kipy.geometry import Vector2 as KipyVector2, Angle
+
+from ..domain.board import Footprint, layer_to_kipy
 
 
 # The branches kipy's orientation setter knows how to rotate — board_types.py:2138-2164,
@@ -95,3 +98,24 @@ def set_footprint_orientation(kipy_fp, angle: Angle) -> int:
     else:
         kipy_fp.definition.items = after + missing
     return len(missing)
+
+
+def sync_dto_to_kipy(dto, kipy_item) -> int:
+    """Copy consumer-side DTO mutations back onto the live kipy object.
+
+    Moved out of the adapter (Д-2 of plan_2026_10_15_footprint_3d_model_loss) because it IS
+    the seam this module exists for: ``adapter.py`` keeps a one-line call and no copy of the
+    rule. Only ``Footprint`` is mutated by consumers before ``update_items``
+    (move_executor.py sets ``position``/``angle_deg``; undo.py sets ``position``/``angle_deg``).
+    Via/Track DTOs are created, not mutated; field writes (``set_field_value``) mutate the
+    kipy object in place.
+
+    Returns the number of definition items ``set_footprint_orientation`` restored, so the
+    caller can report a real loss instead of staying silent (0 for any other DTO type).
+    """
+    if not isinstance(dto, Footprint):
+        return 0
+    kipy_item.position = KipyVector2.from_xy(dto.position.x, dto.position.y)
+    restored = set_footprint_orientation(kipy_item, Angle.from_degrees(dto.angle_deg))
+    kipy_item.layer = layer_to_kipy(dto.layer)
+    return restored

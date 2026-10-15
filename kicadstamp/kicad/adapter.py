@@ -7,7 +7,7 @@ from typing import Any
 import kipy
 from kipy.board_types import BoardLayer as KipyBoardLayer, Field, Group, Pad as KipyPad, Track as KipyTrack, Via as KipyVia, ViaType
 from kipy.common_types import Commit
-from kipy.geometry import Vector2 as KipyVector2, Angle as KipyAngle
+from kipy.geometry import Vector2 as KipyVector2
 from kipy.proto.common.commands.editor_commands_pb2 import (
     BeginCommit,
     BeginCommitResponse,
@@ -22,7 +22,7 @@ from kipy.proto.board import board_commands_pb2
 from kipy.errors import FutureVersionError
 
 from .interfaces import IBoardAdapter
-from .kipy_footprint_safety import set_footprint_orientation
+from .kipy_footprint_safety import sync_dto_to_kipy
 from ..domain.board import (
     Footprint,
     Net,
@@ -1011,36 +1011,20 @@ class KiCadBoardAdapter(IBoardAdapter):
                 raise
         raise last_exc
 
-    def _sync_dto_to_kipy(self, dto, kipy_item) -> None:
-        """Copy consumer-side DTO mutations back onto the live kipy object.
-
-        Only ``Footprint`` is mutated by consumers before ``update_items``
-        (move_executor.py sets ``position``/``angle_deg``; undo.py sets
-        ``position``/``angle_deg``). Via/Track DTOs are created, not mutated;
-        field writes (``set_field_value``) mutate the kipy object in place.
-
-        The angle goes through ``set_footprint_orientation``, NOT through kipy's own
-        setter: that setter rebuilds ``definition.items`` and drops everything it has no
-        rotation branch for — 3D models above all, on a zero delta too, so EVERY move lost
-        them (plan_2026_10_15_footprint_3d_model_loss; see kipy_footprint_safety.py for the
-        upstream bug and its removal condition).
-        """
-        if isinstance(dto, Footprint):
-            kipy_item.position = KipyVector2.from_xy(dto.position.x, dto.position.y)
-            restored = set_footprint_orientation(
-                kipy_item, KipyAngle.from_degrees(dto.angle_deg))
-            if restored:
-                logger.debug(_("{ref}: restored {count} definition item(s) that kipy's "
-                               "orientation setter would have dropped")
-                             .format(ref=dto.ref, count=restored))
-            kipy_item.layer = layer_to_kipy(dto.layer)
-
     def update_items(self, items):
         logger.debug(_("Updating {count} items").format(count=len(items)))
         kipy_items = []
         for dto in items:
             kipy_item = unwrap(dto)
-            self._sync_dto_to_kipy(dto, kipy_item)
+            # The DTO -> kipy seam, and with it the kipy orientation defect, lives in
+            # kipy_footprint_safety.py (plan_2026_10_15_footprint_3d_model_loss): that setter
+            # rebuilds definition.items and drops everything it has no rotation branch for,
+            # 3D models above all, on a zero delta too, so EVERY move used to lose them.
+            restored = sync_dto_to_kipy(dto, kipy_item)
+            if restored:
+                logger.debug(_("{ref}: restored {count} definition item(s) that kipy's "
+                               "orientation setter would have dropped")
+                             .format(ref=dto.ref, count=restored))
             kipy_items.append(kipy_item)
         return self._mutating_call("update_items",
                                    lambda: self._board.update_items(kipy_items))
