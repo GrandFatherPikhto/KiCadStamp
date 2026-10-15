@@ -86,6 +86,23 @@ def test_open_fieldstool_unhides_and_raises(real_main_window):
     assert real_main_window.tree_dock.isVisible()
 
 
+def test_quit_does_not_ask_when_the_working_set_is_clean(
+        real_main_window, monkeypatch, qapp):
+    """Ч1-клетка 6: a clean working set quits with NO question on the _quit path
+    either — the guard host's is_dirty() fast path answers True without a dialog
+    (the real host is used, so a dialog would trip the autouse no-modal guard)."""
+    monkeypatch.setattr(WORKING_SET, "is_dirty", lambda: False)
+    persist = Mock()
+    monkeypatch.setattr(real_main_window, "_persist_settings", persist)
+    quit_mock = Mock()
+    monkeypatch.setattr(qapp, "quit", quit_mock)
+
+    real_main_window._quit()
+
+    persist.assert_called_once()
+    quit_mock.assert_called_once()
+
+
 def test_quit_persists_and_calls_application_quit(real_main_window, monkeypatch, qapp):
     persist = Mock()
     monkeypatch.setattr(real_main_window, "_persist_settings", persist)
