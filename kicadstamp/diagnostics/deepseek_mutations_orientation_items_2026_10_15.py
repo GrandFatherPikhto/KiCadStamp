@@ -24,6 +24,24 @@ WHAT IS BEING PROVEN. The guard is tests/kicad/test_adapter_orientation_items.py
                                                 adapter
   * K  a cosmetic comment                     -> MUST survive
 
+Ч2 MUTATIONS (the rotation arithmetic; guards are tests/kicad/test_kipy_vector_rotate.py):
+
+  * N1 round() goes back to int()            -> the 45-degree cell red (that cell's point is
+                                                chosen where round() and int() disagree);
+                                                the quarter turns stay exact, because their
+                                                arms never reach the fallback
+  * N2 the quarter-turn arms fall back to kipy's arithmetic -> the reproducing point and the
+                                                pad cell red
+  * N3 the patch is never installed          -> the reproducing point, the pad cell and the
+                                                installation cell red (the ORIGINAL canary
+                                                stays green: it measures kipy, not us)
+
+NOTE on the plan's wording "remove the 90-degree arm -> the C_0603 cells go red": MEASURED,
+that mutation is harmless on its own — the fallback's round() is exact for quarter turns too
+(the float error never survives a round to the nearest integer at these magnitudes). So the
+row that kills the arms has to give them kipy's arithmetic (N2) instead. A cell that leaned
+on the fallback alone would have been green against the unfixed kipy.
+
 Run: .venv/bin/python kicadstamp/diagnostics/deepseek_mutations_orientation_items_2026_10_15.py
 An optional row-name prefix filter takes the rest of argv.
 """
@@ -32,6 +50,7 @@ from kicadstamp.diagnostics import deepseek_mutations_tree_reread_modules_2026_1
 SAFETY = "kicadstamp/kicad/kipy_footprint_safety.py"
 ADAPTER = "kicadstamp/kicad/adapter.py"
 GUARDS = ["test_adapter_orientation_items.py"]
+ROTATE_GUARDS = ["test_kipy_vector_rotate.py"]
 
 ROWS = [
     ("M1 the restore is dropped altogether", SAFETY,
@@ -63,6 +82,26 @@ ROWS = [
      "            kipy_item.layer = layer_to_kipy(dto.layer)  # MUTATION\n"
      "            restored = 0",
      "die", GUARDS, ()),
+    ("N1 round() goes back to int()", SAFETY,
+     "    self.x = round(dy * sin_angle + dx * cos_angle) + center.x\n"
+     "    self.y = round(dy * cos_angle - dx * sin_angle) + center.y",
+     "    self.x = int(dy * sin_angle + dx * cos_angle) + center.x  # MUTATION\n"
+     "    self.y = int(dy * cos_angle - dx * sin_angle) + center.y  # MUTATION",
+     "die", ROTATE_GUARDS, ()),
+    ("N2 quarter-turn arms take kipy's arithmetic", SAFETY,
+     "    if degrees == 90.0:\n"
+     "        self.x = dy + center.x\n"
+     "        self.y = -dx + center.y\n"
+     "        return self",
+     "    if degrees == 90.0:  # MUTATION: kipy's own maths, truncation included\n"
+     "        self.x = int(dy + dx * 6.123233995736766e-17) + center.x\n"
+     "        self.y = int(-dx + dy * 6.123233995736766e-17) + center.y\n"
+     "        return self",
+     "die", ROTATE_GUARDS, ()),
+    ("N3 the patch is never installed", SAFETY,
+     "    KipyVector2.rotate = _rotate_exact",
+     "    pass  # MUTATION",
+     "die", ROTATE_GUARDS, ()),
     ("K cosmetic comment (control)", SAFETY,
      "    if not missing:\n        return 0",
      "    if not missing:\n        return 0  # control",

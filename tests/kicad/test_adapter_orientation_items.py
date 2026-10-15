@@ -118,13 +118,11 @@ def _dto(kipy_fp, angle_deg, x=0, y=0):
 def test_rotation_keeps_the_3d_model_and_rotates_the_other_items():
     model = _model()
     pad = Pad()
+    # The point that really loses a nanometre to kipy's truncation (see
+    # tests/kicad/test_kipy_vector_rotate.py): the neighbouring axis has to outgrow the
+    # computed one by ~1.8x before the float error survives int().
+    pad.position = KipyVector2.from_xy(-1_800_000, 960_000)
     fp = _kipy_fp([model, pad, BoardRectangle()])
-
-    # The reference arithmetic: kipy's own setter on a SNAPSHOT of the same footprint. Its
-    # pads are what a correct rotation produces (and its item list is what we must improve on).
-    reference = FootprintInstance(proto=fp.proto)
-    reference.orientation = KipyAngle.from_degrees(90.0)
-    reference_pad = next(i for i in reference.definition.items if isinstance(i, Pad))
 
     pose_before = _model_pose(model)
     restored = set_footprint_orientation(fp, KipyAngle.from_degrees(90.0))
@@ -136,10 +134,12 @@ def test_rotation_keeps_the_3d_model_and_rotates_the_other_items():
     assert _model_pose(models[0]) == pose_before, \
         "a 3D model is placed relative to the footprint: it must not be rotated"
 
+    # The expected pad is written out HERE — (x, y) -> (y, -x) about the footprint origin.
+    # This cell used to compare against kipy's OWN setter on a snapshot; after Ч2 that
+    # baseline is the truncating arithmetic, one nanometre off, so keeping it would have
+    # demanded the defect back (rule 33: the cell is restated, not weakened).
     shim_pad = next(i for i in fp.definition.items if isinstance(i, Pad))
-    assert (shim_pad.position.x, shim_pad.position.y) == \
-           (reference_pad.position.x, reference_pad.position.y), \
-        "the ordinary items must be rotated exactly as kipy's own setter rotates them"
+    assert (shim_pad.position.x, shim_pad.position.y) == (960_000, 1_800_000)
 
 
 # ── К2: a zero rotation never reaches the setter ─────────────────────────────

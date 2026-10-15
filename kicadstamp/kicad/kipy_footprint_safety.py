@@ -35,17 +35,91 @@ objects the same day: everything outside that chain goes (``Footprint3DModel``,
   KiCad may store 270 deg where a DTO says -90 and ``Angle.__eq__`` compares RAW degrees
   (kipy/geometry.py:345).
 
-REMOVAL CONDITION — the day kipy stops dropping items, delete this module and move the sync
-back into the adapter (where it lived before Д-2 of the same plan), setting the angle inline
-with the plain ``kipy_fp.orientation = angle``. The signal is the canary cell
-``test_raw_kipy_orientation_setter_still_drops_the_3d_model`` in
-tests/kicad/test_adapter_orientation_items.py going RED: it pins the UPSTREAM bug, not our
-behaviour, and is meant to be deleted together with this file.
+SECOND REASON, the same module: kipy's rotation ARITHMETIC truncates. ``Vector2.rotate``
+(kipy/geometry.py:127) answers ``int(dy*sin + pt_x*cos) + cx``, and ``int()`` TRUNCATES, so
+a coordinate that is exactly representable comes back one nanometre away whenever the float
+tail goes the wrong way (``cos(90deg) = 6.1e-17``). Measured live 15.10.2026: 27 footprints
+reported ``lib_footprint_mismatch`` because their F.SilkS/F.Fab/F.CrtYd coordinates drifted
+by 1 nm while every pad stayed byte-identical. The patch below is PERMANENT and installed at
+import — not scoped to a call — because swapping a class method out and back is a race
+between the worker thread and the UI, and because the exact rotation is strictly better for
+every caller: same semantics, no lost nanometre.
+
+REMOVAL CONDITIONS — TWO, and each has its own canary:
+1. the item drop: ``test_raw_kipy_orientation_setter_still_drops_the_3d_model`` in
+   tests/kicad/test_adapter_orientation_items.py. When IT goes red, delete this module and
+   move the sync back into the adapter (where it lived before Д-2 of the same plan), setting
+   the angle inline with the plain ``kipy_fp.orientation = angle``;
+2. the truncation: ``test_the_original_kipy_rotate_truncates`` in
+   tests/kicad/test_kipy_vector_rotate.py. When IT goes red, kipy rounds by itself — delete
+   the patch block below and the cell with it (the item guard may still be needed).
 """
+import math
+
 from kipy.board_types import BoardShape, BoardText, Field, Pad, Zone
 from kipy.geometry import Vector2 as KipyVector2, Angle
 
 from ..domain.board import Footprint, layer_to_kipy
+
+
+# --------------------------------------------------------------------------------------
+# The rotation patch (permanent on purpose — Ч2 of the plan)
+# --------------------------------------------------------------------------------------
+
+#: Attribute marking the replacement installed below, so a reload (or a second import of a
+#: copy of this module) cannot wrap the wrapper twice.
+_EXACT_ROTATE_MARKER = "_kicadstamp_exact_rotate"
+
+#: kipy's OWN ``Vector2.rotate``, bound on the first import and kept for the canary cell
+#: (tests/kicad/test_kipy_vector_rotate.py), which must measure kipy and never this module.
+#: NOT initialised here on purpose: this module's body re-runs on ``importlib.reload``, and
+#: re-binding the name would either lose the original or capture our own replacement.
+
+
+def _rotate_exact(self, angle: Angle, center: KipyVector2) -> KipyVector2:
+    """Exact replacement for kipy's ``Vector2.rotate`` (kipy/geometry.py:127).
+
+    Same signature and the same semantics as the original — mutates in place and returns
+    ``self`` — with the arithmetic repaired. kipy computes ``int(dy*sin + dx*cos) + cx`` and
+    ``int()`` truncates: with ``cos(90 deg) = 6.1e-17`` and ``dx = -146267 nm`` the sum is
+    959999.999999999988, which ``int()`` answers as 959999. Multiples of 90 degrees need no
+    trigonometry at all — integer swaps and sign flips — and every other angle is the very
+    same formula with ``round()`` instead of ``int()``.
+    """
+    dx = self.x - center.x
+    dy = self.y - center.y
+    degrees = float(angle.degrees) % 360.0
+
+    if degrees == 0.0:
+        return self
+    if degrees == 90.0:
+        self.x = dy + center.x
+        self.y = -dx + center.y
+        return self
+    if degrees == 180.0:
+        self.x = -dx + center.x
+        self.y = -dy + center.y
+        return self
+    if degrees == 270.0:
+        self.x = -dy + center.x
+        self.y = dx + center.y
+        return self
+
+    radians = math.radians(degrees)
+    sin_angle = math.sin(radians)
+    cos_angle = math.cos(radians)
+    self.x = round(dy * sin_angle + dx * cos_angle) + center.x
+    self.y = round(dy * cos_angle - dx * sin_angle) + center.y
+    return self
+
+
+if not getattr(KipyVector2.rotate, _EXACT_ROTATE_MARKER, False):
+    # First import: capture kipy's own implementation (the canary needs it) and install the
+    # replacement. A RELOAD lands on the already-marked function and skips both lines, which
+    # is what keeps `_KIPY_VECTOR2_ROTATE` pointing at kipy rather than at ourselves.
+    _KIPY_VECTOR2_ROTATE = KipyVector2.rotate
+    setattr(_rotate_exact, _EXACT_ROTATE_MARKER, True)
+    KipyVector2.rotate = _rotate_exact
 
 
 # The branches kipy's orientation setter knows how to rotate — board_types.py:2138-2164,

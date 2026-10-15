@@ -353,6 +353,51 @@ signal to delete the shim and go back to the plain setter.
 
 ---
 
+### `Vector2.rotate` truncates coordinates (patched here, permanently)
+
+**Where used:**
+Practically the whole board API. kipy's own `FootprintInstance.orientation` setter rotates
+pads, fields, texts, zones and every shape class through this ONE function
+(`kipy/geometry.py:127`), so anything that rotates a footprint goes through it.
+
+**Problem:**
+It answers `int(dy*sin + dx*cos) + cx`, and `int()` TRUNCATES. `cos(90 deg)` is 6.1e-17 instead
+of 0, so a coordinate that is exactly representable can arrive as 959999.99999999988 and come
+back one nanometre short. Measured live 15.10.2026: 27 footprints reported
+`lib_footprint_mismatch` after a placement run while every pad of every footprint stayed
+byte-identical — only the F.SilkS/F.Fab/F.CrtYd graphics drifted (`0.96 -> 0.959999`,
+`-0.146267 -> -0.146266`). The error only survives `int()` when the OTHER axis is about 1.8x
+larger (the float error is `neighbour * 6.1e-17`, the spacing of doubles near the computed
+coordinate is `coordinate * 2.2e-16`), which is why it shows up on ordinary components at all —
+and why a cell that only used "nice" coordinates would pass against the unfixed kipy.
+
+**Alternative:**
+`kicadstamp/kicad/kipy_footprint_safety.py` replaces `Vector2.rotate` at import with an exact
+implementation: quarter turns are integer swaps and sign flips with no trigonometry at all,
+every other angle keeps kipy's own formula with `round()` instead of `int()`. The patch is
+PERMANENT, not scoped to a call: swapping a class method out and back would race the worker
+thread against the UI, and the exact rotation is strictly better for any caller — same
+signature, mutates in place, returns `self`. kipy's own implementation is kept in
+`_KIPY_VECTOR2_ROTATE` for the canary; when `test_the_original_kipy_rotate_truncates` goes RED,
+kipy has started rounding — delete the patch and that cell.
+
+Project's own port, `kicadstamp/domain/geometry.py`, still truncates (it documents itself as
+"identical to kipy.Vector2.rotate"), so copper coordinates WE compute can lose the same
+nanometre. That is a separate decision, not covered by this patch.
+
+---
+
+### A footprint polygon loses its repeated closing point on the way IN (KiCad side)
+
+A `fp_poly` whose outline repeats its first point — the pin-1 marker of
+`Package_TO_SOT_SMD:SOT-223-3_TabPin2`, for example — is returned by the API with that repeated
+point (4 nodes, `closed=True`), survives a kipy move untouched, and is stored with 3 nodes after
+`UpdateItems`: KiCad drops it on receipt. The board copy then no longer matches the library and
+DRC reports `lib_footprint_mismatch`. Nothing is lost on our side, so there is nothing to fix
+here; it is reported upstream.
+
+---
+
 ## Conclusion
 
 KiCadStamp **intentionally** uses APIs that go beyond the stable public interface because only this allows solving real‑world automation tasks for placing components, vias, and tracks. However, all such places are:
