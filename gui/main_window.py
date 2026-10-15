@@ -498,7 +498,11 @@ class MainWindow(QMainWindow):
         # set_reconnect_interval() updates it live from Settings > KiCad.
         # Р2-5: set once the "return clusters" restore before a real quit has
         # finished, so the re-entrant close()/quit() below proceeds instead of
-        # asking the same question again.
+        # asking the same question again. Since Ч1 (2026-10-15) the flag carries a
+        # SECOND meaning, and deliberately so — its True also answers "this very
+        # way out has already been asked about the unsaved config edits", because
+        # the re-entrant close() IS the one and only second entry into the exit
+        # (see _confirm_unsaved_before_exit, the ONE reader of it).
         self._explode_exit_ok = False
         self._reconnect_interval_ms = self._read_reconnect_interval()
         self._timer = QTimer(self)
@@ -687,17 +691,67 @@ class MainWindow(QMainWindow):
         (today's original behavior, unchanged) or via the tray menu's Quit
         action, which bypasses this entirely (see _quit).
 
-        Р2-5: a REAL quit while the clusters are exploded asks "Вернуть и выйти"
-        first, and closes only after the restore succeeds."""
+        У1 (2026-10-15, Ч1 of plan_2026_10_15_extract_and_read_paths_cleanup): a
+        REAL quit asks about the staged config edits FIRST — the same Save/
+        Discard/Cancel question the project switch asks, from its ONE host (see
+        _confirm_unsaved_before_exit) — and only then Р2-5's "Вернуть и выйти"
+        while the clusters are exploded, closing after the restore succeeds.
+        Cancel of either question cancels the quit; the hide-to-tray branch above
+        asks NOTHING (the process lives on and no edit is lost)."""
         if settings.state.get("tray_enabled", False):
             event.ignore()
             self.hide()
+            return
+        if not self._confirm_unsaved_before_exit():
+            event.ignore()
             return
         if not self._return_clusters_before_quit(self.close):
             event.ignore()
             return
         self._persist_settings()
         super().closeEvent(event)
+
+    def _confirm_unsaved_before_exit(self) -> bool:
+        """True = the way out may go on, False = STAY (the user cancelled).
+
+        У1 (2026-10-15, Ч1 of plan_2026_10_15_extract_and_read_paths_cleanup): the
+        ONE unsaved-changes guard of the way OUT of the program, asked by the
+        title-bar X (closeEvent, real-quit branch) and by _quit (the tray menu's
+        Quit and File > &Quit) — and asked BEFORE the exploded-clusters question.
+
+        It is the SAME question, from the SAME host, as the project switch's:
+        RootMetadataDock._confirm_discard_changes, because WORKING_SET holds every
+        dock's staged config edits, so one answer covers all of them. No second
+        wording and no second dialog exist here on purpose.
+
+        Discard is NOT destructive on this path: that guard only RETURNS True —
+        the caller's root switch is what clears the working set (see its
+        docstring) — so "Discard" followed by a Cancel of the clusters question
+        leaves the staged edits exactly where they were; the process is still
+        alive. Save that FAILED returns False (the guard keeps a dirty set dirty),
+        so the exit is cancelled too.
+
+        DELIBERATE EXCEPTION to the "no QMessageBox in the GUI" rule (Денис,
+        2026-10-04 — backlog_2026_10_04_unsaved_changes_on_quit.md): the action is
+        IRREVERSIBLE and Denis asked for the dialog himself. The dialog itself
+        lives in the guard named above; DO NOT remove this call when sweeping
+        modals out of the GUI.
+
+        Asked ONCE per way out: `_explode_exit_ok` is set only by the return-
+        clusters restore, which is also the ONLY thing that re-enters the exit
+        (its `proceed` callback is self.close()/_do_quit), so a True flag proves
+        the question has already been asked on THIS way out. Deliberately NOT a
+        flag of its own: return_clusters_before_quit()'s False means BOTH "Cancel"
+        and "the restore is still in flight", so a flag reset on any False would
+        ask a second time on that legitimate re-entry — while a flag not reset
+        would swallow the question on the NEXT, genuinely new attempt (an exit
+        cancelled at the clusters question must ask about the edits again)."""
+        if self._explode_exit_ok:
+            return True
+        dock = getattr(self, "root_metadata_dock", None)
+        if dock is None:      # a plain QMainWindow in tests: nothing to lose
+            return True
+        return dock._confirm_discard_changes()
 
     def _return_clusters_before_quit(self, proceed) -> bool:
         """Р2-5: with the clusters exploded, ask "Вернуть и выйти / Отмена".
@@ -910,12 +964,18 @@ class MainWindow(QMainWindow):
             save_action.setText(_("● &Save") if dirty else _("&Save"))
 
     def _quit(self) -> None:
-        """Tray menu's Quit — a real quit regardless of the tray checkbox.
-        QApplication.quit() doesn't invoke closeEvent on any window (it just
-        stops the event loop), so this deliberately bypasses self.close()/
+        """Tray menu's Quit AND File > &Quit — a real quit regardless of the tray
+        checkbox. QApplication.quit() doesn't invoke closeEvent on any window (it
+        just stops the event loop), so this deliberately bypasses self.close()/
         closeEvent entirely rather than needing a "really quit" flag.
 
-        Р2-5: still asks "Вернуть и выйти" while the clusters are exploded."""
+        У1 (2026-10-15, Ч1 of plan_2026_10_15_extract_and_read_paths_cleanup): the
+        SAME way out as closeEvent's real quit — first the unsaved-changes
+        question (_confirm_unsaved_before_exit), then Р2-5's "Вернуть и выйти"
+        while the clusters are exploded. Cancel of either one returns without
+        quitting."""
+        if not self._confirm_unsaved_before_exit():
+            return
         if not self._return_clusters_before_quit(self._do_quit):
             return
         self._do_quit()

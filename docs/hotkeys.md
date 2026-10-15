@@ -25,5 +25,7 @@ project** is a
 submenu of the same `recent_root_files` the Project dock's Recent combo reads (it is rebuilt every
 time the submenu opens, and carries one disabled row while the list is empty), **Close** is a new
 operation that closes the current project (guarded by an unsaved-changes prompt when the working set
-is dirty), and **&Quit** quits. The **View** menu (2026-08-27) lists one checkable entry per
+is dirty), and **&Quit** quits — asking to save the unsaved config changes first (the same
+Save/Discard/Cancel question, see the save model in [docs/gui.md](gui.md)). The **View** menu
+(2026-08-27) lists one checkable entry per
 top-level dock so a closed dock can be brought back without restarting.

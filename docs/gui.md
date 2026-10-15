@@ -291,6 +291,14 @@ real time.
 - A **●** in the status bar (and on the File > Save item) marks the project as having unsaved
   config changes. Switching or closing the project with a dirty working set asks
   Save/Discard/Cancel first.
+- **Leaving the program** asks that SAME Save/Discard/Cancel question, from the same guard (one
+  wording, one dialog): the title-bar X with the tray disabled, and **&Quit** — the File menu's
+  entry and the tray menu's — ask it BEFORE the "Put back and quit" of the exploded clusters.
+  Cancel of either question cancels the quit, and a Save that FAILED keeps the program open.
+  Two deliberate exceptions: the X with the tray ENABLED asks nothing, because it only hides the
+  window to the tray — the process lives on and no staged edit is lost; and a session shutdown
+  while the tray is enabled hides the window the same way, with no question at all (a known gap,
+  named here rather than fixed).
 - The per-dock Save buttons are GONE (2026-09-01, step 6): every dock auto-stages its record on the
   form's commit points — a field's blur/Enter, a combo pick, a checkbox toggle, an Add/Update/Remove
   row action, or a Trees structural edit. The Placer auto-stages too, with a **silent-skip**: an
