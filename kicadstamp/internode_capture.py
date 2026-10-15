@@ -46,8 +46,6 @@ from typing import Any, Iterable, Mapping
 from .config import (
     Config,
     NetTrace,
-    load_template_track,
-    load_template_via,
     net_trace_effective_name,
     net_trace_pad_signature,
 )
@@ -65,14 +63,13 @@ from .internode_copper import (
 from .internode_nodes import (
     AnchorSkip,
     RoleResolver,
-    _item_reference,
+    _items_from_unit,
     choose_anchor_pad,
     tree_node_keys,
 )
 from .net_trace_planner import resolve_live_anchor
 from .sheet_names import instance_label, resolve_sheet_path_names, sheet_in_path
 from .trees import Tree
-from .utils.units import MM
 
 logger = logging.getLogger(__name__)
 
@@ -265,55 +262,12 @@ def _pad_label(pad: PadRef, components: dict[str, _Component]) -> str:
 
 
 # ── record building ────────────────────────────────────────────────────────
-
-def _layer_str(layer) -> str:
-    from .utils.layers import layer_to_str
-    return layer_to_str(layer)
-
-
-def _items_from_unit(adapter, unit: CopperUnit, components: dict[str, _Component],
-                     anchor_point, anchor_pad: PadRef, net: str, *, named: bool,
-                     resolver=None, sheet=None, cluster=None):
-    """The unit's tracks/vias as stored items: local (along/across) offsets from
-    the anchor point — a RAW board-frame difference, exactly like
-    net_trace_extract — plus the net reference of each item."""
-    tracks = []
-    for i, t in enumerate(unit.tracks):
-        entry: dict[str, Any] = {
-            "start_along_mm": round((t.start.x - anchor_point.x) / MM, 4),
-            "start_across_mm": round((t.start.y - anchor_point.y) / MM, 4),
-            "end_along_mm": round((t.end.x - anchor_point.x) / MM, 4),
-            "end_across_mm": round((t.end.y - anchor_point.y) / MM, 4),
-            "width_mm": round(t.width_mm, 4),
-            "layer": _layer_str(t.layer),
-        }
-        pads = unit.track_pads[i] if i < len(unit.track_pads) else ()
-        ref = (_item_reference(pads, components, anchor_pad, resolver=resolver,
-                               sheet=sheet, cluster=cluster) if named else None)
-        if ref is not None:
-            entry["net_from_role"], entry["net_from_role_pad"] = ref
-        else:
-            entry["net"] = net
-        tracks.append(load_template_track(entry))
-
-    vias = []
-    for j, v in enumerate(unit.vias):
-        entry = {
-            "offset_along_mm": round((v.position.x - anchor_point.x) / MM, 4),
-            "offset_across_mm": round((v.position.y - anchor_point.y) / MM, 4),
-            "drill_mm": round(v.drill_mm, 4),
-            "diameter_mm": round(v.diameter_mm, 4),
-        }
-        pads = unit.via_pads[j] if j < len(unit.via_pads) else ()
-        ref = (_item_reference(pads, components, anchor_pad, resolver=resolver,
-                               sheet=sheet, cluster=cluster) if named else None)
-        if ref is not None:
-            entry["net_from_role"], entry["net_from_role_pad"] = ref
-        else:
-            entry["net"] = net
-        vias.append(load_template_via(entry))
-
-    return tracks, vias
+#
+# `_items_from_unit` (the unit's items as stored records, and the place
+# `_item_reference` is asked for a pair) lives in internode_nodes.py, NEXT TO that
+# rule: moved there by Д-1 of plan_2026_10_15_internode_power_copper_anchor — the
+# rule and its only builder must not drift apart, and this file is at the 800-line
+# limit (rule 45).
 
 
 def _same_geometry(old: NetTrace, new: NetTrace) -> bool:
@@ -430,6 +384,9 @@ def capture_unit(adapter, unit: CopperUnit, *,
         labels = [node_by_ref.get(p.ref) or _pad_label(p, components)
                   for p in unit.pads]
         name = generate_trace_name(net, labels, existing_names)
+        # The fall-back pair of an item that cannot name its own footprint: the
+        # CHOSEN anchor's, whose role the anchor check just resolved to that pad.
+        fallback_pair = (role, pad)
     else:
         try:
             anchor_fp, point = resolve_live_anchor(adapter, existing, sheet_names)
@@ -443,15 +400,21 @@ def capture_unit(adapter, unit: CopperUnit, *,
         pad = existing.anchor_pad
         rotation = round(anchor_fp.angle_deg, 4)
         name = existing.name
-        # An EXISTING record keeps its anchor (Т2-3): the item fall-back stays
-        # the unit's first pad, byte-for-byte what capture_unit always wrote.
-        anchor_pad = unit.pads[0]
+        # An EXISTING record keeps its anchor (Т2-3). Its item fall-back is the
+        # RECORD's own anchor pair — NOT the piece's first pad: under the record's
+        # context, pads[0]'s role can resolve to a THIRD component on ANOTHER net
+        # (Д-1 of plan_2026_10_15_internode_power_copper_anchor — the wrong-net
+        # write A2 forbids, back through the update path). A record that names no
+        # pad has no verified pair at all: `None` then leaves such an item on the
+        # record's LITERAL net (the unit's own net name) — never an invented pair.
+        fallback_pair = ((role, pad) if pad is not None else None)
 
     # The record's OWN read-back context (plan_2026_10_15): an item that cannot
-    # name its own footprint takes the ANCHOR's pair — see _item_reference.
-    tracks, vias = _items_from_unit(adapter, unit, components, point, anchor_pad,
-                                    net, named=named, resolver=resolver,
-                                    sheet=sheet, cluster=cluster)
+    # name its own footprint takes `fallback_pair` — see _item_reference.
+    tracks, vias = _items_from_unit(unit, components, point, net, named=named,
+                                    resolver=resolver, sheet=sheet,
+                                    cluster=cluster,
+                                    fallback_pair=fallback_pair)
     record = NetTrace(net=net, anchor_role=role, name=name,
                       anchor_sheet=sheet, anchor_cluster=cluster,
                       anchor_pad=pad, anchor_rotation_deg=rotation,

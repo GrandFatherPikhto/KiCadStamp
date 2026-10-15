@@ -140,7 +140,7 @@ def _check_copper_layer_value(value, where: str):
     # Imported HERE, not at module level: `utils.layers` pulls `kicadstamp.domain`,
     # whose __init__ imports the kipy-backed board mappers — that would put kipy
     # back on the CLI import path (guarded by tests/test_cli_lazy_imports.py).
-    # Same lazy-import discipline as internode_capture._layer_str.
+    # Same lazy-import discipline as internode_nodes._layer_str.
     from ..utils.layers import layer_from_str_strict
 
     try:

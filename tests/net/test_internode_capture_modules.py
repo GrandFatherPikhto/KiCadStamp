@@ -867,3 +867,123 @@ def test_an_element_whose_pair_lands_on_a_component_outside_the_piece_gets_the_a
     vias, tracks = plan_net_traces(board, [record], _THIRD_SHEET_NAMES)
     assert {t.net_name for t in tracks} == {"SIG"}
     assert {v.net_name for v in vias} == {"SIG"}
+
+
+# ── Д-1 of plan_2026_10_15_internode_power_copper_anchor: the UPDATE path ─────
+#
+# A tier-2 record's anchor is often NOT the piece's first pad (pads[0] failed the
+# anchor's own check). When such a record is REFRESHED, an element that cannot name
+# its own footprint must take the RECORD's anchor pair — because the piece's first
+# pad can resolve, under the record's context, to a THIRD component on ANOTHER net.
+# That is how A2's wrong-net write came back through the update path.
+
+def _tree_owning(cfg, tree_name, identity, *nodes):
+    """`cfg` (and the tree) with a `kind "net_trace"` node whose `ref` IS the record
+    identity — exactly what the dialog writes when a re-read adds a record, and the
+    only way a re-read can MATCH a stored record instead of adding a new one."""
+    tree = _Tree(tree_name, list(nodes) + [_node(identity, "net_trace")])
+    cfg = dataclasses.replace(
+        cfg, trees=[tree if t.name == tree_name else t for t in cfg.trees])
+    return cfg, tree
+
+
+def _second_tier_reread_board(via_mm):
+    """The Д-1 probe's board. A1 and A9 share the role R_DUP, so A1's candidacy is
+    poisoned BY THE ROLE (A9 sits far away, on another net, and never touches the
+    piece); C1 is the piece's other end (role R_C); B1 is the THIRD component —
+    role R_DUP in C1's cluster, on net OTHER. The via sits at `via_mm` on X, so the
+    two reads differ in GEOMETRY: the second one updates the stored record."""
+    fps = [_fp("A1", "R_DUP", "MCU", 10.0, 10.0, ("mcu",)),
+           _fp("A9", "R_DUP", "MCU", 10.0, 40.0, ("mcu",)),
+           _fp("B1", "R_DUP", "RAIL", 10.0, 70.0, ("power",)),
+           _fp("C1", "R_C", "RAIL", 50.0, 10.0, ("power",))]
+    pads = {"A1": [_pad("1", "SIG", 10.0, 10.0)],
+            "A9": [_pad("1", "OTHER2", 10.0, 40.0)],
+            "B1": [_pad("1", "OTHER", 10.0, 70.0)],
+            "C1": [_pad("1", "SIG", 50.0, 10.0)]}
+    cfg = Config(
+        entities=[Entity(name="e_mcu", cell="c", cluster="MCU", sheet="MCU"),
+                  Entity(name="e_rail", cell="c", cluster="RAIL", sheet="POWER")],
+        trees=[_Tree("e_power", [_node("e_rail", "placement")]),
+               _Tree("mcu", [_node("e_mcu", "placement"),
+                             _node("e_power", "module")])])
+    chain = [_track(10.0, 10.0, via_mm, 10.0, "SIG"), _via(via_mm, 10.0, "SIG"),
+             _track(via_mm, 10.0, 50.0, 10.0, "SIG")]
+    return fps, pads, cfg, chain
+
+
+def test_updating_a_second_tier_record_keeps_every_element_inside_the_piece():
+    """Д-1 — the update path. The first read anchors on C1 (tier 2: A1's own role
+    R_DUP is ambiguous on the board, so A1 is no candidate at all). The second read
+    moves the via, so the record is UPDATED — and the element at A1 must take the
+    record's anchor pair (R_C/1), never its own (R_DUP/1: under the record's
+    (POWER, RAIL) that narrows to B1, a third component on net OTHER). Every pair
+    resolves INSIDE {A1, C1} and apply gives ONE net.
+
+    Mutation "the existing record's fall-back = unit.pads[0]" turns the pair
+    assertion and the net assertion red."""
+    fps, pads, cfg, chain = _second_tier_reread_board(20.0)
+    board = _Board(fps, pads)
+    first = plan_internode_reread(board, cfg, _tree(cfg, "mcu"), area_items=chain,
+                                  area_footprints=fps,
+                                  sheet_names=_POWER_SHEET_NAMES)
+    assert len(first.added) == 1
+    record = first.added[0].record
+    assert (record.anchor_role, record.anchor_pad) == ("R_C", "1")
+    assert _record_pairs(record) == {("R_C", "1")}
+
+    applied, tree = _tree_owning(apply_reread_plan(cfg, first), "mcu",
+                                 first.added[0].identity,
+                                 _node("e_mcu", "placement"),
+                                 _node("e_power", "module"))
+    fps2, pads2, _cfg2, chain2 = _second_tier_reread_board(24.0)
+    board2 = _Board(fps2, pads2)
+    second = plan_internode_reread(board2, applied, tree, area_items=chain2,
+                                   area_footprints=fps2,
+                                   sheet_names=_POWER_SHEET_NAMES)
+    assert second.added == [] and len(second.updated) == 1
+    refreshed = second.updated[0][0].record
+    assert _record_pairs(refreshed) == {("R_C", "1")}
+    resolver = RoleResolver(board2, _POWER_SHEET_NAMES)
+    for role, _pad in _record_pairs(refreshed):
+        landed = {fp.ref for fp in resolver.narrowed(
+            role, refreshed.anchor_sheet, refreshed.anchor_cluster)}
+        assert landed and landed <= {"A1", "C1"}
+
+    refreshed = dataclasses.replace(refreshed, uuid="uuid-d1")
+    vias, tracks = plan_net_traces(board2, [refreshed], _POWER_SHEET_NAMES)
+    assert {t.net_name for t in tracks} == {"SIG"}
+    assert {v.net_name for v in vias} == {"SIG"}
+
+
+def test_updating_an_fpga_bridge_record_keeps_the_via_on_the_records_anchor_pair():
+    """Д-1, the older half — the same mechanism existed BEFORE tier 2: the FPGA<->
+    DAC bridge of Т3-3, re-read after its via MOVED. That record is anchored on the
+    DAC side while pads[0] is the FPGA end, so the mid-chain via (an element with no
+    pad of its own) must take the RECORD's anchor pair `AD_DAC/1`; it used to take
+    pads[0]'s role (FPGA), and only the FPGA role's uniqueness kept that harmless.
+    Mutation "the existing record's fall-back = unit.pads[0]" turns this red."""
+    fps, pads = _fpga_channel_fps(3)
+    cfg = _cfg_fpga(3)
+    board = _Board(fps, pads)
+    first = plan_internode_reread(board, cfg, _tree_fpga(cfg),
+                                  area_items=_bridge_fpga_to_dac(0),
+                                  area_footprints=fps, sheet_names=_SHEET_NAMES)
+    assert len(first.added) == 1
+    applied, tree = _tree_owning(apply_reread_plan(cfg, first), "fpga",
+                                 first.added[0].identity,
+                                 _node("e_fpga", "placement"),
+                                 _node("ch0_dac_buf", "module"),
+                                 _node("ch1_dac_buf", "module"),
+                                 _node("ch2_dac_buf", "module"))
+    moved = [_track(10.0, _Y[0], 64.0, _Y[0], "DB0"),
+             _via(64.0, _Y[0], "DB0"),
+             _track(64.0, _Y[0], _X_DAC, _Y[0], "DB0")]
+    second = plan_internode_reread(_Board(fps, pads), applied, tree,
+                                   area_items=moved, area_footprints=fps,
+                                   sheet_names=_SHEET_NAMES)
+    assert second.added == [] and len(second.updated) == 1
+    refreshed = second.updated[0][0].record
+    assert len(refreshed.vias) == 1
+    assert (refreshed.vias[0].net_from_role,
+            refreshed.vias[0].net_from_role_pad) == ("AD_DAC", "1")

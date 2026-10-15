@@ -33,6 +33,7 @@ An optional row-name prefix filter takes the rest of argv.
 from kicadstamp.diagnostics import deepseek_mutations_tree_reread_modules_2026_10_05 as rig
 
 NODES = rig.NODES
+CAPTURE = rig.CAPTURE
 G = rig.GUARDS
 
 ROWS = [
@@ -47,7 +48,7 @@ ROWS = [
     ("G2 tier 1 never checked", NODES,
      "    for pad, sheet in candidates:\n"
      "        # Tier 1: every item names its OWN pad — the 05.10 rule.\n"
-     "        if _items_resolve(unit, components, pad, resolver, sheet,\n"
+     "        if _items_resolve(unit, components, resolver, sheet,\n"
      "                          components[pad.ref].cluster):",
      "    for pad, sheet in candidates:\n"
      "        # Tier 1: every item names its OWN pad — the 05.10 rule.\n"
@@ -58,6 +59,11 @@ ROWS = [
      "                            or resolver.resolves_to(own[0], sheet, cluster, own[2])):",
      "    if own is not None and (resolver is None\n"
      "                            or len(resolver.narrowed(own[0], sheet, cluster)) == 1):  # MUTATION",
+     "die", G, ()),
+    ("G4 existing record's fall-back = pads[0]", CAPTURE,
+     "        fallback_pair = ((role, pad) if pad is not None else None)",
+     "        fallback_pair = (components[unit.pads[0].ref].role,\n"
+     "                         unit.pads[0].pad)  # MUTATION",
      "die", G, ()),
     ("K cosmetic comment (control)", NODES,
      "    candidates: list[tuple[PadRef, str | None]] = []",

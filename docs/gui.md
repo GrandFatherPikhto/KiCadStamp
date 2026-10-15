@@ -1477,7 +1477,12 @@ cannot name the footprint it touches is written with the ANCHOR's pair. That is 
 piece is ONE net — exactly how a mid-chain via has always been written — and at apply every element of the
 record resolves on that one net. Everything the first tier captured before is captured byte-for-byte
 identically, the mid-chain via's fallback and the "anchor on the side it redraws from" rule included; a
-piece whose roles resolve nowhere stays skipped with the same Log warning.
+piece whose roles resolve nowhere stays skipped with the same Log warning. A REFRESH of a record written
+by the second tier is bounded the same way: an element that cannot name its own footprint takes the
+RECORD's own anchor pair — never the piece's first pad, whose role may resolve, under the record's sheet
+and cluster, to a THIRD component on another net. An update can therefore never put the copper on a net
+the piece does not touch (a record naming no anchor pad at all keeps the piece's own net name instead:
+a pair that cannot be verified is not invented).
 
 **Tools → Trees → Copper** (2026-10-07, plan `plan_2026_10_05_tree_reread_modules`) gathers everything
 about the CURRENT tree's inter-node copper in one place: **Reread inter-node copper**, **Select inter-node
