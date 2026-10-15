@@ -18,6 +18,19 @@ BESIDES the copper itself (plan_2026_10_05_tree_reread_modules, Т1/Т2):
     DO narrow — while the unique FPGA end resolves by its own role is exactly
     what net_trace_planner._item_net_name documents.
 
+    TWO TIERS (plan_2026_10_15_internode_power_copper_anchor). Tier 1 is that
+    rule, element by element, and wins whenever it has an answer — the choice is
+    byte-for-byte the 05.10 one. Tier 2 runs ONLY when tier 1 found NO candidate
+    at all: the anchor must still resolve to ITSELF, while an element whose own
+    (role, pad) does NOT resolve to the footprint it touches is written with the
+    ANCHOR's pair. A piece between clusters that SHARE a role — the three
+    C_IN_BULK of a power body, +5V between them — has no tier-1 candidate at all
+    (every element at another cluster's C_IN_BULK narrows to the anchor's OWN
+    instance, never to the one it touches), so without tier 2 that copper could
+    never be re-read: the fact of 15.10. Tier 2 is legal because the whole piece
+    is ONE net — an element's reference only has to name SOME pad of the piece,
+    which is exactly how a mid-chain via has always been written.
+
 Qt-free and testable directly. The role check goes through the SAME cascade
 apply uses (clone_role_resolver -> role_narrowing._narrow_by_sheet_cluster_selection)
 with the SELECTION step disabled: a re-read often runs WITH a board selection,
@@ -243,47 +256,82 @@ class AnchorSkip:
     roles: tuple[str, ...] = ()
 
 
-def _item_reference(item_pads: tuple[PadRef, ...],
-                    components: Mapping[str, Any],
-                    anchor_pad: PadRef) -> tuple[str, str] | None:
-    """The (role, pad) reference of ONE item: the pad it touches itself, or —
-    when it touches none (a mid-chain via) — the unit's anchor pad. The whole
-    unit is ONE net, so ANY of its pads resolves to the same net at apply time;
-    that is why a pad-less item needs no literal net either (design §15: the
-    capture already knows the pads, it must not re-derive them).
+def _item_own_pad(item_pads: tuple[PadRef, ...],
+                  components: Mapping[str, Any]) -> tuple[str, str, str] | None:
+    """`(role, pad, ref)` of the FIRST pad-bearing component of ONE item — the pad
+    the item OWNS — or None when no pad of the item carries a Role (a mid-chain
+    via, a track whose ends are a joint, or a legacy component).
 
-    Shared by the record builder (`internode_capture._items_from_unit`) and the
-    anchor check below: the check must resolve EXACTLY the reference the builder
-    would write, so the two must be one rule, never two looks."""
+    THE one walk of an item's own pad, shared by the pair-builder
+    (`_item_reference`) and the anchor check (`_reference_resolves`): the two must
+    answer about the SAME pad, so "which pad does this item own" lives here ONCE
+    (the 05.10 acceptance's A6/A7: one rule, never two looks)."""
     for pad in item_pads:
         comp = components.get(pad.ref)
         if comp is not None and comp.role:
-            return (comp.role, pad.pad)
+            return comp.role, pad.pad, comp.ref
+    return None
+
+
+def _anchor_reference(components: Mapping[str, Any],
+                      anchor_pad: PadRef) -> tuple[str, str] | None:
+    """The anchor pad's own `(role, pad)` pair, or None when its component carries
+    no Role (the caller then keeps the literal net)."""
     comp = components.get(anchor_pad.ref)
     if comp is not None and comp.role:
-        return (comp.role, anchor_pad.pad)
+        return comp.role, anchor_pad.pad
     return None
+
+
+def _item_reference(item_pads: tuple[PadRef, ...],
+                    components: Mapping[str, Any],
+                    anchor_pad: PadRef, *,
+                    resolver: RoleResolver | None = None,
+                    sheet: str | None = None,
+                    cluster: str | None = None) -> tuple[str, str] | None:
+    """The (role, pad) reference of ONE item: the pad it touches ITSELF when that
+    pair resolves to its own footprint, else — and when it touches none (a
+    mid-chain via) — the unit's anchor pad. The whole unit is ONE net, so ANY of
+    its pads resolves to the same net at apply time; that is why a pad-less item
+    needs no literal net either (design §15: the capture already knows the pads,
+    it must not re-derive them).
+
+    Shared by the record builder (`internode_capture._items_from_unit`) and the
+    anchor check below: the check must resolve EXACTLY the reference the builder
+    would write, so the two must be one rule, never two looks.
+
+    `resolver` + `(sheet, cluster)` are the CONTEXT the record will be read back
+    with (the anchor's own node). Given them, an item's own pair is written only
+    when it resolves to the very footprint the item touches; otherwise the
+    ANCHOR's pair is written — the second tier of plan_2026_10_15 (see the module
+    docstring). Without a `resolver` the rule is the original one (own pair when
+    the item has a pad, the anchor's pair otherwise), which is what a record that
+    ALREADY exists keeps: a refresh must not re-letter the copper it stores."""
+    own = _item_own_pad(item_pads, components)
+    if own is not None and (resolver is None
+                            or resolver.resolves_to(own[0], sheet, cluster, own[2])):
+        return own[0], own[1]
+    return _anchor_reference(components, anchor_pad)
 
 
 def _reference_resolves(item_pads: tuple[PadRef, ...],
                         components: Mapping[str, Any], anchor_pad: PadRef,
                         resolver: RoleResolver, sheet: str | None,
                         cluster: str | None) -> bool:
-    """True when the reference `_item_reference` would write for ONE item
-    resolves, under the candidate anchor's `(sheet, cluster)`, to exactly the
-    footprint the item touches."""
-    for pad in item_pads:
-        comp = components.get(pad.ref)
-        if comp is not None and comp.role:
-            return resolver.resolves_to(comp.role, sheet, cluster, comp.ref)
-    # An item that touches no pad of its own (a mid-chain via) falls back to the
-    # ANCHOR pad's role — and that role is EXACTLY the one the caller resolved to
-    # this anchor under this very (sheet, cluster) before offering it as a
-    # candidate, so re-checking it here cannot fail. Kept as an explicit `True`
-    # rather than a second look (A7 of the 05.10 acceptance: the fallback check is
-    # equivalent to True; a "second look" is what mutation A6 replaces, and it is
-    # caught by the anchor being the CHOSEN pad, not `pads[0]`).
-    return True
+    """True when the reference `_item_reference` would write for ONE item is the
+    item's OWN pair — i.e. it resolves, under the candidate anchor's
+    `(sheet, cluster)`, to exactly the footprint the item touches."""
+    own = _item_own_pad(item_pads, components)
+    if own is None:
+        # An item that touches no pad of its own (a mid-chain via) is written
+        # with the ANCHOR pad's role — and that role is EXACTLY the one the
+        # caller resolved to this anchor under this very (sheet, cluster) before
+        # offering it as a candidate, so it cannot fail here. The `True` is the
+        # (А7 of the 05.10 acceptance) equivalence, not a second look; mutation
+        # А6 replaces it by the FIRST pad's role, and is caught by the anchor
+        # being the CHOSEN pad, not `pads[0]`.
+        return True
+    return resolver.resolves_to(own[0], sheet, cluster, own[2])
 
 
 def _items_resolve(unit: CopperUnit, components: Mapping[str, Any],
@@ -321,7 +369,16 @@ def choose_anchor_pad(unit: CopperUnit, components: Mapping[str, Any],
          already uses) whose node is known AND for which both the anchor role
          and every item's recorded role resolve to exactly the footprint the
          piece touches is the anchor. When `pads[0]` qualifies the result is
-         byte-for-byte what the old `pads[0]` rule produced."""
+         byte-for-byte what the old `pads[0]` rule produced.
+
+    TIER 2 (plan_2026_10_15_internode_power_copper_anchor) runs ONLY when tier 3
+    has no answer at all, and asks less of the ITEMS: the anchor must still
+    resolve to ITSELF (the same `resolver.resolves_to`, never weakened), while an
+    item that cannot name its own footprint is written with the anchor's pair
+    (`_item_reference`). The first candidate wins, exactly as above — so every
+    piece the tier-3 rule captured yesterday is captured identically today, and a
+    piece whose roles are shared across clusters (power copper) stops being
+    skipped forever."""
     if not unit.pads:
         return None, AnchorSkip("no_node")
     for pad in unit.pads:
@@ -331,6 +388,7 @@ def choose_anchor_pad(unit: CopperUnit, components: Mapping[str, Any],
     if not any(p.ref in node_sheet_by_ref for p in unit.pads):
         return None, AnchorSkip("no_node", pad=unit.pads[0])
     failed: list[str] = []
+    candidates: list[tuple[PadRef, str | None]] = []
     for pad in unit.pads:
         if pad.ref not in node_sheet_by_ref:
             # A pad whose tree node is unknown is simply not a candidate — it
@@ -338,12 +396,18 @@ def choose_anchor_pad(unit: CopperUnit, components: Mapping[str, Any],
             continue
         comp = components[pad.ref]
         sheet = node_sheet_by_ref[pad.ref]
-        cluster = comp.cluster
-        if not resolver.resolves_to(comp.role, sheet, cluster, comp.ref):
+        if not resolver.resolves_to(comp.role, sheet, comp.cluster, comp.ref):
             failed.append(comp.role)
             continue
-        if not _items_resolve(unit, components, pad, resolver, sheet, cluster):
-            failed.append(comp.role)
-            continue
-        return pad, None
+        candidates.append((pad, sheet))
+    for pad, sheet in candidates:
+        # Tier 1: every item names its OWN pad — the 05.10 rule.
+        if _items_resolve(unit, components, pad, resolver, sheet,
+                          components[pad.ref].cluster):
+            return pad, None
+    if candidates:
+        # Tier 2: only where tier 1 had nothing. The anchor's own role resolves
+        # (checked above); the items that cannot name their own footprint take
+        # its pair — the piece is one net.
+        return candidates[0][0], None
     return None, AnchorSkip("no_candidate", roles=tuple(failed))

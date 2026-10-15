@@ -272,7 +272,8 @@ def _layer_str(layer) -> str:
 
 
 def _items_from_unit(adapter, unit: CopperUnit, components: dict[str, _Component],
-                     anchor_point, anchor_pad: PadRef, net: str, *, named: bool):
+                     anchor_point, anchor_pad: PadRef, net: str, *, named: bool,
+                     resolver=None, sheet=None, cluster=None):
     """The unit's tracks/vias as stored items: local (along/across) offsets from
     the anchor point — a RAW board-frame difference, exactly like
     net_trace_extract — plus the net reference of each item."""
@@ -287,7 +288,8 @@ def _items_from_unit(adapter, unit: CopperUnit, components: dict[str, _Component
             "layer": _layer_str(t.layer),
         }
         pads = unit.track_pads[i] if i < len(unit.track_pads) else ()
-        ref = _item_reference(pads, components, anchor_pad) if named else None
+        ref = (_item_reference(pads, components, anchor_pad, resolver=resolver,
+                               sheet=sheet, cluster=cluster) if named else None)
         if ref is not None:
             entry["net_from_role"], entry["net_from_role_pad"] = ref
         else:
@@ -303,7 +305,8 @@ def _items_from_unit(adapter, unit: CopperUnit, components: dict[str, _Component
             "diameter_mm": round(v.diameter_mm, 4),
         }
         pads = unit.via_pads[j] if j < len(unit.via_pads) else ()
-        ref = _item_reference(pads, components, anchor_pad) if named else None
+        ref = (_item_reference(pads, components, anchor_pad, resolver=resolver,
+                               sheet=sheet, cluster=cluster) if named else None)
         if ref is not None:
             entry["net_from_role"], entry["net_from_role_pad"] = ref
         else:
@@ -444,8 +447,11 @@ def capture_unit(adapter, unit: CopperUnit, *,
         # the unit's first pad, byte-for-byte what capture_unit always wrote.
         anchor_pad = unit.pads[0]
 
+    # The record's OWN read-back context (plan_2026_10_15): an item that cannot
+    # name its own footprint takes the ANCHOR's pair — see _item_reference.
     tracks, vias = _items_from_unit(adapter, unit, components, point, anchor_pad,
-                                    net, named=named)
+                                    net, named=named, resolver=resolver,
+                                    sheet=sheet, cluster=cluster)
     record = NetTrace(net=net, anchor_role=role, name=name,
                       anchor_sheet=sheet, anchor_cluster=cluster,
                       anchor_pad=pad, anchor_rotation_deg=rotation,

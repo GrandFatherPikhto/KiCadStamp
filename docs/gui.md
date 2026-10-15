@@ -1466,6 +1466,19 @@ Cluster tag are two nodes), and a bridge's record anchors on the channel end —
 narrow the DAC role to one footprint — while the FPGA end resolves by its own unique role. A NEW piece
 with a Role-less pad or no node-bearing pad is skipped with a Log warning, never a fatal.
 
+**A piece between clusters that SHARE a role is captured by the anchor search's SECOND tier**
+(2026-10-15, plan `plan_2026_10_15_internode_power_copper_anchor`): power copper (+5V, +3V3_STM32) between
+clusters that every one of them calls `C_IN_BULK` — plus a pad of the tree's own node — used to be skipped
+forever, every candidate anchor failing with "no pad of the piece anchors the record", because an element
+at another cluster's `C_IN_BULK` narrows (under the anchor's own sheet and cluster) to the anchor's OWN
+capacitor, never to the one the element touches. The anchor search now has a second tier, and it runs ONLY
+where the first found no candidate at all: the anchor must still resolve to itself, while an element that
+cannot name the footprint it touches is written with the ANCHOR's pair. That is legal because the whole
+piece is ONE net — exactly how a mid-chain via has always been written — and at apply every element of the
+record resolves on that one net. Everything the first tier captured before is captured byte-for-byte
+identically, the mid-chain via's fallback and the "anchor on the side it redraws from" rule included; a
+piece whose roles resolve nowhere stays skipped with the same Log warning.
+
 **Tools → Trees → Copper** (2026-10-07, plan `plan_2026_10_05_tree_reread_modules`) gathers everything
 about the CURRENT tree's inter-node copper in one place: **Reread inter-node copper**, **Select inter-node
 copper**, **Select recorded inter-node copper** and **Whose copper is this?** (the last two moved here with

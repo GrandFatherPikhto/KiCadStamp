@@ -19,8 +19,8 @@ from types import SimpleNamespace
 
 from kicadstamp.config import Config, Entity
 from kicadstamp.domain.board import BoardLayer, Footprint, Track, Via
-from kicadstamp.internode_capture import plan_internode_reread
-from kicadstamp.internode_nodes import tree_node_keys
+from kicadstamp.internode_capture import apply_reread_plan, plan_internode_reread
+from kicadstamp.internode_nodes import RoleResolver, tree_node_keys
 from kicadstamp.net_trace_planner import plan_net_traces
 from kicadstamp.trees import Tree, TreeAnchor, TreeNode
 
@@ -537,13 +537,19 @@ def test_three_channels_of_one_tag_on_one_net_get_three_distinct_names():
                           "pa_en__dac_buf_channel_2__fpga"]
 
 
-def test_a_chain_between_two_channels_whose_roles_never_narrow_is_skipped():
-    """Т4-2 A2 — a chain between the DAC of Channel_0 and the DAC of Channel_1.
-    For EITHER candidate anchor the OTHER channel's AD_DAC role narrows to the
-    candidate's OWN channel, not to the piece it touches — so neither candidate
-    is acceptable and the piece is SKIPPED with a warning naming the role. With
-    the mutation "narrowed to one is enough" the first candidate is accepted
-    wrongly and the piece would be added."""
+def test_a_chain_between_two_channels_gets_a_record_whose_elements_all_stay_in_the_piece():
+    """Т4-2 A2, rewritten by meaning (plan_2026_10_15, decision «вариант B»): the
+    chain between the DAC of Channel_0 and the DAC of Channel_1 is no longer
+    SKIPPED. Tier 1 still refuses both candidates (the far element's AD_DAC
+    narrows to the candidate's OWN channel, not to the piece it touches), tier 2
+    takes the first candidate whose OWN role resolves and writes every element
+    that cannot name its own footprint with the ANCHOR's pair — the piece is ONE
+    net, exactly as a mid-chain via has always been written.
+
+    What A2 protected is kept as an INVARIANT: no element's recorded pair
+    resolves, under the record's own (sheet, cluster), to a footprint OUTSIDE the
+    piece (the wrong-net write the 05.10 check existed to prevent), and the
+    read->redraw loop closes: plan_net_traces resolves every element on XCH."""
     fps, pads = _fpga_channel_fps(2)
     cfg = _cfg_fpga(2)
     yi, yj, mid = _Y[0] + 5.0, _Y[1] + 5.0, (_Y[0] + _Y[1]) / 2 + 5.0
@@ -553,8 +559,24 @@ def test_a_chain_between_two_channels_whose_roles_never_narrow_is_skipped():
     plan = plan_internode_reread(
         _Board(fps, pads), cfg, _tree_fpga(cfg),
         area_items=chain, area_footprints=fps, sheet_names=_SHEET_NAMES)
-    assert plan.added == []
-    assert any("AD_DAC" in w for w in plan.warnings)
+    assert not any("no pad of the piece anchors" in w for w in plan.warnings)
+    assert len(plan.added) == 1
+    record = plan.added[0].record
+    assert record.anchor_sheet in {"Channel_0", "Channel_1"}
+
+    resolver = RoleResolver(_Board(fps, pads), _SHEET_NAMES)
+    piece_refs = {"IC2", "IC3"}
+    pairs = _record_pairs(record)
+    assert pairs                                  # every element names its chain
+    for role, _pad in pairs:
+        landed = {fp.ref for fp in resolver.narrowed(
+            role, record.anchor_sheet, record.anchor_cluster)}
+        assert landed and landed <= piece_refs
+
+    record = dataclasses.replace(record, uuid="uuid-xch")
+    vias, tracks = plan_net_traces(_Board(fps, pads), [record], _SHEET_NAMES)
+    assert {t.net_name for t in tracks} == {"XCH"}
+    assert {v.net_name for v in vias} == {"XCH"}
 
 
 def test_a_module_nodes_own_child_is_a_node_of_this_tree():
@@ -626,3 +648,222 @@ def test_the_role_narrowing_cascade_runs_once_per_question(monkeypatch):
     assert resolver.resolves_to("AD_DAC", "Channel_0", "DAC_BUF", "IC2")
     assert resolver.resolves_to("AD_DAC", "Channel_0", "DAC_BUF", "IC2")
     assert calls == [("AD_DAC", "Channel_0", "DAC_BUF")]
+
+
+# ── Т5 of plan_2026_10_15_internode_power_copper_anchor: the anchor's SECOND ──
+#    tier, and the piece it exists for
+#
+# Tier 1 (inside choose_anchor_pad) is byte-for-byte the 05.10 rule: a candidate
+# is the anchor only when EVERY element of the piece resolves, under the anchor's
+# (sheet, cluster), to the footprint it touches. Tier 2 runs ONLY when tier 1
+# found no candidate, and asks less: the anchor's OWN role must resolve to itself
+# (the same resolver.resolves_to — never weakened), while an element whose own
+# pair does NOT resolve to its own footprint is written with the ANCHOR's pair.
+# That is legal because the whole piece is ONE net: it is exactly what a
+# mid-chain via (an element with no pad of its own) has always been written as.
+#
+# THE piece this exists for (Denis, 15.10, log 16:33:03, tree `mcu`): +5V /
+# +3V3_STM32 copper between clusters that SHARE one role (C_IN_BULK at C1, C2, C3
+# in three clusters) plus the tree's own pad. Every candidate anchor of such a
+# piece fails tier 1 — an element at another cluster's C_IN_BULK narrows to the
+# anchor's OWN C_IN_BULK, never to the one it touches — so the piece was skipped
+# with "no pad of the piece anchors the record" and power copper between clusters
+# could never be re-read at all.
+
+def _record_pairs(record):
+    """{(role, pad)} of every element of a record — the references AS STORED."""
+    pairs = {(t.net_from_role, t.net_from_role_pad) for t in record.tracks}
+    pairs |= {(v.net_from_role, v.net_from_role_pad) for v in record.vias}
+    return pairs
+
+
+def _tree(cfg, name):
+    return next(t for t in cfg.trees if t.name == name)
+
+
+_POWER_SHEET_NAMES = {"mcu": "MCU", "power": "POWER"}
+_THIRD_SHEET_NAMES = {"mcu": "MCU", "power": "POWER"}
+
+
+def _power_rail_fps():
+    """The fact in miniature: BZ1 and R1 sit in the tree's OWN node (Cluster MCU,
+    sheet MCU); C1/C2/C3 carry the SAME role C_IN_BULK in three DIFFERENT clusters
+    of the embedded power body; F1 is a fourth cluster. Every pad of the piece is
+    on one net (+5V) — one copper island, one net."""
+    fps = [_fp("BZ1", "BUZZER_P5V", "MCU", 10.0, 10.0, ("mcu",)),
+           _fp("R1", "R_MCU_PULL", "MCU", 110.0, 10.0, ("mcu",)),
+           _fp("C1", "C_IN_BULK", "P5V_IN", 10.0, 110.0, ("power",)),
+           _fp("C2", "C_IN_BULK", "LDO_P3V3_MAX6675_01", 110.0, 110.0, ("power",)),
+           _fp("C3", "C_IN_BULK", "LDO_P3V3_MAX6675_02", 60.0, 10.0, ("power",)),
+           _fp("F1", "FUSE", "FUSE", 60.0, 110.0, ("power",))]
+    pads = {"BZ1": [_pad("1", "+5V", 10.0, 10.0)],
+            "R1": [_pad("1", "+5V", 110.0, 10.0)],
+            "C1": [_pad("1", "+5V", 10.0, 110.0)],
+            "C2": [_pad("1", "+5V", 110.0, 110.0)],
+            "C3": [_pad("1", "+5V", 60.0, 10.0)],
+            "F1": [_pad("2", "+5V", 60.0, 110.0)]}
+    return fps, pads
+
+
+def _power_star():
+    """A STAR: one central via with one track per pad, so the whole piece is ONE
+    unit of SIX pads — the fact's shape ("a piece of copper between pads BZ1.1,
+    C1.1, C2.1, C3.1, F1.2"). A serial pad->via->pad chain would be split INTO
+    one unit per span (a pad box in the middle of a joint terminates it), which
+    is a different, much smaller piece. Every branch ends in exactly one pad, so
+    every track owns exactly one reference."""
+    return [_track(10.0, 10.0, 60.0, 60.0, "+5V"),      # BZ1's branch
+            _track(110.0, 10.0, 60.0, 60.0, "+5V"),     # R1
+            _track(10.0, 110.0, 60.0, 60.0, "+5V"),     # C1
+            _track(110.0, 110.0, 60.0, 60.0, "+5V"),    # C2
+            _track(60.0, 10.0, 60.0, 60.0, "+5V"),      # C3
+            _track(60.0, 110.0, 60.0, 60.0, "+5V"),     # F1
+            _via(60.0, 60.0, "+5V")]
+
+
+def _cfg_power_embedded():
+    """The power body as a `kind "module"` node of tree `mcu` — the fact's shape,
+    and the reason BZ1 counts as the tree's OWN node while C1/C2/C3/F1 are
+    clusters of the embedded body (Т1 walks module content)."""
+    entities = [Entity(name="e_mcu", cell="c", cluster="MCU", sheet="MCU"),
+                Entity(name="e_p5v", cell="c", cluster="P5V_IN", sheet="POWER"),
+                Entity(name="e_ldo1", cell="c", cluster="LDO_P3V3_MAX6675_01",
+                       sheet="POWER"),
+                Entity(name="e_ldo2", cell="c", cluster="LDO_P3V3_MAX6675_02",
+                       sheet="POWER"),
+                Entity(name="e_fuse", cell="c", cluster="FUSE", sheet="POWER")]
+    power = _Tree("e_power", [_node("e_p5v", "placement"),
+                              _node("e_ldo1", "placement"),
+                              _node("e_ldo2", "placement"),
+                              _node("e_fuse", "placement")])
+    mcu = _Tree("mcu", [_node("e_mcu", "placement"),
+                        _node("e_power", "module")])
+    return Config(entities=entities, trees=[power, mcu])
+
+
+def test_copper_between_clusters_that_share_a_role_gets_a_record_from_the_second_tier():
+    """Т5-1 (the FACT) — +5V copper between the tree's own node and three clusters
+    that share the role C_IN_BULK. Tier 1 refuses every candidate (an element at
+    another cluster's C_IN_BULK narrows to the anchor's own), so before this plan
+    the piece was skipped with "no pad of the piece anchors the record" and power
+    copper between clusters never re-read. Tier 2 takes the first candidate whose
+    OWN role resolves to itself; every element that cannot name its own footprint
+    is written with the ANCHOR's pair and apply gives the whole piece one net.
+
+    Mutation "tier 2 removed" turns this red (no record, the skip warning is
+    back). Mutation "tier 2 writes the element's own pair whenever the narrowing
+    found ONE" turns the pair assertion red (C_IN_BULK / FUSE appear)."""
+    fps, pads = _power_rail_fps()
+    cfg = _cfg_power_embedded()
+    board = _Board(fps, pads)
+    plan = plan_internode_reread(board, cfg, _tree(cfg, "mcu"),
+                                 area_items=_power_star(), area_footprints=fps,
+                                 sheet_names=_POWER_SHEET_NAMES)
+    assert not any("no pad of the piece anchors" in w for w in plan.warnings)
+    assert len(plan.added) == 1
+    record = plan.added[0].record
+    assert (record.anchor_sheet, record.anchor_cluster) == ("MCU", "MCU")
+    assert (record.anchor_role, record.anchor_pad) in {("BUZZER_P5V", "1"),
+                                                       ("R_MCU_PULL", "1")}
+    # The THREE C_IN_BULK pads of the foreign clusters are never named: their own
+    # pair does not narrow to the pad the element touches. The tree's OWN pads
+    # (BZ1/R1, whose roles are unique on the board) and F1 (the only FUSE) keep
+    # their own pair — what the second tier writes for an element is decided per
+    # element, never for the piece.
+    assert _record_pairs(record) == {("BUZZER_P5V", "1"), ("R_MCU_PULL", "1"),
+                                     ("FUSE", "2")}
+
+    record = dataclasses.replace(record, uuid="uuid-p5v")
+    vias, tracks = plan_net_traces(board, [record], _POWER_SHEET_NAMES)
+    assert len(tracks) == 6 and len(vias) == 1
+    assert {t.net_name for t in tracks} == {"+5V"}
+    assert {v.net_name for v in vias} == {"+5V"}
+
+
+def test_rereading_the_same_power_copper_reports_unchanged_not_updated():
+    """Т5-1b — the second read of the SAME board, with the first read's record in
+    the config, reports "unchanged" and adds nothing: the record is matched by its
+    pad signature (never by the element references) and _same_geometry compares
+    geometry only, so the second tier's pairs are not rewritten on disk."""
+    fps, pads = _power_rail_fps()
+    cfg = _cfg_power_embedded()
+    board = _Board(fps, pads)
+    first = plan_internode_reread(board, cfg, _tree(cfg, "mcu"),
+                                  area_items=_power_star(), area_footprints=fps,
+                                  sheet_names=_POWER_SHEET_NAMES)
+    assert len(first.added) == 1
+    applied = apply_reread_plan(cfg, first)
+    # The tree owns its record through a `kind "net_trace"` node whose ref IS the
+    # record identity (tree_net_trace_identities) — exactly what the dialog writes
+    # after a re-read adds one.
+    tree = _Tree("mcu", [_node("e_mcu", "placement"),
+                         _node("e_power", "module"),
+                         _node(first.added[0].identity, "net_trace")])
+    applied = dataclasses.replace(
+        applied, trees=[tree if t.name == "mcu" else t for t in applied.trees])
+    second = plan_internode_reread(board, applied, tree,
+                                   area_items=_power_star(), area_footprints=fps,
+                                   sheet_names=_POWER_SHEET_NAMES)
+    assert second.added == [] and second.updated == []
+    assert len(second.unchanged) == 1
+
+
+def _third_component_board():
+    """A piece between A1 (the tree's own node MCU) and C1 (cluster RAIL), with a
+    THIRD component B1: the SAME role as C1, sitting in A1's cluster, on ANOTHER
+    net. Under the anchor's own context (MCU, MCU) the role R_C of the element at
+    C1 narrows to B1 — a component OUTSIDE the piece, on net OTHER — so writing
+    that element its OWN pair would take the net from a pad the piece never
+    touches: the wrong-net write the 05.10 check existed to prevent. A2 (cluster
+    RAIL, role R_A) exists so the OTHER candidate fails tier 1 as well — without
+    it the piece would anchor on C1 inside tier 1 and never reach tier 2."""
+    fps = [_fp("A1", "R_A", "MCU", 10.0, 10.0, ("mcu",)),
+           _fp("B1", "R_C", "MCU", 30.0, 30.0, ("mcu",)),
+           _fp("C1", "R_C", "RAIL", 50.0, 10.0, ("power",)),
+           _fp("A2", "R_A", "RAIL", 70.0, 30.0, ("power",))]
+    pads = {"A1": [_pad("1", "SIG", 10.0, 10.0)],
+            "B1": [_pad("1", "OTHER", 30.0, 30.0)],
+            "C1": [_pad("1", "SIG", 50.0, 10.0)],
+            "A2": [_pad("1", "OTHER", 70.0, 30.0)]}
+    cfg = Config(
+        entities=[Entity(name="e_a", cell="c", cluster="MCU", sheet="MCU"),
+                  Entity(name="e_c", cell="c", cluster="RAIL", sheet="POWER")],
+        trees=[_Tree("t", [_node("e_a", "placement"),
+                           _node("e_c", "placement")])])
+    chain = [_track(10.0, 10.0, 20.0, 10.0, "SIG"), _via(20.0, 10.0, "SIG"),
+             _track(20.0, 10.0, 50.0, 10.0, "SIG")]
+    return fps, pads, cfg, chain
+
+
+def test_an_element_whose_pair_lands_on_a_component_outside_the_piece_gets_the_anchors_pair():
+    """Т5-2 — A2's danger, kept and made visible: the component the narrowing
+    finds may be a THIRD one, neither the anchor nor anything the piece touches.
+    Every element of the record must therefore carry the ANCHOR's pair, so every
+    element resolves INSIDE the piece (control first: the wrong pair really does
+    land on B1, whose pad is on another net — rule 39). Mutation "the narrowing
+    found one candidate, that is enough" (tier 2 writes the own pair) turns the
+    invariant and the net assertion red — without a third component the mutation
+    is invisible, because in A2 the foreign component IS the anchor."""
+    fps, pads, cfg, chain = _third_component_board()
+    board = _Board(fps, pads)
+    resolver = RoleResolver(board, _THIRD_SHEET_NAMES)
+    assert [fp.ref for fp in resolver.narrowed("R_C", "MCU", "MCU")] == ["B1"]
+    assert [fp.ref for fp in resolver.narrowed("R_A", "POWER", "RAIL")] == ["A2"]
+
+    plan = plan_internode_reread(board, cfg, cfg.trees[0], area_items=chain,
+                                 area_footprints=fps,
+                                 sheet_names=_THIRD_SHEET_NAMES)
+    assert len(plan.added) == 1
+    record = plan.added[0].record
+    piece_refs = {"A1", "C1"}
+    pairs = _record_pairs(record)
+    assert pairs
+    for role, _pad in pairs:
+        landed = {fp.ref for fp in resolver.narrowed(
+            role, record.anchor_sheet, record.anchor_cluster)}
+        assert landed and landed <= piece_refs
+
+    record = dataclasses.replace(record, uuid="uuid-third")
+    vias, tracks = plan_net_traces(board, [record], _THIRD_SHEET_NAMES)
+    assert {t.net_name for t in tracks} == {"SIG"}
+    assert {v.net_name for v in vias} == {"SIG"}
