@@ -24,9 +24,10 @@ Design notes:
   stat() per read is cheap (~microseconds) compared to the tens of ms a
   missed parse costs.
 - Returns the SHARED cached object (no defensive copy) — callers must treat
-  it as read-only; the write-path helpers in config_writer (and the two dock
-  mutators in gui/docks/entity_delete.py + gui/docks/rename.py) deepcopy
-  before mutating. On a MISS the freshly computed object is returned
+  it as read-only. A caller that must EDIT the dict takes its own copy: the
+  ONE place is config_writer._read_data (the reader every writer goes
+  through), which deepcopies (2026-10-15 — the hand-written deepcopies in the
+  writer callers are gone). On a MISS the freshly computed object is returned
   (isolated from the stored copy), so a miss caller may mutate freely.
 - Guarded by a single module lock held for the whole check-or-populate body
   (including loader(path) itself), so two threads racing on the same file
@@ -118,11 +119,13 @@ def cached_file_read(path: Path, loader: Callable[[Path], T]) -> T:
     next read — see invalidate_path() below for why mtime alone isn't
     enough, and why every writer must call it.
 
-    Returns the SHARED cached object (no defensive copy) — callers must not
-    mutate it; the write-path mutators (config_writer's merge_write/
-    add_list_entry/upsert_list_entry/add_include/disable_include and the
-    entity_delete/rename dock helpers) deepcopy before mutating. The miss
-    case returns the freshly computed object, isolated from the stored copy."""
+    Returns the SHARED cached object (no defensive copy) — callers must NOT
+    mutate it. Dict-typed results reach the writers through
+    config_writer._read_data, which deepcopies — that is the ONE copy
+    (2026-10-15); a writer that mutated this object instead used to corrupt
+    the cache, and the format-3 stamp then read the corruption as "the
+    previous version of the file". The miss case returns the freshly computed
+    object, isolated from the stored copy."""
     resolved = str(path.resolve())
     # Staged mode (GUI edit-in-memory, 2026-09-01, plan project_save_model): a
     # dirty file's content lives in the working set, not on disk — return it

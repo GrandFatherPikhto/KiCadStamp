@@ -37,7 +37,6 @@ without special-casing that shape here. find_references() runs the exact
 same walk over an in-memory copy (no write) to build the confirmation
 dialog's report; delete_entry() runs it for real.
 """
-import copy
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
@@ -175,7 +174,7 @@ def find_references(files: List[Path], field_name: str, target: str) -> Dict[Pat
     asking whether to cascade at all."""
     report: Dict[Path, List[str]] = {}
     for path in files:
-        data = copy.deepcopy(read_data(path))
+        data = read_data(path)
         found: List[str] = []
         _prune_file_data(data, field_name, target, on_match=lambda e: found.append(_describe_entry(e)))
         if found:
@@ -227,7 +226,7 @@ def delete_entry(root_path: Optional[Path], entry_path: Path, section: str, name
 
     def _plan(path: Path) -> Dict[str, Any]:
         if path not in plans:
-            plans[path] = copy.deepcopy(read_data(path))
+            plans[path] = read_data(path)
             changed[path] = False
         return plans[path]
 

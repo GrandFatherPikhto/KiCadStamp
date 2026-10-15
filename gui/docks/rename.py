@@ -38,7 +38,6 @@ Operates on the SAME raw read-merge-write primitives as gui/docks/
 _common.py (read_data/write_data) — plain PyYAML round-trip, no comment
 preservation, consistent with every other write path in this GUI.
 """
-import copy
 
 from pathlib import Path
 from typing import List, Optional
@@ -293,12 +292,10 @@ def rename_dict_entry(path: Path, section: str, old_name: str, new_name: str) ->
     exists in THIS file's section (name_exists_in_graph above is the
     graph-wide check callers should run first — this is a local backstop,
     not a substitute for it)."""
-    # deepcopy before mutating: read_data() returns the SHARED cached object
-    # (kicadstamp/utils/file_cache.py no longer deepcopies on a cache hit), so
-    # an in-place mutation would corrupt the in-process cache if write_data()
-    # failed after mutating but before persisting (see rename_references()
-    # below — it already deepcopies for the same reason).
-    data = copy.deepcopy(read_data(path))
+    # No local deepcopy: read_data() hands out the caller's OWN dict
+    # (config_writer._read_data copies), so mutating this one can never reach
+    # the in-process file cache.
+    data = read_data(path)
     section_dict = data.get(section) or {}
     if old_name not in section_dict:
         raise OSError(_("{name!r} not found in {section}: of {path}")
@@ -322,9 +319,8 @@ def rename_list_entry(path: Path, section: str, old_name: str, new_name: str) ->
     section's `RENAME_TARGET_FIELD` is set/created on it (`name:` today). A
     `net_traces:` entry matched only by its fallback net gains an explicit
     `name:` here — distinct from its fallback."""
-    # deepcopy before mutating — same shared-cache hazard as rename_dict_entry
-    # (see there for the rationale).
-    data = copy.deepcopy(read_data(path))
+    # No local deepcopy — same reason as rename_dict_entry (read_data copies).
+    data = read_data(path)
     items = data.get(section) or []
 
     match = None
@@ -376,7 +372,7 @@ def rename_references(files: List[Path], field_name: str, old_value: str, new_va
     returns those paths for a summary message."""
     changed_files = []
     for path in files:
-        data = copy.deepcopy(read_data(path))
+        data = read_data(path)
         if _rename_field_recursive(data, field_name, old_value, new_value):
             write_data(path, data)
             changed_files.append(path)

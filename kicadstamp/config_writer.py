@@ -92,7 +92,23 @@ def _read_data(path: Path) -> dict:
     .sexp -> s-expr, anything else (including legacy .yaml/.yml) -> fatal
     OSError (ValidationError as __cause__) — .yaml/.yml with the dedicated
     "convert with sexp_config_convert.py" message, any other extension with
-    the unrecognized-extension message."""
+    the unrecognized-extension message.
+
+    THE RETURNED DICT IS THE CALLER'S OWN (2026-10-15,
+    plan_2026_10_15_reread_copper_uuid_and_selection_any): a deepcopy is
+    returned, so a caller may mutate it freely. cached_file_read hands out the
+    SHARED cached object on a cache hit (its own documented contract), and the
+    writers used to edit THAT object in place. The format-3 writer stamp reads
+    the same cache as "the previous version of this file"
+    (config/format3.py::_load_previous_file), so it saw the caller's edit and
+    minted a NEW uuid for an in-place `net_traces` record — every tree node
+    referencing the old uuid then dangled and the whole write was refused
+    ("format 3: cannot write — N reference(s) point at a uuid that is missing
+    from the graph", measured: kicadstamp/diagnostics/
+    deepseek_probe_reread_uuid_cache_2026_10_15.py, warm cache needed). The copy
+    lives HERE, at the ONE reader the writers use, so no caller has to remember
+    it (rename.py / entity_delete.py / config_writer's own upserts used to
+    deepcopy by hand; those copies are gone — the rule is stated once)."""
     # Staged mode (2026-09-01, plan project_save_model): a dirty file's content
     # lives in the working set, not on disk — this also covers to-be-created
     # (__new__) files that don't exist yet.
@@ -147,7 +163,10 @@ def _read_data(path: Path) -> dict:
             raise OSError(_("{path} is not valid {kind}: {error}").format(
                 path=path, kind=kind, error=e)) from e
 
-    return cached_file_read(path, _uncached_read)
+    # The writer-side contract above: never hand out the cache's own object.
+    # cached_file_read does exactly that on a HIT, and this dict routinely IS
+    # that object — hence the copy here and not at the call sites.
+    return copy.deepcopy(cached_file_read(path, _uncached_read))
 
 
 def set_reference(holder: dict, field: str, name) -> None:
@@ -387,7 +406,7 @@ def merge_write(path: Path, new_data: dict, section: Optional[str] = None) -> bo
     include:, ...) is left untouched.
     Returns whether the specific key being written already existed.
     """
-    existing = copy.deepcopy(_read_data(path))
+    existing = _read_data(path)
     if section is None:
         key = next(iter(new_data))
         overwritten = key in existing
@@ -410,7 +429,7 @@ def add_list_entry(path: Path, section: str, entry: str) -> bool:
     merge_write(), but for a list section (include:) instead of a dict
     one — every other key in the file is left untouched. Returns whether
     an entry was actually added."""
-    existing = copy.deepcopy(_read_data(path))
+    existing = _read_data(path)
     items = existing.setdefault(section, [])
     if not isinstance(items, list):
         raise OSError(_("{section}: in {path} is not a list — refusing to touch it")
@@ -470,7 +489,7 @@ def upsert_list_entry(path: Path, section: str, entry: Dict[str, Any], key: str 
     own. Refusing beats overwriting a foreign record — and beats a
     duplicate-uuid/duplicate-name fatal from the writer stamp."""
     identity = key_fn if key_fn is not None else (lambda e: e.get(key))
-    existing = copy.deepcopy(_read_data(path))
+    existing = _read_data(path)
     items = existing.setdefault(section, [])
     if not isinstance(items, list):
         raise OSError(_("{section}: in {path} is not a list — refusing to touch it")
@@ -583,7 +602,7 @@ def upsert_entity_placement(path: Path, entity_name: str, origin: Dict[str, Any]
 
     Returns whether anything changed. Raises OSError on a non-list trees:
     section or a write failure (same contract as upsert_entity)."""
-    data = copy.deepcopy(_read_data(path))
+    data = _read_data(path)
     trees = data.setdefault("trees", [])
     if not isinstance(trees, list):
         raise OSError(_("trees: in {path} is not a list — refusing to touch it")
@@ -702,7 +721,7 @@ def append_tree_child_node(path: Path, tree_name: str,
     is not a list, the named tree does not exist in `path`, or parent_ref is
     set but no node with that ref exists anywhere in the tree (a missing
     tree/parent is a hard error — never a silent find-or-create)."""
-    data = copy.deepcopy(_read_data(path))
+    data = _read_data(path)
     trees = data.setdefault("trees", [])
     if not isinstance(trees, list):
         raise OSError(_("trees: in {path} is not a list — refusing to touch it")
@@ -775,7 +794,7 @@ def upsert_tree_instances(path: Path, template: str, rows: list) -> bool:
     from a row is the same "not set" (its blank-Cluster contract is exactly
     this). A row naming a declaration that does not exist yet is created fresh
     from the row, exactly as before."""
-    existing = copy.deepcopy(_read_data(path))
+    existing = _read_data(path)
     before_list = list(existing.get("tree_instances") or [])
     # Index THIS template's existing declarations by name so each row can be
     # overlaid on its own declaration; setdefault keeps the first declaration
@@ -847,7 +866,7 @@ def add_include(path: Path, entry: str) -> bool:
     previously removed via disable_include() below should undo that, not
     pile up a second entry for the same path. Returns whether anything
     changed (added or re-enabled)."""
-    existing = copy.deepcopy(_read_data(path))
+    existing = _read_data(path)
     items = existing.setdefault("include", [])
     if not isinstance(items, list):
         raise OSError(_("include: in {path} is not a list — refusing to touch it").format(path=path))
@@ -874,7 +893,7 @@ def disable_include(path: Path, target: Path) -> bool:
     plain string entry into the {path:, enabled: false} mapping form
     add_include()/config/includes.py's _parse_include_entry already
     understand. Returns whether an entry was found and changed."""
-    existing = copy.deepcopy(_read_data(path))
+    existing = _read_data(path)
     items = existing.get("include") or []
     base_dir = path.parent
     for i, existing_entry in enumerate(items):
