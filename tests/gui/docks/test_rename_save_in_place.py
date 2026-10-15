@@ -119,6 +119,33 @@ def test_net_trace_rename_saves_in_place(main_window, tmp_path):
     assert [r["uuid"] for r in records] == ["U-NT"]
 
 
+def test_a_legacy_record_saved_from_the_form_gets_its_name(main_window, tmp_path):
+    """2026-10-15, plan_2026_10_15_reread_copper_uuid_and_selection_any — the
+    same rule the extract path follows ("the SAVER gives the name a format-3 file
+    requires"). A LEGACY record (no `name:` in the file; its identity IS its
+    net:) is saved with the name written explicitly, equal to its net, so the
+    identity does not move and the profile keeps LOADING. Before this the save
+    wrote a nameless format-3 record and the next load refused the file
+    ("format 3: record without a name")."""
+    from kicadstamp.config import load_config
+    from gui.docks.net_trace import NetTraceDock
+
+    target = tmp_path / "root.sexp"
+    _write(target, {"net_traces": [
+        {"net": "CL", "uuid": "U-NT", "anchor_role": "FPGA"},
+    ]})
+    dock = NetTraceDock(main_window)
+    dock.set_root_path(target)
+    dock.load_entry({"net": "CL", "uuid": "U-NT", "anchor_role": "FPGA"})
+
+    dock._on_save()
+
+    records = _section(target, "net_traces")
+    assert [r["name"] for r in records] == ["CL"]
+    assert [r["uuid"] for r in records] == ["U-NT"]
+    load_config(str(target))
+
+
 # ── clone_placements ───────────────────────────────────────────────────────
 
 def _clonable_project(tmp_path):

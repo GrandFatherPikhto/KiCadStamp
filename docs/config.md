@@ -1328,6 +1328,17 @@ Extraction is a CLI command, not the mouse-selection `extract`:
 `kicadstamp_cli.py extract-net --net DAC_DB0 --anchor-role FPGA [--anchor-pad 42]
 --output <config.sexp>` appends/replaces the record under `net_traces:`.
 
+A re-extract of a net whose record already sits in a FORMAT-3 file updates THAT
+record in place — its `name:` and its uuid are kept, so every tree node
+referencing it still resolves. A format-3 record must carry a name, and this
+command builds its record from the board alone, so the name is given at SAVE
+time: the single record of that net lends its own name, and a net with no record
+yet gets one generated exactly like the tree capture's (`generate_trace_name`,
+which without node labels is the net's own leaf). When SEVERAL records of that
+net exist (two bridges of one net) nothing is written and the Log asks which one
+to update — guessing is not this command's business. Nothing is ever written to a
+format-3 file that would stop loading.
+
 **The tree flows write these records too**, and they use the strict rule:
 
 * **Tools → Trees → Extract tree…** offers the selected copper BETWEEN PADS

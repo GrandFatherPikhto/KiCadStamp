@@ -40,6 +40,11 @@ GUARDS_1 = "tests/config/test_writer_reads_a_private_dict.py"
 GUARDS_2 = ("tests/config/test_form_identity.py "
             "tests/config/test_net_trace_write_keeps_uuid.py "
             "tests/gui/docks/test_reread_net_trace_identity.py")
+GUARDS_3 = ("tests/net/test_net_trace_write_names_the_record.py "
+            "tests/gui/docks/test_rename_save_in_place.py")
+F3 = "kicadstamp/config/format3.py"
+NTE = "kicadstamp/net_trace_extract.py"
+NTDOCK = "gui/docks/net_trace.py"
 
 # Each row: name, file, OLD, NEW, expected-to-redden test ids (substring) or None.
 MUTATIONS = [
@@ -81,6 +86,37 @@ MUTATIONS = [
       "test_replace_entry_replaces_in_place_keeping_the_stored_identity",
       "test_the_writer_itself_carries_the_uuid_without_the_stamp",
       "test_the_reread_carries_the_uuid_without_the_stamp"]),
+
+    # (3) THE NAME — layer 1 (the stamp's П2 backstop) and layer 2 (the writer
+    # gives the name). Guards: tests/net/test_net_trace_write_names_the_record.py
+    # С17–С22.
+    ("М4 the stamp stops guarding П2", F3,
+     "    for section, name, _uuid, index in records:\n"
+     "        check_record_has_a_name(section, name, index, path)",
+     "    for section, name, _uuid, index in records:\n"
+     "        if False:  # MUTATION: the stamp writes what the loader refuses\n"
+     "            check_record_has_a_name(section, name, index, path)",
+     # ONLY the direct-write cell. The writer cell (С17) stays green on purpose:
+     # layer 2 names the record BEFORE the stamp sees it, so that cell guards the
+     # naming, not the backstop — measured, and the reason the two cells exist.
+     ["test_the_stamp_refuses_an_unnamed_record_and_leaves_the_file_alone"]),
+    ("М5 the writer stops naming a nameless record", NTE,
+     "    nt = _name_for_format3(nt, net_traces)",
+     "    nt = nt  # MUTATION: no name is given",
+     ["test_a_nameless_capture_of_a_new_net_is_written_named",
+      "test_a_nameless_capture_replaces_the_one_record_of_that_net",
+      "test_a_name_minted_by_the_converter_counts_as_the_records_name"]),
+    ("М6 the net search is gone (every capture mints a fresh name)", NTE,
+     "    same_net = _entries_with_net({\"net_traces\": net_traces}, nt.net)",
+     "    same_net = []  # MUTATION: the net's own record is not found",
+     ["test_a_nameless_capture_replaces_the_one_record_of_that_net",
+      "test_a_name_minted_by_the_converter_counts_as_the_records_name",
+      "test_several_records_of_the_net_are_refused_and_the_file_is_untouched"]),
+    # The THIRD saver found by an existing guard: the Net-trace dock's form Save.
+    ("М7 the form Save stops naming a legacy record", NTDOCK,
+     '                entry["name"] = entry["net"]',
+     '                pass  # MUTATION: the legacy record stays nameless',
+     ["test_a_legacy_record_saved_from_the_form_gets_its_name"]),
 ]
 
 
@@ -92,10 +128,14 @@ def _sweep_pycache() -> None:
 def _run(guards: str, *extra: str) -> tuple[int, str]:
     env = dict(os.environ, PYTHONDONTWRITEBYTECODE="1")
     _sweep_pycache()
-    proc = subprocess.run(
-        [sys.executable, "-m", "pytest", *guards.split(), "-q", "-rf",
-         "-p", "no:cacheprovider", *extra],
-        cwd=str(ROOT), env=env, capture_output=True, text=True)
+    try:
+        proc = subprocess.run(
+            [sys.executable, "-m", "pytest", *guards.split(), "-q", "-rf",
+             "-p", "no:cacheprovider", *extra],
+            cwd=str(ROOT), env=env, capture_output=True, text=True, timeout=300)
+    except subprocess.TimeoutExpired:
+        # A GUI cell that hangs must be reported, not waited for (rule 24).
+        return -1, "TIMEOUT: the guard run did not finish within 300 s"
     return proc.returncode, proc.stdout + proc.stderr
 
 
@@ -111,7 +151,7 @@ def main() -> int:
     # One run for the whole plan: every mutation is checked against the UNION of
     # the guards, so a row cannot look green just because its own guard was not
     # in the run (that is how М1/М2 reported MISS when given only GUARDS_2).
-    guards = os.environ.get("GUARDS", GUARDS_1 + " " + GUARDS_2)
+    guards = os.environ.get("GUARDS", GUARDS_1 + " " + GUARDS_2 + " " + GUARDS_3)
     print(f"guards: {guards}")
     code, out = _run(guards)
     if code != 0:

@@ -10701,6 +10701,12 @@ msgstr "Трассировка сети {net!r} добавлена в net_traces
 msgid "Net trace {net!r} replaced in net_traces: of {output}"
 msgstr "Трассировка сети {net!r} заменена в net_traces: файла {output}"
 
+msgid "cannot save the copper of net {net!r}: net_traces holds {count} records of that net ({names}) — say which one to update"
+msgstr "нельзя сохранить медь сети {net!r}: в net_traces {count} записей этой сети ({names}) — укажи, какую обновить"
+
+msgid "Naming the copper of net {net!r} {name!r} for format 3"
+msgstr "Имя для меди сети {net!r} выдано: {name!r} (формат 3)"
+
 #: kicadstamp/net_trace_planner.py:109
 #, python-brace-format
 msgid "net_traces track has invalid copper layer {layer!r}"

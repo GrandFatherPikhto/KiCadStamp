@@ -40,6 +40,7 @@ from kicadstamp.config import Config, RuntimeContext, load_config, load_net_trac
 from kicadstamp.config.form_identity import identify
 from kicadstamp.exceptions import PlacerError, ValidationError
 from kicadstamp.i18n import _
+from kicadstamp.config.format_version import current_format
 from kicadstamp.net_trace_extract import (extract_net_trace, net_trace_to_dict,
                                           read_net_trace_flags, write_net_trace)
 
@@ -64,6 +65,20 @@ def _net_trace_identity(entry: Dict[str, Any]) -> Any:
     legal — they are two bridges of that net — so keying by net: would make
     the second one overwrite the first."""
     return entry.get("name") or entry.get("net")
+
+
+def _replaces(saved: Dict[str, Any], entry: Dict[str, Any]) -> bool:
+    """True when the SAVED record is the one `upsert_list_entry` will replace
+    with `entry` — the same priority it matches by (2026-10-07): the uuid when
+    the entry carries one, else the section identity.
+
+    Matching by net: ALONE missed the record being RENAMED from the form (the net
+    field is exactly what the user changed), so the name and the machine-written
+    geometry were not carried across and a rename silently wrote a nameless
+    record (measured 2026-10-15 by this dock's own rename cell)."""
+    if entry.get("uuid"):
+        return saved.get("uuid") == entry["uuid"]
+    return _net_trace_identity(saved) == _net_trace_identity(entry)
 
 
 class NetTraceDock(QWidget):
@@ -504,22 +519,35 @@ class NetTraceDock(QWidget):
         except OSError:
             existing = {}
         for saved in existing.get("net_traces") or []:
-            if isinstance(saved, dict) and saved.get("net") == entry["net"]:
-                # У3.5 finding: a format-3 record MUST carry a name (Р43) — the
-                # form has no name field, so a save of an already-named record
-                # would REPLACE it with a nameless one and the profile would stop
-                # loading. Carry the saved record's name across exactly like the
-                # machine-written geometry below (the identity is unchanged: it
-                # is name: else net:, the same rule on both formats).
-                if "name" in saved:
-                    entry["name"] = saved["name"]
-                if "tracks" in saved:
-                    entry["tracks"] = saved["tracks"]
-                if "vias" in saved:
-                    entry["vias"] = saved["vias"]
-                if "anchor_rotation_deg" in saved:
-                    entry["anchor_rotation_deg"] = saved["anchor_rotation_deg"]
-                break
+            if not isinstance(saved, dict) or not _replaces(saved, entry):
+                continue
+            # У3.5 finding: a format-3 record MUST carry a name (Р43) — the form
+            # has no name field, so a save of an already-named record would
+            # REPLACE it with a nameless one and the profile would stop loading.
+            # Carry the saved record's name across exactly like the
+            # machine-written geometry below (the identity is unchanged: it is
+            # name: else net:, the same rule on both formats).
+            if "name" in saved:
+                entry["name"] = saved["name"]
+            elif current_format() >= 3:
+                # A LEGACY record — its identity IS its net:, the file carries no
+                # name: — saved from this form. 2026-10-15, the same rule the
+                # extract path follows ("the SAVER gives the name a format-3 file
+                # requires"): write the name explicitly, equal to the net:, which
+                # is exactly the fallback the loader resolves, so the identity does
+                # not move. The gate matters twice: in format 2 this key must never
+                # appear "out of nowhere" (NetTrace's own docstring — existing
+                # profiles stay untouched on disk), and a nameless record written
+                # to format 3 is a profile that stops loading (the writer stamp's
+                # П2 refusal is the backstop).
+                entry["name"] = entry["net"]
+            if "tracks" in saved:
+                entry["tracks"] = saved["tracks"]
+            if "vias" in saved:
+                entry["vias"] = saved["vias"]
+            if "anchor_rotation_deg" in saved:
+                entry["anchor_rotation_deg"] = saved["anchor_rotation_deg"]
+            break
         try:
             overwritten = upsert_list_entry(self._path, "net_traces", entry,
                                             key_fn=_net_trace_identity)

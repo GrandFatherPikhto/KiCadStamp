@@ -22,6 +22,7 @@ capture pattern tree extraction uses (plan_2026_09_08_net_trace_rotation_aware.
 md). Pre-fix records (anchor_rotation_deg=None) keep rotation_deg=0.0 exactly
 as before — 100% back-compat.
 """
+import dataclasses
 import json
 import logging
 from pathlib import Path
@@ -44,6 +45,28 @@ from .utils.units import MM
 from .i18n import _
 
 logger = logging.getLogger(__name__)
+
+
+class NetTraceNetAmbiguous(ValidationError, OSError):
+    """Raised by write_net_trace when a NAMELESS record's net matches SEVERAL
+    `net_traces:` entries: which one it should update is the user's call, never
+    a guess.
+
+    Deliberately BOTH a `ValidationError` (it IS a pre-write refusal by meaning)
+    and an `OSError` — the same shape and the same reason as
+    `config_writer.RecordNameTaken`: every write path already wraps its upsert in
+    `except OSError` and turns the error into a reported line, and a bare
+    `ValidationError` escaping a Qt slot aborts PyQt6 (docs/board_door.md)."""
+
+
+def _entries_with_net(data: dict, net: str) -> list[dict]:
+    """Every `net_traces:` entry of ONE already-loaded file whose `net:` is
+    `net` — THE one search for "the record(s) of this net", shared by
+    `read_net_trace_flags` (the re-extract keeps the FIRST one's retired/skip)
+    and by the name the writer must give an UNNAMED record (2026-10-15,
+    plan_2026_10_15_reread_copper_uuid_and_selection_any)."""
+    return [e for e in (data.get("net_traces") or [])
+            if isinstance(e, dict) and e.get("net") == net]
 
 
 def _layer_str(layer: BoardLayer) -> str:
@@ -288,10 +311,56 @@ def read_net_trace_flags(path: str, net: str) -> tuple[bool, bool]:
             return False, False
     except (OSError, json.JSONDecodeError, ValidationError):
         return False, False
-    for e in data.get("net_traces") or []:
-        if isinstance(e, dict) and e.get("net") == net:
-            return bool(e.get("retired")), bool(e.get("skip"))
-    return False, False
+    found = _entries_with_net(data, net)
+    if not found:
+        return False, False
+    return bool(found[0].get("retired")), bool(found[0].get("skip"))
+
+
+def _name_for_format3(nt: NetTrace, net_traces: list) -> NetTrace:
+    """The same record with a NAME, when it has none and the graph is format 3 —
+    the writer's half of П2 (see format3.check_record_has_a_name), 2026-10-15:
+
+      * EXACTLY ONE record of this net in the file -> its own name: a re-extract
+        then REPLACES that record (uuid kept through form_identity.replace_entry,
+        any tree node referencing it intact). A name the converter minted on lift
+        (В36, e.g. `net_trace_001`) counts as much as a generated one;
+      * NO record of this net -> `generate_trace_name(net, ())`, the ONE owner of
+        copper names (not В36's positional `net_trace_NNN`: the converter has
+        only a position, here we have the net), given the file's other names so a
+        collision gets its `_2`;
+      * SEVERAL records of this net -> REFUSED without writing: which bridge of
+        the net to update is the user's call.
+
+    A record that is nameless AND whose single net-mate is nameless too is left
+    alone on purpose: the stamp's П2 refusal is the honest answer for a file that
+    already cannot be loaded."""
+    if nt.name is not None:
+        return nt
+    from .config.format_version import current_format
+
+    if current_format() < 3:
+        return nt
+    same_net = _entries_with_net({"net_traces": net_traces}, nt.net)
+    if len(same_net) > 1:
+        raise NetTraceNetAmbiguous(_(
+            "cannot save the copper of net {net!r}: net_traces holds {count} "
+            "records of that net ({names}) — say which one to update")
+            .format(net=nt.net, count=len(same_net),
+                    names=", ".join(sorted(str(e.get("name")) for e in same_net))))
+    if same_net:
+        name = same_net[0].get("name")
+    else:
+        from .internode_copper import generate_trace_name
+
+        name = generate_trace_name(nt.net, (), [
+            e.get("name") or e.get("net") for e in net_traces
+            if isinstance(e, dict)])
+    if name is None:
+        return nt
+    logger.debug(_("Naming the copper of net {net!r} {name!r} for format 3")
+                 .format(net=nt.net, name=name))
+    return dataclasses.replace(nt, name=name)
 
 
 def write_net_trace(output: str, nt: NetTrace) -> dict[str, Any]:
@@ -335,6 +404,11 @@ def write_net_trace(output: str, nt: NetTrace) -> dict[str, Any]:
     existing: dict[str, Any] = read_data(output_path)
 
     net_traces = existing.setdefault('net_traces', [])
+    # A nameless record cannot be written to a format-3 file at all (the stamp's
+    # П2 check refuses the WHOLE write) — so the writer gives it the name the
+    # format-3 graph requires, BEFORE anything is built or written. Format 2 is
+    # untouched (the gate is the same one the stamp runs under).
+    nt = _name_for_format3(nt, net_traces)
     entry = net_trace_to_dict(nt)
     target = net_trace_effective_name(nt)
     # The whole in-place-edit step (match by identity, carry the stored identity
@@ -357,6 +431,7 @@ def write_net_trace(output: str, nt: NetTrace) -> dict[str, Any]:
 
 
 __all__ = [
+    "NetTraceNetAmbiguous",
     "extract_net_trace",
     "net_trace_to_dict",
     "read_net_trace_flags",

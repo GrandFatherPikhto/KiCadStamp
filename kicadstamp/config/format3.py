@@ -128,6 +128,28 @@ def _f3_records(data: dict):
             yield (section, rec.get("name"), rec.get("uuid"), i)
 
 
+def check_record_has_a_name(section: str, name, index: int, path) -> None:
+    """П2 — a format-3 record MUST carry a name (Р43). THE one check, spelling
+    the predicate and the message ONCE, called by BOTH sides:
+
+      * the loader's graph check (`_check_format3_graph`), which refuses to READ
+        such a graph, and
+      * the writer stamp (`stamp_format3`, before the uuid inheritance), because
+        a write the loader will refuse must never reach the disk (2026-10-15,
+        plan_2026_10_15_reread_copper_uuid_and_selection_any: a writer appended
+        an UNNAMED net_traces record, the stamp accepted it, and the file itself
+        became unloadable — "record without a name — net_traces[0]").
+
+    A missing uuid has its own refusal; this one is about the NAME only, so a
+    hand-written record carrying neither reports the name first."""
+    if name is None:
+        raise ValidationError(format_fatal_error(
+            _("format 3: record without a name — {section}[{index}] in {path}").format(
+                section=section, index=index, path=path),
+            [_("a format-3 record needs a name (Р43): the converter mints one "
+               "when it lifts the file (В36)")]))
+
+
 def _f3_refs(data: dict):
     """Yield one _F3Ref per reference present in ONE dict (plan У2.1.3).
 
@@ -264,14 +286,10 @@ def _check_format3_graph(root_path: str) -> dict:
         _f3_collect(cached_file_read(Path(f), _load_config_file), f, records, folders, refs)
 
     # П2: a format-3 record MUST carry a name (Р43) — its own fatal, with the
-    # file, section and index; never a phantom "duplicate full name".
-    for section, name, uuid, f, i in records:
-        if name is None:
-            raise ValidationError(format_fatal_error(
-                _("format 3: record without a name — {section}[{index}] in {path}").format(
-                    section=section, index=i, path=f),
-                [_("a format-3 record needs a name (Р43): the converter mints one "
-                   "when it lifts the file (В36)")]))
+    # file, section and index; never a phantom "duplicate full name". The check
+    # itself is ONE function, shared with the writer stamp (2026-10-15).
+    for section, name, _uuid, f, i in records:
+        check_record_has_a_name(section, name, i, f)
 
     # П1/Н4: duplicate FULL name within a section — anywhere in the graph, the
     # SAME file included (Р43 uniqueness is per section, no per-file caveat).
@@ -589,6 +607,15 @@ def stamp_format3(data: dict, root, path) -> dict:
             [_("in {path}: a format-3 write resolves reference UUIDs against the "
                "project graph; open the profile, or pass --config on the CLI")
              .format(path=path)]))
+
+    # П2 through the SAME function the loader runs: a write the loader would
+    # refuse must never reach the disk. 2026-10-15 — a writer appended an UNNAMED
+    # net_traces record, the stamp accepted it, and the file itself became
+    # unloadable. Checked BEFORE the inheritance (a nameless record has no name
+    # to inherit by), and it protects every writer and every list section, not
+    # just the copper ones.
+    for section, name, _uuid, index in records:
+        check_record_has_a_name(section, name, index, path)
 
     # 1. records without a uuid: INHERIT the uuid from a record of the SAME
     # section and the SAME full name in the PREVIOUS version of the SAME file
