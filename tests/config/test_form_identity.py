@@ -11,8 +11,10 @@ from types import SimpleNamespace
 
 import pytest
 
-from kicadstamp.config.form_identity import (FormReferenceMissing, identify,
-                                             node_ref_uuid, section_uuids)
+from kicadstamp.config.form_identity import (FormReferenceMissing,
+                                             STORAGE_ONLY_KEYS, identify,
+                                             keep_identity, node_ref_uuid,
+                                             replace_entry, section_uuids)
 from kicadstamp.config.format3 import _F3_NODE_KIND_TARGET
 from kicadstamp.config.models import Cell, Config, ThermalViaArrayConfig
 from kicadstamp.config.points import Point
@@ -143,3 +145,87 @@ def test_node_ref_uuid_resolves_a_target_without_a_uuid_to_none():
     cfg = _node_cfg()
     cfg.entities = [SimpleNamespace(name="E1", uuid=None)]
     assert node_ref_uuid(cfg, "placement", "E1") is None
+
+
+# ── keep_identity: the dict-level twin (2026-10-15) ────────────────────────
+# The copper writers rebuild a record from a live CAPTURE and hold the dict they
+# REPLACE, not the loaded Config — so they carry the storage-only keys across
+# instead of asking `identify` which uuid the record has.
+
+def test_keep_identity_carries_the_stored_uuid_onto_a_fresh_dict():
+    """С10 — the whole point: the dict the writers splice in carries no `uuid`
+    (net_trace_to_dict does not emit one), and the replaced dict's identity must
+    travel with it."""
+    old = {"name": "nt1", "uuid": "U-OLD"}
+    out = keep_identity(old, {"name": "nt1", "track_count": 3})
+    assert out["uuid"] == "U-OLD"
+
+
+def test_keep_identity_never_overwrites_a_uuid_the_entry_already_has():
+    """С11 — the form path answered first (it calls `identify`): its uuid wins,
+    so a second answer here cannot drag the record to another identity."""
+    out = keep_identity({"name": "nt1", "uuid": "U-OLD"},
+                        {"name": "nt1", "uuid": "U-FORM"})
+    assert out["uuid"] == "U-FORM"
+
+
+def test_keep_identity_invents_nothing_when_the_old_record_has_no_uuid():
+    """С12 — a format-2 record (or a fake) has no uuid: the name resolves, there
+    is simply nothing to carry across (the stamp mints one at write time)."""
+    out = keep_identity({"name": "nt1"}, {"name": "nt1"})
+    assert out.get("uuid") is None
+
+
+def test_keep_identity_copies_and_carries_only_the_declared_keys():
+    """С13 — rule 35 discipline in both directions: the returned dict is a COPY
+    (the caller's input is untouched), and ONLY `STORAGE_ONLY_KEYS` travel — a
+    "carry everything left over" would resurrect stale state (retired/skip) that
+    the record the writer built deliberately does not have."""
+    old = {"name": "nt1", "uuid": "U-OLD", "retired": True, "comment": "note"}
+    new = {"name": "nt1"}
+    out = keep_identity(old, new)
+
+    assert out is not new
+    assert new == {"name": "nt1"}          # the input was not touched
+    assert out["uuid"] == "U-OLD"
+    assert "retired" not in out and "comment" not in out
+    assert STORAGE_ONLY_KEYS == ("uuid",)
+
+
+# ── replace_entry: the whole in-place step of a list section ───────────────
+
+def test_replace_entry_replaces_in_place_keeping_the_stored_identity():
+    """С14 — what the three copper writers do: the record carrying this identity
+    is replaced where it stands, and the replaced dict's uuid travels with it."""
+    entries = [{"name": "a", "uuid": "U-A"}, {"name": "b", "uuid": "U-B"}]
+
+    replaced = replace_entry(entries, {"name": "b", "track_count": 2},
+                             identity="b", identity_of=lambda e: e.get("name"))
+
+    assert replaced is True
+    assert [e["name"] for e in entries] == ["a", "b"]      # position kept
+    assert entries[1]["uuid"] == "U-B"
+
+
+def test_replace_entry_appends_when_no_record_carries_the_identity():
+    """С15 — a genuinely new record is appended and carries NOTHING: there is no
+    old dict to take an identity from (the stamp mints one at write time)."""
+    entries = [{"name": "a", "uuid": "U-A"}]
+
+    replaced = replace_entry(entries, {"name": "c"}, identity="c",
+                             identity_of=lambda e: e.get("name"))
+
+    assert replaced is False
+    assert [e["name"] for e in entries] == ["a", "c"]
+    assert entries[1].get("uuid") is None
+
+
+def test_replace_entry_never_matches_a_non_dict_entry():
+    """С16 — a hand-edited list can hold a stray scalar: it is never "the record
+    with this name" (and its own read of `identity_of` is never attempted)."""
+    entries: list = ["stray"]
+
+    assert replace_entry(entries, {"name": "a", "uuid": "U-A"}, identity="a",
+                         identity_of=lambda e: e.get("name")) is False
+    assert entries[0] == "stray"
+    assert entries[1]["uuid"] == "U-A"

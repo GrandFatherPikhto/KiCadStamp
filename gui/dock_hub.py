@@ -2229,6 +2229,7 @@ class DockHub:
         # ── Save: auto-created cells/entities + net_traces + trees: ─────────
         from dataclasses import replace
         from kicadstamp.config import Entity, NetTrace, load_tree
+        from kicadstamp.config.form_identity import replace_entry
         from kicadstamp.config_writer import read_data, write_data
         from kicadstamp.link_trees import link_trees
         from kicadstamp.net_trace_extract import net_trace_to_dict
@@ -2264,13 +2265,11 @@ class DockHub:
             new_net_traces: list[NetTrace] = []
             for cap in captures:
                 entry = net_trace_to_dict(cap.record)
-                for i, e in enumerate(net_traces_data):
-                    if isinstance(e, dict) \
-                            and (e.get("name") or e.get("net")) == cap.identity:
-                        net_traces_data[i] = entry
-                        break
-                else:
-                    net_traces_data.append(entry)
+                # form_identity.replace_entry: the re-extracted record keeps the
+                # uuid of the one it replaces (2026-10-15); a bare `= entry`
+                # dropped it and the writer stamp refused the whole write.
+                replace_entry(net_traces_data, entry, identity=cap.identity,
+                              identity_of=lambda e: e.get("name") or e.get("net"))
                 new_net_traces.append(cap.record)
             # Phase E: an existing tree with this name is REPLACED (re-extract),
             # not duplicated.

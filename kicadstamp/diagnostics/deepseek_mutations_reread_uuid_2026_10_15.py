@@ -35,7 +35,11 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 
 CW = "kicadstamp/config_writer.py"
+FI = "kicadstamp/config/form_identity.py"
 GUARDS_1 = "tests/config/test_writer_reads_a_private_dict.py"
+GUARDS_2 = ("tests/config/test_form_identity.py "
+            "tests/config/test_net_trace_write_keeps_uuid.py "
+            "tests/gui/docks/test_reread_net_trace_identity.py")
 
 # Each row: name, file, OLD, NEW, expected-to-redden test ids (substring) or None.
 MUTATIONS = [
@@ -58,6 +62,25 @@ MUTATIONS = [
      "        if staged is not None:\n"
      "            return staged",
      ["test_editing_a_staged_read_does_not_touch_the_staged_content"]),
+
+    # (2) IDENTITY — form_identity.keep_identity. Guards: the helper's own cells
+    # (tests/config/test_form_identity.py) + the two writer cells.
+    ("М3 the identity is not carried onto the fresh dict", FI,
+     "    for key in STORAGE_ONLY_KEYS:\n"
+     "        if new_entry.get(key) is None and old_entry.get(key) is not None:\n"
+     "            new_entry[key] = old_entry[key]",
+     "    for key in STORAGE_ONLY_KEYS:\n"
+     "        if False:  # MUTATION: the stored identity is not carried\n"
+     "            new_entry[key] = old_entry[key]",
+     # The isolated cells (С6b / С9b) are the ones that FAIL here: the plain
+     # end-to-end cells stay green, because the stamp inherits the uuid by name
+     # from the file it just read — measured, and the reason those two cells
+     # exist (rule 39).
+     ["test_keep_identity_carries_the_stored_uuid_onto_a_fresh_dict",
+      "test_keep_identity_copies_and_carries_only_the_declared_keys",
+      "test_replace_entry_replaces_in_place_keeping_the_stored_identity",
+      "test_the_writer_itself_carries_the_uuid_without_the_stamp",
+      "test_the_reread_carries_the_uuid_without_the_stamp"]),
 ]
 
 
@@ -70,8 +93,8 @@ def _run(guards: str, *extra: str) -> tuple[int, str]:
     env = dict(os.environ, PYTHONDONTWRITEBYTECODE="1")
     _sweep_pycache()
     proc = subprocess.run(
-        [sys.executable, "-m", "pytest", guards, "-q", "-rf", "-p", "no:cacheprovider",
-         *extra],
+        [sys.executable, "-m", "pytest", *guards.split(), "-q", "-rf",
+         "-p", "no:cacheprovider", *extra],
         cwd=str(ROOT), env=env, capture_output=True, text=True)
     return proc.returncode, proc.stdout + proc.stderr
 
@@ -85,7 +108,10 @@ def _failed_ids(out: str) -> list[str]:
 
 
 def main() -> int:
-    guards = os.environ.get("GUARDS", GUARDS_1)
+    # One run for the whole plan: every mutation is checked against the UNION of
+    # the guards, so a row cannot look green just because its own guard was not
+    # in the run (that is how М1/М2 reported MISS when given only GUARDS_2).
+    guards = os.environ.get("GUARDS", GUARDS_1 + " " + GUARDS_2)
     print(f"guards: {guards}")
     code, out = _run(guards)
     if code != 0:

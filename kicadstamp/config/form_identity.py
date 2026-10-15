@@ -37,6 +37,12 @@ edit is silently rolled back. A kind that references NO record carries no uuid a
 all, and the caller must CLEAR a stale one: the loader fatals on a `ref_uuid`
 beside a local kind (`trees._LOCAL_REF_KINDS`).
 
+`keep_identity` is the DICT-level twin of the rule, for a writer that already has
+the replaced record's dict in hand instead of the loaded Config: it carries the
+keys that live only in the FILE (see `STORAGE_ONLY_KEYS`) from the old dict onto
+the one built from the model. `identify` answers "which uuid is this", it
+answers "this dict replaces that one — keep what the file knows".
+
 Qt-free; it never touches the board.
 """
 from __future__ import annotations
@@ -48,7 +54,8 @@ from uuid import uuid4
 from ..exceptions import ValidationError
 from ..i18n import _
 
-__all__ = ["FormReferenceMissing", "section_uuids", "identify", "node_ref_uuid"]
+__all__ = ["FormReferenceMissing", "STORAGE_ONLY_KEYS", "section_uuids",
+           "identify", "keep_identity", "node_ref_uuid", "replace_entry"]
 
 
 class FormReferenceMissing(ValidationError):
@@ -198,3 +205,63 @@ def identify(entry: dict, section: str, *, cfg,
                                   remembered_uuid, draft_uuid)
     _resolve_references(entry, section, cfg)
     return entry
+
+
+# The keys a record carries in the FILE only: an in-place edit replaces the whole
+# dict with one built from the MODEL, and this build does not emit them. `uuid` is
+# the record's identity under format 3 — `format3._f3_records` reads exactly this
+# key, and `net_trace_to_dict` deliberately does not write it (a nameless record
+# still serializes byte-identically to before). Kept as a tuple so the next such
+# key lands HERE and not in one writer of the three.
+STORAGE_ONLY_KEYS = ("uuid",)
+
+
+def keep_identity(old_entry: dict, new_entry: dict) -> dict:
+    """Return a COPY of `new_entry` carrying the STORED identity of `old_entry` —
+    the record `new_entry` replaces in place.
+
+    The dict-level twin of `identify` (see the module docstring): the copper
+    writers (Reread inter-node copper, Extract tree, `write_net_trace`) rebuild a
+    `net_traces:` record from a live CAPTURE, so its dict never carries a `uuid`;
+    replacing the old dict WHOLE dropped it, the writer stamp then minted a new
+    one and every tree node referencing the record dangled — the whole write was
+    refused ("format 3: cannot write — N reference(s) point at a uuid that is
+    missing from the graph", plan_2026_10_15_reread_copper_uuid_and_selection_any).
+
+    Only `STORAGE_ONLY_KEYS` are carried, and only when the new entry has nothing
+    of its own there: a uuid the caller ALREADY set (the form path calls
+    `identify` for exactly that) is never overwritten, and no uuid is ever
+    invented here — a brand-new record is the writer stamp's business
+    (`format3.stamp_format3` п.1), which also inherits by identity on disk."""
+    new_entry = copy.deepcopy(new_entry)
+    for key in STORAGE_ONLY_KEYS:
+        if new_entry.get(key) is None and old_entry.get(key) is not None:
+            new_entry[key] = old_entry[key]
+    return new_entry
+
+
+def replace_entry(entries: list, new_entry: dict, *, identity,
+                  identity_of: Callable[[dict], Any]) -> bool:
+    """Replace the entry of `entries` whose identity is `identity` with
+    `new_entry` — carrying the replaced record's stored identity across
+    (`keep_identity`) — and APPEND it when the list holds no such record.
+    Returns True when a record was replaced.
+
+    The whole in-place-edit step of a list section, in ONE place. The three
+    copper writers spelled it out each (walk, match by identity, `entries[i] =
+    entry`), and that bare assignment is exactly what dropped the record's uuid:
+    the writer stamp then minted a new one and every node referencing the record
+    dangled (plan_2026_10_15_reread_copper_uuid_and_selection_any).
+
+    `identity_of` is the caller's own identity spelling for its section (for
+    `net_traces:` the raw-dict mirror of `net_trace_effective_name`, i.e.
+    `name:`, else the legacy `net:`): passing it in keeps the ONE owner of the
+    identity formula where that formula already lives, instead of growing a
+    second copy here. A non-dict entry is never a match (`isinstance`), so a
+    hand-edited list with a stray item cannot be silently replaced."""
+    for i, entry in enumerate(entries):
+        if isinstance(entry, dict) and identity_of(entry) == identity:
+            entries[i] = keep_identity(entry, new_entry)
+            return True
+    entries.append(new_entry)
+    return False

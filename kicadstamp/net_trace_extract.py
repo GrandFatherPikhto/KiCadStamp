@@ -298,8 +298,13 @@ def write_net_trace(output: str, nt: NetTrace) -> dict[str, Any]:
     """Upsert-write one NetTrace under a `net_traces:` list key in `output`
     (JSON or s-expr by file suffix), preserving everything else in the file —
     the same merge/upsert principle as extract_template: an existing entry
-    with the same IDENTITY is REPLACED in place, others are appended. Returns
-    the written entry dict.
+    with the same IDENTITY is REPLACED in place, others are appended.
+
+    Returns the entry dict as it was handed to the writer — the `uuid` the
+    format-3 stamp lands on the way to the file is NOT in it for a NEW record
+    (re-read the file when you need it). An entry that REPLACED a record does
+    carry the replaced record's uuid (form_identity.keep_identity, 2026-10-15),
+    which is what the tree nodes referencing it depend on.
 
     The identity is net_trace_effective_name(nt) — name: when the record has
     one, else net: (2026-09-12, plan_2026_09_12_internode_copper_core Э2;
@@ -315,6 +320,7 @@ def write_net_trace(output: str, nt: NetTrace) -> dict[str, Any]:
     overwrite it. The helpers also select the format by extension exactly like
     this function used to (.json -> JSON, .sexp -> s-expr, anything else ->
     fatal with the same messages)."""
+    from kicadstamp.config.form_identity import replace_entry
     from kicadstamp.config_writer import read_data, write_data
     output_path = Path(output)
     # Preserve the pre-existing fatal contract for unsupported extensions
@@ -331,16 +337,15 @@ def write_net_trace(output: str, nt: NetTrace) -> dict[str, Any]:
     net_traces = existing.setdefault('net_traces', [])
     entry = net_trace_to_dict(nt)
     target = net_trace_effective_name(nt)
-    replaced = False
-    for i, e in enumerate(net_traces):
-        # Raw-dict mirror of net_trace_effective_name(): name: when present,
-        # else net:.
-        if isinstance(e, dict) and (e.get('name') or e.get('net')) == target:
-            net_traces[i] = entry
-            replaced = True
-            break
+    # The whole in-place-edit step (match by identity, carry the stored identity
+    # across, append when there is none) — ONE rule,
+    # kicadstamp/config/form_identity.replace_entry (2026-10-15): a bare
+    # `entries[i] = entry` dropped the record's uuid and the writer stamp then
+    # refused the whole write on the dangling node reference.
+    replaced = replace_entry(
+        net_traces, entry, identity=target,
+        identity_of=lambda e: e.get('name') or e.get('net'))
     if not replaced:
-        net_traces.append(entry)
         logger.info(_("Net trace {net!r} appended to net_traces: in {output}")
                     .format(net=target, output=output_path))
     else:

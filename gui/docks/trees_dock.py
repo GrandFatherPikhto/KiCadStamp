@@ -3541,6 +3541,7 @@ class TreesDock(QWidget):
         if self._root_path is None or not records:
             return
         from kicadstamp.config import net_trace_effective_name
+        from kicadstamp.config.form_identity import replace_entry
         from kicadstamp.net_trace_extract import net_trace_to_dict
 
         from .rename import find_list_entry_file
@@ -3551,13 +3552,12 @@ class TreesDock(QWidget):
                 or self._root_path
             data = read_data(target)
             entries = data.setdefault("net_traces", [])
-            for i, existing in enumerate(entries):
-                if isinstance(existing, dict) \
-                        and (existing.get("name") or existing.get("net")) == identity:
-                    entries[i] = entry
-                    break
-            else:
-                entries.append(entry)
+            # form_identity.replace_entry: match by identity, carry the replaced
+            # record's stored uuid across (2026-10-15) — a bare
+            # `entries[i] = entry` dropped it and the re-read was refused on the
+            # node reference that still named the old uuid.
+            replace_entry(entries, entry, identity=identity,
+                          identity_of=lambda e: e.get("name") or e.get("net"))
             write_data(target, data)
 
     @staticmethod

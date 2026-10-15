@@ -41,15 +41,15 @@ NAME = "heater_01__mcu__signal_out"
 
 
 @pytest.fixture
-def working_set():
+def working_set(monkeypatch):
     """The GUI's staged mode (the working set is OFF by default: CLI and the
-    other cells here hit the physical path)."""
-    previous = WORKING_SET.enabled
+    other cells here hit the physical path). `monkeypatch` is the one mechanism
+    the repo's hygiene guard accepts for reaching into a process-wide singleton
+    (tests/repo/test_repo_hygiene.py)."""
     WORKING_SET.clear()
-    WORKING_SET.enabled = True
+    monkeypatch.setattr(WORKING_SET, "enabled", True)
     yield WORKING_SET
     WORKING_SET.clear()
-    WORKING_SET.enabled = previous
 
 
 def _write_root(tmp_path: Path, set_active_graph_root) -> Path:
