@@ -20,6 +20,7 @@ from kipy.geometry import Vector2, Angle
 
 from kicadstamp.adapter_factory import create_board_adapter
 from kicadstamp.geometry.pad_projection import local_pad_offset, predict_pad_position
+from kicadstamp.kicad.kipy_footprint_safety import set_footprint_orientation
 from kicadstamp.utils.units import MM
 from kicadstamp.i18n import _
 
@@ -57,7 +58,13 @@ def rotate_component(adapter, ref, delta_deg):
     commit = adapter.begin_commit()
     try:
         new_angle = Angle.from_degrees(fp.orientation.degrees + delta_deg)
-        fp.orientation = new_angle
+        # The shim, NOT ``fp.orientation = new_angle``: the raw setter rebuilds
+        # definition.items and throws away the 3D model of the part being rotated — and this
+        # probe WRITES to a live board. ``fp`` comes from the adapter as a raw kipy object
+        # (``get_footprint`` hands back a DTO whose ``_kipy`` is unwrapped by update_items),
+        # so the adapter's own sync never sees this write: without the shim the probe damaged
+        # the very component it turns (plan_2026_10_15_footprint_3d_model_loss).
+        set_footprint_orientation(fp, new_angle)
         adapter.update_items([fp])
         adapter.push_commit(commit, _("probe_pad_mirror_convention: rotate {ref} by {delta:+.1f}°")
                             .format(ref=ref, delta=delta_deg))

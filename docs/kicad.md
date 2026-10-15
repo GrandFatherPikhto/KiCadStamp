@@ -174,6 +174,14 @@ Thanks to the `IBoardAdapter` interface, the code does not depend on a specific 
 - **KiCad crash on first write (#24966)** – the session's first `begin_commit()`/`push_commit()` transaction can crash KiCad if the Schematic Editor is open. The adapter logs a warning and treats a `ConnectionError` as a probable crash. Full write-up: [crash_hunting.md](crash_hunting.md).
 - **“KiCad is busy”** – occurs when KiCad is busy with a modal dialog or a long operation. The adapter automatically retries up to 3 times with delays.
 - **Stale UUIDs** – when deleting a via/track via `remove_by_id()`, if the object is already gone, the method returns `False` and logs a warning.
+- **3D models lost on every move (kipy 0.8.0, worked around here)** – kipy's
+  `FootprintInstance.orientation` setter rebuilds `definition.items` and drops every item it has
+  no rotation branch for (`Footprint3DModel` above all), at a ZERO delta as much as at any other
+  angle. The adapter set the angle on every shift (move_executor, undo, field writes, MCP raw
+  move), so models disappeared silently: measured live 15.10.2026, 73 of 77 footprints carried a
+  model and all 73 lost it. The angle now goes through `set_footprint_orientation()`
+  (`kicadstamp/kicad/kipy_footprint_safety.py`), so `Tools → Update Footprints From Library` is no
+  longer needed after placing. Full write-up and the removal condition: [kipy.md](kipy.md).
 
 ### Diagnostic Tools
 
@@ -194,6 +202,7 @@ The adapter uses the following elements that go beyond the stable public API of 
 | `Group.proto.items` | **Undocumented** | Internal protobuf field needed to obtain group members. |
 | `footprint.texts_and_fields` | **Undocumented** | Used to read custom fields (`Field`). |
 | `footprint.definition.items` | **Undocumented** | Used to obtain component pads. |
+| `footprint.orientation` setter | **Broken in kipy 0.8.0** | Rebuilds `definition.items` and drops items with no rotation branch (`Footprint3DModel` above all); wrapped by `set_footprint_orientation()` (`kicadstamp/kicad/kipy_footprint_safety.py`). |
 | `adapter.remove_by_id()` | **New, potentially unstable** | Added recently (July 2025), may change. |
 | `board.get_tracks()` | **Undocumented** | Used to retrieve all tracks on the board for registry reconciliation. |
 | `board.get_item_bounding_box(list)` | **Undocumented** | Used for batch bounding‑box requests. |

@@ -50,6 +50,11 @@ ROTATION_DEG = 90.0
 # board_types.py:2158) — a CLASS change, not a loss, so it is reported apart.
 ORTHOGONAL_DEG = 90.0
 
+# How many losing footprints the DETAIL section lists when no refdes was asked for. The
+# run is a census, and on a live board this listing can be 70+ lines of the same sentence;
+# the number of unlisted ones is printed so the cap is never silent.
+DETAIL_LIMIT = 10
+
 
 def _ref(fp) -> str:
     """Reference designator of a live FootprintInstance, or a placeholder."""
@@ -172,8 +177,11 @@ def main(argv: list) -> int:
     print(f"  footprints losing at least one item: {len(victims)} of {len(footprints)}")
 
     print("\n--- detail: footprints that lose items ---")
+    # Asking for refdes means the caller wants THOSE, so every match is listed; a plain
+    # census lists the first DETAIL_LIMIT and says how many it did not (see DETAIL_LIMIT).
+    detail = victims if wanted else victims[:DETAIL_LIMIT]
     shown = 0
-    for ref, lost_zero, lost_rot, note in victims:
+    for ref, lost_zero, lost_rot, note in detail:
         if wanted and ref.upper() not in wanted:
             continue
         shown += 1
@@ -184,8 +192,9 @@ def main(argv: list) -> int:
         print("  " + "; ".join(parts))
     if wanted and not shown:
         print(f"  (none of the requested refs lost anything: {', '.join(sorted(wanted))})")
-    elif not wanted and len(victims) > 10:
-        print("  (only the first 10 are listed; pass refdes arguments for the rest)")
+    elif not wanted and len(victims) > len(detail):
+        print(f"  ... and {len(victims) - len(detail)} more "
+              f"(pass reference designators to list them)")
 
     # --- verdict ----------------------------------------------------------------
     print("\n--- verdict ---")

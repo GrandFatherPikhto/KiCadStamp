@@ -22,6 +22,7 @@ from kipy.proto.board import board_commands_pb2
 from kipy.errors import FutureVersionError
 
 from .interfaces import IBoardAdapter
+from .kipy_footprint_safety import set_footprint_orientation
 from ..domain.board import (
     Footprint,
     Net,
@@ -1017,10 +1018,21 @@ class KiCadBoardAdapter(IBoardAdapter):
         (move_executor.py sets ``position``/``angle_deg``; undo.py sets
         ``position``/``angle_deg``). Via/Track DTOs are created, not mutated;
         field writes (``set_field_value``) mutate the kipy object in place.
+
+        The angle goes through ``set_footprint_orientation``, NOT through kipy's own
+        setter: that setter rebuilds ``definition.items`` and drops everything it has no
+        rotation branch for — 3D models above all, on a zero delta too, so EVERY move lost
+        them (plan_2026_10_15_footprint_3d_model_loss; see kipy_footprint_safety.py for the
+        upstream bug and its removal condition).
         """
         if isinstance(dto, Footprint):
             kipy_item.position = KipyVector2.from_xy(dto.position.x, dto.position.y)
-            kipy_item.orientation = KipyAngle.from_degrees(dto.angle_deg)
+            restored = set_footprint_orientation(
+                kipy_item, KipyAngle.from_degrees(dto.angle_deg))
+            if restored:
+                logger.debug(_("{ref}: restored {count} definition item(s) that kipy's "
+                               "orientation setter would have dropped")
+                             .format(ref=dto.ref, count=restored))
             kipy_item.layer = layer_to_kipy(dto.layer)
 
     def update_items(self, items):

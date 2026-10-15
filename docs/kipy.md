@@ -323,8 +323,33 @@ The project always uses `Angle.from_degrees()` to set orientation.
 **Problem:**  
 The `.orientation` setter expects an `Angle` object. Passing a number raises a `TypeError`.
 
-**Alternative:**  
+**Alternative:**
 Always use `Angle.from_degrees()` or `Angle.from_radians()`.
+
+---
+
+### `FootprintInstance.orientation` setter REBUILDS `definition.items` and drops items
+
+**Where used:**
+`set_footprint_orientation()` in `kicadstamp/kicad/kipy_footprint_safety.py`, called by the
+adapter's `_sync_dto_to_kipy()` and by the `probe_pad_mirror_convention` diagnostic.
+
+**Problem:**
+The setter (kipy 0.8.0, `board_types.py:2123-2164`) rotates the footprint and then assigns
+`self.definition.items = updated_items`, where `updated_items` holds only the items it has a
+branch for — `Field`, `Pad`, `BoardText`, `Zone`, `BoardShape`. Every other item is silently
+thrown away: `Footprint3DModel` first of all, but also `BoardTextBox`, `Barcode`, `Dimension`,
+`ReferenceImage`, `Group`, `Track` and `Via`. The list is rebuilt even for a ZERO delta, so a
+plain move (`fp.orientation = fp.orientation`) strips the 3D models off every footprint it
+touches — measured live 15.10.2026: 73 of 77 footprints carried a model and all 73 lost it.
+
+**Alternative:**
+Set the angle through `set_footprint_orientation()`. It puts back whatever the setter left
+behind, decided by identity rather than by a list of names (shapes are the one exception: the
+setter RE-WRAPS them, so an identity diff would append a duplicate figure), keeps the original
+order, and never calls the setter at all on a zero delta. When upstream fixes the setter, the
+canary cell `test_raw_kipy_orientation_setter_still_drops_the_3d_model` goes RED — that is the
+signal to delete the shim and go back to the plain setter.
 
 ---
 
