@@ -196,8 +196,8 @@ def main():
     # manager decorations) — the real kicadstamp.ico, base64-embedded into
     # gui/app_icon.py (2026-08-20, "sew the icon into the app itself") so it
     # renders from any CWD / frozen build without an images/ file dependency.
-    # The same embedded icon feeds the system tray (gui/main_window.py's
-    # _set_tray_enabled).
+    # The same embedded icon feeds the system tray (gui/tray.py, behind
+    # MainWindow._set_tray_enabled — Ч1-Т4, 2026-10-15).
     app.setWindowIcon(build_app_icon())
 
     # On GNOME/Wayland, setWindowIcon() alone is not enough — the Shell

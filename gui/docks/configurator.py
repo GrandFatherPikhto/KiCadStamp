@@ -22,14 +22,15 @@ last_root_file/window_geometry/always_on_top/tray_enabled already use — so thi
 widget is just a GUI facade over that store, no new storage to invent.
 
 Always-on-top / Tray are a MOVE, not a copy: the two checkboxes used to sit
-directly in MainWindow's status bar (gui/main_window.py); the actual
-window-flag / QSystemTrayIcon logic still lives in MainWindow's
-_set_always_on_top/_set_tray_enabled. This widget only owns the UI and re-emits
-toggles via always_on_top_toggled/tray_enabled_toggled signals — now EMITTED
-FROM apply() (the modal OK/Cancel/Apply contract: a checkbox toggle alone no
-longer flips the window), which DockHub wires back onto MainWindow
-(gui/dock_hub.py). MainWindow._restore_window_state applies the persisted flags
-explicitly at startup (see gui/main_window.py).
+directly in MainWindow's status bar (gui/main_window.py). This widget only owns
+the UI and re-emits toggles via always_on_top_toggled/tray_enabled_toggled
+signals — now EMITTED FROM apply() (the modal OK/Cancel/Apply contract: a
+checkbox toggle alone no longer flips the window), which DockHub wires back onto
+MainWindow (gui/dock_hub.py). MainWindow._restore_window_state applies the
+persisted flags explicitly at startup (see gui/main_window.py). Ч1-Т4
+(2026-10-15): the always-on-top flag logic is MainWindow._set_always_on_top, and
+MainWindow._set_tray_enabled is a one-line seam over gui/tray.py, which builds the
+tray icon and its menu.
 
 Highlight color — a single scheme applied to all three highlight consumers
 (DetailDock's active tab, ConfigTreeDock's and RoleClusterTreeDock's selected
@@ -129,9 +130,9 @@ class ConfiguratorDock(QWidget):
     in the modal SettingsDialog; settings apply explicitly via apply()
     (OK/Apply), never live — cancel()/reload_from_state() discard the draft."""
 
-    # Emitted from apply() — DockHub connects these back to
-    # MainWindow._set_always_on_top/_set_tray_enabled (the logic that actually
-    # flips the window flag / builds the tray icon stays there).
+    # Emitted from apply() — DockHub connects these back to MainWindow's two
+    # seams: _set_always_on_top (the flag logic itself) and _set_tray_enabled
+    # (Ч1-Т4, 2026-10-15: a seam over gui/tray.py, which builds the icon).
     always_on_top_toggled = pyqtSignal(bool)
     tray_enabled_toggled = pyqtSignal(bool)
     # Э4а — emitted from apply() so DockHub can retime MainWindow's reconnect

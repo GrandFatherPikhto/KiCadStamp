@@ -78,13 +78,14 @@ def build_status_bar(window) -> None:
     window.statusBar().addPermanentWidget(window.latency_label)
 
     # Always on top / Tray icon checkboxes moved to the Settings tab
-    # (ConfiguratorDock) 2026-08-15 — see gui/docks/configurator.py. The
-    # actual window-flag/tray-icon LOGIC stays in MainWindow
-    # (_set_always_on_top/_set_tray_enabled); only the UI moved. DockHub wires
-    # the configurator's always_on_top_toggled/tray_enabled_toggled signals
-    # back onto those two methods (see gui/dock_hub.py), and
+    # (ConfiguratorDock) 2026-08-15 — see gui/docks/configurator.py. DockHub wires
+    # the configurator's always_on_top_toggled/tray_enabled_toggled signals back
+    # onto MainWindow's two seams (see gui/dock_hub.py), and
     # _restore_window_state/_persist_settings read the checkboxes through
     # main_window._dock_hub.configurator_dock.
+    # Ч1-Т4 (2026-10-15): the always-on-top flag logic is still
+    # MainWindow._set_always_on_top; the tray ICON is built by gui/tray.py behind
+    # MainWindow._set_tray_enabled (the seam DockHub connects by attribute).
 
     window.open_fieldstool_button = QPushButton(_("Open fieldstool"))
     window.open_fieldstool_button.clicked.connect(window.open_fieldstool)
