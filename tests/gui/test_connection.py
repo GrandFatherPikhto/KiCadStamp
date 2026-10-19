@@ -6,6 +6,7 @@ pynng socket (see KiCadBoardAdapter.close()'s docstring for the native-crash
 motivation: a silent Windows access violation with no Python frame on the
 crashing thread, found live after many reconnects in one long-lived GUI
 session)."""
+import logging
 import threading
 import time
 from unittest.mock import MagicMock, patch
@@ -223,3 +224,60 @@ def test_connect_hands_the_remembered_project_to_board_connect(tmp_path):
         assert bare.connect() is None
 
     assert seen[1]["config_path"] is None
+
+
+# ── Ч3: naming a connect failure, and one Log line per SERIES ───────────────
+
+NO_EDITOR_TEXT = ("KiCad returned error: no handler available for request of "
+                  "type kiapi.common.commands.GetOpenDocuments")
+
+
+def _failing_connect(text):
+    return patch("gui.connection.Board.connect", side_effect=Exception(text))
+
+
+def test_a_missing_pcb_editor_is_named_and_the_series_logs_once(caplog):
+    """KiCad up, no board editor open: the raw IPC text becomes the sentence a
+    user can act on, and three ticks write ONE warning (+ DEBUG repeats)."""
+    from kicadstamp.i18n import _
+    named = _("KiCad is running, but no PCB editor is open — open the board in "
+              "KiCad (PCB Editor)")
+
+    connection = BoardConnection()
+    with caplog.at_level(logging.DEBUG, logger="gui.connection"):
+        with _failing_connect(NO_EDITOR_TEXT):
+            errors = [connection.connect() for _ in range(3)]
+
+    assert errors == [named, named, named]
+    warnings = [r for r in caplog.records
+                if r.levelno == logging.WARNING and "PCB editor" in r.message]
+    debug = [r for r in caplog.records
+             if r.levelno == logging.DEBUG and "PCB editor" in r.message]
+    assert len(warnings) == 1
+    assert len(debug) == 2
+
+
+def test_a_success_starts_a_new_series(caplog):
+    connection = BoardConnection()
+    with caplog.at_level(logging.WARNING, logger="gui.connection"):
+        with _failing_connect(NO_EDITOR_TEXT):
+            connection.connect()
+        with patch("gui.connection.Board.connect", return_value=_fake_board()):
+            assert connection.connect() is None
+        with _failing_connect(NO_EDITOR_TEXT):
+            connection.connect()
+
+    warnings = [r for r in caplog.records
+                if r.levelno == logging.WARNING and "PCB editor" in r.message]
+    assert len(warnings) == 2
+
+
+def test_any_other_connect_failure_is_returned_unchanged(caplog):
+    connection = BoardConnection()
+    with caplog.at_level(logging.WARNING, logger="gui.connection"):
+        with _failing_connect("boom: socket closed"):
+            error = connection.connect()
+
+    assert error == "boom: socket closed"
+    assert [r.message for r in caplog.records if r.levelno == logging.WARNING] == [
+        "Connect failed: boom: socket closed"]

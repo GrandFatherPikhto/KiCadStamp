@@ -254,6 +254,29 @@ def worker_timeout_ms(source) -> int:
     return value
 
 
+# ── Naming a connect failure the user can act on (Ч3) ────────────────────────
+# KiCad registers the `GetOpenDocuments` handler ONLY in pcbnew, so with KiCad
+# running but no board editor open every connect attempt fails with that IPC
+# text. The poll timer retries every ~5 s; the raw wording answers "why is it
+# red?" with protocol jargon, so the ONE recogniser lives here (the module that
+# produces the failure) and the Badge tooltip shows the sentence below.
+_NO_PCB_EDITOR_MARKERS = ("no handler available", "GetOpenDocuments")
+
+
+def describe_connect_error(text: str) -> str:
+    """Human wording for a connect failure the user can act on, else *text*.
+
+    Recognised: "no handler available for request of type
+    kiapi.common.commands.GetOpenDocuments" — only the PCB editor registers
+    that handler, so it means "KiCad is up, no board is open". Every other
+    error is returned UNCHANGED: it is not ours to reinterpret, and the raw
+    text is what the Log has always carried."""
+    lowered = text.lower()
+    if all(marker.lower() in lowered for marker in _NO_PCB_EDITOR_MARKERS):
+        return _("KiCad is running, but no PCB editor is open — open the board in KiCad (PCB Editor)")
+    return text
+
+
 def _connect_with_timeout(timeout_ms: int, config_path=None) -> Board:
     """Board.connect() wrapped with an EXTERNAL timeout, run on a throwaway
     daemon thread.
@@ -331,6 +354,11 @@ class BoardConnection:
         # override layer is bound to. None until a project is open, which is the
         # pre-store world: the layer stays inert and every read is the board's.
         self._config_path: Optional[str] = None
+        # The last connect-failure text WRITTEN to the Log at WARNING (Ч3), or
+        # None after a successful connect. connect() calls disconnect() first,
+        # so this must NEVER be cleared there: resetting it on every tick would
+        # log the same line every ~5 s again — exactly the spam this closes.
+        self._last_connect_failure: Optional[str] = None
         # Phase 5.2 — held exclusively by a background long op (Extract/
         # Redraw, see gui/worker.py): while True, MainWindow's polling timers
         # skip their ticks so this kipy REQ socket has exactly one in-flight
@@ -608,19 +636,40 @@ class BoardConnection:
         # the snapshot still holds the resolution against the previous store.
         self._reproject_snapshot_after_store_change()
 
+    def _report_connect_failure(self, message: str, label: str = "Connect failed") -> None:
+        """ONE Log line per failure SERIES: WARNING when the message changes,
+        DEBUG on repeats (Ч3).
+
+        *label* keeps the historical wording of the two call sites (a timeout
+        is not "Connect failed"); the DEDUP KEY is the message itself. Never
+        called from disconnect()/at the top of connect() — see the attribute's
+        comment in __init__ for why that would bring the spam back."""
+        if message != self._last_connect_failure:
+            logger.warning("%s: %s", label, message)
+        else:
+            logger.debug("%s: %s", label, message)
+        self._last_connect_failure = message
+
     def connect(self) -> Optional[str]:
         """Attempts a fresh connection. Returns None on success, or an error
         message on failure — never raises, so a QTimer tick doesn't need a
-        try/except at every call site."""
+        try/except at every call site.
+
+        A failure the user can act on is NAMED (describe_connect_error): while
+        KiCad is up with no PCB editor open, the badge tooltip says so instead
+        of echoing the IPC text, and the Log carries one line per series
+        (_report_connect_failure), not one per 5 s tick."""
         self.disconnect()  # closes any stale board first — see its docstring
         try:
             board = _connect_with_timeout(self.timeout_ms, self._config_path)
         except TimeoutError as e:
-            logger.warning("Connect timed out: %s", e)
-            return str(e)
+            message = describe_connect_error(str(e))
+            self._report_connect_failure(message, "Connect timed out")
+            return message
         except Exception as e:
-            logger.debug("Connect failed: %s", e)
-            return str(e)
+            message = describe_connect_error(str(e))
+            self._report_connect_failure(message)
+            return message
         # See KiCadBoardAdapter.check_write_crash_risk()'s docstring (issue
         # #24966) — cheap to call once up front, before any dock has a
         # chance to call select_items()/set_field_value() for the first time.
@@ -634,6 +683,7 @@ class BoardConnection:
             logger.warning("Snapshot after connect failed, dropping connection: %s", e)
             self.disconnect()
             return str(e)
+        self._last_connect_failure = None
         logger.info("Connected to KiCad")
         return None
 

@@ -47,6 +47,12 @@ The **connection badge** is the status bar's persistent pill (2026-10-14, plan
 connected": a rounded green fill with the board's name and the component count
 (`3CH-AWG-TIA-v103 · 73 components`; the counter sits after a colon so no plural forms are
 needed), or a red fill reading **Not connected**, with the poll's error text in its tooltip.
+One failure is NAMED instead of echoed (2026-10-15, Ч3): while KiCad is up with no PCB editor
+open, every connect attempt fails with the IPC text "no handler available … GetOpenDocuments", and
+the tooltip reads **KiCad is running, but no PCB editor is open — open the board in KiCad (PCB
+Editor)**. The Log gets ONE line per failure series, not one per ~5 s tick, and the "Connected to
+KiCad" line and kipy's newer-than-API warning are written once per (KiCad, kipy API) version pair
+with repeats at DEBUG — nothing is silenced, the file log keeps every tick.
 The count is the snapshot's size **as of the last board read** — the same honest qualifier the
 old sentence in the left label carried: the automatic tick never refreshes a connected board, so
 "now" would be a promise nothing keeps. The badge turns red on whichever poll tick lost KiCad

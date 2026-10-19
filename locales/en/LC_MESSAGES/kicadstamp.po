@@ -3,7 +3,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version:  kicadstamp\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-19 17:29+0300\n"
+"POT-Creation-Date: 2026-10-19 17:50+0300\n"
 "PO-Revision-Date: 2026-07-27 12:00+0000\n"
 "Last-Translator: \n"
 "Language: en\n"
@@ -154,6 +154,14 @@ msgstr ""
 #, python-brace-format
 msgid "Reading the live board from the UI thread without a sign: {site}"
 msgstr ""
+
+#: gui/connection.py:276 tests/gui/test_connection.py:243
+msgid ""
+"KiCad is running, but no PCB editor is open — open the board in KiCad "
+"(PCB Editor)"
+msgstr ""
+"KiCad is running, but no PCB editor is open — open the board in KiCad "
+"(PCB Editor)"
 
 #: gui/connection_badge.py:99
 #, python-brace-format
@@ -9131,39 +9139,34 @@ msgstr ""
 msgid "Staged changes to {subject} — not saved yet (File → Save)"
 msgstr ""
 
-#: kicadstamp/config_writer.py:163
-#, python-brace-format
-msgid "{path} is not valid {kind}: {error}"
-msgstr "{path} is not valid {kind}: {error}"
-
-#: kicadstamp/config_writer.py:435 kicadstamp/config_writer.py:495
+#: kicadstamp/config_writer.py:313 kicadstamp/config_writer.py:373
 #, python-brace-format
 msgid "{section}: in {path} is not a list — refusing to touch it"
 msgstr "{section}: in {path} is not a list — refusing to touch it"
 
-#: kicadstamp/config_writer.py:517
+#: kicadstamp/config_writer.py:395
 #, python-brace-format
 msgid ""
 "cannot save {name!r} in {section}: the name is already used by another "
 "record — rename that record first, or choose another name"
 msgstr ""
 
-#: kicadstamp/config_writer.py:608 kicadstamp/config_writer.py:727
+#: kicadstamp/config_writer.py:486 kicadstamp/config_writer.py:605
 #, python-brace-format
 msgid "trees: in {path} is not a list — refusing to touch it"
 msgstr "trees: in {path} is not a list — refusing to touch it"
 
-#: kicadstamp/config_writer.py:732
+#: kicadstamp/config_writer.py:610
 #, python-brace-format
 msgid "tree {name!r} not found in {path}"
 msgstr ""
 
-#: kicadstamp/config_writer.py:739
+#: kicadstamp/config_writer.py:617
 #, python-brace-format
 msgid "tree {name!r} has no node {ref!r} to append under"
 msgstr ""
 
-#: kicadstamp/config_writer.py:872
+#: kicadstamp/config_writer.py:750
 #, python-brace-format
 msgid "include: in {path} is not a list — refusing to touch it"
 msgstr "include: in {path} is not a list — refusing to touch it"
@@ -10343,19 +10346,19 @@ msgstr ""
 msgid "Refused (duplicate refdes on the board): {labels}"
 msgstr ""
 
-#: kicadstamp/registry.py:158
+#: kicadstamp/registry.py:162
 #, python-brace-format
 msgid "registry key: record {name!r} has no uuid"
 msgstr ""
 
-#: kicadstamp/registry.py:159
+#: kicadstamp/registry.py:163
 msgid ""
 "format 3 gives every record a uuid (checked at load and at write) — "
 "falling back to the name would split one registry into name- and uuid-"
 "keys, and prune would then delete the difference"
 msgstr ""
 
-#: kicadstamp/registry.py:233
+#: kicadstamp/registry.py:237
 #, python-brace-format
 msgid ""
 "The copper registry {path} was not lifted to the current schema — apply "
@@ -10372,7 +10375,7 @@ msgstr ""
 "profile. If the profile has no chains:, the lift could not write the file"
 " — reopen the profile, and check that the registry directory is writable"
 
-#: kicadstamp/registry.py:286 kicadstamp/registry.py:304
+#: kicadstamp/registry.py:290 kicadstamp/registry.py:308
 #, python-brace-format
 msgid ""
 "Failed to read registry {path}: {type}: {e} — treating registry as empty "
@@ -10381,7 +10384,7 @@ msgstr ""
 "Failed to read registry {path}: {type}: {e} — treating registry as empty "
 "(all vias will be created anew)"
 
-#: kicadstamp/registry.py:325 kicadstamp/registry.py:339
+#: kicadstamp/registry.py:329 kicadstamp/registry.py:343
 #, python-brace-format
 msgid ""
 "Failed to read track registry {path}: {type}: {e} — treating registry as "
@@ -10390,7 +10393,7 @@ msgstr ""
 "Failed to read track registry {path}: {type}: {e} — treating registry as "
 "empty (all tracks will be created anew)"
 
-#: kicadstamp/registry.py:484
+#: kicadstamp/registry.py:488
 #, python-brace-format
 msgid ""
 "  {key}: registry has an entry (uuid {uuid}), but no such item is on the "
@@ -10403,7 +10406,7 @@ msgstr ""
 "from git, or previous run crashed between registry write and board "
 "commit); recreating as if the entry never existed"
 
-#: kicadstamp/registry.py:495
+#: kicadstamp/registry.py:499
 #, python-brace-format
 msgid ""
 "  {key}: already correctly placed (checked against live item {uuid}), "
@@ -10412,7 +10415,7 @@ msgstr ""
 "  {key}: already correctly placed (checked against live item {uuid}), "
 "skipped"
 
-#: kicadstamp/registry.py:500
+#: kicadstamp/registry.py:504
 #, python-brace-format
 msgid ""
 "  {key}: position/parameters changed, deleting old item ({uuid}) and "
@@ -10421,7 +10424,7 @@ msgstr ""
 "  {key}: position/parameters changed, deleting old item ({uuid}) and "
 "creating a new one"
 
-#: kicadstamp/registry.py:520
+#: kicadstamp/registry.py:524
 #, python-brace-format
 msgid ""
 "  {key}: not processed in this run (--only filtered {anchor_id!r}), but "
@@ -10430,27 +10433,17 @@ msgstr ""
 "  {key}: not processed in this run (--only filtered {anchor_id!r}), but "
 "it is still in the config — NOT pruned"
 
-#: kicadstamp/registry.py:528
+#: kicadstamp/registry.py:532
 #, python-brace-format
 msgid "  prune: {key} no longer appears in config, deleting ({uuid})"
 msgstr "  prune: {key} no longer appears in config, deleting ({uuid})"
 
-#: kicadstamp/registry.py:678
-#, python-brace-format
-msgid "  track for {owner}: already exists, skipped (positional pre-check)"
-msgstr "  track for {owner}: already exists, skipped (positional pre-check)"
-
-#: kicadstamp/registry.py:683
-#, python-brace-format
-msgid "Skipped {count} tracks already present on the board (positional pre-check)"
-msgstr "Skipped {count} tracks already present on the board (positional pre-check)"
-
-#: kicadstamp/registry.py:731
+#: kicadstamp/registry.py:637
 #, python-brace-format
 msgid "  via for {owner}: already exists, skipped (positional pre-check)"
 msgstr "  via for {owner}: already exists, skipped (positional pre-check)"
 
-#: kicadstamp/registry.py:736
+#: kicadstamp/registry.py:642
 #, python-brace-format
 msgid "Skipped {count} vias already present on the board (positional pre-check)"
 msgstr "Skipped {count} vias already present on the board (positional pre-check)"
@@ -10907,6 +10900,16 @@ msgid ""
 msgstr ""
 "component with role {role!r} ({ref}) has no pad {pad!r} — pad numbers are"
 " strings as in KiCad"
+
+#: kicadstamp/track_identity.py:119
+#, python-brace-format
+msgid "  track for {owner}: already exists, skipped (positional pre-check)"
+msgstr "  track for {owner}: already exists, skipped (positional pre-check)"
+
+#: kicadstamp/track_identity.py:124
+#, python-brace-format
+msgid "Skipped {count} tracks already present on the board (positional pre-check)"
+msgstr "Skipped {count} tracks already present on the board (positional pre-check)"
 
 #: kicadstamp/tree_mount_convert.py:333
 #, python-brace-format
@@ -13235,6 +13238,11 @@ msgstr "unknown fields in tree anchor {name!r}"
 #, python-brace-format
 msgid "invalid trees entry {name!r}"
 msgstr "invalid trees entry {name!r}"
+
+#: kicadstamp/config/file_read.py:143
+#, python-brace-format
+msgid "{path} is not valid {kind}: {error}"
+msgstr "{path} is not valid {kind}: {error}"
 
 #: kicadstamp/config/form_identity.py:123
 #, python-brace-format
@@ -15957,88 +15965,79 @@ msgstr "margin_mm={margin_mm} is too large for a pad {width}x{height} mm"
 msgid "pad has no position"
 msgstr ""
 
-#: kicadstamp/kicad/adapter.py:136
+#: kicadstamp/kicad/adapter.py:134
 #, python-brace-format
 msgid "Initialising KiCadBoardAdapter with timeout {timeout} ms"
 msgstr "Initialising KiCadBoardAdapter with timeout {timeout} ms"
 
-#: kicadstamp/kicad/adapter.py:137
+#: kicadstamp/kicad/adapter.py:135
 msgid "Creating kipy.KiCad instance..."
 msgstr "Creating kipy.KiCad instance..."
 
-#: kicadstamp/kicad/adapter.py:139
+#: kicadstamp/kicad/adapter.py:137
 msgid "kipy.KiCad instance created"
 msgstr "kipy.KiCad instance created"
 
-#: kicadstamp/kicad/adapter.py:150
-#, python-brace-format
-msgid "Connected to KiCad {version}"
-msgstr "Connected to KiCad {version}"
-
-#: kicadstamp/kicad/adapter.py:156
-msgid "Could not query KiCad version after connect"
-msgstr "Could not query KiCad version after connect"
-
-#: kicadstamp/kicad/adapter.py:239
+#: kicadstamp/kicad/adapter.py:233
 msgid "Refreshing board from KiCad"
 msgstr "Refreshing board from KiCad"
 
-#: kicadstamp/kicad/adapter.py:242
+#: kicadstamp/kicad/adapter.py:236
 msgid "Failed to obtain board from KiCad"
 msgstr "Failed to obtain board from KiCad"
 
-#: kicadstamp/kicad/adapter.py:247
+#: kicadstamp/kicad/adapter.py:241
 msgid "Board obtained"
 msgstr "Board obtained"
 
-#: kicadstamp/kicad/adapter.py:338
+#: kicadstamp/kicad/adapter.py:332
 msgid "Could not query KiCad version"
 msgstr "Could not query KiCad version"
 
-#: kicadstamp/kicad/adapter.py:366
+#: kicadstamp/kicad/adapter.py:360
 msgid "Closing previous kipy connection failed (ignored)"
 msgstr "Closing previous kipy connection failed (ignored)"
 
-#: kicadstamp/kicad/adapter.py:372
+#: kicadstamp/kicad/adapter.py:366
 #, python-brace-format
 msgid "Found footprint {ref}"
 msgstr "Found footprint {ref}"
 
-#: kicadstamp/kicad/adapter.py:374
+#: kicadstamp/kicad/adapter.py:368
 #, python-brace-format
 msgid "Footprint {ref} not found"
 msgstr "Footprint {ref} not found"
 
-#: kicadstamp/kicad/adapter.py:383
+#: kicadstamp/kicad/adapter.py:377
 #, python-brace-format
 msgid "Found footprint by uuid {uuid}"
 msgstr "Found footprint by uuid {uuid}"
 
-#: kicadstamp/kicad/adapter.py:385
+#: kicadstamp/kicad/adapter.py:379
 #, python-brace-format
 msgid "Footprint with uuid {uuid} not found"
 msgstr "Footprint with uuid {uuid} not found"
 
-#: kicadstamp/kicad/adapter.py:424
+#: kicadstamp/kicad/adapter.py:418
 #, python-brace-format
 msgid "Registry UUIDs have no live items ({type}: {e})"
 msgstr "Registry UUIDs have no live items ({type}: {e})"
 
-#: kicadstamp/kicad/adapter.py:427
+#: kicadstamp/kicad/adapter.py:421
 #, python-brace-format
 msgid "Failed to look up items by id: {type}: {e}"
 msgstr "Failed to look up items by id: {type}: {e}"
 
-#: kicadstamp/kicad/adapter.py:451
+#: kicadstamp/kicad/adapter.py:445
 #, python-brace-format
 msgid "Retrieved {count} footprints"
 msgstr "Retrieved {count} footprints"
 
-#: kicadstamp/kicad/adapter.py:498
+#: kicadstamp/kicad/adapter.py:492
 msgid "Targeted re-read skipped: footprint cache is already empty"
 msgstr "Targeted re-read skipped: footprint cache is already empty"
 
-#: kicadstamp/kicad/adapter.py:509
+#: kicadstamp/kicad/adapter.py:503
 msgid ""
 "Targeted re-read fell back to a full board read: a requested uuid is not "
 "in the footprint cache"
@@ -16046,7 +16045,7 @@ msgstr ""
 "Targeted re-read fell back to a full board read: a requested uuid is not "
 "in the footprint cache"
 
-#: kicadstamp/kicad/adapter.py:518
+#: kicadstamp/kicad/adapter.py:512
 #, python-brace-format
 msgid ""
 "Targeted re-read fell back to a full board read: {found} of {asked} "
@@ -16055,51 +16054,32 @@ msgstr ""
 "Targeted re-read fell back to a full board read: {found} of {asked} "
 "requested footprints came back"
 
-#: kicadstamp/kicad/adapter.py:531
+#: kicadstamp/kicad/adapter.py:525
 #, python-brace-format
 msgid "Re-read {count} footprint(s) in place"
 msgstr "Re-read {count} footprint(s) in place"
 
-#: kicadstamp/kicad/adapter.py:535
+#: kicadstamp/kicad/adapter.py:529
 #, python-brace-format
 msgid "Retrieved {count} vias"
 msgstr "Retrieved {count} vias"
 
-#: kicadstamp/kicad/adapter.py:540
+#: kicadstamp/kicad/adapter.py:534
 #, python-brace-format
 msgid "Retrieved {count} tracks"
 msgstr "Retrieved {count} tracks"
 
-#: kicadstamp/kicad/adapter.py:587
-#, python-brace-format
-msgid "Selected item of unknown type skipped: {url}"
-msgstr "Selected item of unknown type skipped: {url}"
-
-#: kicadstamp/kicad/adapter.py:626
-#, python-brace-format
-msgid "Selected items (including groups expanded): {count}"
-msgstr "Selected items (including groups expanded): {count}"
-
-#: kicadstamp/kicad/adapter.py:631
-#, python-brace-format
-msgid "Skipped {count} selected item(s) KiCad does not expose over IPC"
-msgstr "Skipped {count} selected item(s) KiCad does not expose over IPC"
-
-#: kicadstamp/kicad/adapter.py:634
-msgid "The whole selection is readable over IPC again"
-msgstr "The whole selection is readable over IPC again"
-
-#: kicadstamp/kicad/adapter.py:648
+#: kicadstamp/kicad/adapter.py:563
 #, python-brace-format
 msgid "Setting GUI selection to {count} items"
 msgstr "Setting GUI selection to {count} items"
 
-#: kicadstamp/kicad/adapter.py:824
+#: kicadstamp/kicad/adapter.py:739
 #, python-brace-format
 msgid "cannot set field {field!r}"
 msgstr "cannot set field {field!r}"
 
-#: kicadstamp/kicad/adapter.py:825
+#: kicadstamp/kicad/adapter.py:740
 #, python-brace-format
 msgid ""
 "{ref} has no field {field!r} on its footprint — add the field once in the"
@@ -16110,62 +16090,62 @@ msgstr ""
 " schematic/footprint editor first, this tool never creates one from "
 "scratch"
 
-#: kicadstamp/kicad/adapter.py:892
+#: kicadstamp/kicad/adapter.py:807
 #, python-brace-format
 msgid "Found zone {name}"
 msgstr "Found zone {name}"
 
-#: kicadstamp/kicad/adapter.py:894
+#: kicadstamp/kicad/adapter.py:809
 #, python-brace-format
 msgid "Zone {name} not found"
 msgstr "Zone {name} not found"
 
-#: kicadstamp/kicad/adapter.py:900
+#: kicadstamp/kicad/adapter.py:815
 #, python-brace-format
 msgid "Found net {name}"
 msgstr "Found net {name}"
 
-#: kicadstamp/kicad/adapter.py:902
+#: kicadstamp/kicad/adapter.py:817
 #, python-brace-format
 msgid "Net {name} not found"
 msgstr "Net {name} not found"
 
-#: kicadstamp/kicad/adapter.py:907
+#: kicadstamp/kicad/adapter.py:822
 #, python-brace-format
 msgid "Retrieved {count} nets"
 msgstr "Retrieved {count} nets"
 
-#: kicadstamp/kicad/adapter.py:946
+#: kicadstamp/kicad/adapter.py:861
 #, python-brace-format
 msgid ""
 "Bounding boxes: {got} answer(s) for {asked} item(s) — re-reading them one"
 " by one to keep the positions"
 msgstr ""
 
-#: kicadstamp/kicad/adapter.py:979
+#: kicadstamp/kicad/adapter.py:894
 msgid "Beginning transaction"
 msgstr "Beginning transaction"
 
-#: kicadstamp/kicad/adapter.py:986
+#: kicadstamp/kicad/adapter.py:901
 #, python-brace-format
 msgid "Committing transaction: {desc}"
 msgstr "Committing transaction: {desc}"
 
-#: kicadstamp/kicad/adapter.py:994
+#: kicadstamp/kicad/adapter.py:909
 #, python-brace-format
 msgid "Transaction committed: {desc}"
 msgstr "Transaction committed: {desc}"
 
-#: kicadstamp/kicad/adapter.py:997
+#: kicadstamp/kicad/adapter.py:912
 msgid "Rolling back transaction"
 msgstr "Rolling back transaction"
 
-#: kicadstamp/kicad/adapter.py:1022
+#: kicadstamp/kicad/adapter.py:937
 #, python-brace-format
 msgid "Checking open schematics failed: {e}"
 msgstr "Checking open schematics failed: {e}"
 
-#: kicadstamp/kicad/adapter.py:1026
+#: kicadstamp/kicad/adapter.py:941
 msgid ""
 "Schematic editor is open: if there have been no interactive edits in this"
 " KiCad session, the first API write may crash KiCad (issue #24966). "
@@ -16177,7 +16157,7 @@ msgstr ""
 "Workaround: move any component + Ctrl+S in pcbnew, or close the schematic"
 " window during the run."
 
-#: kicadstamp/kicad/adapter.py:1061
+#: kicadstamp/kicad/adapter.py:976
 #, python-brace-format
 msgid ""
 "{op}: KiCad not ready to respond (busy/modal dialog?), retrying in "
@@ -16186,7 +16166,7 @@ msgstr ""
 "{op}: KiCad not ready to respond (busy/modal dialog?), retrying in "
 "{wait:.1f}s [{attempt}/{retries}]"
 
-#: kicadstamp/kicad/adapter.py:1072
+#: kicadstamp/kicad/adapter.py:987
 #, python-brace-format
 msgid ""
 "{op}: connection to KiCad broke during write — KiCad probably crashed "
@@ -16199,12 +16179,12 @@ msgstr ""
 "workaround: move a component + Ctrl+S in pcbnew before running). Original"
 " error: {e}"
 
-#: kicadstamp/kicad/adapter.py:1082
+#: kicadstamp/kicad/adapter.py:997
 #, python-brace-format
 msgid "Updating {count} items"
 msgstr "Updating {count} items"
 
-#: kicadstamp/kicad/adapter.py:1092
+#: kicadstamp/kicad/adapter.py:1007
 #, python-brace-format
 msgid ""
 "{ref}: restored {count} definition item(s) that kipy's orientation setter"
@@ -16213,55 +16193,83 @@ msgstr ""
 "{ref}: restored {count} definition item(s) that kipy's orientation setter"
 " would have dropped"
 
-#: kicadstamp/kicad/adapter.py:1100
+#: kicadstamp/kicad/adapter.py:1015
 #, python-brace-format
 msgid "Creating {count} items"
 msgstr "Creating {count} items"
 
-#: kicadstamp/kicad/adapter.py:1104
+#: kicadstamp/kicad/adapter.py:1019
 #, python-brace-format
 msgid "Created {count} items"
 msgstr "Created {count} items"
 
-#: kicadstamp/kicad/adapter.py:1109
+#: kicadstamp/kicad/adapter.py:1024
 #, python-brace-format
 msgid "Flipping {count} footprints via GUI action"
 msgstr "Flipping {count} footprints via GUI action"
 
-#: kicadstamp/kicad/adapter.py:1127 tests/utils/test_i18n.py:154
+#: kicadstamp/kicad/adapter.py:1042 tests/utils/test_i18n.py:154
 #: tests/utils/test_i18n.py:163
 msgid "Flip performed"
 msgstr "Flip performed"
 
-#: kicadstamp/kicad/adapter.py:1143
+#: kicadstamp/kicad/adapter.py:1058
 #, python-brace-format
 msgid "Attempt {attempt}/{total} for {desc}"
 msgstr "Attempt {attempt}/{total} for {desc}"
 
-#: kicadstamp/kicad/adapter.py:1155
+#: kicadstamp/kicad/adapter.py:1070
 #, python-brace-format
 msgid "Failed to roll back transaction {desc}: {e}"
 msgstr "Failed to roll back transaction {desc}: {e}"
 
-#: kicadstamp/kicad/adapter.py:1157
+#: kicadstamp/kicad/adapter.py:1072
 #, python-brace-format
 msgid "Error in transaction {desc} (attempt {attempt}): {type}: {e}"
 msgstr "Error in transaction {desc} (attempt {attempt}): {type}: {e}"
 
-#: kicadstamp/kicad/adapter.py:1168
+#: kicadstamp/kicad/adapter.py:1083
 #, python-brace-format
 msgid "Creating via at ({x:.3f}, {y:.3f}) mm, net={net}"
 msgstr "Creating via at ({x:.3f}, {y:.3f}) mm, net={net}"
 
-#: kicadstamp/kicad/adapter.py:1181
+#: kicadstamp/kicad/adapter.py:1096
 #, python-brace-format
 msgid "Creating track ({sx:.3f}, {sy:.3f}) -> ({ex:.3f}, {ey:.3f}) mm, net={net}"
 msgstr "Creating track ({sx:.3f}, {sy:.3f}) -> ({ex:.3f}, {ey:.3f}) mm, net={net}"
 
-#: kicadstamp/kicad/adapter.py:1224
+#: kicadstamp/kicad/adapter.py:1139
 #, python-brace-format
 msgid "Failed to delete {count} objects: {type}: {e}"
 msgstr "Failed to delete {count} objects: {type}: {e}"
+
+#: kicadstamp/kicad/kipy_connect.py:61 kicadstamp/kicad/kipy_connect.py:63
+#, python-brace-format
+msgid "Connected to KiCad {version}"
+msgstr "Connected to KiCad {version}"
+
+#: kicadstamp/kicad/kipy_connect.py:72
+msgid "Could not query KiCad version after connect"
+msgstr "Could not query KiCad version after connect"
+
+#: kicadstamp/kicad/kipy_selection.py:70
+#, python-brace-format
+msgid "Selected item of unknown type skipped: {url}"
+msgstr "Selected item of unknown type skipped: {url}"
+
+#: kicadstamp/kicad/kipy_selection.py:115
+#, python-brace-format
+msgid "Selected items (including groups expanded): {count}"
+msgstr "Selected items (including groups expanded): {count}"
+
+#: kicadstamp/kicad/kipy_selection.py:121
+#, python-brace-format
+msgid "Skipped {count} selected item(s) KiCad does not expose over IPC"
+msgstr "Skipped {count} selected item(s) KiCad does not expose over IPC"
+
+#: kicadstamp/kicad/kipy_selection.py:124
+msgid "The whole selection is readable over IPC again"
+msgstr "The whole selection is readable over IPC again"
 
 #: kicadstamp/placement/collision.py:55
 #, python-brace-format

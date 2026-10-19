@@ -12,6 +12,7 @@ import pytest
 # Add project root to the path
 
 from kipy.board_types import Field
+from kipy.errors import FutureVersionError
 from kipy.proto.common.commands.editor_commands_pb2 import (
     BeginCommit,
     BeginCommitResponse,
@@ -83,6 +84,16 @@ def test_init_without_connection():
         print("✅ KiCadBoardAdapter constructor works (without connection)")
     except Exception as e:
         print(f"⚠️ Constructor crashed (this may be normal if KiCad is not running): {e}")
+
+
+class _Version:
+    """A stand-in for kipy's KiCadVersion: the seam compares and prints it."""
+
+    def __init__(self, text):
+        self.text = text
+
+    def __str__(self):
+        return self.text
 
 
 def _make_fp(ref):
@@ -712,6 +723,76 @@ class TestMutatingCallBusyRetry:
         assert adapter._mutating_call("update_items", fn, retries=1,
                                       backoff_s=0) == "ok"
         assert len(calls) == 2  # the first attempt + ONE retry
+
+
+class TestConnectedVersionReporting:
+    """Ч3 of plan_2026_10_15_reread_copper_uuid_and_selection_any: the GUI
+    reconnects every ~5 s while KiCad is up with no PCB editor open, and both
+    the "Connected to KiCad" line and kipy's newer-than-API warning used to be
+    written on EVERY attempt (636 lines in one day of the profile log).
+
+    State is process-wide by design, so every cell resets it explicitly: a cell
+    that depended on what another test (or another `-n auto` worker) already
+    reported would be green or red by accident."""
+
+    def setup_method(self):
+        from kicadstamp.kicad import kipy_connect
+        self.mod = kipy_connect
+        kipy_connect._reset_version_reporting()
+
+    def teardown_method(self):
+        self.mod._reset_version_reporting()
+
+    def _kicad(self, live="10.0.7", api="10.0.6", newer=True):
+        kicad = MagicMock()
+        kicad.get_version.return_value = _Version(live)
+        kicad.get_api_version.return_value = _Version(api)
+        if newer:
+            kicad.check_version.side_effect = FutureVersionError(
+                f"Warning: Connected KiCad version ({live}) is newer than "
+                f"the API version of kicad-python ({api})")
+        else:
+            kicad.check_version.return_value = True
+        return kicad
+
+    def test_the_same_version_pair_is_reported_once(self, caplog):
+        kicad = self._kicad()
+
+        with caplog.at_level(logging.DEBUG, logger="kicadstamp.kicad.kipy_connect"):
+            for _ in range(10):
+                self.mod.report_connected_version(kicad)
+
+        info = [r for r in caplog.records
+                if r.levelno == logging.INFO and "Connected to KiCad" in r.message]
+        warn = [r for r in caplog.records
+                if r.levelno == logging.WARNING and "newer than" in r.message]
+        debug = [r for r in caplog.records
+                 if r.levelno == logging.DEBUG and "Connected to KiCad" in r.message]
+        assert len(info) == 1
+        assert len(warn) == 1
+        assert len(debug) == 9          # the repeats stay in the file log
+
+    def test_a_version_change_is_reported_again(self, caplog):
+        with caplog.at_level(logging.DEBUG, logger="kicadstamp.kicad.kipy_connect"):
+            self.mod.report_connected_version(self._kicad("10.0.7"))
+            self.mod.report_connected_version(self._kicad("10.0.8"))
+
+        info = [r for r in caplog.records
+                if r.levelno == logging.INFO and "Connected to KiCad" in r.message]
+        warn = [r for r in caplog.records
+                if r.levelno == logging.WARNING and "newer than" in r.message]
+        assert len(info) == 2
+        assert len(warn) == 2
+
+    def test_the_version_comparison_runs_on_every_connect(self):
+        """No new pair -> no new WARNING, but kipy's check is still called: its
+        rule is never copied here, it is called (Ч3)."""
+        kicad = self._kicad()
+
+        self.mod.report_connected_version(kicad)
+        self.mod.report_connected_version(kicad)
+
+        assert kicad.check_version.call_count == 2
 
 
 if __name__ == "__main__":

@@ -132,6 +132,11 @@ Reading the raw answer is what lets an item KiCad cannot serialise be **skipped 
 - Default timeout is `DEFAULT_TIMEOUT_MS` from `constants.py` (5000 ms).
 - The timeout can be overridden via the `timeout_ms` parameter in the constructor.
 - Logging is done via the `logging` module with DEBUG/INFO levels.
+- The connected version and kipy's newer-than-the-API warning are written ONCE per (KiCad
+  version, kipy API version) pair per process, repeats at DEBUG — `kicadstamp/kicad/kipy_connect.py`
+  (2026-10-15, Ч3). The GUI reconnects every ~5 s while no PCB editor is open, and this block used to
+  be its noisiest output; `check_version()` is still called on every connect, so kipy's own
+  comparison rule is never copied.
 
 ---
 

@@ -360,3 +360,24 @@ def test_the_worker_pass_survives_an_adapter_that_cannot_name_the_board(
     collected = window._collect_net_names()
 
     assert collected["board_name"] is None
+
+
+# ── C15: the badge names a connect failure the user can act on (Ч3) ─────────
+
+def test_c15_finish_poll_shows_the_named_connect_failure(real_main_window):
+    """connect() turns the "no handler for GetOpenDocuments" text into the
+    sentence "no PCB editor is open", and the ONE consumer of a poll result —
+    MainWindow._finish_poll — puts that text into the badge tooltip. The chain is
+    what the plan asks for; asserting the setter alone would not prove it."""
+    window = real_main_window
+    window._record_latency = lambda *a, **k: None
+    window._log_timeout_hint = lambda *a, **k: None
+    window._dock_hub.clear_components = lambda: None
+    window._dock_hub.push_fieldstool_connection_status = lambda *a, **k: None
+    named = ("KiCad is running, but no PCB editor is open — open the board in "
+             "KiCad (PCB Editor)")
+
+    window._finish_poll({"error": named, "duration_s": 0.01})
+
+    assert window.connection_badge.state == STATE_DISCONNECTED
+    assert window.connection_badge.toolTip() == named

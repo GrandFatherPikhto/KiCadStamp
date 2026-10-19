@@ -19,9 +19,8 @@ from kipy.proto.common.types.base_types_pb2 import ItemHeader
 
 from ..domain.geometry import BoardLayer, Box2, Vector2
 from kipy.proto.board import board_commands_pb2
-from kipy.errors import FutureVersionError
-
 from .interfaces import IBoardAdapter
+from .kipy_connect import report_connected_version
 from .kipy_footprint_safety import sync_dto_to_kipy
 from .kipy_selection import read_raw_selection, selected_items
 from ..domain.board import (
@@ -144,15 +143,11 @@ class KiCadBoardAdapter(IBoardAdapter):
         # found 2026-08-09 chasing a footprint-move pad-rotation corruption
         # that only reproduced against a KiCad nightly far ahead of kipy's
         # pinned API version.
-        try:
-            live_version = self._kicad.get_version()
-            logger.info(_("Connected to KiCad {version}").format(version=live_version))
-            try:
-                self._kicad.check_version()
-            except FutureVersionError as exc:
-                logger.warning(str(exc))
-        except Exception:
-            logger.debug(_("Could not query KiCad version after connect"), exc_info=True)
+        # The version pair is logged ONCE per process per (KiCad, kipy API)
+        # version — the GUI reconnects every ~5 s while no PCB editor is open,
+        # and this used to be the noisiest triple in the log (Ч3). The rule
+        # lives in kipy_connect.py, not here (adapter is size-capped).
+        report_connected_version(self._kicad)
         self._board = None
         self._write_risk_checked = False
         self._footprints_cache: list[Footprint] | None = None
