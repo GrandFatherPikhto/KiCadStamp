@@ -156,8 +156,9 @@ def extract_net_trace(
         via_items = [v for v in adapter.get_vias() if v.net_name == net]
 
     # A positionally unidentifiable segment is NOT stored (plan Ч1): its ends are
-    # pulled into one point (a via it touches, else its midpoint) and the
-    # neighbours that met it are re-pointed there, so the record stays connected.
+    # pulled into one point and the neighbours that met it are re-pointed there,
+    # so the record stays connected. Attractors here are the net's vias and the
+    # anchor point — this path has no pad coordinates (acceptance Д-3).
     collapsed = collapse_degenerate_segments(
         [(t.start, t.end) for t in track_items],
         attractors=[v.position for v in via_items] + [anchor])

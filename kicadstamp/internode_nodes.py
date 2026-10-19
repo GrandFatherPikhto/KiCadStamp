@@ -394,9 +394,11 @@ def _items_from_unit(unit: CopperUnit, components: Mapping[str, Any],
     keeps the record's LITERAL net (`net`, the unit's own net name): a pair that
     cannot be verified is never invented."""
     # A positionally unidentifiable segment is NOT written (plan Ч1): its ends
-    # are pulled into one point (a via it touches, else its midpoint) and the
-    # neighbours that met it are re-pointed there, so the record stays
-    # connected. ONE rule for every capture path — degenerate_segments.
+    # are pulled into one point and the neighbours that met it are re-pointed
+    # there, so the record stays connected. ONE rule for every capture path —
+    # degenerate_segments. This path knows NO pad coordinates (CopperUnit carries
+    # PadRefs only), so the attractors are the unit's vias and the anchor point;
+    # without one the group collapses into its own centre (acceptance Д-3).
     collapsed = collapse_degenerate_segments(
         [(t.start, t.end) for t in unit.tracks],
         attractors=[v.position for v in unit.vias] + [anchor_point])

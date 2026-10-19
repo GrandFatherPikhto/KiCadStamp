@@ -526,11 +526,24 @@ def extract_template_from_selection(
                              net=role_net or via_net))
 
     # A positionally unidentifiable segment is NOT stored (plan Ч1): its ends are
-    # pulled into one point (a via it touches, else its midpoint) and the
-    # neighbours that met it are re-pointed there, so the cell stays connected.
+    # pulled into one point and the neighbours that met it are re-pointed there,
+    # so the cell stays connected. This path is the ONE that knows the SELECTED
+    # footprints' pads, so pad centres are attractors here as well (acceptance
+    # Д-3: the docs say "a pad or via it touches", and a pad stub is exactly what
+    # KiCad leaves at a pad entry).
+    pad_points: list[Vector2] = []
+    for fp in footprints:
+        try:
+            pads = adapter.get_footprint_pads(fp)
+        except (TypeError, AttributeError):  # a pad list is not always available
+            continue
+        for pad in pads or ():
+            position = getattr(pad, "position", None)
+            if isinstance(position, Vector2):
+                pad_points.append(position)
     collapsed = collapse_degenerate_segments(
         [(t.start, t.end) for t in tracks],
-        attractors=[v.position for v in vias] + [origin])
+        attractors=pad_points + [v.position for v in vias] + [origin])
     if collapsed.changed:
         logger.info(_("cell {name!r}: {count} degenerate track segment(s) collapsed "
                       "(shorter than 2 × tolerance)").format(

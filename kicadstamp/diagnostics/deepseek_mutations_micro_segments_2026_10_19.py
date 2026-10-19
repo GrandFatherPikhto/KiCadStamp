@@ -30,12 +30,16 @@ ROOT = Path(__file__).resolve().parents[2]
 DEDUPE = "kicadstamp/board_dedupe.py"
 REGISTRY = "kicadstamp/registry.py"
 NODES = "kicadstamp/internode_nodes.py"
+RULES = "kicadstamp/degenerate_segments.py"
+TEMPLATE = "kicadstamp/template_extraction.py"
 GUARDS = ("tests/domain/test_micro_segment_consumers.py "
           "tests/domain/test_degenerate_segments.py "
           "tests/domain/test_board_dedupe.py "
-          "tests/placement/test_track_positional_precheck.py")
+          "tests/placement/test_track_positional_precheck.py "
+          "tests/extraction/test_template_extraction.py")
 
 MUTATIONS = [
+    # ── the three original consumers ───────────────────────────────────────
     ("М1 «Дубли меди» let the degenerate segment into the groups", DEDUPE,
      "    groupable = [t for t in tracks if not is_degenerate_segment(t.start, t.end)]",
      "    groupable = list(tracks)  # MUTATION: every segment may be grouped",
@@ -43,14 +47,22 @@ MUTATIONS = [
       "test_the_report_lists_short_segments_and_deletes_nothing",
       "test_boundary_19_20_21_um"]),
 
-    ("М2 track_matches compares a degenerate segment like any other", REGISTRY,
-     "    if (is_degenerate_segment(live_track.start, live_track.end)\n"
-     "            or is_degenerate_segment(cmd.start, cmd.end)):\n"
-     "        return False",
-     "    if False:  # MUTATION: the positional guard is gone\n"
-     "        return False",
-     ["test_no_cross_matches_between_the_fact_segments",
-      "test_a_degenerate_segment_does_not_even_match_itself"]),
+    ("М2 the positional pre-check answers for stubs again", REGISTRY,
+     "    positional_pool = [live for live in live_tracks\n"
+     "                       if not is_degenerate_segment(live.start, live.end)]\n"
+     "    kept: list[TrackCommand] = []\n"
+     "    skipped = 0\n"
+     "    for cmd in to_create:\n"
+     "        if (not is_degenerate_segment(cmd.start, cmd.end)\n"
+     "                and any(track_matches(live, cmd) for live in positional_pool)):",
+     "    positional_pool = list(live_tracks)  # MUTATION: stubs answer positionally\n"
+     "    kept: list[TrackCommand] = []\n"
+     "    skipped = 0\n"
+     "    for cmd in to_create:\n"
+     "        if any(track_matches(live, cmd) for live in positional_pool):",
+     ["test_positional_precheck_never_pairs_a_degenerate_command",
+      "test_positional_precheck_ignores_a_degenerate_neighbour",
+      "test_positional_path_never_pairs_a_degenerate_segment"]),
 
     ("М3 the read path stores the stub instead of collapsing it", NODES,
      "    collapsed = collapse_degenerate_segments(\n"
@@ -61,6 +73,29 @@ MUTATIONS = [
      "                    list(range(len(unit.tracks))), [])",
      ["test_items_from_unit_drops_the_stub_and_keeps_the_chain_connected",
       "test_items_from_unit_pulls_the_stub_ends_onto_a_touched_via"]),
+
+    # ── acceptance Д-1: the guard belongs to the POSITIONAL path only ──────
+    ("Д-1 the guard is back on the uuid path (track_matches)", REGISTRY,
+     "    live_start_x_mm, live_start_y_mm = live_track.start.x / MM, live_track.start.y / MM",
+     "    if (is_degenerate_segment(live_track.start, live_track.end)\n"
+     "            or is_degenerate_segment(cmd.start, cmd.end)):\n"
+     "        return False  # MUTATION: the positional rule is applied by uuid\n"
+     "    live_start_x_mm, live_start_y_mm = live_track.start.x / MM, live_track.start.y / MM",
+     ["test_uuid_path_keeps_a_degenerate_segment_with_the_same_geometry",
+      "test_track_matches_still_compares_geometry_for_the_uuid_path"]),
+
+    # ── acceptance Д-2: touching stubs are ONE group ───────────────────────
+    ("Д-2 each touching stub collapses into its own point", RULES,
+     "    groups = _touching_groups(segments, degenerate)",
+     "    groups = [[index] for index in degenerate]  # MUTATION: no grouping",
+     ["test_a_chain_of_three_stubs_collapses_into_one_point",
+      "test_two_15um_stubs_meet_at_one_point"]),
+
+    # ── acceptance Д-3: pads are attractors where they are known ───────────
+    ("Д-3 the cell path stops passing pad centres", TEMPLATE,
+     "        attractors=pad_points + [v.position for v in vias] + [origin])",
+     "        attractors=[v.position for v in vias] + [origin])  # MUTATION: pads dropped",
+     ["test_degenerate_stub_collapses_into_a_touched_pad"]),
 ]
 
 

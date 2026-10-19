@@ -22,7 +22,7 @@ from kicadstamp.domain.geometry import BoardLayer, Vector2
 from kicadstamp.internode_copper import CopperUnit
 from kicadstamp.internode_nodes import _items_from_unit
 from kicadstamp.placement.commands import TrackCommand
-from kicadstamp.registry import track_matches
+from kicadstamp.registry import filter_existing_tracks, track_matches
 from kicadstamp.utils.units import MM
 
 NET = "+3V3_STM32"
@@ -135,24 +135,35 @@ def test_boundary_19_20_21_um():
 
 # ── 2. track_matches ───────────────────────────────────────────────────────
 
-def test_no_cross_matches_between_the_fact_segments():
-    """Before the rule every ordered pair matched (6 of 6) — the pre-check
-    could believe missing copper was already there."""
+def test_positional_precheck_never_pairs_a_degenerate_command():
+    """All six ordered pairs of the fact: the POSITIONAL pre-check may not
+    recognise any of them (acceptance Д-1 — the guard lives here, not in the
+    shared predicate, because by uuid the segment IS known)."""
     fact = _fact_tracks()
-    for live in fact:
-        for planned in fact:
-            assert not track_matches(live, _cmd(
-                planned.start.x / MM, planned.start.y / MM,
-                planned.end.x / MM, planned.end.y / MM)), (
-                f"{live.uuid} must not match {planned.uuid}")
+    for planned in fact:
+        cmd = _cmd(planned.start.x / MM, planned.start.y / MM,
+                   planned.end.x / MM, planned.end.y / MM)
+        for live in fact:
+            assert filter_existing_tracks([cmd], [live]) == [cmd], (
+                f"{live.uuid} must not be accepted as {planned.uuid}")
 
 
-def test_a_degenerate_segment_does_not_even_match_itself():
-    """The sign of the defect: 'same ends' is not evidence for a segment
-    shorter than two tolerances."""
+def test_positional_precheck_ignores_a_degenerate_neighbour():
+    """A stub CAN answer for a NORMAL command positionally — a 15 µm stub
+    against a 24 µm command puts both ends inside the tolerance, same net,
+    width and layer — so the pre-check must never take a stub into its pool
+    (otherwise real copper would be silently skipped)."""
+    stub = _track("stub", 10.0, 20.0, 10.015, 20.0, width=0.25)
+    normal = _cmd(10.0, 20.0, 10.024, 20.0, width=0.25)
+    assert filter_existing_tracks([normal], [stub]) == [normal]
+
+
+def test_track_matches_still_compares_geometry_for_the_uuid_path():
+    """The shared predicate keeps its pre-Д-1 behaviour: it is the uuid path's
+    comparator, and there the geometry of a degenerate segment IS usable."""
     fact = _fact_tracks()
     live = fact[0]
-    assert not track_matches(live, _cmd(77.9784, 98.4459, 77.9742, 98.4416))
+    assert track_matches(live, _cmd(77.9784, 98.4459, 77.9742, 98.4416))
 
 
 def test_ordinary_segments_still_match():

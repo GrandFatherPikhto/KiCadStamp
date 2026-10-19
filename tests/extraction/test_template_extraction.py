@@ -939,3 +939,44 @@ class TestSoftDeprecationNotices:
         assert "redundant" not in caplog.text
         comp = result["t"]["components"][0]
         assert comp["net_template"] == "{PWR_IN}"
+
+
+def test_degenerate_stub_collapses_into_a_touched_pad():
+    """Acceptance Д-3: this path KNOWS the pads, so a stub at a pad entry is
+    pulled into the PAD centre (not into its own midpoint), and the neighbours
+    meet there — one rule, one more attractor."""
+    fp = _make_fp("U1", 0.0, 0.0, 0.0, "MCU")
+    # The selection filter keeps only tracks whose BOTH ends touch something in
+    # the selection, so every end lands on a pad here.
+    pads = []
+    for index, x_nm in enumerate((1_000_000, 2_000_000, 3_000_000), start=1):
+        pad = MagicMock()
+        pad.net_name = "GND"
+        pad.number = str(index)
+        pad.position = Vector2.from_xy(x_nm, 0)
+        pads.append(pad)
+
+    def _track(uuid, sx, ex):
+        return Track(uuid=uuid, start=Vector2.from_xy(sx, 0),
+                     end=Vector2.from_xy(ex, 0), net_name="GND",
+                     width_mm=0.25, layer=BoardLayer.BL_F_Cu)
+
+    adapter = MagicMock()
+    adapter.get_selected_items.return_value = [
+        fp,
+        _track("x", 1_000_000, 2_000_000),
+        _track("stub", 2_000_000, 2_008_000),   # 8 µm, end at the middle pad
+        # Closes the loop back to x's start, so the selection filter (which keeps
+        # only tracks whose both ends touch something in the selection) keeps all
+        # three even with mock (box-less) pads.
+        _track("y", 2_008_000, 1_000_000),
+    ]
+    adapter.get_field_value.side_effect = lambda f, name: f._role
+    adapter.get_footprint_pads.return_value = pads
+
+    result = extract_template_from_selection(adapter, "cell")
+    tracks = result["cell"]["tracks"]
+
+    assert len(tracks) == 2
+    assert tracks[0]["end_along_mm"] == 2.0        # pulled to the PAD centre
+    assert tracks[1]["start_along_mm"] == 2.0      # …and the neighbour meets it

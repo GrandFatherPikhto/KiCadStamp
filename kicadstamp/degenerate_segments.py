@@ -140,47 +140,143 @@ class CollapseResult:
         return bool(self.collapsed)
 
 
+def _point_to_segment_nm(point: Vector2, start: Vector2, end: Vector2) -> float:
+    """Distance from a point to a segment, in board units (nanometres)."""
+    dx, dy = end.x - start.x, end.y - start.y
+    if dx == 0 and dy == 0:
+        return segment_length_nm(point, start)
+    t = ((point.x - start.x) * dx + (point.y - start.y) * dy) / (dx * dx + dy * dy)
+    t = max(0.0, min(1.0, t))
+    projection = Vector2(int(round(start.x + t * dx)), int(round(start.y + t * dy)))
+    return segment_length_nm(point, projection)
+
+
+def _touching(first: Segment, second: Segment) -> bool:
+    """Do two segments touch within ONE positional tolerance?
+
+    End-to-end and end-onto-the-middle both count: a stub chained to another stub
+    (acceptance Д-2: 3 × 9 µm, 2 × 15 µm) is one physical place, and collapsing
+    the members separately would tear the chain apart by exactly the stub
+    length."""
+    a1, a2 = first
+    b1, b2 = second
+    for point in (a1, a2):
+        if (_near(point, b1) or _near(point, b2)
+                or _point_to_segment_nm(point, b1, b2) <= POSITION_TOLERANCE_NM):
+            return True
+    for point in (b1, b2):
+        if (_near(point, a1) or _near(point, a2)
+                or _point_to_segment_nm(point, a1, a2) <= POSITION_TOLERANCE_NM):
+            return True
+    return False
+
+
+def _touching_groups(segments: Sequence[Segment], indices: Sequence[int]) -> list[list[int]]:
+    """Group the given (degenerate) indices into touching clusters.
+
+    A chain A–B–C is ONE group, so its whole length collapses into one point
+    instead of each member collapsing into its own (the Д-2 defect: 3 × 9 µm
+    left a 9 µm gap between the neighbours)."""
+    parent = {index: index for index in indices}
+
+    def find(x: int) -> int:
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+
+    for position, first in enumerate(indices):
+        for second in indices[position + 1:]:
+            if _touching(segments[first], segments[second]):
+                ra, rb = find(first), find(second)
+                if ra != rb:
+                    parent[ra] = rb
+
+    groups: dict[int, list[int]] = {}
+    for index in indices:
+        groups.setdefault(find(index), []).append(index)
+    return [groups[root] for root in sorted(groups)]
+
+
+def _group_point(segments: Sequence[Segment], members: Sequence[int],
+                 attractors: Sequence[Vector2]) -> Vector2:
+    """Where a whole touching group collapses.
+
+    An ATTRACTOR any member already touches wins — a pad or a via, whichever the
+    caller can supply (one positional tolerance, as everywhere else). The cell
+    extraction path passes pad centres AND vias; the inter-node re-read has only
+    vias and the anchor point (its CopperUnit carries PadRefs, not coordinates).
+    Otherwise the centre of the group's bounding box — which for a straight chain
+    is the middle of the chain."""
+    ends = [point for index in members for point in segments[index]]
+    for point in ends:
+        for attractor in attractors:
+            if _near(point, attractor):
+                return Vector2(attractor.x, attractor.y)
+    xs = [point.x for point in ends]
+    ys = [point.y for point in ends]
+    return Vector2((min(xs) + max(xs)) // 2, (min(ys) + max(ys)) // 2)
+
+
 def collapse_degenerate_segments(segments: Sequence[Segment], *,
                                  attractors: Iterable[Vector2] = ()) -> CollapseResult:
     """Drop every degenerate segment and pull its neighbours into one point.
 
     Why this shape (Denis, 19.10): the segment is never "thrown away" on its
-    own — the ends of the neighbours that met it are RE-POINTED at
-    :func:`collapse_point` (a touched pad/via, else the midpoint). That keeps
-    the number of connected components of the record's own copper unchanged,
-    which is exactly what the Ч0 bridge measurements checked
-    (``spoke_vdd_03`` 7/21, ``nrst…`` 0/11, ``heater_led_02…`` 10/11/15).
+    own — the ends of the neighbours that met it are RE-POINTED at the collapse
+    point (a touched pad/via, else the midpoint). That keeps the number of
+    connected components of the record's own copper unchanged, which is exactly
+    what the Ч0 bridge measurements checked (``spoke_vdd_03`` 7/21,
+    ``nrst…`` 0/11, ``heater_led_02…`` 10/11/15).
+
+    TOUCHING degenerate segments collapse as ONE GROUP into ONE point
+    (acceptance Д-2, 19.10): a chain of them is one physical place, so
+    collapsing each member into its own midpoint would tear the neighbours apart
+    by the chain's length (3 × 9 µm → a 9 µm gap; 2 × 15 µm → 15 µm).
 
     An end is re-pointed only when it lies within ONE positional tolerance of
-    the dropped segment's end — the same rule every other match uses. Nothing
-    else is touched, and the input sequence is never mutated.
+    a dropped segment's end — the same rule every other match uses. Nothing else
+    is touched, and the input sequence is never mutated.
     """
     degenerate = find_degenerate_segments(segments)
     if not degenerate:
         return CollapseResult(list(segments), list(range(len(segments))), [])
 
     attractor_list = list(attractors)
-    dropped: dict[int, CollapsedSegment] = {}
-    # The mapping is built from the ORIGINAL input, so two dropped segments can
-    # never re-point each other's ends in a chain.
-    for index in degenerate:
-        start, end = segments[index]
-        dropped[index] = CollapsedSegment(
-            start=start, end=end,
-            collapsed_to=collapse_point(start, end, attractor_list))
+    groups = _touching_groups(segments, degenerate)
+    # group point is computed from the ORIGINAL input, so two groups can never
+    # re-point each other's ends in a chain.
+    group_points = [_group_point(segments, members, attractor_list) for members in groups]
 
+    # One note per dropped segment, IN INPUT ORDER (the caller's Log line and
+    # `kept_indices` describe the same input list).
+    point_by_index = {index: point
+                      for members, point in zip(groups, group_points)
+                      for index in members}
+    collapsed = [CollapsedSegment(start=segments[index][0], end=segments[index][1],
+                                  collapsed_to=point_by_index[index])
+                 for index in degenerate]
+
+    # Every end of every group member is a re-pointing target: `(member_end,
+    # group_point)`. Built from the ORIGINAL input, so a kept neighbour can never
+    # re-point another kept neighbour.
+    repoint = [(end, point_by_index[index])
+               for members, _point in zip(groups, group_points)
+               for index in members for end in segments[index]]
+
+    dropped = set(degenerate)
     kept: list[Segment] = []
     kept_indices: list[int] = []
     for index, (start, end) in enumerate(segments):
         if index in dropped:
             continue
         new_start, new_end = start, end
-        for note in dropped.values():
-            if _near(start, note.start) or _near(start, note.end):
-                new_start = note.collapsed_to
-            if _near(end, note.start) or _near(end, note.end):
-                new_end = note.collapsed_to
+        for member_end, point in repoint:
+            if _near(start, member_end):
+                new_start = point
+            if _near(end, member_end):
+                new_end = point
         kept.append((new_start, new_end))
         kept_indices.append(index)
 
-    return CollapseResult(kept, kept_indices, [dropped[i] for i in degenerate])
+    return CollapseResult(kept, kept_indices, collapsed)

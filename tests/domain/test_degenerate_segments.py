@@ -126,3 +126,55 @@ def test_collapse_keeps_a_three_way_joint_connected():
     midpoint = segment_midpoint(*stub)
     assert [seg[1] for seg in result.segments[:2]] == [midpoint, midpoint]
     assert result.segments[2][0] == midpoint
+
+
+# ── acceptance Д-2 (19.10): touching stubs are ONE group ────────────────────
+
+def test_a_chain_of_three_stubs_collapses_into_one_point():
+    """Д-2: 3 × 9 µm between two real tracks — the neighbours must MEET, not keep
+    a 9 µm gap (the measured defect of the first delivery)."""
+    left = _seg(0, 0, 1_000_000, 0)
+    stub1 = _seg(1_000_000, 0, 1_009_000, 0)
+    stub2 = _seg(1_009_000, 0, 1_018_000, 0)
+    stub3 = _seg(1_018_000, 0, 1_027_000, 0)
+    right = _seg(1_027_000, 0, 2_000_000, 0)
+
+    result = collapse_degenerate_segments([left, stub1, stub2, stub3, right])
+
+    assert len(result.segments) == 2
+    assert result.segments[0][1] == result.segments[1][0]
+    assert len({note.collapsed_to for note in result.collapsed}) == 1
+    assert len(result.collapsed) == 3
+
+
+def test_two_15um_stubs_meet_at_one_point():
+    """2 × 15 µm — the other measured row of Д-2 (a 15 µm gap before)."""
+    left = _seg(0, 0, 1_000_000, 0)
+    stub1 = _seg(1_000_000, 0, 1_015_000, 0)
+    stub2 = _seg(1_015_000, 0, 1_030_000, 0)
+    right = _seg(1_030_000, 0, 2_000_000, 0)
+
+    result = collapse_degenerate_segments([left, stub1, stub2, right])
+
+    assert result.segments[0][1] == result.segments[1][0]
+    assert result.segments[0][1].x == (1_000_000 + 1_030_000) // 2
+
+
+def test_stub_and_right_angle_neighbour_are_one_group():
+    """A stub that meets a normal track mid-segment touches it: the end of that
+    track is re-pointed too, so the junction survives."""
+    left = _seg(0, 0, 1_000_000, 0)
+    stub = _seg(1_000_000, 0, 1_008_000, 0)
+    result = collapse_degenerate_segments([left, stub])
+    point = result.segments[0][1]
+    assert point == segment_midpoint(*stub)
+
+
+def test_distant_stubs_collapse_separately():
+    """Not every pair of degenerate segments is one place: two far-apart stubs
+    keep their own collapse points."""
+    near = _seg(0, 0, 8_000, 0)
+    far = _seg(1_000_000, 0, 1_008_000, 0)
+    result = collapse_degenerate_segments([near, far])
+    assert len(result.collapsed) == 2
+    assert result.collapsed[0].collapsed_to != result.collapsed[1].collapsed_to

@@ -388,14 +388,27 @@ Holds global constants used across various modules.
 A segment whose ends are closer than `DEGENERATE_SEGMENT_NM` is unidentifiable
 POSITIONALLY (the comparison tolerance is half of it), so "the same segment" and
 "a neighbouring stub" are the same answer. The rule and the collapse live in ONE
-module, and exactly three places call in: `board_dedupe` (such a segment never
-joins a duplicate group; it is reported on its own line and never deleted),
-`registry.track_matches` (never "already on the board" — otherwise the
-pre-check silently skips copper that is missing) and the capture/re-read paths
-(`internode_nodes._items_from_unit`, `template_extraction`,
-`net_trace_extract`), where the stub is not stored and its neighbours are pulled
-into one point — a pad/via it already touches, else its midpoint — so the
-record stays connected.
+module, and exactly three places call in:
+
+- `board_dedupe` — such a segment never joins a duplicate group (width is part of
+  the key); it is reported on its own line and never deleted;
+- `registry.filter_existing_tracks` — the POSITIONAL pre-check, and ONLY it: a
+  stub is never "already here", otherwise real copper would be silently skipped.
+  By UUID the identity IS known, so `track_matches` keeps comparing geometry for
+  `reconcile` and a stored segment with a live uuid is kept, not recreated
+  (acceptance Д-1);
+- the capture/re-read paths (`internode_nodes._items_from_unit`,
+  `template_extraction`, `net_trace_extract`) — the stub is not stored, and
+  TOUCHING stubs collapse as ONE GROUP into one point (each collapsing into its
+  own point would leave a gap of the chain's length — acceptance Д-2): a pad or
+  via the caller can supply, else the group's centre. The cell path passes pad
+  centres AND vias; the inter-node re-read has only vias and the anchor point
+  (acceptance Д-3).
+
+Known remainder (decided 19.10, not touched): `cell_geometry_refresh._track_new_geo`
+— the cell geometry re-read still stores such a segment, and after Д-1 it causes
+no duplicates and no endless re-creation; it shows up in the load-time warning
+and is removed by the cell re-read.
 
 ---
 

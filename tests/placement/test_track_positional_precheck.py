@@ -230,3 +230,38 @@ def test_double_run_no_duplicates():
     # Run 2 positional path (unregistered copper, e.g. a manual track).
     manual = _make_live_track("uuid-manual", start, end)
     assert filter_existing_tracks([cmd], [manual]) == []
+
+
+# ── acceptance Д-1 (19.10): positional identity only ────────────────────────
+
+def test_uuid_path_keeps_a_degenerate_segment_with_the_same_geometry():
+    """Д-1: by UUID the segment's identity IS known, so reconcile may compare
+    its geometry and keep it — no `to_delete` + recreate on every redraw."""
+    key = "pad:1|tpl|__spoke__|0"
+    start, end = (77.9784, 98.4459), (77.9843, 98.4400)      # 8.3 µm
+    live = _make_live_track("uuid-t", start, end, net_name="+3V3",
+                            width_mm=0.65)
+    adapter = MagicMock()
+    adapter.get_tracks.return_value = [live]
+
+    reg_path = os.path.join(tempfile.mkdtemp(), "tracks.json")
+    registry = TrackRegistry(adapter, reg_path)
+    registry.entries = {key: TrackRegistryEntry(
+        uuid="uuid-t", start_x_mm=start[0], start_y_mm=start[1],
+        end_x_mm=end[0], end_y_mm=end[1], width_mm=0.65, net="+3V3",
+        layer="F.Cu")}
+
+    cmd = _track_cmd(start, end, width_mm=0.65, registry_key=key)
+    to_create, to_delete = registry.reconcile([cmd], known_anchor_ids={"pad:1"})
+    assert to_create == []
+    assert to_delete == []
+
+
+def test_positional_path_never_pairs_a_degenerate_segment():
+    """Д-1: the guard belongs to the POSITIONAL path — such a command is never
+    skipped as "already here" (a neighbour would answer for it)."""
+    start, end = (77.9784, 98.4459), (77.9843, 98.4400)
+    live = _make_live_track("uuid-t", start, end, net_name="+3V3",
+                            width_mm=0.65)
+    cmd = _track_cmd(start, end, width_mm=0.65)
+    assert filter_existing_tracks([cmd], [live]) == [cmd]

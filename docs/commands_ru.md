@@ -267,9 +267,10 @@ python kicadstamp_cli.py undo --verbose
 отрезок» дают одинаковый ответ. Такой отрезок в группу не попадает никогда; он
 печатается отдельной строкой после групп, и **`--apply` его не удаляет**. Это
 ОДНО правило (`kicadstamp/degenerate_segments.py`), общее для этой команды,
-`track_matches` (идемпотентность) и путей захвата/перечитывания — см.
-[docs/placement_ru.md](placement_ru.md) и
-[docs/uplevel_modules_ru.md](uplevel_modules_ru.md).
+позиционной предпроверки (`registry.filter_existing_tracks`) и путей
+захвата/перечитывания — см. [docs/placement_ru.md](placement_ru.md) и
+[docs/uplevel_modules_ru.md](uplevel_modules_ru.md). По uuid отрезок ИЗВЕСТЕН,
+поэтому реестровый путь его сохраняет, а не пересоздаёт.
 
 ### Синтаксис
 

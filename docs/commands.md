@@ -255,8 +255,10 @@ comparison tolerance is half of the segment itself, so a neighbouring stub and
 "the very same segment" give the same answer. Such a segment never joins a
 group; it is printed on its own line after the groups and **`--apply` never
 deletes it**. This is ONE rule (`kicadstamp/degenerate_segments.py`) shared by
-this command, `track_matches` (idempotency) and the capture/re-read paths — see
-[docs/placement.md](placement.md) and [docs/uplevel_modules.md](uplevel_modules.md).
+this command, the positional pre-check (`registry.filter_existing_tracks`) and
+the capture/re-read paths — see [docs/placement.md](placement.md) and
+[docs/uplevel_modules.md](uplevel_modules.md). By UUID a segment is known, so the
+registry path keeps it instead of recreating it.
 
 ### Syntax
 
