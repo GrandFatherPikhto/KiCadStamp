@@ -4,6 +4,7 @@ Test for the kicad module (without a real connection to KiCad).
 Checks imports and method presence in classes.
 """
 
+import logging
 from unittest.mock import MagicMock
 
 import pytest
@@ -21,6 +22,9 @@ from kipy.proto.common.commands.editor_commands_pb2 import (
 from kicadstamp.kicad import KiCadBoardAdapter, IBoardAdapter
 from kicadstamp.kicad.adapter import KiCadBoardAdapter as Adapter
 from kipy.proto.common.types.base_types_pb2 import DocumentSpecifier
+
+from tests.fakes.selection import (board_answering, packed_footprint,
+                                   unknown_type_item, unreadable_item)
 
 
 def test_import():
@@ -425,25 +429,23 @@ class TestIgnoreSelection:
 
     def test_default_reads_the_real_selection(self):
         adapter = Adapter.__new__(Adapter)
-        adapter._board = MagicMock()
+        adapter._board = board_answering(packed_footprint("J1"))
         adapter.ignore_selection = False
-        adapter._board.get_selection.return_value = [_make_fp("J1")]
 
         items = adapter.get_selected_items()
 
-        assert len(items) == 1
-        adapter._board.get_selection.assert_called_once()
+        assert [item.ref for item in items] == ["J1"]
+        adapter._board.client.send.assert_called_once()
 
     def test_ignore_selection_reports_nothing_without_querying_the_board(self):
         adapter = Adapter.__new__(Adapter)
-        adapter._board = MagicMock()
+        adapter._board = board_answering(packed_footprint("J1"))
         adapter.ignore_selection = True
-        adapter._board.get_selection.return_value = [_make_fp("J1")]
 
         items = adapter.get_selected_items()
 
         assert items == []
-        adapter._board.get_selection.assert_not_called()
+        adapter._board.client.send.assert_not_called()
 
 
 class TestSelectionLogDedup:
@@ -451,25 +453,81 @@ class TestSelectionLogDedup:
     get_selected_items() every ~400ms — logging its count unconditionally at
     DEBUG flooded the log file (many lines/sec) with nothing to say, burying
     the one Redraw actually worth reading around it. Only log when the count
-    changes."""
+    changes.
+
+    Kept on the raw-GetSelection seam after Ч2 of
+    plan_2026_10_15_reread_copper_uuid_and_selection_any, because this one cell
+    IS the property ("two lines for five ticks"); no second cell duplicates
+    it."""
 
     def test_logs_only_when_count_changes(self, caplog):
-        import logging
         adapter = Adapter.__new__(Adapter)
-        adapter._board = MagicMock()
         adapter.ignore_selection = False
 
         with caplog.at_level(logging.DEBUG, logger="kicadstamp.kicad.adapter"):
-            adapter._board.get_selection.return_value = []
+            adapter._board = board_answering()
             adapter.get_selected_items()
             adapter.get_selected_items()
             adapter.get_selected_items()
-            adapter._board.get_selection.return_value = [_make_fp("J1")]
+            adapter._board = board_answering(packed_footprint("J1"))
             adapter.get_selected_items()
             adapter.get_selected_items()
 
         selection_logs = [r for r in caplog.records if "Selected items" in r.message]
         assert len(selection_logs) == 2  # once for count=0, once for count=1 — not 5
+
+
+class TestUnreadableSelectionItems:
+    """Live 2026-10-15 (Ч2 of plan_2026_10_15_reread_copper_uuid_and_selection_any):
+    selecting the DRC-marked parts of a board dropped the GUI's connection.
+
+    KiCad returns every ``PCB_MARKER`` in ``GetSelection`` as an EMPTY
+    ``google.protobuf.Any``, and kipy's ``unpack_any`` raises ``ValueError`` on
+    it — which ``get_selected_items`` used to pass straight up, so the 400 ms
+    selection tick read it as "lost connection" and disconnected. The adapter
+    now reads ``GetSelection`` raw and SKIPS such items, keeping every readable
+    one; an unknown ``type_url`` (KiCad newer than kipy) is skipped the same
+    way."""
+
+    def _adapter(self, *raw_items):
+        adapter = Adapter.__new__(Adapter)
+        adapter._board = board_answering(*raw_items)
+        adapter.ignore_selection = False
+        return adapter
+
+    def test_an_empty_any_is_skipped_and_the_readable_items_survive(self, caplog):
+        adapter = self._adapter(packed_footprint("J1"), unreadable_item())
+
+        with caplog.at_level(logging.INFO, logger="kicadstamp.kicad.adapter"):
+            items = adapter.get_selected_items()
+
+        assert [item.ref for item in items] == ["J1"]
+        assert any("Skipped 1 selected item" in r.message for r in caplog.records)
+
+    def test_a_selection_of_only_unreadable_items_is_empty_not_an_error(self):
+        adapter = self._adapter(unreadable_item(), unreadable_item())
+
+        assert adapter.get_selected_items() == []
+
+    def test_an_unknown_type_url_is_skipped_too(self, caplog):
+        adapter = self._adapter(unknown_type_item(), packed_footprint("J1"))
+
+        with caplog.at_level(logging.DEBUG, logger="kicadstamp.kicad.adapter"):
+            items = adapter.get_selected_items()
+
+        assert [item.ref for item in items] == ["J1"]
+        assert any("FutureBoardItem" in r.message for r in caplog.records)
+
+    def test_the_skip_line_is_logged_once_per_change(self, caplog):
+        adapter = self._adapter(unreadable_item())
+
+        with caplog.at_level(logging.INFO, logger="kicadstamp.kicad.adapter"):
+            adapter.get_selected_items()
+            adapter.get_selected_items()
+            adapter.get_selected_items()
+
+        skip_logs = [r for r in caplog.records if "Skipped 1 selected item" in r.message]
+        assert len(skip_logs) == 1
 
 
 class TestTemporarilyIgnoreSelection:

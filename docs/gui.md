@@ -73,6 +73,13 @@ useless); a fast timer (~400ms) tracks the board's own selection and reflects it
 tree. Rebuilding the full snapshot happens only on an explicit action — the status-bar button
 (**Reconnect** while disconnected, **Refresh** while connected).
 
+**DRC markers in the selection are not a lost connection** (2026-10-15): KiCad sends every
+`PCB_MARKER` in `GetSelection` as an EMPTY `google.protobuf.Any`, which kipy's own selection
+reader cannot unpack. Selecting a group that contains DRC markers therefore used to look like a
+dead connection to the fast tick. The adapter now skips such items (and any type kipy does not
+know), keeps the readable ones, and logs the skipped count once per change — the badge stays
+green and the tree keeps tracking the selection.
+
 The window has a **menu bar** with two top-level menus built by FUNCTION, not per dock: **File**
 (Open/New/**Save**/**Discard unsaved changes...**/Recent/Close/Quit — see
 [docs/hotkeys.md](hotkeys.md)) and **View** (2026-08-27, one checkable entry per top-level dock, so a

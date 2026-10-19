@@ -11,9 +11,15 @@ These tests use the real MainWindow (real_main_window fixture) with its
 real BoardConnection, but a fake board behind it: no live KiCad needed,
 exactly like the other tests/gui/ tests.
 """
+from types import SimpleNamespace
+
 import gui.main_window as main_window_mod
 from gui.connection import BoardConnection
+from gui.connection_badge import STATE_CONNECTED
 from kicadstamp.explore import Selected
+from kicadstamp.kicad.adapter import KiCadBoardAdapter
+from tests.fakes.selection import (board_answering, packed_footprint,
+                                   unreadable_item)
 from tests.gui.conftest import _pump
 
 
@@ -234,3 +240,39 @@ def test_selection_tick_does_not_report_refs_present_in_the_snapshot(
         _tick(window, qapp)
 
     assert [r.message for r in caplog.records if "stale" in r.message] == []
+
+
+def test_selection_tick_survives_unreadable_items_in_the_selection(real_main_window, qapp):
+    """Ч2 of plan_2026_10_15_reread_copper_uuid_and_selection_any (live
+    2026-10-15): selecting the DRC-marked parts of a board dropped the GUI's
+    connection. Every DRC marker arrives in GetSelection as an EMPTY
+    ``google.protobuf.Any``; kipy's unpack_any raised on it, the REAL adapter
+    passed that up, and this tick read it as "lost connection" and called
+    disconnect(). With the marker skipped the tick must go through: the badge
+    stays green and the connection is untouched."""
+    adapter = KiCadBoardAdapter.__new__(KiCadBoardAdapter)
+    adapter._board = board_answering(packed_footprint("R1"), unreadable_item())
+    adapter.ignore_selection = False
+    # The tick's FAILURE path calls connection.disconnect(), which closes the
+    # adapter. A __new__-built double has no _kicad, so the real close() would
+    # raise there, abort disconnect() midway and leave the connection "alive" —
+    # masking exactly the regression this cell is here to catch (found by
+    # mutating the skip away: the cell stayed green). A real adapter has close().
+    adapter.close = lambda: None
+
+    real_main_window._timer.stop()
+    real_main_window._selection_timer.stop()
+    connection = BoardConnection(timeout_ms=10)
+    connection.board = SimpleNamespace(adapter=adapter, select=lambda: [])
+    connection._rebuild_snapshot()
+    real_main_window.connection = connection
+    real_main_window._last_selection_signature = None
+    # Green BEFORE the tick: the tick itself only ever turns the badge RED on
+    # failure, so "stays green" is exactly the property under test.
+    real_main_window.connection_badge.show_poll_result(
+        board_name="board.kicad_pcb", count=0)
+
+    _tick(real_main_window, qapp)
+
+    assert connection.is_connected
+    assert real_main_window.connection_badge.state == STATE_CONNECTED

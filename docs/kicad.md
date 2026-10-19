@@ -102,7 +102,9 @@ The list is **positional**: one entry per item, `None` where KiCad has no box fo
 
 #### 4. Correct Handling of Selection and Groups
 
-`get_selected_items()` does not simply return `list(board.get_selection())`; it additionally expands groups (`Group`) because their `.items` property is always empty, while the actual members are in `.proto.items`. It scans all footprints and vias on the board, matching their UUIDs against the UUIDs in `proto.items` of groups. This is critical for the `extract` command and for cloning‑by‑selection mode.
+`get_selected_items()` does not simply return `list(board.get_selection())`; it reads `GetSelection` itself (see the unstable‑API table below) and additionally expands groups (`Group`) because their `.items` property is always empty, while the actual members are in `.proto.items`. It scans all footprints and vias on the board, matching their UUIDs against the UUIDs in `proto.items` of groups. This is critical for the `extract` command and for cloning‑by‑selection mode.
+
+Reading the raw answer is what lets an item KiCad cannot serialise be **skipped instead of breaking the whole read**: KiCad sends every DRC marker in the selection as an EMPTY `google.protobuf.Any` (`type_url` is ""), and kipy's own `Board.get_selection()` unwraps every item and raises `ValueError` on it. One marker used to take down the entire selection read, which the GUI's 400 ms selection watch then reported as a lost connection (live 2026‑10‑15, a board with DRC markers selected). Items whose `type_url` kipy has no mapping for (a KiCad newer than kipy) are skipped the same way. The count of skipped items goes to the Log **once per change**, never once per poll tick.
 
 #### 5. Reading Custom Fields
 
@@ -200,6 +202,8 @@ The adapter uses the following elements that go beyond the stable public API of 
 |---------|--------|--------|
 | `run_action("pcbnew.InteractiveEdit.flip")` | **Unstable** | GUI actions may change between KiCad versions. |
 | `Group.proto.items` | **Undocumented** | Internal protobuf field needed to obtain group members. |
+| `GetSelection` + `SelectionResponse` via `board.client.send` | **Undocumented** | The selection is read raw so an empty or unmapped `Any` can be skipped; `Board.get_selection()` unwraps every item and raises on a DRC marker. |
+| `board._to_concrete_items` | **Undocumented** | The same concrete‑shape conversion `Board.get_selection()` applies to its own items; used on the raw selection. Sibling of `close()`'s private reach. |
 | `footprint.texts_and_fields` | **Undocumented** | Used to read custom fields (`Field`). |
 | `footprint.definition.items` | **Undocumented** | Used to obtain component pads. |
 | `footprint.orientation` setter | **Broken in kipy 0.8.0** | Rebuilds `definition.items` and drops items with no rotation branch (`Footprint3DModel` above all); wrapped by `set_footprint_orientation()` (`kicadstamp/kicad/kipy_footprint_safety.py`). |

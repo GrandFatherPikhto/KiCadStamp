@@ -155,7 +155,11 @@ class TestExplicitItemsParameter:
 
 
 class TestGetSelectedItems:
-    def test_group_expanded_via_proto_items(self):
+    def test_group_expanded_via_proto_items(self, monkeypatch):
+        """Group expansion is what this cell pins, so the RAW read is stubbed
+        to hand over the items directly: the read itself (GetSelection,
+        empty-Any skip) has its own cells in tests/kicad/test_kicad.py
+        (TestUnreadableSelectionItems)."""
         adapter = KiCadBoardAdapter.__new__(KiCadBoardAdapter)
 
         member_uuid = MagicMock()
@@ -186,10 +190,11 @@ class TestGetSelectedItems:
         via_direct.diameter = 0
 
         board = MagicMock()
-        board.get_selection.return_value = [group, fp_direct, via_direct]
         board.get_footprints.return_value = [fp_in_group, fp_direct]
         board.get_vias.return_value = [via_direct]
         adapter._board = board
+        monkeypatch.setattr(adapter, "_read_raw_selection",
+                            lambda: ([group, fp_direct, via_direct], 0))
         adapter._footprints_cache = None
         adapter.ignore_selection = False
 

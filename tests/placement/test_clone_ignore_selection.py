@@ -14,7 +14,9 @@ without any selection at all.
 Uses a real KiCadBoardAdapter (via __new__, bypassing __init__'s live kipy.KiCad
 connection) so get_selected_items()/get_footprints() run their REAL
 ignore_selection-aware logic — only the board-facing leaf calls
-(_board.get_selection/get_footprints, get_field_value) are stubbed.
+(_read_raw_selection/get_footprints, get_field_value) are stubbed. The raw
+GetSelection read and its empty-Any skip have their own cells in
+tests/kicad/test_kicad.py (TestUnreadableSelectionItems).
 """
 
 import pytest
@@ -74,7 +76,10 @@ def _adapter_with_stray_selection():
     adapter._board = MagicMock()
     ic1, j1 = _make_fp("IC1"), _make_fp("J1")
     adapter._board.get_footprints.return_value = [ic1, j1]
-    adapter._board.get_selection.return_value = [j1]
+    # The raw GetSelection read is a separate unit (see the module docstring);
+    # this test is about ignore_selection reaching the wiring, so the selection
+    # is handed over directly.
+    adapter._read_raw_selection = lambda: ([j1], 0)
     roles = {"IC1": "FPGA", "J1": "CONN_PM5V"}
     adapter.get_field_value = MagicMock(side_effect=lambda fp, field: roles[fp.ref])
     return adapter

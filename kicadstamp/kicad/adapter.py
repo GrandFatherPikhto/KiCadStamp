@@ -5,7 +5,7 @@ import logging
 from contextlib import contextmanager
 from typing import Any
 import kipy
-from kipy.board_types import BoardLayer as KipyBoardLayer, Field, Group, Pad as KipyPad, Track as KipyTrack, Via as KipyVia, ViaType
+from kipy.board_types import BoardLayer as KipyBoardLayer, Field, Group, Pad as KipyPad, Track as KipyTrack, Via as KipyVia, ViaType, unwrap as kipy_unwrap
 from kipy.common_types import Commit
 from kipy.geometry import Vector2 as KipyVector2
 from kipy.proto.common.commands.editor_commands_pb2 import (
@@ -14,6 +14,8 @@ from kipy.proto.common.commands.editor_commands_pb2 import (
     CommitAction,
     EndCommit,
     EndCommitResponse,
+    GetSelection,
+    SelectionResponse,
 )
 from kipy.proto.common.types.base_types_pb2 import ItemHeader
 
@@ -169,6 +171,11 @@ class KiCadBoardAdapter(IBoardAdapter):
         # while trying to dig a real placement bug out of the log). Only log
         # when the count actually changes since the last call.
         self._last_selection_log_count: int | None = None
+        # Same reasoning for the items KiCad selects but cannot serialise over
+        # IPC (DRC markers: an empty google.protobuf.Any — see
+        # _read_raw_selection). Logged when the COUNT of skipped items changes,
+        # not on every 400 ms tick.
+        self._last_skipped_selection_count: int | None = None
         # Settable by the caller (see kicadstamp_cli.py's --no-selection) —
         # makes get_selected_items() always report "nothing selected",
         # regardless of what's actually highlighted in the PCB editor GUI.
@@ -533,6 +540,55 @@ class KiCadBoardAdapter(IBoardAdapter):
         logger.debug(_("Retrieved {count} tracks").format(count=len(tracks)))
         return tracks
 
+    def _read_raw_selection(self) -> tuple[list[Any], int]:
+        """The editor's selection unwrapped ONE item at a time, plus how many
+        items had to be skipped.
+
+        Why not ``self._board.get_selection()``: that kipy call unwraps EVERY
+        ``google.protobuf.Any`` it receives, and ``kipy.util.proto.unpack_any``
+        raises ``ValueError("Can't unpack empty Any protobuf message")`` when
+        the ``type_url`` is empty. KiCad returns exactly that for every DRC
+        marker (``PCB_MARKER``) in the selection: selectable in the editor, but
+        not serialisable over IPC, and absent from ``get_selection_as_string()``
+        as well. One such marker used to take down the whole call, which the
+        GUI's 400 ms selection tick read as "lost connection" (Denis, live
+        2026-10-15: selecting the DRC-marked parts of a board dropped the
+        connection until the selection was cleared). Here such an item is
+        SKIPPED, never fatal; a ``type_url`` kipy has no mapping for (a KiCad
+        newer than the kipy it was generated against) is skipped the same way.
+
+        This reaches into kipy on purpose — ``Board.client`` (the public door to
+        the client) and ``Board._to_concrete_items`` (the very conversion
+        ``Board.get_selection`` applies to its unwrapped items) — alongside
+        ``close()``'s private reach into ``KiCadClient._conn``. Only this module
+        may do so (see docs/kicad.md).
+
+        Returns ``(items in the order KiCad reported them, skipped count)``.
+        Groups stay kipy ``Group`` wrappers, exactly as ``get_selection()``
+        returns them, so the expansion in ``get_selected_items`` is unchanged.
+        """
+        board = self._board
+        command = GetSelection()
+        command.header.document.CopyFrom(board.document)
+        response = board.client.send(command, SelectionResponse)
+        items: list[Any] = []
+        skipped = 0
+        for raw_item in response.items:
+            if not raw_item.type_url:
+                # A DRC marker: selected in the editor, but KiCad sends an
+                # empty Any for it (see the docstring). Nothing to unpack.
+                skipped += 1
+                continue
+            try:
+                items.append(kipy_unwrap(raw_item))
+            except NotImplementedError:
+                # KiCad knows a type this kipy was not generated against —
+                # also not a reason to lose the rest of the selection.
+                logger.debug(_("Selected item of unknown type skipped: {url}").format(
+                    url=raw_item.type_url))
+                skipped += 1
+        return board._to_concrete_items(items), skipped
+
     def get_selected_items(self) -> list[Any]:
         """
         Current selection in PCB editor, taking Groups into account — Group's
@@ -541,12 +597,16 @@ class KiCadBoardAdapter(IBoardAdapter):
         KIID). Expand groups into their real members by matching IDs against all
         footprints/vias on the board.
 
+        Items KiCad cannot serialise over IPC (DRC markers, an empty Any) are
+        skipped by _read_raw_selection() instead of breaking the whole read —
+        see its docstring for the live defect this closes.
+
         self.ignore_selection short-circuits this to always report "nothing
         selected" — see its docstring in __init__.
         """
         if self.ignore_selection:
             return []
-        raw_selection = list(self._board.get_selection())
+        raw_selection, skipped = self._read_raw_selection()
         direct_items = [board_item_from_kipy(item) for item in raw_selection if not isinstance(item, Group)]
         group_uuids = set()
         for item in raw_selection:
@@ -565,6 +625,13 @@ class KiCadBoardAdapter(IBoardAdapter):
         if len(direct_items) != getattr(self, "_last_selection_log_count", None):
             logger.debug(_("Selected items (including groups expanded): {count}").format(count=len(direct_items)))
             self._last_selection_log_count = len(direct_items)
+        if skipped != getattr(self, "_last_skipped_selection_count", None):
+            self._last_skipped_selection_count = skipped
+            if skipped:
+                logger.info(_("Skipped {count} selected item(s) KiCad does not expose over IPC").format(
+                    count=skipped))
+            else:
+                logger.debug(_("The whole selection is readable over IPC again"))
         return direct_items
 
     def select_items(self, items: list[Any]):

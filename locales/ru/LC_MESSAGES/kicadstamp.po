@@ -3,7 +3,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version:  kicadstamp\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-19 15:01+0300\n"
+"POT-Creation-Date: 2026-10-19 17:29+0300\n"
 "PO-Revision-Date: 2026-07-27 12:00+0000\n"
 "Last-Translator: \n"
 "Language: ru\n"
@@ -10488,7 +10488,7 @@ msgstr ""
 "межузловая медь: одна единица меди (пады {pads}) несёт несколько сетей "
 "сразу: {nets} — единица определяется геометрией; проверьте разводку"
 
-#: kicadstamp/internode_nodes.py:404
+#: kicadstamp/internode_nodes.py:406
 #, python-brace-format
 msgid ""
 "inter-node copper: {count} degenerate track segment(s) collapsed (shorter"
@@ -10798,7 +10798,7 @@ msgstr ""
 "--anchor-pad должен называть существующий номер пада якорного футпринта; "
 "без него используется центр футпринта"
 
-#: kicadstamp/net_trace_extract.py:165
+#: kicadstamp/net_trace_extract.py:166
 #, python-brace-format
 msgid ""
 "net_trace {net!r}: {count} degenerate track segment(s) collapsed (shorter"
@@ -10807,12 +10807,12 @@ msgstr ""
 "net_trace {net!r}: свёрнуто вырожденных отрезков — {count} (короче 2 × "
 "допуска)"
 
-#: kicadstamp/net_trace_extract.py:194
+#: kicadstamp/net_trace_extract.py:195
 #, python-brace-format
 msgid "net {net!r} has no copper (tracks or vias) on the board"
 msgstr "сеть {net!r} не имеет меди (дорожек или переходных отверстий) на плате"
 
-#: kicadstamp/net_trace_extract.py:195
+#: kicadstamp/net_trace_extract.py:196
 msgid ""
 "a net_traces record needs at least one track or via on the net — check "
 "the net name (are you looking at a LOCAL hierarchical net like "
@@ -10822,7 +10822,7 @@ msgstr ""
 " на сети — проверьте имя сети (не смотрите ли вы на ЛОКАЛЬНУЮ "
 "иерархическую сеть вида '/Channel_0/...'?), или сначала проложите медь"
 
-#: kicadstamp/net_trace_extract.py:199
+#: kicadstamp/net_trace_extract.py:200
 #, python-brace-format
 msgid ""
 "Net {net!r}: {tracks} tracks, {vias} vias captured from anchor ({ax:.3f},"
@@ -10831,7 +10831,7 @@ msgstr ""
 "Сеть {net!r}: захвачено дорожек {tracks}, переходных отверстий {vias} от "
 "якоря ({ax:.3f}, {ay:.3f}) мм (роль {role!r})"
 
-#: kicadstamp/net_trace_extract.py:360
+#: kicadstamp/net_trace_extract.py:361
 #, python-brace-format
 msgid ""
 "cannot save the copper of net {net!r}: net_traces holds {count} records "
@@ -10840,17 +10840,17 @@ msgstr ""
 "нельзя сохранить медь сети {net!r}: в net_traces {count} записей этой "
 "сети ({names}) — укажи, какую обновить"
 
-#: kicadstamp/net_trace_extract.py:374
+#: kicadstamp/net_trace_extract.py:375
 #, python-brace-format
 msgid "Naming the copper of net {net!r} {name!r} for format 3"
 msgstr "Имя для меди сети {net!r} выдано: {name!r} (формат 3)"
 
-#: kicadstamp/net_trace_extract.py:436
+#: kicadstamp/net_trace_extract.py:437
 #, python-brace-format
 msgid "Net trace {net!r} appended to net_traces: in {output}"
 msgstr "Трассировка сети {net!r} добавлена в net_traces: файла {output}"
 
-#: kicadstamp/net_trace_extract.py:439
+#: kicadstamp/net_trace_extract.py:440
 #, python-brace-format
 msgid "Net trace {net!r} replaced in net_traces: of {output}"
 msgstr "Трассировка сети {net!r} заменена в net_traces: файла {output}"
@@ -11103,24 +11103,24 @@ msgstr ""
 msgid "  prune: {key} no longer appears in config, deleting ({uuid})"
 msgstr "  prune: {key} больше нет в конфиге, удаляю ({uuid})"
 
-#: kicadstamp/registry.py:672
+#: kicadstamp/registry.py:678
 #, python-brace-format
 msgid "  track for {owner}: already exists, skipped (positional pre-check)"
 msgstr "  дорожка для {owner}: уже существует, пропущено (позиционная проверка)"
 
-#: kicadstamp/registry.py:677
+#: kicadstamp/registry.py:683
 #, python-brace-format
 msgid "Skipped {count} tracks already present on the board (positional pre-check)"
 msgstr ""
 "Пропущено {count} дорожек, уже присутствующих на плате (позиционная "
 "проверка)"
 
-#: kicadstamp/registry.py:725
+#: kicadstamp/registry.py:731
 #, python-brace-format
 msgid "  via for {owner}: already exists, skipped (positional pre-check)"
 msgstr "  via для {owner}: уже существует, пропущено (позиционная проверка)"
 
-#: kicadstamp/registry.py:730
+#: kicadstamp/registry.py:736
 #, python-brace-format
 msgid "Skipped {count} vias already present on the board (positional pre-check)"
 msgstr "Пропущено {count} via, уже присутствующих на плате (позиционная проверка)"
@@ -11426,7 +11426,7 @@ msgstr ""
 "  {ref} (роль {role}): along={along}, across={across}, "
 "angle={angle}{layer}{net}"
 
-#: kicadstamp/template_extraction.py:474 kicadstamp/template_extraction.py:581
+#: kicadstamp/template_extraction.py:474 kicadstamp/template_extraction.py:594
 #, python-brace-format
 msgid ", layer={layer}"
 msgstr ", layer={layer}"
@@ -11441,7 +11441,7 @@ msgstr ", net_template={nt}"
 msgid "  via: along={along}, across={across}, net={net}"
 msgstr "  via: along={along}, across={across}, цепь={net}"
 
-#: kicadstamp/template_extraction.py:535
+#: kicadstamp/template_extraction.py:548
 #, python-brace-format
 msgid ""
 "cell {name!r}: {count} degenerate track segment(s) collapsed (shorter "
@@ -11450,12 +11450,12 @@ msgstr ""
 "ячейка {name!r}: свёрнуто вырожденных отрезков — {count} (короче 2 × "
 "допуска)"
 
-#: kicadstamp/template_extraction.py:577
+#: kicadstamp/template_extraction.py:590
 #, python-brace-format
 msgid "  track: ({sx},{sy}) -> ({ex},{ey}), net={net}{layer}"
 msgstr "  трек: ({sx},{sy}) -> ({ex},{ey}), цепь={net}{layer}"
 
-#: kicadstamp/template_extraction.py:588
+#: kicadstamp/template_extraction.py:601
 msgid ""
 "--net-template/--param was not needed — every via/track net was resolved "
 "from a role (net_from_role) or auto-parametrized, and no component "
@@ -11467,7 +11467,7 @@ msgstr ""
 "компонента не взят из карты; эти флаги можно убрать (определение сетей "
 "теперь автоматическое)"
 
-#: kicadstamp/template_extraction.py:592
+#: kicadstamp/template_extraction.py:605
 #, python-brace-format
 msgid ""
 "Extracted cell {name!r}: {comp} components, {vias} spoke‑level vias, "
@@ -16857,88 +16857,88 @@ msgstr "margin_mm={margin_mm} слишком велик для пада {width}x
 msgid "pad has no position"
 msgstr "у пада нет позиции"
 
-#: kicadstamp/kicad/adapter.py:134
+#: kicadstamp/kicad/adapter.py:136
 #, python-brace-format
 msgid "Initialising KiCadBoardAdapter with timeout {timeout} ms"
 msgstr "Инициализация KiCadBoardAdapter с таймаутом {timeout} мс"
 
-#: kicadstamp/kicad/adapter.py:135
+#: kicadstamp/kicad/adapter.py:137
 msgid "Creating kipy.KiCad instance..."
 msgstr "Создание экземпляра kipy.KiCad..."
 
-#: kicadstamp/kicad/adapter.py:137
+#: kicadstamp/kicad/adapter.py:139
 msgid "kipy.KiCad instance created"
 msgstr "Экземпляр kipy.KiCad создан"
 
-#: kicadstamp/kicad/adapter.py:148
+#: kicadstamp/kicad/adapter.py:150
 #, python-brace-format
 msgid "Connected to KiCad {version}"
 msgstr "Подключено к KiCad {version}"
 
-#: kicadstamp/kicad/adapter.py:154
+#: kicadstamp/kicad/adapter.py:156
 msgid "Could not query KiCad version after connect"
 msgstr ""
 
-#: kicadstamp/kicad/adapter.py:232
+#: kicadstamp/kicad/adapter.py:239
 msgid "Refreshing board from KiCad"
 msgstr "Обновление платы из KiCad"
 
-#: kicadstamp/kicad/adapter.py:235
+#: kicadstamp/kicad/adapter.py:242
 msgid "Failed to obtain board from KiCad"
 msgstr "Не удалось получить плату из KiCad"
 
-#: kicadstamp/kicad/adapter.py:240
+#: kicadstamp/kicad/adapter.py:247
 msgid "Board obtained"
 msgstr "Плата получена"
 
-#: kicadstamp/kicad/adapter.py:331
+#: kicadstamp/kicad/adapter.py:338
 msgid "Could not query KiCad version"
 msgstr ""
 
-#: kicadstamp/kicad/adapter.py:359
+#: kicadstamp/kicad/adapter.py:366
 msgid "Closing previous kipy connection failed (ignored)"
 msgstr "Не удалось закрыть предыдущее kipy-подключение (игнорируется)"
 
-#: kicadstamp/kicad/adapter.py:365
+#: kicadstamp/kicad/adapter.py:372
 #, python-brace-format
 msgid "Found footprint {ref}"
 msgstr "Найден футпринт {ref}"
 
-#: kicadstamp/kicad/adapter.py:367
+#: kicadstamp/kicad/adapter.py:374
 #, python-brace-format
 msgid "Footprint {ref} not found"
 msgstr "Футпринт {ref} не найден"
 
-#: kicadstamp/kicad/adapter.py:376
+#: kicadstamp/kicad/adapter.py:383
 #, python-brace-format
 msgid "Found footprint by uuid {uuid}"
 msgstr "Футпринт найден по uuid {uuid}"
 
-#: kicadstamp/kicad/adapter.py:378
+#: kicadstamp/kicad/adapter.py:385
 #, python-brace-format
 msgid "Footprint with uuid {uuid} not found"
 msgstr "Футпринт с uuid {uuid} не найден"
 
-#: kicadstamp/kicad/adapter.py:417
+#: kicadstamp/kicad/adapter.py:424
 #, python-brace-format
 msgid "Registry UUIDs have no live items ({type}: {e})"
 msgstr "Реестр UUID: нет живых элементов ({type}: {e})"
 
-#: kicadstamp/kicad/adapter.py:420
+#: kicadstamp/kicad/adapter.py:427
 #, python-brace-format
 msgid "Failed to look up items by id: {type}: {e}"
 msgstr "Не удалось найти объекты по id: {type}: {e}"
 
-#: kicadstamp/kicad/adapter.py:444
+#: kicadstamp/kicad/adapter.py:451
 #, python-brace-format
 msgid "Retrieved {count} footprints"
 msgstr "Получено {count} футпринтов"
 
-#: kicadstamp/kicad/adapter.py:491
+#: kicadstamp/kicad/adapter.py:498
 msgid "Targeted re-read skipped: footprint cache is already empty"
 msgstr "Точечное перечитывание пропущено: кэш футпринтов уже пуст"
 
-#: kicadstamp/kicad/adapter.py:502
+#: kicadstamp/kicad/adapter.py:509
 msgid ""
 "Targeted re-read fell back to a full board read: a requested uuid is not "
 "in the footprint cache"
@@ -16946,7 +16946,7 @@ msgstr ""
 "Точечное перечитывание свелось к полному чтению платы: запрошенного uuid "
 "нет в кэше футпринтов"
 
-#: kicadstamp/kicad/adapter.py:511
+#: kicadstamp/kicad/adapter.py:518
 #, python-brace-format
 msgid ""
 "Targeted re-read fell back to a full board read: {found} of {asked} "
@@ -16955,37 +16955,51 @@ msgstr ""
 "Точечное перечитывание свелось к полному чтению платы: вернулось {found} "
 "из {asked} запрошенных футпринтов"
 
-#: kicadstamp/kicad/adapter.py:524
+#: kicadstamp/kicad/adapter.py:531
 #, python-brace-format
 msgid "Re-read {count} footprint(s) in place"
 msgstr "Перечитано {count} футпринтов на своих местах"
 
-#: kicadstamp/kicad/adapter.py:528
+#: kicadstamp/kicad/adapter.py:535
 #, python-brace-format
 msgid "Retrieved {count} vias"
 msgstr "Получено {count} via"
 
-#: kicadstamp/kicad/adapter.py:533
+#: kicadstamp/kicad/adapter.py:540
 #, python-brace-format
 msgid "Retrieved {count} tracks"
 msgstr "Получено {count} треков"
 
-#: kicadstamp/kicad/adapter.py:566
+#: kicadstamp/kicad/adapter.py:587
+#, python-brace-format
+msgid "Selected item of unknown type skipped: {url}"
+msgstr "Пропущен выбранный элемент неизвестного типа: {url}"
+
+#: kicadstamp/kicad/adapter.py:626
 #, python-brace-format
 msgid "Selected items (including groups expanded): {count}"
 msgstr "Выделено объектов (с учётом групп): {count}"
 
-#: kicadstamp/kicad/adapter.py:581
+#: kicadstamp/kicad/adapter.py:631
+#, python-brace-format
+msgid "Skipped {count} selected item(s) KiCad does not expose over IPC"
+msgstr "Пропущено {count} выбранных предмет(ов) — KiCad не отдаёт их по IPC"
+
+#: kicadstamp/kicad/adapter.py:634
+msgid "The whole selection is readable over IPC again"
+msgstr "Выделение снова читается по IPC целиком"
+
+#: kicadstamp/kicad/adapter.py:648
 #, python-brace-format
 msgid "Setting GUI selection to {count} items"
 msgstr "Установка выделения в GUI: {count} элементов"
 
-#: kicadstamp/kicad/adapter.py:757
+#: kicadstamp/kicad/adapter.py:824
 #, python-brace-format
 msgid "cannot set field {field!r}"
 msgstr "не удалось задать поле {field!r}"
 
-#: kicadstamp/kicad/adapter.py:758
+#: kicadstamp/kicad/adapter.py:825
 #, python-brace-format
 msgid ""
 "{ref} has no field {field!r} on its footprint — add the field once in the"
@@ -16996,32 +17010,32 @@ msgstr ""
 "в редакторе схемы/футпринтов, этот инструмент никогда не создаёт поле с "
 "нуля"
 
-#: kicadstamp/kicad/adapter.py:825
+#: kicadstamp/kicad/adapter.py:892
 #, python-brace-format
 msgid "Found zone {name}"
 msgstr "Найдена зона {name}"
 
-#: kicadstamp/kicad/adapter.py:827
+#: kicadstamp/kicad/adapter.py:894
 #, python-brace-format
 msgid "Zone {name} not found"
 msgstr "Зона {name} не найдена"
 
-#: kicadstamp/kicad/adapter.py:833
+#: kicadstamp/kicad/adapter.py:900
 #, python-brace-format
 msgid "Found net {name}"
 msgstr "Найдена цепь {name}"
 
-#: kicadstamp/kicad/adapter.py:835
+#: kicadstamp/kicad/adapter.py:902
 #, python-brace-format
 msgid "Net {name} not found"
 msgstr "Цепь {name} не найдена"
 
-#: kicadstamp/kicad/adapter.py:840
+#: kicadstamp/kicad/adapter.py:907
 #, python-brace-format
 msgid "Retrieved {count} nets"
 msgstr "Получено {count} цепей"
 
-#: kicadstamp/kicad/adapter.py:879
+#: kicadstamp/kicad/adapter.py:946
 #, python-brace-format
 msgid ""
 "Bounding boxes: {got} answer(s) for {asked} item(s) — re-reading them one"
@@ -17030,30 +17044,30 @@ msgstr ""
 "Габариты: {got} ответ(ов) на {asked} предмет(ов) — перечитываю их по "
 "одному, чтобы сохранить позиции"
 
-#: kicadstamp/kicad/adapter.py:912
+#: kicadstamp/kicad/adapter.py:979
 msgid "Beginning transaction"
 msgstr "Начало транзакции"
 
-#: kicadstamp/kicad/adapter.py:919
+#: kicadstamp/kicad/adapter.py:986
 #, python-brace-format
 msgid "Committing transaction: {desc}"
 msgstr "Применение транзакции: {desc}"
 
-#: kicadstamp/kicad/adapter.py:927
+#: kicadstamp/kicad/adapter.py:994
 #, python-brace-format
 msgid "Transaction committed: {desc}"
 msgstr "Транзакция применена: {desc}"
 
-#: kicadstamp/kicad/adapter.py:930
+#: kicadstamp/kicad/adapter.py:997
 msgid "Rolling back transaction"
 msgstr "Откат транзакции"
 
-#: kicadstamp/kicad/adapter.py:955
+#: kicadstamp/kicad/adapter.py:1022
 #, python-brace-format
 msgid "Checking open schematics failed: {e}"
 msgstr "Проверка открытых схем не удалась: {e}"
 
-#: kicadstamp/kicad/adapter.py:959
+#: kicadstamp/kicad/adapter.py:1026
 msgid ""
 "Schematic editor is open: if there have been no interactive edits in this"
 " KiCad session, the first API write may crash KiCad (issue #24966). "
@@ -17065,7 +17079,7 @@ msgstr ""
 " подвиньте любой компонент + Ctrl+S в pcbnew, или закройте окно схемы на "
 "время прогона."
 
-#: kicadstamp/kicad/adapter.py:994
+#: kicadstamp/kicad/adapter.py:1061
 #, python-brace-format
 msgid ""
 "{op}: KiCad not ready to respond (busy/modal dialog?), retrying in "
@@ -17074,7 +17088,7 @@ msgstr ""
 "{op}: KiCad не готов ответить (занят/модальный диалог?), повтор через "
 "{wait:.1f}s [{attempt}/{retries}]"
 
-#: kicadstamp/kicad/adapter.py:1005
+#: kicadstamp/kicad/adapter.py:1072
 #, python-brace-format
 msgid ""
 "{op}: connection to KiCad broke during write — KiCad probably crashed "
@@ -17087,12 +17101,12 @@ msgstr ""
 "issue #24966; обходной путь: подвиньте компонент + Ctrl+S в pcbnew перед "
 "запуском). Исходная ошибка: {e}"
 
-#: kicadstamp/kicad/adapter.py:1015
+#: kicadstamp/kicad/adapter.py:1082
 #, python-brace-format
 msgid "Updating {count} items"
 msgstr "Обновление {count} объектов"
 
-#: kicadstamp/kicad/adapter.py:1025
+#: kicadstamp/kicad/adapter.py:1092
 #, python-brace-format
 msgid ""
 "{ref}: restored {count} definition item(s) that kipy's orientation setter"
@@ -17101,52 +17115,52 @@ msgstr ""
 "{ref}: возвращено {count} элемент(ов) определения, которые сеттер "
 "ориентации kipy выбросил бы"
 
-#: kicadstamp/kicad/adapter.py:1033
+#: kicadstamp/kicad/adapter.py:1100
 #, python-brace-format
 msgid "Creating {count} items"
 msgstr "Создание {count} объектов"
 
-#: kicadstamp/kicad/adapter.py:1037
+#: kicadstamp/kicad/adapter.py:1104
 #, python-brace-format
 msgid "Created {count} items"
 msgstr "Создано {count} объектов"
 
-#: kicadstamp/kicad/adapter.py:1042
+#: kicadstamp/kicad/adapter.py:1109
 #, python-brace-format
 msgid "Flipping {count} footprints via GUI action"
 msgstr "Флип {count} футпринтов через GUI-действие"
 
-#: kicadstamp/kicad/adapter.py:1060 tests/utils/test_i18n.py:154
+#: kicadstamp/kicad/adapter.py:1127 tests/utils/test_i18n.py:154
 #: tests/utils/test_i18n.py:163
 msgid "Flip performed"
 msgstr "Флип выполнен"
 
-#: kicadstamp/kicad/adapter.py:1076
+#: kicadstamp/kicad/adapter.py:1143
 #, python-brace-format
 msgid "Attempt {attempt}/{total} for {desc}"
 msgstr "Попытка {attempt}/{total} для {desc}"
 
-#: kicadstamp/kicad/adapter.py:1088
+#: kicadstamp/kicad/adapter.py:1155
 #, python-brace-format
 msgid "Failed to roll back transaction {desc}: {e}"
 msgstr "Не удалось откатить транзакцию {desc}: {e}"
 
-#: kicadstamp/kicad/adapter.py:1090
+#: kicadstamp/kicad/adapter.py:1157
 #, python-brace-format
 msgid "Error in transaction {desc} (attempt {attempt}): {type}: {e}"
 msgstr "Ошибка в транзакции {desc} (попытка {attempt}): {type}: {e}"
 
-#: kicadstamp/kicad/adapter.py:1101
+#: kicadstamp/kicad/adapter.py:1168
 #, python-brace-format
 msgid "Creating via at ({x:.3f}, {y:.3f}) mm, net={net}"
 msgstr "Создание via в ({x:.3f}, {y:.3f}) мм, цепь={net}"
 
-#: kicadstamp/kicad/adapter.py:1114
+#: kicadstamp/kicad/adapter.py:1181
 #, python-brace-format
 msgid "Creating track ({sx:.3f}, {sy:.3f}) -> ({ex:.3f}, {ey:.3f}) mm, net={net}"
 msgstr "Создание трека ({sx:.3f}, {sy:.3f}) -> ({ex:.3f}, {ey:.3f}) мм, цепь={net}"
 
-#: kicadstamp/kicad/adapter.py:1157
+#: kicadstamp/kicad/adapter.py:1224
 #, python-brace-format
 msgid "Failed to delete {count} objects: {type}: {e}"
 msgstr ""
