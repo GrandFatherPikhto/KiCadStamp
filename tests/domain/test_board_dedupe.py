@@ -184,8 +184,8 @@ def test_report_text_is_stable_and_complete():
         "    keep   v3",
         "    delete v4",
         "Duplicate track groups: 1",
-        "  track net='SIG' layer=F.Cu @ (1.0000,1.0000) -> (2.0000,2.0000) mm "
-        "- 2 copies",
+        "  track net='SIG' layer=F.Cu width=0.25mm @ (1.0000,1.0000) -> "
+        "(2.0000,2.0000) mm - 2 copies",
         "    keep   t1",
         "    delete t2",
         "Total: 3 extra duplicate item(s); one copy per group is kept.",
@@ -257,8 +257,9 @@ def test_scan_refreshes_before_reading_ground_truth():
     a cached adapter must not answer from memory."""
     adapter = _SpyAdapter(vias=[_via("v1", "GND", 1.0, 2.0),
                                 _via("v2", "GND", 1.0, 2.0)])
-    via_groups, track_groups = scan_copper_duplicates(adapter)
+    via_groups, track_groups, short_tracks = scan_copper_duplicates(adapter)
     assert adapter.refresh_count == 1
+    assert short_tracks == []
     assert [v.uuid for v in via_groups[0]] == ["v1", "v2"]
     assert track_groups == []
 

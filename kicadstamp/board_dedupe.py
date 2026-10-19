@@ -55,6 +55,7 @@ from collections import defaultdict
 from typing import Callable, Sequence, Tuple, TypeVar
 
 from .constants import POSITION_TOLERANCE_MM
+from .degenerate_segments import is_degenerate_segment, segment_length_nm
 from .domain.board import Track, Via
 from .domain.geometry import BoardLayer
 from .utils.layers import layer_to_str
@@ -64,6 +65,7 @@ __all__ = [
     "ACTION_LOGGER_NAME",
     "apply_dedupe",
     "apply_summary",
+    "find_short_tracks",
     "find_track_duplicate_groups",
     "find_via_duplicate_groups",
     "format_report",
@@ -192,24 +194,52 @@ def track_position_text(track: Track) -> str:
 
 
 def _track_key(track: Track) -> tuple:
-    return (track.net_name, track.layer)
+    """The group key: net + layer + WIDTH (2026-10-19, plan Ч1).
+
+    Width used to be out of the key, so two segments of one net/layer drawn with
+    different widths were "the same track" and one of them was deleted. Width is
+    a property of the copper, not a cosmetic difference: same ends with 0.25 mm
+    and 0.65 mm are two different nets-in-practice (current, impedance, DRC) and
+    never a duplicate."""
+    return (track.net_name, track.layer, round(track.width_mm, 6))
+
+
+def find_short_tracks(tracks: Sequence[Track]) -> list[Track]:
+    """The POSITIONALLY UNIDENTIFIABLE segments — the ONE rule's list.
+
+    They are reported on their own line and NEVER grouped, so "Очистить" cannot
+    delete real copper of a record because a neighbouring stub shares the same
+    10 µm tolerance box (the 15.10 fact: three segments of 6.0 / 8.5 / 8.3 µm
+    around one point were grouped and two were deleted)."""
+    return [t for t in tracks if is_degenerate_segment(t.start, t.end)]
 
 
 def find_track_duplicate_groups(tracks: Sequence[Track]) -> list[list[Track]]:
-    """Duplicate track groups: same net and layer, (start, end) as an
-    unordered pair within POSITION_TOLERANCE_MM."""
-    return _find_duplicate_groups(tracks, _track_key, _track_pos_nm, TOLERANCE_NM)
+    """Duplicate track groups: same net, layer and width, (start, end) as an
+    unordered pair within POSITION_TOLERANCE_MM.
+
+    Segments shorter than 2 × the tolerance never enter a group — they go to
+    :func:`find_short_tracks` instead (see degenerate_segments)."""
+    groupable = [t for t in tracks if not is_degenerate_segment(t.start, t.end)]
+    return _find_duplicate_groups(groupable, _track_key, _track_pos_nm, TOLERANCE_NM)
 
 
-def scan_copper_duplicates(adapter) -> tuple[list[list[Via]], list[list[Track]]]:
-    """Refresh the live board and return (via_groups, track_groups).
+def scan_copper_duplicates(
+        adapter) -> tuple[list[list[Via]], list[list[Track]], list[Track]]:
+    """Refresh the live board and return (via_groups, track_groups, short_tracks).
 
     ``refresh_board()`` first: the whole point is ground truth, and a cached
     adapter would report what it already knew instead of what the board holds
-    now."""
+    now.
+
+    ``short_tracks`` is the third answer since 2026-10-19 (plan Ч1): the
+    segments that are too short to be identified positionally. They are NOT
+    duplicates and nothing may delete them — the caller only reports them."""
     adapter.refresh_board()
+    tracks = adapter.get_tracks()
     return (find_via_duplicate_groups(adapter.get_vias()),
-            find_track_duplicate_groups(adapter.get_tracks()))
+            find_track_duplicate_groups(tracks),
+            find_short_tracks(tracks))
 
 
 # ── report ──────────────────────────────────────────────────────────────────
@@ -239,23 +269,41 @@ def _format_via_group(group: Sequence[Via], lines: list[str]) -> None:
 def _format_track_group(group: Sequence[Track], lines: list[str]) -> None:
     net = group[0].net_name or "?"
     layer = _layer_str(group[0].layer)
-    lines.append(f"  track net={net!r} layer={layer} @ "
+    lines.append(f"  track net={net!r} layer={layer} width={group[0].width_mm}mm @ "
                  f"{track_position_text(group[0])} mm - {len(group)} copies")
     lines.append(f"    keep   {group[0].uuid}")
     for t in group[1:]:
         lines.append(f"    delete {t.uuid}")
 
 
+def _format_short_track(track: Track, lines: list[str]) -> None:
+    """One short segment, on its OWN line (plan Ч1: `report separately, delete
+    nothing`)."""
+    net = track.net_name or "?"
+    layer = _layer_str(track.layer)
+    length_um = segment_length_nm(track.start, track.end) / 1000.0
+    lines.append(f"  track net={net!r} layer={layer} @ "
+                 f"{track_position_text(track)} mm - {length_um:.1f} um, "
+                 f"too short to identify positionally - keep {track.uuid}")
+
+
 def format_report(via_groups: Sequence[Sequence[Via]],
-                  track_groups: Sequence[Sequence[Track]]) -> str:
+                  track_groups: Sequence[Sequence[Track]],
+                  short_tracks: Sequence[Track] = ()) -> str:
     """The ONE canonical report text — printed by the CLI and copied to the
     clipboard by the GUI panel ("Копировать"). Fixed English, no ``_()``; see
-    the module docstring for why."""
+    the module docstring for why.
+
+    ``short_tracks`` (plan Ч1, 2026-10-19) are listed AFTER the groups, one line
+    each, explicitly marked "keep": they are not duplicates, and reporting them
+    is the only thing that ever happens to them."""
     total = sum(len(g) - 1 for g in via_groups) + sum(len(g) - 1 for g in track_groups)
-    if total == 0:
+    if total == 0 and not short_tracks:
         return "No copper duplicates found."
 
     lines: list[str] = []
+    if total == 0:
+        lines.append("No copper duplicates found.")
     if via_groups:
         lines.append(f"Duplicate via groups: {len(via_groups)}")
         for group in via_groups:
@@ -264,8 +312,14 @@ def format_report(via_groups: Sequence[Sequence[Via]],
         lines.append(f"Duplicate track groups: {len(track_groups)}")
         for group in track_groups:
             _format_track_group(group, lines)
-    lines.append(f"Total: {total} extra duplicate item(s); one copy per group "
-                 "is kept.")
+    if total:
+        lines.append(f"Total: {total} extra duplicate item(s); one copy per group "
+                     "is kept.")
+    if short_tracks:
+        lines.append(f"Short track segments (not duplicates, nothing deleted): "
+                     f"{len(short_tracks)}")
+        for track in short_tracks:
+            _format_short_track(track, lines)
     return "\n".join(lines)
 
 

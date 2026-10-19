@@ -376,10 +376,26 @@ Holds global constants used across various modules.
 | `POSITION_TOLERANCE_NM` | `10_000` (0.01 mm) | Position tolerance for "already in place" checks. |
 | `ANGLE_TOLERANCE_DEG` | `0.1` | Angle tolerance for "already in place" checks. |
 | `POSITION_TOLERANCE_MM` | `0.01` | Position tolerance for registry. |
+| `DEGENERATE_SEGMENT_NM` | `20_000` (0.02 mm) | 2 × the position tolerance: a track segment whose ENDS are closer than this cannot be identified positionally (see `degenerate_segments.py`). |
+| `DEGENERATE_SEGMENT_MM` | `0.02` | The same threshold in mm. |
 | `DEFAULT_BATCH_SIZE` | `10` | Default batch size for transactions. |
 | `DEFAULT_TIMEOUT_MS` | `5000` | Default IPC timeout. |
 | `DEFAULT_LOG_DIR` | `"logs"` | Default log directory. |
 | `CELL_LEVEL_ROLE_PLACEHOLDER` | `"__spoke__"` | Cell-level role placeholder in registry keys (renamed 2026-10-12; the VALUE is frozen — see constants.py). |
+
+### `degenerate_segments.py` — one rule, three consumers
+
+A segment whose ends are closer than `DEGENERATE_SEGMENT_NM` is unidentifiable
+POSITIONALLY (the comparison tolerance is half of it), so "the same segment" and
+"a neighbouring stub" are the same answer. The rule and the collapse live in ONE
+module, and exactly three places call in: `board_dedupe` (such a segment never
+joins a duplicate group; it is reported on its own line and never deleted),
+`registry.track_matches` (never "already on the board" — otherwise the
+pre-check silently skips copper that is missing) and the capture/re-read paths
+(`internode_nodes._items_from_unit`, `template_extraction`,
+`net_trace_extract`), where the stub is not stored and its neighbours are pulled
+into one point — a pad/via it already touches, else its midpoint — so the
+record stays connected.
 
 ---
 

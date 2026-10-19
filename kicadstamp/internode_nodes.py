@@ -46,11 +46,14 @@ a selection, then refuses.
 """
 from __future__ import annotations
 
+import logging
 from collections.abc import Mapping as _Mapping
 from dataclasses import dataclass
 from typing import Any, Mapping
 
 from .config import load_template_track, load_template_via
+from .degenerate_segments import collapse_degenerate_segments
+from .i18n import _
 from .internode_copper import CopperUnit, PadRef
 # The resolver's OWN pieces, imported directly: the candidate sweep and the
 # sheet -> Cluster cascade are the SAME functions apply uses, so the anchor check
@@ -65,6 +68,8 @@ from .placement.services.role_narrowing import _narrow_by_sheet_cluster_selectio
 from .sheet_names import instance_label
 from .trees import Tree, _find_tree
 from .utils.units import MM
+
+logger = logging.getLogger(__name__)
 
 __all__ = [
     "AnchorSkip",
@@ -388,13 +393,30 @@ def _items_from_unit(unit: CopperUnit, components: Mapping[str, Any],
     that file was at the 800-line limit). An item whose reference comes back None
     keeps the record's LITERAL net (`net`, the unit's own net name): a pair that
     cannot be verified is never invented."""
+    # A positionally unidentifiable segment is NOT written (plan Ч1): its ends
+    # are pulled into one point (a via it touches, else its midpoint) and the
+    # neighbours that met it are re-pointed there, so the record stays
+    # connected. ONE rule for every capture path — degenerate_segments.
+    collapsed = collapse_degenerate_segments(
+        [(t.start, t.end) for t in unit.tracks],
+        attractors=[v.position for v in unit.vias] + [anchor_point])
+    if collapsed.changed:
+        logger.info(_("inter-node copper: {count} degenerate track segment(s) "
+                      "collapsed (shorter than 2 × tolerance)").format(
+                          count=len(collapsed.collapsed)))
+        for note in collapsed.collapsed:
+            logger.debug("  collapsed track (%d, %d) -> (%d, %d) nm into (%d, %d)",
+                         note.start.x, note.start.y, note.end.x, note.end.y,
+                         note.collapsed_to.x, note.collapsed_to.y)
+
     tracks = []
-    for i, t in enumerate(unit.tracks):
+    for i, (start, end) in zip(collapsed.kept_indices, collapsed.segments):
+        t = unit.tracks[i]
         entry: dict[str, Any] = {
-            "start_along_mm": round((t.start.x - anchor_point.x) / MM, 4),
-            "start_across_mm": round((t.start.y - anchor_point.y) / MM, 4),
-            "end_along_mm": round((t.end.x - anchor_point.x) / MM, 4),
-            "end_across_mm": round((t.end.y - anchor_point.y) / MM, 4),
+            "start_along_mm": round((start.x - anchor_point.x) / MM, 4),
+            "start_across_mm": round((start.y - anchor_point.y) / MM, 4),
+            "end_along_mm": round((end.x - anchor_point.x) / MM, 4),
+            "end_across_mm": round((end.y - anchor_point.y) / MM, 4),
             "width_mm": round(t.width_mm, 4),
             "layer": _layer_str(t.layer),
         }

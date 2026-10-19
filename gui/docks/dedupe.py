@@ -180,9 +180,10 @@ class DedupeDock(QDockWidget):
         adapter, error = DedupeDock._worker_adapter(payload.get("connection"))
         if error:
             return {"error": error}
-        via_groups, track_groups = scan_copper_duplicates(adapter)
-        return {"report": format_report(via_groups, track_groups),
-                "via_groups": via_groups, "track_groups": track_groups}
+        via_groups, track_groups, short_tracks = scan_copper_duplicates(adapter)
+        return {"report": format_report(via_groups, track_groups, short_tracks),
+                "via_groups": via_groups, "track_groups": track_groups,
+                "short_tracks": short_tracks}
 
     @staticmethod
     def _clear_worker(payload):
@@ -192,7 +193,9 @@ class DedupeDock(QDockWidget):
         # Re-scan inside the worker: the displayed list may be stale by the time
         # Clear is clicked, and the count must describe what was actually
         # deleted, not what was shown a minute ago.
-        via_groups, track_groups = scan_copper_duplicates(adapter)
+        # short_tracks are deliberately NOT passed on: they are not duplicates
+        # and Clear must never delete them (plan Ч1).
+        via_groups, track_groups, _short_tracks = scan_copper_duplicates(adapter)
         groups = len(via_groups) + len(track_groups)
         removed = apply_dedupe(adapter, via_groups, track_groups)
         return {"removed": removed, "groups": groups}

@@ -244,10 +244,19 @@ never changes which board is read or which Role/Cluster values resolve.
 **Grouping.** Vias: same net, position within `POSITION_TOLERANCE_MM` (0.01 mm)
 of the group's first member; drill/diameter are NOT part of the key, and a
 mismatch inside a group is reported as a warning instead of splitting it. Tracks:
-same net and layer, `(start, end)` compared as an UNORDERED pair — A→B and B→A
-are the same physical copper. The kept member is the first one the adapter
-returns (deterministic for a scan). Grouping is greedy by design (see
+same net, **layer and width**, `(start, end)` compared as an UNORDERED pair —
+A→B and B→A are the same physical copper. The kept member is the first one the
+adapter returns (deterministic for a scan). Grouping is greedy by design (see
 `kicadstamp/board_dedupe.py`).
+
+**Short segments are never duplicates.** A track segment whose ends are closer
+than `2 × POSITION_TOLERANCE_MM` (20 µm) cannot be identified POSITIONALLY: the
+comparison tolerance is half of the segment itself, so a neighbouring stub and
+"the very same segment" give the same answer. Such a segment never joins a
+group; it is printed on its own line after the groups and **`--apply` never
+deletes it**. This is ONE rule (`kicadstamp/degenerate_segments.py`) shared by
+this command, `track_matches` (idempotency) and the capture/re-read paths — see
+[docs/placement.md](placement.md) and [docs/uplevel_modules.md](uplevel_modules.md).
 
 ### Syntax
 
@@ -266,10 +275,11 @@ python kicadstamp_cli.py dedupe [--apply [--config FILE]] [--timeout-ms] [--verb
 
 ### Report
 
-`dedupe` prints one line per group (type, net, position, layer, copy count, the
-UUID kept and the UUIDs deleted) and a total. The same text is what the GUI's
-**Copper duplicates** panel puts on the clipboard (see [docs/gui.md](gui.md)), so
-the two can be compared directly:
+`dedupe` prints one line per group (type, net, position, layer, width for
+tracks, copy count, the UUID kept and the UUIDs deleted), a total, and then one
+line per short segment (see above). The same text is what the GUI's **Copper
+duplicates** panel puts on the clipboard (see [docs/gui.md](gui.md)), so the two
+can be compared directly:
 
 ```
 Duplicate via groups: 1
@@ -277,10 +287,12 @@ Duplicate via groups: 1
     keep   4f2c1a3b-...
     delete 9ab17d05-...
 Duplicate track groups: 1
-  track net='SIG' layer=F.Cu @ (0.0000,0.0000) -> (1.0000,1.0000) mm - 2 copies
+  track net='SIG' layer=F.Cu width=0.25mm @ (0.0000,0.0000) -> (1.0000,1.0000) mm - 2 copies
     keep   ...
     delete ...
 Total: 2 extra duplicate item(s); one copy per group is kept.
+Short track segments (not duplicates, nothing deleted): 1
+  track net='+3V3' layer=B.Cu @ (77.9742,98.4416) -> (77.9784,98.4459) mm - 6.0 um, too short to identify positionally - keep 200e5dca-...
 ```
 
 Every actual deletion also writes one `actions.log` line naming the UUID removed

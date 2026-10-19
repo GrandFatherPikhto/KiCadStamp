@@ -609,8 +609,53 @@ def _load_config_uncached(path: str) -> tuple[Config, RuntimeContext]:
     # anchor or the tree's own (role ...) anchor — must never name a role the
     # same tree places, or every Redraw silently drifts. Fatal, not a warning.
     check_mount_anchor_drift(cfg)
+    # Degenerate segments (plan Ч1, 2026-10-19): WARN, never refuse. The records
+    # are the user's; a re-read collapses such a segment into its neighbours and
+    # nothing is deleted here — the warning only names what is still stored.
+    _warn_degenerate_track_segments(cfg)
     logger.debug(_("Config loaded: layer={layer}, cells={cells}, points={points}, "
                    "clone_placements={clones}").format(
                        layer=cfg.layer, cells=len(cfg.cells), points=len(cfg.points),
                        clones=len(cfg.clone_placements)))
     return cfg, ctx
+
+
+def _warn_degenerate_track_segments(cfg) -> None:
+    """One WARNING naming every stored segment too short to identify
+    positionally (plan Ч1).
+
+    Deliberately NOT a refusal and NOT a repair: the load path must not rewrite
+    a user's record, and Denis's decision is that the re-read collapses these
+    segments (its own Log line names the count). Without this line the records
+    that still carry a stub would be found only by "Дубли меди" — this says it
+    at load time, with the record and index, so the user can decide."""
+    from ..degenerate_segments import is_degenerate_segment
+    from ..domain.geometry import Vector2
+    from ..utils.units import MM
+
+    def _nm(value_mm: float) -> int:
+        return int(round(value_mm * MM))
+
+    def _is_short(track) -> bool:
+        start = Vector2(_nm(track.start_along_mm), _nm(track.start_across_mm))
+        end = Vector2(_nm(track.end_along_mm), _nm(track.end_across_mm))
+        return is_degenerate_segment(start, end)
+
+    offenders: list[str] = []
+    for nt in getattr(cfg, "net_traces", ()) or ():
+        for index, track in enumerate(getattr(nt, "tracks", ()) or ()):
+            if _is_short(track):
+                offenders.append("net_traces {name!r}[{i}]".format(
+                    name=getattr(nt, "name", None) or nt.net, i=index))
+    for cell in getattr(cfg, "cells", ()) or ():
+        for index, track in enumerate(getattr(cell, "tracks", ()) or ()):
+            if _is_short(track):
+                offenders.append("cells {name!r}[{i}]".format(
+                    name=getattr(cell, "name", None), i=index))
+    if not offenders:
+        return
+    logger.warning(_("{count} track segment(s) are shorter than 2 × the position "
+                     "tolerance and cannot be identified positionally — a re-read "
+                     "collapses them into their neighbours (nothing is deleted "
+                     "here): {items}").format(
+                         count=len(offenders), items=", ".join(offenders)))

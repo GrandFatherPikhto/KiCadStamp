@@ -15,6 +15,16 @@ POSITION_TOLERANCE_NM = 10_000       # 0.01 mm
 ANGLE_TOLERANCE_DEG = 0.1
 POSITION_TOLERANCE_MM = 0.01
 
+#: A track segment whose ENDS are closer than this cannot be told apart from a
+#: neighbour POSITIONALLY: the positional tolerance of a comparison (10 µm) is
+#: half the segment's own length, so "the same ends" and "the neighbouring stub"
+#: become the same answer. Everything that compares, groups or records such
+#: segments defers to ONE rule — kicadstamp/degenerate_segments.py — and never
+#: spells 2 × POSITION_TOLERANCE_MM out on its own
+#: (plan_2026_10_15_micro_track_redraw_duplicates, Ч1).
+DEGENERATE_SEGMENT_NM = 2 * POSITION_TOLERANCE_NM   # 0.02 mm
+DEGENERATE_SEGMENT_MM = 2 * POSITION_TOLERANCE_MM
+
 # --- Pad shapes (the vocabulary of Pad.shape) ---
 # Plain strings, so the vocabulary can be shared by the domain DTO
 # (domain/board.py) and the geometry modules without importing kipy or each

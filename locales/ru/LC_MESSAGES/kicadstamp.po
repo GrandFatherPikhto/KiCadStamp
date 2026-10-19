@@ -3,7 +3,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version:  kicadstamp\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-15 17:58+0300\n"
+"POT-Creation-Date: 2026-10-19 15:01+0300\n"
 "PO-Revision-Date: 2026-07-27 12:00+0000\n"
 "Last-Translator: \n"
 "Language: ru\n"
@@ -318,7 +318,7 @@ msgstr ""
 "Записан Imprint {name!r} — {components} компон., {vias} виа, {tracks} "
 "треков -> {path}"
 
-#: gui/dock_hub.py:1665 gui/dock_hub.py:1784 gui/docks/dedupe.py:203
+#: gui/dock_hub.py:1665 gui/dock_hub.py:1784 gui/docks/dedupe.py:206
 #: gui/docks/net_trace.py:417
 #, python-brace-format
 msgid "Operation failed: {error}"
@@ -3920,7 +3920,7 @@ msgstr "Найти"
 msgid "removing duplicate copper"
 msgstr "удаление дублей меди"
 
-#: gui/docks/dedupe.py:237
+#: gui/docks/dedupe.py:240
 #, python-brace-format
 msgid "Duplicate groups: {groups}; extra copies: {extra}"
 msgstr "Групп дублей: {groups}; лишних копий: {extra}"
@@ -8025,7 +8025,7 @@ msgstr "✅ Все операции выполнены успешно"
 msgid "⚠️ Some operations failed – check the log."
 msgstr "⚠️ Некоторые операции завершились с ошибками – проверьте лог."
 
-#: kicadstamp/board_dedupe.py:332
+#: kicadstamp/board_dedupe.py:386
 #, python-brace-format
 msgid ""
 "Removed {removed} duplicate copper item(s); kept one per group in "
@@ -8156,7 +8156,7 @@ msgstr ""
 "роль для операции «{action}»"
 
 #: kicadstamp/cell_geometry_refresh.py:631
-#: kicadstamp/template_extraction.py:292
+#: kicadstamp/template_extraction.py:293
 #, python-brace-format
 msgid ""
 "role {role!r} appears twice in selection: {ref1!r} and {ref2!r} — roles "
@@ -10488,6 +10488,15 @@ msgstr ""
 "межузловая медь: одна единица меди (пады {pads}) несёт несколько сетей "
 "сразу: {nets} — единица определяется геометрией; проверьте разводку"
 
+#: kicadstamp/internode_nodes.py:404
+#, python-brace-format
+msgid ""
+"inter-node copper: {count} degenerate track segment(s) collapsed (shorter"
+" than 2 × tolerance)"
+msgstr ""
+"межузловая медь: свёрнуто вырожденных отрезков — {count} (короче 2 × "
+"допуска)"
+
 #: kicadstamp/link_trees.py:127
 #, python-brace-format
 msgid "tree {name!r}"
@@ -10771,17 +10780,17 @@ msgstr ""
 "{literal!r} — опечатка в паттерне или не тот параметр передан через "
 "--param"
 
-#: kicadstamp/net_trace_extract.py:125
+#: kicadstamp/net_trace_extract.py:126
 #, python-brace-format
 msgid "net_trace for net {net!r}"
 msgstr "net_trace для сети {net!r}"
 
-#: kicadstamp/net_trace_extract.py:142 kicadstamp/net_trace_planner.py:128
+#: kicadstamp/net_trace_extract.py:143 kicadstamp/net_trace_planner.py:128
 #, python-brace-format
 msgid "{label}: anchor pad {pad!r} not found on {ref}"
 msgstr "{label}: якорный пад {pad!r} не найден на {ref}"
 
-#: kicadstamp/net_trace_extract.py:144
+#: kicadstamp/net_trace_extract.py:145
 msgid ""
 "--anchor-pad must name an existing pad number of the anchor footprint; "
 "without it the footprint centre is used"
@@ -10789,12 +10798,21 @@ msgstr ""
 "--anchor-pad должен называть существующий номер пада якорного футпринта; "
 "без него используется центр футпринта"
 
-#: kicadstamp/net_trace_extract.py:181
+#: kicadstamp/net_trace_extract.py:165
+#, python-brace-format
+msgid ""
+"net_trace {net!r}: {count} degenerate track segment(s) collapsed (shorter"
+" than 2 × tolerance)"
+msgstr ""
+"net_trace {net!r}: свёрнуто вырожденных отрезков — {count} (короче 2 × "
+"допуска)"
+
+#: kicadstamp/net_trace_extract.py:194
 #, python-brace-format
 msgid "net {net!r} has no copper (tracks or vias) on the board"
 msgstr "сеть {net!r} не имеет меди (дорожек или переходных отверстий) на плате"
 
-#: kicadstamp/net_trace_extract.py:182
+#: kicadstamp/net_trace_extract.py:195
 msgid ""
 "a net_traces record needs at least one track or via on the net — check "
 "the net name (are you looking at a LOCAL hierarchical net like "
@@ -10804,7 +10822,7 @@ msgstr ""
 " на сети — проверьте имя сети (не смотрите ли вы на ЛОКАЛЬНУЮ "
 "иерархическую сеть вида '/Channel_0/...'?), или сначала проложите медь"
 
-#: kicadstamp/net_trace_extract.py:186
+#: kicadstamp/net_trace_extract.py:199
 #, python-brace-format
 msgid ""
 "Net {net!r}: {tracks} tracks, {vias} vias captured from anchor ({ax:.3f},"
@@ -10813,7 +10831,7 @@ msgstr ""
 "Сеть {net!r}: захвачено дорожек {tracks}, переходных отверстий {vias} от "
 "якоря ({ax:.3f}, {ay:.3f}) мм (роль {role!r})"
 
-#: kicadstamp/net_trace_extract.py:347
+#: kicadstamp/net_trace_extract.py:360
 #, python-brace-format
 msgid ""
 "cannot save the copper of net {net!r}: net_traces holds {count} records "
@@ -10822,17 +10840,17 @@ msgstr ""
 "нельзя сохранить медь сети {net!r}: в net_traces {count} записей этой "
 "сети ({names}) — укажи, какую обновить"
 
-#: kicadstamp/net_trace_extract.py:361
+#: kicadstamp/net_trace_extract.py:374
 #, python-brace-format
 msgid "Naming the copper of net {net!r} {name!r} for format 3"
 msgstr "Имя для меди сети {net!r} выдано: {name!r} (формат 3)"
 
-#: kicadstamp/net_trace_extract.py:423
+#: kicadstamp/net_trace_extract.py:436
 #, python-brace-format
 msgid "Net trace {net!r} appended to net_traces: in {output}"
 msgstr "Трассировка сети {net!r} добавлена в net_traces: файла {output}"
 
-#: kicadstamp/net_trace_extract.py:426
+#: kicadstamp/net_trace_extract.py:439
 #, python-brace-format
 msgid "Net trace {net!r} replaced in net_traces: of {output}"
 msgstr "Трассировка сети {net!r} заменена в net_traces: файла {output}"
@@ -10990,12 +11008,12 @@ msgstr "{ref} не связан со схемой"
 msgid "Refused (duplicate refdes on the board): {labels}"
 msgstr "Отказано (дубль refdes на плате): {labels}"
 
-#: kicadstamp/registry.py:157
+#: kicadstamp/registry.py:158
 #, python-brace-format
 msgid "registry key: record {name!r} has no uuid"
 msgstr "ключ реестра: у записи {name!r} нет uuid"
 
-#: kicadstamp/registry.py:158
+#: kicadstamp/registry.py:159
 msgid ""
 "format 3 gives every record a uuid (checked at load and at write) — "
 "falling back to the name would split one registry into name- and uuid-"
@@ -11005,7 +11023,7 @@ msgstr ""
 "— откат к имени расколол бы один реестр на именные и uuid-ключи, и prune "
 "удалил бы разницу"
 
-#: kicadstamp/registry.py:232
+#: kicadstamp/registry.py:233
 #, python-brace-format
 msgid ""
 "The copper registry {path} was not lifted to the current schema — apply "
@@ -11022,7 +11040,7 @@ msgstr ""
 "chains: нет, подъём не смог записать файл — откройте профиль заново и "
 "проверьте, можно ли писать в каталог реестра"
 
-#: kicadstamp/registry.py:285 kicadstamp/registry.py:303
+#: kicadstamp/registry.py:286 kicadstamp/registry.py:304
 #, python-brace-format
 msgid ""
 "Failed to read registry {path}: {type}: {e} — treating registry as empty "
@@ -11031,7 +11049,7 @@ msgstr ""
 "Не удалось прочитать реестр {path}: {type}: {e} — считаю реестр пустым "
 "(все via будут созданы заново)"
 
-#: kicadstamp/registry.py:324 kicadstamp/registry.py:338
+#: kicadstamp/registry.py:325 kicadstamp/registry.py:339
 #, python-brace-format
 msgid ""
 "Failed to read track registry {path}: {type}: {e} — treating registry as "
@@ -11040,7 +11058,7 @@ msgstr ""
 "Не удалось прочитать реестр треков {path}: {type}: {e} — считаю реестр "
 "пустым (все треки будут созданы заново)"
 
-#: kicadstamp/registry.py:483
+#: kicadstamp/registry.py:484
 #, python-brace-format
 msgid ""
 "  {key}: registry has an entry (uuid {uuid}), but no such item is on the "
@@ -11053,7 +11071,7 @@ msgstr ""
 " git, или прошлый прогон упал между записью в реестр и коммитом на "
 "плату); пересоздаю, как будто записи не было"
 
-#: kicadstamp/registry.py:494
+#: kicadstamp/registry.py:495
 #, python-brace-format
 msgid ""
 "  {key}: already correctly placed (checked against live item {uuid}), "
@@ -11062,7 +11080,7 @@ msgstr ""
 "  {key}: уже стоит правильно (проверено по живому элементу {uuid}), "
 "пропуск"
 
-#: kicadstamp/registry.py:499
+#: kicadstamp/registry.py:500
 #, python-brace-format
 msgid ""
 "  {key}: position/parameters changed, deleting old item ({uuid}) and "
@@ -11071,7 +11089,7 @@ msgstr ""
 "  {key}: позиция/параметры изменились, удаляю старый элемент ({uuid}) и "
 "создаю новый"
 
-#: kicadstamp/registry.py:519
+#: kicadstamp/registry.py:520
 #, python-brace-format
 msgid ""
 "  {key}: not processed in this run (--only filtered {anchor_id!r}), but "
@@ -11080,29 +11098,29 @@ msgstr ""
 "  {key}: не обработан в этом прогоне (--only отфильтровал {anchor_id!r}),"
 " но он есть в конфиге — НЕ удаляется"
 
-#: kicadstamp/registry.py:527
+#: kicadstamp/registry.py:528
 #, python-brace-format
 msgid "  prune: {key} no longer appears in config, deleting ({uuid})"
 msgstr "  prune: {key} больше нет в конфиге, удаляю ({uuid})"
 
-#: kicadstamp/registry.py:659
+#: kicadstamp/registry.py:672
 #, python-brace-format
 msgid "  track for {owner}: already exists, skipped (positional pre-check)"
 msgstr "  дорожка для {owner}: уже существует, пропущено (позиционная проверка)"
 
-#: kicadstamp/registry.py:664
+#: kicadstamp/registry.py:677
 #, python-brace-format
 msgid "Skipped {count} tracks already present on the board (positional pre-check)"
 msgstr ""
 "Пропущено {count} дорожек, уже присутствующих на плате (позиционная "
 "проверка)"
 
-#: kicadstamp/registry.py:712
+#: kicadstamp/registry.py:725
 #, python-brace-format
 msgid "  via for {owner}: already exists, skipped (positional pre-check)"
 msgstr "  via для {owner}: уже существует, пропущено (позиционная проверка)"
 
-#: kicadstamp/registry.py:717
+#: kicadstamp/registry.py:730
 #, python-brace-format
 msgid "Skipped {count} vias already present on the board (positional pre-check)"
 msgstr "Пропущено {count} via, уже присутствующих на плате (позиционная проверка)"
@@ -11264,7 +11282,7 @@ msgstr ""
 "листом иерархии, поэтому такой лист больше нельзя адресовать его "
 "собственным именем (его цепь: {chain!r})"
 
-#: kicadstamp/template_extraction.py:259
+#: kicadstamp/template_extraction.py:260
 #, python-brace-format
 msgid ""
 "{count} selected objects — not footprint, via, or track, ignored (cell "
@@ -11273,7 +11291,7 @@ msgstr ""
 "Выделено объектов: {count} — не футпринт, не via и не трек, "
 "проигнорированы (шаблон поддерживает только их)"
 
-#: kicadstamp/template_extraction.py:270
+#: kicadstamp/template_extraction.py:271
 #, python-brace-format
 msgid ""
 "Tracks in selection: {total}, taken into cell: {kept} (the rest extend "
@@ -11282,11 +11300,11 @@ msgstr ""
 "Треков в выделении: {total}, взято в шаблон: {kept} (остальные выходят за"
 " выделение, см. предупреждение выше)"
 
-#: kicadstamp/template_extraction.py:276
+#: kicadstamp/template_extraction.py:277
 msgid "nothing to extract"
 msgstr "нечего извлекать"
 
-#: kicadstamp/template_extraction.py:277
+#: kicadstamp/template_extraction.py:278
 msgid ""
 "Nothing is selected (or selected objects are not footprints/vias/tracks) "
 "— select the desired board area in KiCad before running"
@@ -11295,7 +11313,7 @@ msgstr ""
 "футпринтов/via/треков) — выделите нужный участок платы в KiCad перед "
 "запуском"
 
-#: kicadstamp/template_extraction.py:287
+#: kicadstamp/template_extraction.py:288
 #, python-brace-format
 msgid ""
 "{ref}: no {field!r} field — every selected component must have a Role for"
@@ -11304,34 +11322,34 @@ msgstr ""
 "{ref}: нет поля {field!r} — у каждого выделенного компонента должна быть "
 "роль для извлечения шаблона"
 
-#: kicadstamp/template_extraction.py:299
+#: kicadstamp/template_extraction.py:300
 msgid "problems in current selection"
 msgstr "проблемы в текущем выделении"
 
-#: kicadstamp/template_extraction.py:308
+#: kicadstamp/template_extraction.py:309
 #, python-brace-format
 msgid "via on net {net!r}"
 msgstr "via на цепи {net!r}"
 
-#: kicadstamp/template_extraction.py:309
+#: kicadstamp/template_extraction.py:310
 #, python-brace-format
 msgid "component with role {role!r}"
 msgstr "компонент с ролью {role!r}"
 
-#: kicadstamp/template_extraction.py:310
+#: kicadstamp/template_extraction.py:311
 msgid "bbox of selection (lower‑left corner)"
 msgstr "bbox выделения (левый нижний угол)"
 
-#: kicadstamp/template_extraction.py:318
+#: kicadstamp/template_extraction.py:319
 msgid "explicit (caller-supplied)"
 msgstr "явный (задан вызывающим)"
 
-#: kicadstamp/template_extraction.py:319
+#: kicadstamp/template_extraction.py:320
 #, python-brace-format
 msgid "Origin ({desc}): ({x:.3f}, {y:.3f}) mm"
 msgstr "Начало координат ({desc}): ({x:.3f}, {y:.3f}) мм"
 
-#: kicadstamp/template_extraction.py:330
+#: kicadstamp/template_extraction.py:331
 #, python-brace-format
 msgid ""
 "Mixed selection: {back} on B.Cu, {front} on F.Cu; cell layer = {layer}, "
@@ -11340,12 +11358,12 @@ msgstr ""
 "Смешанное выделение: {back} на B.Cu, {front} на F.Cu; слой шаблона = "
 "{layer}, у выбивающихся будет явный layer"
 
-#: kicadstamp/template_extraction.py:333
+#: kicadstamp/template_extraction.py:334
 #, python-brace-format
 msgid "Cell layer: {layer}"
 msgstr "Слой шаблона: {layer}"
 
-#: kicadstamp/template_extraction.py:376
+#: kicadstamp/template_extraction.py:377
 #, python-brace-format
 msgid ""
 "--net-template-role for role {role!r} asks for net {literal!r}, but it is"
@@ -11354,7 +11372,7 @@ msgstr ""
 "--net-template-role для роли {role!r} просит цепь {literal!r}, но её нет "
 "ни на одном паде {ref}"
 
-#: kicadstamp/template_extraction.py:379
+#: kicadstamp/template_extraction.py:380
 #, python-brace-format
 msgid ""
 "actual nets on pads: {nets} — check typo in --net-template-role or in the"
@@ -11363,7 +11381,7 @@ msgstr ""
 "реальные цепи на падах: {nets} — проверьте опечатку в --net-template-role"
 " или в самой роли"
 
-#: kicadstamp/template_extraction.py:384
+#: kicadstamp/template_extraction.py:385
 #, python-brace-format
 msgid ""
 "--net-template-role for role {role!r} asks for net {literal!r}, which is "
@@ -11372,7 +11390,7 @@ msgstr ""
 "--net-template-role для роли {role!r} просит цепь {literal!r}, которой "
 "нет в net_template_map"
 
-#: kicadstamp/template_extraction.py:386
+#: kicadstamp/template_extraction.py:387
 #, python-brace-format
 msgid ""
 "add {literal!r} to --net-template/net_template (or to params if it equals"
@@ -11381,7 +11399,7 @@ msgstr ""
 "добавьте {literal!r} в --net-template/net_template (или в params, если он"
 " равен значению параметра) — иначе не из чего строить паттерн"
 
-#: kicadstamp/template_extraction.py:397
+#: kicadstamp/template_extraction.py:398
 #, python-brace-format
 msgid ""
 "--net-template-role for role {role!r} = {literal!r} is redundant — it "
@@ -11392,14 +11410,14 @@ msgstr ""
 "совпадает с авто-выбранной главной сетью, extract теперь проставляет "
 "net_template для bridging-ролей без этого флага"
 
-#: kicadstamp/template_extraction.py:464
+#: kicadstamp/template_extraction.py:465
 #, python-brace-format
 msgid ""
 "  {ref} (role {role}): bridging — {count} nets on pads, net_template set "
 "to designated {designated!r} without --net-template-role"
 msgstr ""
 
-#: kicadstamp/template_extraction.py:470
+#: kicadstamp/template_extraction.py:471
 #, python-brace-format
 msgid ""
 "  {ref} (role {role}): along={along}, across={across}, "
@@ -11408,27 +11426,36 @@ msgstr ""
 "  {ref} (роль {role}): along={along}, across={across}, "
 "angle={angle}{layer}{net}"
 
-#: kicadstamp/template_extraction.py:473 kicadstamp/template_extraction.py:568
+#: kicadstamp/template_extraction.py:474 kicadstamp/template_extraction.py:581
 #, python-brace-format
 msgid ", layer={layer}"
 msgstr ", layer={layer}"
 
-#: kicadstamp/template_extraction.py:474
+#: kicadstamp/template_extraction.py:475
 #, python-brace-format
 msgid ", net_template={nt}"
 msgstr ", net_template={nt}"
 
-#: kicadstamp/template_extraction.py:523
+#: kicadstamp/template_extraction.py:524
 #, python-brace-format
 msgid "  via: along={along}, across={across}, net={net}"
 msgstr "  via: along={along}, across={across}, цепь={net}"
 
-#: kicadstamp/template_extraction.py:564
+#: kicadstamp/template_extraction.py:535
+#, python-brace-format
+msgid ""
+"cell {name!r}: {count} degenerate track segment(s) collapsed (shorter "
+"than 2 × tolerance)"
+msgstr ""
+"ячейка {name!r}: свёрнуто вырожденных отрезков — {count} (короче 2 × "
+"допуска)"
+
+#: kicadstamp/template_extraction.py:577
 #, python-brace-format
 msgid "  track: ({sx},{sy}) -> ({ex},{ey}), net={net}{layer}"
 msgstr "  трек: ({sx},{sy}) -> ({ex},{ey}), цепь={net}{layer}"
 
-#: kicadstamp/template_extraction.py:575
+#: kicadstamp/template_extraction.py:588
 msgid ""
 "--net-template/--param was not needed — every via/track net was resolved "
 "from a role (net_from_role) or auto-parametrized, and no component "
@@ -11440,7 +11467,7 @@ msgstr ""
 "компонента не взят из карты; эти флаги можно убрать (определение сетей "
 "теперь автоматическое)"
 
-#: kicadstamp/template_extraction.py:579
+#: kicadstamp/template_extraction.py:592
 #, python-brace-format
 msgid ""
 "Extracted cell {name!r}: {comp} components, {vias} spoke‑level vias, "
@@ -14724,7 +14751,7 @@ msgstr ""
 "Role/Cluster: {names}. Чтобы получить умолчание ({default}), ключ лучше "
 "не писать вовсе"
 
-#: kicadstamp/config/loader.py:612
+#: kicadstamp/config/loader.py:616
 #, python-brace-format
 msgid ""
 "Config loaded: layer={layer}, cells={cells}, points={points}, "
@@ -14732,6 +14759,17 @@ msgid ""
 msgstr ""
 "Конфиг загружен: layer={layer}, cells={cells}, points={points}, "
 "clone_placements={clones}"
+
+#: kicadstamp/config/loader.py:657
+#, python-brace-format
+msgid ""
+"{count} track segment(s) are shorter than 2 × the position tolerance and "
+"cannot be identified positionally — a re-read collapses them into their "
+"neighbours (nothing is deleted here): {items}"
+msgstr ""
+"Отрезков короче 2 × допуска позиции и не опознаваемых позиционно — "
+"{count}; перечитывание стянет их в соседей (здесь ничего не удаляется): "
+"{items}"
 
 #: kicadstamp/config/name_hint.py:41
 #, python-brace-format
@@ -17049,7 +17087,12 @@ msgstr ""
 "issue #24966; обходной путь: подвиньте компонент + Ctrl+S в pcbnew перед "
 "запуском). Исходная ошибка: {e}"
 
-#: kicadstamp/kicad/adapter.py:1033
+#: kicadstamp/kicad/adapter.py:1015
+#, python-brace-format
+msgid "Updating {count} items"
+msgstr "Обновление {count} объектов"
+
+#: kicadstamp/kicad/adapter.py:1025
 #, python-brace-format
 msgid ""
 "{ref}: restored {count} definition item(s) that kipy's orientation setter"
@@ -17058,57 +17101,52 @@ msgstr ""
 "{ref}: возвращено {count} элемент(ов) определения, которые сеттер "
 "ориентации kipy выбросил бы"
 
-#: kicadstamp/kicad/adapter.py:1039
-#, python-brace-format
-msgid "Updating {count} items"
-msgstr "Обновление {count} объектов"
-
-#: kicadstamp/kicad/adapter.py:1049
+#: kicadstamp/kicad/adapter.py:1033
 #, python-brace-format
 msgid "Creating {count} items"
 msgstr "Создание {count} объектов"
 
-#: kicadstamp/kicad/adapter.py:1053
+#: kicadstamp/kicad/adapter.py:1037
 #, python-brace-format
 msgid "Created {count} items"
 msgstr "Создано {count} объектов"
 
-#: kicadstamp/kicad/adapter.py:1058
+#: kicadstamp/kicad/adapter.py:1042
 #, python-brace-format
 msgid "Flipping {count} footprints via GUI action"
 msgstr "Флип {count} футпринтов через GUI-действие"
 
-#: kicadstamp/kicad/adapter.py:1076 tests/utils/test_i18n.py:154
+#: kicadstamp/kicad/adapter.py:1060 tests/utils/test_i18n.py:154
 #: tests/utils/test_i18n.py:163
 msgid "Flip performed"
 msgstr "Флип выполнен"
 
-#: kicadstamp/kicad/adapter.py:1092
+#: kicadstamp/kicad/adapter.py:1076
 #, python-brace-format
 msgid "Attempt {attempt}/{total} for {desc}"
 msgstr "Попытка {attempt}/{total} для {desc}"
 
-#: kicadstamp/kicad/adapter.py:1104
+#: kicadstamp/kicad/adapter.py:1088
 #, python-brace-format
 msgid "Failed to roll back transaction {desc}: {e}"
 msgstr "Не удалось откатить транзакцию {desc}: {e}"
 
-#: kicadstamp/kicad/adapter.py:1106
+#: kicadstamp/kicad/adapter.py:1090
 #, python-brace-format
 msgid "Error in transaction {desc} (attempt {attempt}): {type}: {e}"
 msgstr "Ошибка в транзакции {desc} (попытка {attempt}): {type}: {e}"
 
-#: kicadstamp/kicad/adapter.py:1117
+#: kicadstamp/kicad/adapter.py:1101
 #, python-brace-format
 msgid "Creating via at ({x:.3f}, {y:.3f}) mm, net={net}"
 msgstr "Создание via в ({x:.3f}, {y:.3f}) мм, цепь={net}"
 
-#: kicadstamp/kicad/adapter.py:1130
+#: kicadstamp/kicad/adapter.py:1114
 #, python-brace-format
 msgid "Creating track ({sx:.3f}, {sy:.3f}) -> ({ex:.3f}, {ey:.3f}) mm, net={net}"
 msgstr "Создание трека ({sx:.3f}, {sy:.3f}) -> ({ex:.3f}, {ey:.3f}) мм, цепь={net}"
 
-#: kicadstamp/kicad/adapter.py:1173
+#: kicadstamp/kicad/adapter.py:1157
 #, python-brace-format
 msgid "Failed to delete {count} objects: {type}: {e}"
 msgstr ""

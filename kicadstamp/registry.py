@@ -68,6 +68,7 @@ from .utils.paths import (default_log_file_for_config,
                           registry_paths_for_config,
                           track_registry_path_for_config)
 from .constants import POSITION_TOLERANCE_MM, CELL_LEVEL_ROLE_PLACEHOLDER
+from .degenerate_segments import is_degenerate_segment
 from .exceptions import ValidationError, format_fatal_error
 from .persistence import (
     REGISTRY_SCHEMA_VERSION,
@@ -600,12 +601,24 @@ def track_matches(live_track, cmd: TrackCommand) -> bool:
     AND start↔end/end↔start count as the same geometry. Also compares net
     (full hierarchical name as a string), width, and layer (via _layer_to_str).
 
+    A POSITIONALLY UNIDENTIFIABLE segment never matches anything (2026-10-19,
+    plan Ч1): when the segment's ends are closer than 2 × the tolerance
+    (degenerate_segments), every neighbour within the tolerance box answers
+    "same ends", so a match would be a guess — and the guess has a bad sign:
+    the pre-check would silently NOT draw copper that is missing. The 15.10
+    fact measured 6 of 6 cross-matches between three different segments of one
+    record; with this guard the same cell measures 0.
+
     Used by BOTH the UUID-path reconcile (TrackRegistry._live_matches) and the
     positional pre-check (filter_existing_tracks) — one predicate, so the two
     can never disagree (plan_2026_08_16_position_based_copper_idempotency.md).
     The bidirectional match also fixes a latent reversal bug: a live track that
     got flipped (start↔end) between runs no longer looks like a position change
     (see plan_2026_08_16_position_based_copper_idempotency.md, Task 1.2)."""
+    if (is_degenerate_segment(live_track.start, live_track.end)
+            or is_degenerate_segment(cmd.start, cmd.end)):
+        return False
+
     live_start_x_mm, live_start_y_mm = live_track.start.x / MM, live_track.start.y / MM
     live_end_x_mm, live_end_y_mm = live_track.end.x / MM, live_track.end.y / MM
     start_x_mm, start_y_mm = cmd.start.x / MM, cmd.start.y / MM

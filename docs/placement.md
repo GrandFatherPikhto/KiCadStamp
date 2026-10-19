@@ -141,6 +141,15 @@ registry is never touched, and `track_matches` (the shared positional
 predicate) is reused for track idempotency. CLI: `channel-copy` — see
 [docs/commands.md](commands.md).
 
+That predicate also REFUSES to compare a positionally unidentifiable segment:
+ends closer than `2 × POSITION_TOLERANCE_MM` (20 µm, `DEGENERATE_SEGMENT_NM`)
+mean every neighbour inside the tolerance box is a candidate, so a match would be
+a guess with the bad sign — the pre-check would silently skip copper that is
+missing. The rule and the collapse of such a segment live in ONE module,
+`kicadstamp/degenerate_segments.py` (see
+[docs/uplevel_modules.md](uplevel_modules.md)); the same rule keeps them out of
+the "Copper duplicates" groups and out of the stored records.
+
 ## CoordinatePlacement (the "dumb placer")
 
 `coordinate_placements:` moves an existing footprint — identified by an exact

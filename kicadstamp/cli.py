@@ -330,8 +330,8 @@ def cmd_dedupe(args) -> list[str]:
                                          format_report, scan_copper_duplicates)
 
     adapter = create_board_adapter(timeout_ms=args.timeout_ms, use_store=False)
-    via_groups, track_groups = scan_copper_duplicates(adapter)
-    report = format_report(via_groups, track_groups)
+    via_groups, track_groups, short_tracks = scan_copper_duplicates(adapter)
+    report = format_report(via_groups, track_groups, short_tracks)
 
     if not getattr(args, "apply", False):
         return [report]

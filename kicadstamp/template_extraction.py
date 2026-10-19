@@ -47,6 +47,7 @@ from .domain.geometry import BoardLayer, Vector2
 from .domain.board import Footprint, Via, Track
 
 from .constants import ROLE_FIELD_NAME
+from .degenerate_segments import collapse_degenerate_segments
 from .exceptions import ValidationError, format_fatal_error
 from .kicad.adapter import KiCadBoardAdapter
 from .net_resolution import ROLELESS_NETS, discover_net_template_pattern, parametrize_net
@@ -524,12 +525,24 @@ def extract_template_from_selection(
                      .format(along=along_mm, across=across_mm,
                              net=role_net or via_net))
 
+    # A positionally unidentifiable segment is NOT stored (plan Ч1): its ends are
+    # pulled into one point (a via it touches, else its midpoint) and the
+    # neighbours that met it are re-pointed there, so the cell stays connected.
+    collapsed = collapse_degenerate_segments(
+        [(t.start, t.end) for t in tracks],
+        attractors=[v.position for v in vias] + [origin])
+    if collapsed.changed:
+        logger.info(_("cell {name!r}: {count} degenerate track segment(s) collapsed "
+                      "(shorter than 2 × tolerance)").format(
+                          name=name, count=len(collapsed.collapsed)))
+
     spoke_tracks = []
-    for t in tracks:
-        start_along_mm = round((t.start.x - origin.x) / MM, 4)
-        start_across_mm = round((t.start.y - origin.y) / MM, 4)
-        end_along_mm = round((t.end.x - origin.x) / MM, 4)
-        end_across_mm = round((t.end.y - origin.y) / MM, 4)
+    for index, (start, end) in zip(collapsed.kept_indices, collapsed.segments):
+        t = tracks[index]
+        start_along_mm = round((start.x - origin.x) / MM, 4)
+        start_across_mm = round((start.y - origin.y) / MM, 4)
+        end_along_mm = round((end.x - origin.x) / MM, 4)
+        end_across_mm = round((end.y - origin.y) / MM, 4)
         track_net = t.net_name
         role_net = role_net_pad = None
         if track_net is not None:

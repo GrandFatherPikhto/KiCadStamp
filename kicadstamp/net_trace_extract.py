@@ -28,6 +28,7 @@ import logging
 from pathlib import Path
 from typing import Any
 
+from .degenerate_segments import collapse_degenerate_segments
 from .domain.board import Track, Via
 from .domain.geometry import BoardLayer
 
@@ -154,13 +155,25 @@ def extract_net_trace(
         track_items = [t for t in adapter.get_tracks() if t.net_name == net]
         via_items = [v for v in adapter.get_vias() if v.net_name == net]
 
+    # A positionally unidentifiable segment is NOT stored (plan Ч1): its ends are
+    # pulled into one point (a via it touches, else its midpoint) and the
+    # neighbours that met it are re-pointed there, so the record stays connected.
+    collapsed = collapse_degenerate_segments(
+        [(t.start, t.end) for t in track_items],
+        attractors=[v.position for v in via_items] + [anchor])
+    if collapsed.changed:
+        logger.info(_("net_trace {net!r}: {count} degenerate track segment(s) "
+                      "collapsed (shorter than 2 × tolerance)").format(
+                          net=net, count=len(collapsed.collapsed)))
+
     tracks = []
-    for t in track_items:
+    for index, (start, end) in zip(collapsed.kept_indices, collapsed.segments):
+        t = track_items[index]
         tracks.append({
-            "start_along_mm": round((t.start.x - anchor.x) / MM, 4),
-            "start_across_mm": round((t.start.y - anchor.y) / MM, 4),
-            "end_along_mm": round((t.end.x - anchor.x) / MM, 4),
-            "end_across_mm": round((t.end.y - anchor.y) / MM, 4),
+            "start_along_mm": round((start.x - anchor.x) / MM, 4),
+            "start_across_mm": round((start.y - anchor.y) / MM, 4),
+            "end_along_mm": round((end.x - anchor.x) / MM, 4),
+            "end_across_mm": round((end.y - anchor.y) / MM, 4),
             "width_mm": round(t.width_mm, 4),
             "net": net,
             "layer": _layer_str(t.layer),
