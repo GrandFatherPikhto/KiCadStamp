@@ -589,9 +589,12 @@ def test_a_reader_that_opens_the_profile_itself_lifts_too(monkeypatch, tmp_path)
 # a probe (diagnostics/probe_format_double_lift.py) precisely because this was a
 # case and not a rule — config_writer._read_data lifted a .sexp a second time,
 # so a file already at the current format went through the whole chain again.
+# (доделка Р: that reader now lives in kicadstamp/config/file_read.py;
+# config_writer._read_data remains its public alias, and the row names the
+# IMPLEMENTATION because this table enumerates readers, not import paths.)
 _READER_NAMES = [
     "includes._load_config_file",
-    "config_writer._read_data",
+    "config/file_read.read_config_data",
     "config_writer._load_data_tolerant",
     "config_io.load_data",
     "adapter_factory._read_root_dict",
@@ -610,9 +613,9 @@ def _call_reader(name: str, path: Path):
     if name == "includes._load_config_file":
         from kicadstamp.config.includes import _load_config_file
         return _load_config_file(path)
-    if name == "config_writer._read_data":
-        from kicadstamp.config_writer import _read_data
-        return _read_data(Path(path))
+    if name == "config/file_read.read_config_data":
+        from kicadstamp.config.file_read import read_config_data
+        return read_config_data(Path(path))
     if name == "config_writer._load_data_tolerant":
         from kicadstamp.config_writer import _load_data_tolerant
         return _load_data_tolerant(Path(path))

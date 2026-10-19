@@ -5,8 +5,9 @@ MainWindow/DockHub construction used to parse the SAME include: graph of
 config files ~13 times and the same *.kicad_sch files 4+ times each, because
 none of the four independent raw open()+parse call sites
 (kicadstamp/config/includes.py's _resolve/_walk, config/loader.py's
-load_config, config_writer.py's _read_data, sheet_names.py's
-_parse_sheet_uuids) shared any cache. cProfile on a real project measured
+load_config, config/file_read.py's read_config_data — config_writer._read_data,
+sheet_names.py's _parse_sheet_uuids) shared any cache. cProfile on a real
+project measured
 yaml.safe_load() at 113 calls / 11.4s of a 15s MainWindow().
 
 These tests count ACTUAL parses (loader invocations) per resolved path
@@ -38,7 +39,10 @@ _CACHE_CONSUMER_MODULES = (
     "gui.config_io",
     "kicadstamp.config.includes",
     "kicadstamp.config.loader",
-    "kicadstamp.config_writer",
+    # доделка Р (19.10): the private-dict reader moved out of config_writer into
+    # this module, and THIS binding is the one the write path calls — counting
+    # config_writer's re-export would count nothing.
+    "kicadstamp.config.file_read",
     "kicadstamp.sheet_names",
 )
 

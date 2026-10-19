@@ -34,7 +34,10 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 
-CW = "kicadstamp/config_writer.py"
+# доделка Р (19.10): the private-dict reader moved verbatim out of config_writer
+# into config/file_read.py (config_writer keeps the re-export), so the two CACHE
+# mutation templates below live in THAT file now.
+CW = "kicadstamp/config/file_read.py"
 FI = "kicadstamp/config/form_identity.py"
 GUARDS_1 = "tests/config/test_writer_reads_a_private_dict.py"
 GUARDS_2 = ("tests/config/test_form_identity.py "

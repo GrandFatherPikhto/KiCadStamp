@@ -28,7 +28,10 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 
 DEDUPE = "kicadstamp/board_dedupe.py"
-REGISTRY = "kicadstamp/registry.py"
+# доделка Р (19.10): track_matches / filter_existing_tracks moved verbatim out of
+# registry.py into track_identity.py (registry re-exports them), so the three
+# rows below that patch their bodies target THAT file now.
+REGISTRY = "kicadstamp/track_identity.py"
 NODES = "kicadstamp/internode_nodes.py"
 RULES = "kicadstamp/degenerate_segments.py"
 TEMPLATE = "kicadstamp/template_extraction.py"

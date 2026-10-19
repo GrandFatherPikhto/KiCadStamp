@@ -458,13 +458,14 @@ class TestSelectionLogDedup:
     Kept on the raw-GetSelection seam after Ч2 of
     plan_2026_10_15_reread_copper_uuid_and_selection_any, because this one cell
     IS the property ("two lines for five ticks"); no second cell duplicates
-    it."""
+    it. The line is emitted by kicadstamp.kicad.kipy_selection, where the seam
+    lives since доделка Р."""
 
     def test_logs_only_when_count_changes(self, caplog):
         adapter = Adapter.__new__(Adapter)
         adapter.ignore_selection = False
 
-        with caplog.at_level(logging.DEBUG, logger="kicadstamp.kicad.adapter"):
+        with caplog.at_level(logging.DEBUG, logger="kicadstamp.kicad.kipy_selection"):
             adapter._board = board_answering()
             adapter.get_selected_items()
             adapter.get_selected_items()
@@ -498,7 +499,7 @@ class TestUnreadableSelectionItems:
     def test_an_empty_any_is_skipped_and_the_readable_items_survive(self, caplog):
         adapter = self._adapter(packed_footprint("J1"), unreadable_item())
 
-        with caplog.at_level(logging.INFO, logger="kicadstamp.kicad.adapter"):
+        with caplog.at_level(logging.INFO, logger="kicadstamp.kicad.kipy_selection"):
             items = adapter.get_selected_items()
 
         assert [item.ref for item in items] == ["J1"]
@@ -512,7 +513,7 @@ class TestUnreadableSelectionItems:
     def test_an_unknown_type_url_is_skipped_too(self, caplog):
         adapter = self._adapter(unknown_type_item(), packed_footprint("J1"))
 
-        with caplog.at_level(logging.DEBUG, logger="kicadstamp.kicad.adapter"):
+        with caplog.at_level(logging.DEBUG, logger="kicadstamp.kicad.kipy_selection"):
             items = adapter.get_selected_items()
 
         assert [item.ref for item in items] == ["J1"]
@@ -521,7 +522,7 @@ class TestUnreadableSelectionItems:
     def test_the_skip_line_is_logged_once_per_change(self, caplog):
         adapter = self._adapter(unreadable_item())
 
-        with caplog.at_level(logging.INFO, logger="kicadstamp.kicad.adapter"):
+        with caplog.at_level(logging.INFO, logger="kicadstamp.kicad.kipy_selection"):
             adapter.get_selected_items()
             adapter.get_selected_items()
             adapter.get_selected_items()
