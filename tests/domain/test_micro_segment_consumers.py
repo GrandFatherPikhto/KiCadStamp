@@ -158,6 +158,17 @@ def test_positional_precheck_ignores_a_degenerate_neighbour():
     assert filter_existing_tracks([normal], [stub]) == [normal]
 
 
+def test_positional_precheck_returns_a_degenerate_command_against_a_normal_live():
+    """MIRROR of the cell above (acceptance Д-4): here the COMMAND is the stub
+    (15 µm) and the live track is normal (24 µm) — same net, width and layer,
+    both command ends inside the tolerance. Without the command-side check the
+    pre-check would pair them and silently skip the command; the command must
+    come back instead."""
+    live = _track("live", 10.0, 20.0, 10.024, 20.0, width=0.25)
+    stub_cmd = _cmd(10.0, 20.0, 10.015, 20.0, width=0.25)
+    assert filter_existing_tracks([stub_cmd], [live]) == [stub_cmd]
+
+
 def test_track_matches_still_compares_geometry_for_the_uuid_path():
     """The shared predicate keeps its pre-Д-1 behaviour: it is the uuid path's
     comparator, and there the geometry of a degenerate segment IS usable."""

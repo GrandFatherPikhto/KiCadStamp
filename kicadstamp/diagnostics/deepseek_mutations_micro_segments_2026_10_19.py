@@ -74,6 +74,18 @@ MUTATIONS = [
      ["test_items_from_unit_drops_the_stub_and_keeps_the_chain_connected",
       "test_items_from_unit_pulls_the_stub_ends_onto_a_touched_via"]),
 
+    # ── acceptance Д-4: the COMMAND side of the positional rule ────────────
+    # The cell above takes degenerate LIVE segments, and the pool filter drops
+    # them before the command check ever matters — so this row is the mutant
+    # that survived the previous acceptance (0 red). It must redden now.
+    ("Д-4 the command-side check is gone (a stub command pairs with a normal live)",
+     REGISTRY,
+     "        if (not is_degenerate_segment(cmd.start, cmd.end)\n"
+     "                and any(track_matches(live, cmd) for live in positional_pool)):",
+     "        if any(track_matches(live, cmd) for live in positional_pool):"
+     "  # MUTATION: the command guard is gone",
+     ["test_positional_precheck_returns_a_degenerate_command_against_a_normal_live"]),
+
     # ── acceptance Д-1: the guard belongs to the POSITIONAL path only ──────
     ("Д-1 the guard is back on the uuid path (track_matches)", REGISTRY,
      "    live_start_x_mm, live_start_y_mm = live_track.start.x / MM, live_track.start.y / MM",
