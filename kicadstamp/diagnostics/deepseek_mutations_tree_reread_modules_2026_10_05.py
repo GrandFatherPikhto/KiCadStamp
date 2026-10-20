@@ -131,9 +131,13 @@ MUTATIONS = [
     # M13 (A6 fallback from pads[0]) снята 20.10: шаблон исчез с переносом
     # _items_from_unit в Д-1 (239a1363); смысл несут G4 (существующая запись) и
     # G2 + клетка A6 (новая запись) оснастки 15.10.
+    # Template retargeted 20.10: the label rule moved into instance_label (14.10),
+    # so the live line is internode_nodes.py's `instance_label(cluster, sheet) if
+    # sheet else label`. Same mutation, same meaning — a module label WITHOUT the
+    # sheet, which merges two channels of one tag on one net.
     ("M14 T4-3 module label without the sheet", NODES,
-     '        return f"{cluster}/{sheet}" if sheet else label',
-     "        return label  # MUTATION",
+     "        return instance_label(cluster, sheet) if sheet else label",
+     "        return cluster if sheet else label  # MUTATION",
      "die", GUARDS, ()),
     ("M15 T4-4 cache only the candidates", NODES,
      "        cached = self._narrow_cache.get(key)",
