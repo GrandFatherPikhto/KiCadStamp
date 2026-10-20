@@ -33,6 +33,14 @@ Two further cells pin the CALLER-SUPPLIED half of the rule for the one shared
 helper (`gui/docks/trees_dock.py:_resolve_live_offset`): the two READING
 callers pass read_only_verdict(), the two WRITE-side callers (the rehang read
 and trees_mount_rebase) pass nothing and keep the historical footer.
+
+And ONE cell states the LAW over the whole code of those six modules plus
+imprint_capture.py (dodelka Д-1 of the acceptance): no `format_fatal_error(`
+call may survive there without a read-only verdict. The per-path rows above
+guard one refusal each — a single call site reverted inside a module they
+already cover stays green there, which is exactly how three of Denis's
+mutations survived the first submission. The law cell scans EVERY call, so
+it cannot be satisfied by having chosen a lucky representative.
 """
 import ast
 import logging
@@ -180,6 +188,101 @@ def test_the_write_side_caller_keeps_the_ordinary_footer(monkeypatch):
     assert ORDINARY_VERDICT in text
     assert READ_ONLY_VERDICT not in text, (
         "a write-side caller must not inherit the read-only footer")
+
+
+#: The reading modules of the Ч0 census — the scope of the law cell below, one
+#: entry per PATH (several call sites each; the law covers all of them).
+READING_MODULES = {
+    "kicadstamp/template_extraction.py": "Extract from the selection (4 calls)",
+    "kicadstamp/template_selection.py": "Extract origin resolution (5 calls)",
+    "kicadstamp/net_trace_extract.py": "net-trace Extract (2 calls)",
+    "gui/cell_identification.py": "Select cell / Fill from selection (8 calls)",
+    "gui/entity/anchor_workers.py": "Place marker / Read position (8 calls)",
+    "gui/docks/cell_refs_tab.py": "Refs tab Take selection (1 call)",
+    "kicadstamp/imprint_capture.py": "Record an imprint (2 calls)",
+}
+
+#: (module, innermost function) -> WHY that one call may keep the ordinary
+#: footer. EMPTY on purpose: every fatal in these modules is a read refusal, and
+#: this list is where a future exception has to be NAMED (with its reason) in the
+#: same commit that adds it — never a place to park a call that was never thought
+#: about. A key that no longer matches a call is dead weight, not an error.
+WRITE_PATH_EXCEPTIONS: dict[tuple[str, str], str] = {}
+
+REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
+
+#: How many read-only refusals the census has to SEE before "no offenders" means
+#: anything (30 call sites converted in the six modules + 2 in imprint_capture).
+MIN_READ_ONLY_REFUSALS = 30
+
+_FATAL_FORMATTERS = ("format_fatal_error", "format_read_fatal")
+
+
+def _innermost_owner_calls(source: str, names: tuple[str, ...]):
+    """[(innermost owner function, called name, verdict expression | None, line)]
+    for every call of a name in `names` — one flat list.
+
+    Parsed, never grepped, and attributed to the INNERMOST enclosing def, so a
+    call inside a closure (or a comment mentioning the formatter) is judged where
+    it really stands."""
+    found: list[tuple[str, str, str | None, int]] = []
+
+    def verdict_of(call: ast.Call) -> str | None:
+        for kw in call.keywords:
+            if kw.arg == "verdict":
+                return ast.unparse(kw.value)
+        return None
+
+    def walk(node, owner: str) -> None:
+        for child in ast.iter_child_nodes(node):
+            if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                walk(child, child.name)
+            elif isinstance(child, ast.Call):
+                name = (getattr(child.func, "id", None)
+                        or getattr(child.func, "attr", None))
+                if name in names:
+                    found.append((owner, name, verdict_of(child), child.lineno))
+                walk(child, owner)
+            else:
+                walk(child, owner)
+
+    walk(ast.parse(source), "<module>")
+    return found
+
+
+def test_no_reading_module_keeps_a_fatal_without_the_read_only_verdict():
+    """THE LAW of Ч2, as a census of the whole code of every reading module:
+    none of them may raise a `format_fatal_error` that does not carry
+    `read_only_verdict()` — neither directly, nor as `verdict=`. Exceptions live
+    in WRITE_PATH_EXCEPTIONS by (module, function) WITH a reason, and there are
+    none today.
+
+    This is the Д-1 cell of the acceptance: Denis reverted ONE call site in each
+    of template_selection, net_trace_extract and cell_identification, and the
+    per-path rows stayed green — they each guard a chosen representative. The
+    census sees all 32 refusals, so any reverted site turns it red."""
+    offenders: list[str] = []
+    read_only = 0
+    for rel, label in READING_MODULES.items():
+        path = REPO_ROOT / rel
+        assert path.exists(), f"{rel} ({label}) moved — the census points nowhere"
+        for owner, name, verdict, line in _innermost_owner_calls(
+                path.read_text(encoding="utf-8"), _FATAL_FORMATTERS):
+            if name == "format_read_fatal" or verdict == "read_only_verdict()":
+                read_only += 1
+                continue
+            if (rel, owner) in WRITE_PATH_EXCEPTIONS:
+                continue
+            offenders.append(f"{rel}:{line} in {owner}() — {name}(verdict={verdict})")
+
+    assert read_only >= MIN_READ_ONLY_REFUSALS, (
+        f"the census saw only {read_only} read-only refusals (expected at least "
+        f"{MIN_READ_ONLY_REFUSALS}) — the sweep is vacuous, not clean")
+    assert offenders == [], (
+        "a READING module keeps a fatal that claims 'Placement stopped, board not "
+        "modified. Fix the config and run again.' — nothing was placed there. Use "
+        "format_read_fatal, or pass verdict=read_only_verdict(), or name the call "
+        "in WRITE_PATH_EXCEPTIONS with its reason:\n  " + "\n  ".join(offenders))
 
 
 def _tree_offset_calls(source: str):
