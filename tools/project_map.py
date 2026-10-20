@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # tools/project_map.py
-"""Generate `techdocs/map/index.md` — a code-derived pointer to the project.
+"""Generate `docs/map/index.md` — a code-derived pointer to the project.
 
 Standard library ONLY (`ast`, `pathlib`, `subprocess`, `tokenize` is not needed):
 no Qt, no KiCad, no import of project modules. The source is PARSED (`ast`), never
@@ -24,7 +24,7 @@ What it writes, per the project-map plan (plan_2026_10_05_project_map.md, Part 1
 Usage:
     .venv/bin/python tools/project_map.py [OUTPUT] [--root ROOT]
 
-OUTPUT defaults to techdocs/map/index.md; ROOT defaults to the repository root
+OUTPUT defaults to docs/map/index.md; ROOT defaults to the repository root
 (the directory above tools/). ROOT exists for the tests, which build a temporary
 tree (e.g. to plant a module with a syntax error).
 """
@@ -325,13 +325,13 @@ def main(argv: list[str] | None = None) -> int:
     repo_root = Path(__file__).resolve().parents[1]
     parser = argparse.ArgumentParser(prog="project_map.py")
     parser.add_argument("output", nargs="?", default=None,
-                        help="output markdown (default: techdocs/map/index.md)")
+                        help="output markdown (default: docs/map/index.md)")
     parser.add_argument("--root", default=None,
                         help="source root (default: the repository root)")
     args = parser.parse_args(argv)
 
     root = Path(args.root).resolve() if args.root else repo_root
-    output = (Path(args.output) if args.output else root / "techdocs/map/index.md")
+    output = (Path(args.output) if args.output else root / "docs/map/index.md")
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(build_map(root), encoding="utf-8")
     print(output)

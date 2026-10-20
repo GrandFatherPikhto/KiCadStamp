@@ -4,7 +4,7 @@
 The generator is stdlib-only and parses source with `ast`; these cells drive it
 on the REAL repo root (known module, API/`__all__`, reverse edges, >800 flag) and
 on a TEMP tree (a module with a syntax error, an in-function import). Output is
-always written to tmp_path — NEVER to techdocs/.
+always written to tmp_path — NEVER to docs/map/.
 """
 from __future__ import annotations
 

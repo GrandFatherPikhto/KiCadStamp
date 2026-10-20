@@ -41,11 +41,11 @@ cache-prompts: true
 
 model: deepseek/deepseek-reasoner
 
-# Правила работы, читаются до любой задачи. Аналог techdocs/me/claude.md
+# Правила работы, читаются до любой задачи. Аналог techdocs/rules/claude.md
 # для Claude. Пути абсолютные: techdocs в git не ездит, а в каталоге Демона
 # это симлинк, через который относительный путь бывает капризен.
 read:
-  - /home/yevstigneyevda/Projects/Python/KiCadStamp/techdocs/me/deepseek.md
+  - /home/yevstigneyevda/Projects/Python/KiCadStamp/techdocs/rules/deepseek.md
   - /home/yevstigneyevda/Projects/Python/KiCadStamp/techdocs/me/door.md
   - /home/yevstigneyevda/Projects/Python/KiCadStamp/techdocs/me/i18troubles.md
 
