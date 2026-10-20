@@ -1362,3 +1362,97 @@ def test_the_extracted_root_entity_round_trips_through_the_read():
     assert clusters[0].entity_name == "mounting_holes"
     assert clusters[0].sheet == ROOT_SHEET
     assert sorted(clusters[0].refs) == ["H1", "H2"]
+
+
+# ── Д-1 (Ч1-А acceptance): Extract tree refuses a non-rigid cluster ─────────
+
+class _LiveClusterBoard:
+    """The adapter surface `resolve_entity_live_position_mm` touches — a role/
+    cluster field read per footprint, the refresh the frame reader always does,
+    and the `get_footprint` the snapshot branch may use."""
+
+    def __init__(self, fps):
+        self._fps = list(fps)
+
+    def refresh_board(self):
+        pass
+
+    def get_footprints(self):
+        return list(self._fps)
+
+    def get_field_value(self, fp, name):
+        from kicadstamp.constants import CLUSTER_FIELD_NAME, ROLE_FIELD_NAME
+        return {ROLE_FIELD_NAME: fp.role,
+                CLUSTER_FIELD_NAME: fp.cluster}.get(name, "")
+
+    def get_footprint(self, ref):
+        return next((fp for fp in self._fps if fp.ref == ref), None)
+
+    def get_footprint_pads(self, fp):
+        return []
+
+    def get_selected_items(self):
+        return []
+
+
+def _rigid_live_fp(ref, role, x_mm, y_mm):
+    from kicadstamp.domain.board import Footprint
+    from kicadstamp.domain.geometry import BoardLayer
+    fp = Footprint(ref=ref, uuid=f"uuid-{ref}", layer=BoardLayer.BL_F_Cu,
+                   position=Vector2.from_xy_mm(x_mm, y_mm), angle_deg=0.0)
+    fp.role = role
+    fp.cluster = "CL"
+    fp.sheet_path_uuids = []
+    return fp
+
+
+def _extract_rig(cap_xy_mm):
+    """(cfg, entity, adapter) of ONE Entity whose live cluster puts CAP at
+    `cap_xy_mm` while the cell stores it at (+10, -4) from ORIG."""
+    from types import SimpleNamespace
+    cell = SimpleNamespace(
+        name="buf", layer="F.Cu", anchor_role="ORIG", anchor_xy=None,
+        anchor_pad=None,
+        components=[SimpleNamespace(role="ORIG", offset_along_mm=0.0,
+                                    offset_across_mm=0.0, angle_deg=0.0),
+                    SimpleNamespace(role="CAP", offset_along_mm=10.0,
+                                    offset_across_mm=-4.0, angle_deg=0.0)])
+    entity = SimpleNamespace(name="ENT_A", cell="buf", cluster="CL", sheet="")
+    cfg = SimpleNamespace(cells={"buf": cell})
+    adapter = _LiveClusterBoard([
+        _rigid_live_fp("IC1", "ORIG", 50.0, 60.0),
+        _rigid_live_fp("IC2", "CAP", *cap_xy_mm)])
+    return cfg, entity, adapter
+
+
+def test_extract_tree_reads_a_rigid_cluster():
+    """The happy half: with CAP where the cell puts it (50+10, 60-4) the bridge
+    answers ORIG's position — so the refusal below cannot be "it always raises"."""
+    from gui.docks.tree_from_selection import resolve_entity_live_position_mm
+
+    cfg, entity, adapter = _extract_rig((60.0, 56.0))
+
+    x_mm, y_mm, rot = resolve_entity_live_position_mm(adapter, cfg, entity, {})
+
+    assert (x_mm, y_mm, rot) == (50.0, 60.0, 0.0)
+
+
+def test_extract_tree_refuses_a_non_rigid_cluster():
+    """Д-1 (Extract tree): the position this flow WRITES into the tree (and Saves)
+    comes from `_live_cluster_frame`, so a cluster that is not a rigid copy of
+    the cell must refuse — the same rule as "Read current position". CAP stands
+    at (55, 60) instead of (60, 56): 6.4 mm of deviation, far past
+    RIGID_TOLERANCE_MM.
+
+    Mutation check: drop `strict=True` at the bridge in
+    gui/docks/tree_from_selection.py and this cell stores the guessed frame."""
+    from kicadstamp.exceptions import NonRigidClusterError
+    from gui.docks.tree_from_selection import resolve_entity_live_position_mm
+
+    cfg, entity, adapter = _extract_rig((55.0, 60.0))
+
+    with pytest.raises(NonRigidClusterError) as ei:
+        resolve_entity_live_position_mm(adapter, cfg, entity, {})
+
+    text = str(ei.value)
+    assert "buf" in text and "CL" in text

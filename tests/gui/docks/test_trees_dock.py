@@ -5099,6 +5099,34 @@ def test_mirrored_live_instance_is_refused(main_window, tmp_path):
     assert "MIRRORED" in str(ei.value)
 
 
+def test_a_non_rigid_child_node_is_refused(main_window, tmp_path):
+    """Д-1 (Ч1-А acceptance): the node's OWN cluster is not a rigid copy of its
+    cell while the BASE (this tree's origin anchor) is perfectly fine — the case
+    of the live `btn_mcu_reset_mcu` node, where the parent frame says nothing and
+    only the child's own instance is out of shape.
+
+    The strict child read must refuse there; the base branch cannot answer for
+    it. Mutation check: drop `strict=True` at the child's
+    `read_record_live_pose` in `_resolve_live_offset` and this cell returns a
+    guessed offset instead."""
+    import gui.docks.trees_dock as td_mod
+
+    dock, _root = _dock_with(main_window, tmp_path, LIVE_CLUSTER_CFG)
+    tree = dock._current_tree()
+    adapter = _ClusterAdapter([
+        _live_fp("IC1", "ORIG", "CL", 50.0, 60.0, 0.0),
+        _live_fp("IC2", "CAP", "CL", 55.0, 60.0, 0.0),   # 6.4 mm off its slot
+    ])
+
+    with pytest.raises(td_mod.NonRigidClusterError) as ei:
+        td_mod._resolve_live_offset(dock._cfg, adapter, {}, tree, None,
+                                    "ENT_A", "placement")
+
+    text = str(ei.value)
+    assert "buf" in text and "CL" in text
+    assert "worst roles" in text
+
+
 def test_reread_mirrored_instance_warns_and_leaves_the_node_untouched(
         main_window, tmp_path, monkeypatch, qapp):
     """§2.3: "Reread current position" on a mirrored instance shows the honest

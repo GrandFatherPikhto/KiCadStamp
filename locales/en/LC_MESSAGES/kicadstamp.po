@@ -3,7 +3,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version:  kicadstamp\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-20 15:15+0300\n"
+"POT-Creation-Date: 2026-10-20 15:50+0300\n"
 "PO-Revision-Date: 2026-07-27 12:00+0000\n"
 "Last-Translator: \n"
 "Language: en\n"
@@ -38,11 +38,6 @@ msgstr ""
 msgid ""
 "choose the dedicated overlay user layer (e.g. User.KiCadStamp); a sweep "
 "on copper, silkscreen or Edge.Cuts would erase real board content"
-msgstr ""
-
-#: gui/board_switch_watch.py:93
-#, python-brace-format
-msgid "The board in KiCad changed ({known!r} -> {live!r}) — re-reading it"
 msgstr ""
 
 #: gui/cell_identification.py:168
@@ -155,18 +150,23 @@ msgid ""
 "cluster ambiguous), then identify again"
 msgstr ""
 
-#: gui/connection.py:197
+#: gui/connection.py:201
 #, python-brace-format
 msgid "Reading the live board from the UI thread without a sign: {site}"
 msgstr ""
 
-#: gui/connection.py:276 tests/gui/test_connection.py:243
+#: gui/connection.py:280 tests/gui/test_connection.py:243
 msgid ""
 "KiCad is running, but no PCB editor is open — open the board in KiCad "
 "(PCB Editor)"
 msgstr ""
 "KiCad is running, but no PCB editor is open — open the board in KiCad "
 "(PCB Editor)"
+
+#: gui/connection.py:728
+#, python-brace-format
+msgid "The board in KiCad changed ({known!r} -> {live!r}) — re-reading it"
+msgstr ""
 
 #: gui/connection_badge.py:99
 #, python-brace-format
@@ -191,11 +191,11 @@ msgstr "Not connected"
 msgid "Components"
 msgstr "Components"
 
-#: gui/dock_hub.py:179 gui/main_window.py:373
+#: gui/dock_hub.py:179 gui/main_window.py:369
 msgid "Config"
 msgstr "Config"
 
-#: gui/dock_hub.py:180 gui/docks/config_tree.py:167 gui/main_window.py:269
+#: gui/dock_hub.py:180 gui/docks/config_tree.py:167 gui/main_window.py:265
 msgid "Trees"
 msgstr "Trees"
 
@@ -206,7 +206,7 @@ msgstr ""
 #: gui/dock_hub.py:574 gui/dock_hub.py:579 gui/dock_hub.py:1436
 #: gui/dock_hub.py:1500 gui/dock_hub.py:1506 gui/dock_hub.py:1512
 #: gui/docks/config_tree.py:158 gui/docks/imprint.py:873
-#: gui/docks/imprint.py:901 gui/main_window.py:417
+#: gui/docks/imprint.py:901 gui/main_window.py:413
 msgid "Imprints"
 msgstr ""
 
@@ -839,7 +839,7 @@ msgstr ""
 " only what you pick and confirm here, e.g. a crashed/\"Not Responding\" "
 "session that's still blocking a fresh KiCad's connection."
 
-#: gui/kicad_processes_dialog.py:53 gui/main_window.py:1089
+#: gui/kicad_processes_dialog.py:53 gui/slow_poll.py:185
 msgid "Refresh"
 msgstr "Refresh"
 
@@ -848,7 +848,7 @@ msgid "Force-close selected"
 msgstr "Force-close selected"
 
 #: gui/docks/profile_import.py:106 gui/docks/trees_dock.py:5749
-#: gui/kicad_processes_dialog.py:59 gui/main_window.py:222
+#: gui/kicad_processes_dialog.py:59 gui/main_window.py:218
 msgid "Close"
 msgstr "Close"
 
@@ -893,171 +893,171 @@ msgstr "Closing PID {pid}…"
 msgid "PID {pid} did not confirm closing within a reasonable time."
 msgstr "PID {pid} did not confirm closing within a reasonable time."
 
-#: gui/main_window.py:152 gui/tray.py:52
+#: gui/main_window.py:148 gui/tray.py:52
 msgid "KiCadStamp"
 msgstr "KiCadStamp"
 
-#: gui/main_window.py:187
+#: gui/main_window.py:183
 msgid "&File"
 msgstr "&File"
 
-#: gui/main_window.py:188
+#: gui/main_window.py:184
 msgid "&Project..."
 msgstr "&Project..."
 
-#: gui/main_window.py:205
+#: gui/main_window.py:201
 msgid "Recent project"
 msgstr "Recent project"
 
-#: gui/main_window.py:214 gui/main_window.py:918
+#: gui/main_window.py:210 gui/main_window.py:914
 msgid "&Save"
 msgstr "&Save"
 
-#: gui/main_window.py:218
+#: gui/main_window.py:214
 msgid "&Discard unsaved changes..."
 msgstr "&Discard unsaved changes..."
 
-#: gui/main_window.py:227
+#: gui/main_window.py:223
 msgid "&Quit"
 msgstr "&Quit"
 
-#: gui/main_window.py:248
+#: gui/main_window.py:244
 msgid "Edit"
 msgstr "Edit"
 
-#: gui/main_window.py:249
+#: gui/main_window.py:245
 msgid "&Import from profile..."
 msgstr "&Import from profile..."
 
-#: gui/main_window.py:262
+#: gui/main_window.py:258
 msgid "Tools"
 msgstr "Tools"
 
-#: gui/main_window.py:274
+#: gui/main_window.py:270
 msgid "Extract tree..."
 msgstr "Extract tree..."
 
-#: gui/main_window.py:284
+#: gui/main_window.py:280
 msgid "Create tree..."
 msgstr "Create tree..."
 
-#: gui/docks/trees_dock.py:2704 gui/main_window.py:288
+#: gui/docks/trees_dock.py:2704 gui/main_window.py:284
 msgid "Rename tree..."
 msgstr "Rename tree..."
 
-#: gui/docks/trees_dock.py:2706 gui/main_window.py:292
+#: gui/docks/trees_dock.py:2706 gui/main_window.py:288
 msgid "Delete tree..."
 msgstr "Delete tree..."
 
-#: gui/main_window.py:303 kicadstamp/trees.py:151
+#: gui/main_window.py:299 kicadstamp/trees.py:151
 msgid "Copper"
 msgstr ""
 
-#: gui/docks/trees_dock.py:2691 gui/main_window.py:307
+#: gui/docks/trees_dock.py:2691 gui/main_window.py:303
 msgid "Reread inter-node copper"
 msgstr "Reread inter-node copper"
 
-#: gui/main_window.py:313
+#: gui/main_window.py:309
 msgid "Select inter-node copper"
 msgstr ""
 
-#: gui/main_window.py:321
+#: gui/main_window.py:317
 msgid "Select recorded inter-node copper"
 msgstr ""
 
-#: gui/main_window.py:328
+#: gui/main_window.py:324
 msgid "Whose copper is this?"
 msgstr "Whose copper is this?"
 
-#: gui/docks/trees_dock.py:2685 gui/main_window.py:341
+#: gui/docks/trees_dock.py:2685 gui/main_window.py:337
 msgid "Redraw selected"
 msgstr "Redraw selected"
 
-#: gui/docks/trees_dock.py:2688 gui/main_window.py:345
+#: gui/docks/trees_dock.py:2688 gui/main_window.py:341
 msgid "Redraw whole tree"
 msgstr "Redraw whole tree"
 
-#: gui/docks/trees_dock.py:2702 gui/main_window.py:354
+#: gui/docks/trees_dock.py:2702 gui/main_window.py:350
 msgid "Instances..."
 msgstr ""
 
-#: gui/main_window.py:374
+#: gui/main_window.py:370
 msgid "Edit Cell..."
 msgstr "Edit Cell..."
 
-#: gui/main_window.py:379
+#: gui/main_window.py:375
 msgid "Extract cluster (by selection)"
 msgstr ""
 
-#: gui/main_window.py:389
+#: gui/main_window.py:385
 msgid "Update cell from selection..."
 msgstr ""
 
-#: gui/main_window.py:394
+#: gui/main_window.py:390
 msgid "Update cell from selection (choose layers)..."
 msgstr ""
 
-#: gui/docks/entity_tree.py:400 gui/main_window.py:400
+#: gui/docks/entity_tree.py:400 gui/main_window.py:396
 msgid "Add selected copper..."
 msgstr ""
 
-#: gui/docks/entity_tree.py:418 gui/main_window.py:405
+#: gui/docks/entity_tree.py:418 gui/main_window.py:401
 msgid "Add selected copper (choose layers)..."
 msgstr ""
 
-#: gui/main_window.py:418
+#: gui/main_window.py:414
 msgid "Record..."
 msgstr ""
 
-#: gui/docks/config_tree.py:1259 gui/main_window.py:422
+#: gui/docks/config_tree.py:1259 gui/main_window.py:418
 msgid "Reread..."
 msgstr ""
 
-#: gui/docks/config_tree.py:1266 gui/main_window.py:431
+#: gui/docks/config_tree.py:1266 gui/main_window.py:427
 msgid "Place..."
 msgstr ""
 
-#: gui/docks/config_tree.py:1273 gui/main_window.py:440
+#: gui/docks/config_tree.py:1273 gui/main_window.py:436
 msgid "Re-source..."
 msgstr ""
 
-#: gui/main_window.py:450
+#: gui/main_window.py:446
 msgid "Place thermal vias..."
 msgstr "Place thermal vias..."
 
-#: gui/docks/config_tree.py:180 gui/main_window.py:457
+#: gui/docks/config_tree.py:180 gui/main_window.py:453
 msgid "Add point..."
 msgstr "Add point..."
 
-#: gui/main_window.py:465
+#: gui/main_window.py:461
 msgid "Edit template..."
 msgstr "Edit template..."
 
-#: gui/main_window.py:472
+#: gui/main_window.py:468
 msgid "Settings..."
 msgstr "Settings..."
 
-#: gui/main_window.py:486
+#: gui/main_window.py:482
 msgid "View"
 msgstr "View"
 
-#: gui/main_window.py:593
+#: gui/main_window.py:589
 msgid "No recent projects"
 msgstr "No recent projects"
 
-#: gui/main_window.py:791
+#: gui/main_window.py:787
 msgid "No project open — nothing to save"
 msgstr "No project open — nothing to save"
 
-#: gui/main_window.py:794
+#: gui/main_window.py:790
 msgid "Nothing to save"
 msgstr "Nothing to save"
 
-#: gui/docks/trees_dock.py:2278 gui/main_window.py:799
+#: gui/docks/trees_dock.py:2278 gui/main_window.py:795
 msgid "Save"
 msgstr "Save"
 
-#: gui/main_window.py:800
+#: gui/main_window.py:796
 #, python-brace-format
 msgid ""
 "Save failed — nothing was written:\n"
@@ -1066,15 +1066,15 @@ msgstr ""
 "Save failed — nothing was written:\n"
 "{errors}"
 
-#: gui/main_window.py:803
+#: gui/main_window.py:799
 msgid "Project saved"
 msgstr "Project saved"
 
-#: gui/main_window.py:812
+#: gui/main_window.py:808
 msgid "Discard unsaved changes"
 msgstr "Discard unsaved changes"
 
-#: gui/main_window.py:813
+#: gui/main_window.py:809
 msgid ""
 "Discard will revert unsaved CONFIG edits, but NOT Redraw steps already "
 "applied to the board. Continue?"
@@ -1082,16 +1082,16 @@ msgstr ""
 "Discard will revert unsaved CONFIG edits, but NOT Redraw steps already "
 "applied to the board. Continue?"
 
-#: gui/main_window.py:826
+#: gui/main_window.py:822
 msgid "Unsaved config changes discarded"
 msgstr "Unsaved config changes discarded"
 
-#: gui/main_window.py:884
+#: gui/main_window.py:880
 #, python-brace-format
 msgid "KiCad: {ms} ms"
 msgstr ""
 
-#: gui/main_window.py:886
+#: gui/main_window.py:882
 #, python-brace-format
 msgid "KiCad response time — median {median} ms, max {maximum} ms"
 msgstr ""
@@ -1100,28 +1100,28 @@ msgstr ""
 # Unlike the ● dirty label next to it, this one NAMES the running operation:
 # the word is passed at the start_long_op call site (busy_text=...), and an
 # operation that does not name itself gets the generic wording below.
-#: gui/main_window.py:902
+#: gui/main_window.py:898
 msgid "Working with the board…"
 msgstr "Working with the board…"
 
-#: gui/main_window.py:905
+#: gui/main_window.py:901
 #, python-brace-format
 msgid "Working with the board: {what}"
 msgstr "Working with the board: {what}"
 
-#: gui/main_window.py:914
+#: gui/main_window.py:910
 msgid "Project has unsaved config changes — press Ctrl+S to save"
 msgstr "Project has unsaved config changes — press Ctrl+S to save"
 
-#: gui/main_window.py:918
+#: gui/main_window.py:914
 msgid "● &Save"
 msgstr "● &Save"
 
-#: gui/main_window.py:1089 gui/main_window.py:1141 gui/status_bar.py:45
+#: gui/main_window.py:1020 gui/slow_poll.py:185 gui/status_bar.py:45
 msgid "Reconnect"
 msgstr "Reconnect"
 
-#: gui/main_window.py:1176
+#: gui/main_window.py:1055
 #, python-brace-format
 msgid ""
 "Board snapshot is stale: {count} selected component(s) are not in it yet "
@@ -4773,25 +4773,25 @@ msgid ""
 "on the board"
 msgstr ""
 
-#: gui/docks/live_position.py:627
+#: gui/docks/live_position.py:640
 #, python-brace-format
 msgid ""
 "live cluster {cluster!r} is not a rigid copy of cell {cell!r} (worst "
 "deviation {dev:.3f} mm)"
 msgstr ""
 
-#: gui/docks/live_position.py:631
+#: gui/docks/live_position.py:644
 #, python-brace-format
 msgid "worst roles: {roles}"
 msgstr ""
 
-#: gui/docks/live_position.py:632
+#: gui/docks/live_position.py:645
 msgid ""
 "put the component(s) back onto the cell's places (Redraw) — or, if the "
 "board is right now, re-read the cell from the selection"
 msgstr ""
 
-#: gui/docks/live_position.py:702
+#: gui/docks/live_position.py:715
 #, python-brace-format
 msgid ""
 "Entity {name!r}: cannot read the live mount ({reason}) — using the "
@@ -5636,7 +5636,7 @@ msgid ""
 " — exactly one cluster can be its subject"
 msgstr ""
 
-#: gui/docks/tree_from_selection.py:815
+#: gui/docks/tree_from_selection.py:812
 #, python-brace-format
 msgid ""
 "Entity {name!r}: cannot read the live mount ({reason}) — using the zero-"
@@ -5644,7 +5644,7 @@ msgid ""
 " A"
 msgstr ""
 
-#: gui/docks/tree_from_selection.py:840
+#: gui/docks/tree_from_selection.py:837
 msgid "tree anchor (from selection)"
 msgstr "tree anchor (from selection)"
 
@@ -16731,12 +16731,12 @@ msgstr ""
 "cell may not reference itself, directly or indirectly; check the "
 "clone_placements: of cell {head!r}"
 
-#: kicadstamp/placement/services/clone_role_resolver.py:77
+#: kicadstamp/placement/services/clone_role_resolver.py:79
 #, python-brace-format
 msgid "{label}: no component tagged {tag_desc}"
 msgstr "{label}: no component tagged {tag_desc}"
 
-#: kicadstamp/placement/services/clone_role_resolver.py:78
+#: kicadstamp/placement/services/clone_role_resolver.py:80
 #, python-brace-format
 msgid ""
 "tag the target component's {fields} fields first (RoleClusterTreeDock or "
@@ -16745,17 +16745,17 @@ msgstr ""
 "tag the target component's {fields} fields first (RoleClusterTreeDock or "
 "fieldstool), or check for a typo"
 
-#: kicadstamp/placement/services/clone_role_resolver.py:85
+#: kicadstamp/placement/services/clone_role_resolver.py:87
 #, python-brace-format
 msgid "{label}: {count} components tagged {tag_desc}, expected exactly one"
 msgstr "{label}: {count} components tagged {tag_desc}, expected exactly one"
 
-#: kicadstamp/placement/services/clone_role_resolver.py:87
+#: kicadstamp/placement/services/clone_role_resolver.py:89
 #, python-brace-format
 msgid "{fields} is meant to be unique per instance — fix the tagging: {refs}"
 msgstr "{fields} is meant to be unique per instance — fix the tagging: {refs}"
 
-#: kicadstamp/placement/services/clone_role_resolver.py:400
+#: kicadstamp/placement/services/clone_role_resolver.py:402
 #, python-brace-format
 msgid ""
 "[{name}] role {role!r}: {count} identical candidates share net {net!r} — "
@@ -16768,59 +16768,59 @@ msgstr ""
 "placement cascade, net-matching (Kuhn) is never applied to instance "
 "selection"
 
-#: kicadstamp/placement/services/clone_role_resolver.py:499
+#: kicadstamp/placement/services/clone_role_resolver.py:501
 #, python-brace-format
 msgid "{ref}: no {field!r} field"
 msgstr "{ref}: no {field!r} field"
 
-#: kicadstamp/placement/services/clone_role_resolver.py:502
+#: kicadstamp/placement/services/clone_role_resolver.py:504
 #, python-brace-format
 msgid "{ref}: role {role!r} is not in the cell (cell roles: {roles})"
 msgstr "{ref}: role {role!r} is not in the cell (cell roles: {roles})"
 
-#: kicadstamp/placement/services/clone_role_resolver.py:516
+#: kicadstamp/placement/services/clone_role_resolver.py:518
 #, python-brace-format
 msgid "role {role!r} appears twice in selection: {ref1!r} and {ref2!r}"
 msgstr "role {role!r} appears twice in selection: {ref1!r} and {ref2!r}"
 
-#: kicadstamp/placement/services/clone_role_resolver.py:532
+#: kicadstamp/placement/services/clone_role_resolver.py:534
 #, python-brace-format
 msgid "role {role!r} is in cell but not found anywhere on board"
 msgstr "role {role!r} is in cell but not found anywhere on board"
 
-#: kicadstamp/placement/services/clone_role_resolver.py:550
+#: kicadstamp/placement/services/clone_role_resolver.py:552
 #, python-brace-format
 msgid ""
 "[{name}] role {role!r} -> {ref} (single in its own cluster, no selection "
 "needed)"
 msgstr ""
 
-#: kicadstamp/placement/services/clone_role_resolver.py:566
+#: kicadstamp/placement/services/clone_role_resolver.py:568
 #, python-brace-format
 msgid "selection does not match cell composition ({name!r})"
 msgstr "selection does not match cell composition ({name!r})"
 
-#: kicadstamp/placement/services/clone_role_resolver.py:570
+#: kicadstamp/placement/services/clone_role_resolver.py:572
 #, python-brace-format
 msgid "[{name}] mapped by selection: {count} roles"
 msgstr "[{name}] mapped by selection: {count} roles"
 
-#: kicadstamp/placement/services/clone_role_resolver.py:631
+#: kicadstamp/placement/services/clone_role_resolver.py:633
 #, python-brace-format
 msgid "refs: role {role!r} does not exist in cell {cell!r}"
 msgstr "refs: role {role!r} does not exist in cell {cell!r}"
 
-#: kicadstamp/placement/services/clone_role_resolver.py:636
+#: kicadstamp/placement/services/clone_role_resolver.py:638
 #, python-brace-format
 msgid "refs: component {ref!r} (role {role!r}) not found on board"
 msgstr "refs: component {ref!r} (role {role!r}) not found on board"
 
-#: kicadstamp/placement/services/clone_role_resolver.py:640
+#: kicadstamp/placement/services/clone_role_resolver.py:642
 #, python-brace-format
 msgid "[{name}] role {role!r} -> {ref} (explicit refs)"
 msgstr "[{name}] role {role!r} -> {ref} (explicit refs)"
 
-#: kicadstamp/placement/services/clone_role_resolver.py:660
+#: kicadstamp/placement/services/clone_role_resolver.py:662
 #, python-brace-format
 msgid ""
 "role {role!r}: NO component with this role on the board at all (check the"
@@ -16829,13 +16829,13 @@ msgstr ""
 "role {role!r}: NO component with this role on the board at all (check the"
 " Role field in the schematic, and that Update PCB from Schematic was run)"
 
-#: kicadstamp/placement/services/clone_role_resolver.py:744
+#: kicadstamp/placement/services/clone_role_resolver.py:746
 #, python-brace-format
 msgid "[{name}] role {role!r}: expected net {net!r} (source: {source})"
 msgstr "[{name}] role {role!r}: expected net {net!r} (source: {source})"
 
-#: kicadstamp/placement/services/clone_role_resolver.py:755
-#: kicadstamp/placement/services/clone_role_resolver.py:803
+#: kicadstamp/placement/services/clone_role_resolver.py:757
+#: kicadstamp/placement/services/clone_role_resolver.py:805
 #, python-brace-format
 msgid ""
 "role {role!r}: component(s) {refs} with this role exist on the board, but"
@@ -16846,7 +16846,7 @@ msgstr ""
 " none is on net {expected!r} — they are actually on {found} (check "
 "params/net name or the schematic connection)"
 
-#: kicadstamp/placement/services/clone_role_resolver.py:767
+#: kicadstamp/placement/services/clone_role_resolver.py:769
 #, python-brace-format
 msgid ""
 "[{name}] role {role!r}: the cell's baked net_template {baked!r} is not on"
@@ -16854,44 +16854,15 @@ msgid ""
 "decides, not the baked literal"
 msgstr ""
 
-#: kicadstamp/placement/services/clone_role_resolver.py:828
+#: kicadstamp/placement/services/clone_role_resolver.py:830
 #, python-brace-format
 msgid "net‑based mapping failed ({name!r})"
 msgstr "net‑based mapping failed ({name!r})"
 
-#: kicadstamp/placement/services/clone_role_resolver.py:832
+#: kicadstamp/placement/services/clone_role_resolver.py:834
 #, python-brace-format
 msgid "[{name}] mapped by nets: {count} roles"
 msgstr "[{name}] mapped by nets: {count} roles"
-
-#: kicadstamp/placement/services/clone_role_resolver.py:843
-#, python-brace-format
-msgid "{label}: anchor_role {role!r} is ambiguous"
-msgstr "{label}: anchor_role {role!r} is ambiguous"
-
-#: kicadstamp/placement/services/clone_role_resolver.py:844
-#, python-brace-format
-msgid ""
-"candidates: {count} — {refs}. Solutions: refine anchor_sheet and/or "
-"anchor_cluster, OR select the desired instance on the board before "
-"running, OR use explicit anchor_ref instead of anchor_role: {first_ref!r}"
-msgstr ""
-"candidates: {count} — {refs}. Solutions: refine anchor_sheet and/or "
-"anchor_cluster, OR select the desired instance on the board before "
-"running, OR use explicit anchor_ref instead of anchor_role: {first_ref!r}"
-
-#: kicadstamp/placement/services/clone_role_resolver.py:856
-#, python-brace-format
-msgid "{label}: anchor_role {role!r} not found on any component on the board"
-msgstr "{label}: anchor_role {role!r} not found on any component on the board"
-
-#: kicadstamp/placement/services/clone_role_resolver.py:858
-msgid ""
-"check that the Role field is set in the schematic and propagated to the "
-"PCB (Update PCB from Schematic)"
-msgstr ""
-"check that the Role field is set in the schematic and propagated to the "
-"PCB (Update PCB from Schematic)"
 
 #: kicadstamp/placement/services/component_pool.py:64
 #, python-brace-format
@@ -16982,7 +16953,7 @@ msgstr ""
 msgid "cell {cell!r}: anchor footprint {ref!r} has no pad {pad!r} ({where})"
 msgstr ""
 
-#: kicadstamp/placement/services/coordinate_position_calculator.py:343
+#: kicadstamp/placement/services/coordinate_position_calculator.py:358
 msgid ""
 "this record was materialized from a tree's component node, whose address "
 "named this refdes when the run started — the footprint has left the board"
@@ -16992,7 +16963,7 @@ msgstr ""
 "named this refdes when the run started — the footprint has left the board"
 " (deleted or renamed) since"
 
-#: kicadstamp/placement/services/coordinate_position_calculator.py:383
+#: kicadstamp/placement/services/coordinate_position_calculator.py:398
 #, python-brace-format
 msgid "[{label}] {ref} -> ({x:.3f}, {y:.3f}) mm, {angle}°"
 msgstr "[{label}] {ref} -> ({x:.3f}, {y:.3f}) mm, {angle}°"
@@ -17080,6 +17051,35 @@ msgid ""
 msgstr ""
 "[{name}] role {role!r}: cannot narrow by proximity — {d:.2f} mm vs "
 "{d2:.2f} mm, insufficient gap"
+
+#: kicadstamp/placement/services/role_refusals.py:23
+#, python-brace-format
+msgid "{label}: anchor_role {role!r} not found on any component on the board"
+msgstr "{label}: anchor_role {role!r} not found on any component on the board"
+
+#: kicadstamp/placement/services/role_refusals.py:25
+msgid ""
+"check that the Role field is set in the schematic and propagated to the "
+"PCB (Update PCB from Schematic)"
+msgstr ""
+"check that the Role field is set in the schematic and propagated to the "
+"PCB (Update PCB from Schematic)"
+
+#: kicadstamp/placement/services/role_refusals.py:35
+#, python-brace-format
+msgid "{label}: anchor_role {role!r} is ambiguous"
+msgstr "{label}: anchor_role {role!r} is ambiguous"
+
+#: kicadstamp/placement/services/role_refusals.py:36
+#, python-brace-format
+msgid ""
+"candidates: {count} — {refs}. Solutions: refine anchor_sheet and/or "
+"anchor_cluster, OR select the desired instance on the board before "
+"running, OR use explicit anchor_ref instead of anchor_role: {first_ref!r}"
+msgstr ""
+"candidates: {count} — {refs}. Solutions: refine anchor_sheet and/or "
+"anchor_cluster, OR select the desired instance on the board before "
+"running, OR use explicit anchor_ref instead of anchor_role: {first_ref!r}"
 
 #: kicadstamp/placement/services/via_planner.py:88
 #, python-brace-format

@@ -322,8 +322,13 @@ def test_leaf_4a_an_entity_parent_resolves_from_the_snapshot(monkeypatch):
     assert pose[0] is not None, "the Entity's live cluster must give a position"
     assert adapter.sweeps == 0, \
         "the Entity sub-branch swept the board even though a snapshot was given"
-    assert adapter.field_scans == 0, \
-        "the Entity sub-branch scanned fields even though a snapshot was given"
+    # Since Д-3 of the Ч1 acceptance a snapshot HIT verifies the live footprint's
+    # ROLE before answering — ONE field read per resolved role, on the CACHED
+    # footprint. What the snapshot still removes is the whole-board sweep and the
+    # per-footprint scan of EVERY footprint on it.
+    assert adapter.field_scans <= 2 * len(ENTITY_ROLES), \
+        ("the Entity sub-branch scanned fields beyond the per-role pair check "
+         "(ROLE + CLUSTER per resolved role)")
     assert adapter.live_reads == len(ENTITY_ROLES), \
         ("every cell role must be read back from the adapter's CURRENT "
          "generation (one get_footprint per role), not from the frozen snapshot")

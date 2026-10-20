@@ -3,7 +3,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version:  kicadstamp\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-20 15:15+0300\n"
+"POT-Creation-Date: 2026-10-20 15:50+0300\n"
 "PO-Revision-Date: 2026-07-27 12:00+0000\n"
 "Last-Translator: \n"
 "Language: ru\n"
@@ -48,11 +48,6 @@ msgstr ""
 "выберите отдельный пользовательский слой оверлея (например "
 "User.KiCadStamp); подметание меди, шелкографии или Edge.Cuts сотрёт "
 "реальное содержимое платы"
-
-#: gui/board_switch_watch.py:93
-#, python-brace-format
-msgid "The board in KiCad changed ({known!r} -> {live!r}) — re-reading it"
-msgstr "Плата в KiCad сменилась ({known!r} -> {live!r}) — перечитываем её"
 
 #: gui/cell_identification.py:168
 #, python-brace-format
@@ -190,18 +185,23 @@ msgstr ""
 "выделите ОДНУ пару этой ячейки на плате (повторяющиеся роли делают "
 "кластер неоднозначным) и идентифицируйте заново"
 
-#: gui/connection.py:197
+#: gui/connection.py:201
 #, python-brace-format
 msgid "Reading the live board from the UI thread without a sign: {site}"
 msgstr "Чтение живой платы из UI-потока без знака: {site}"
 
-#: gui/connection.py:276 tests/gui/test_connection.py:243
+#: gui/connection.py:280 tests/gui/test_connection.py:243
 msgid ""
 "KiCad is running, but no PCB editor is open — open the board in KiCad "
 "(PCB Editor)"
 msgstr ""
 "KiCad запущен, но редактор платы не открыт — откройте плату в KiCad (PCB "
 "Editor)"
+
+#: gui/connection.py:728
+#, python-brace-format
+msgid "The board in KiCad changed ({known!r} -> {live!r}) — re-reading it"
+msgstr "Плата в KiCad сменилась ({known!r} -> {live!r}) — перечитываем её"
 
 #: gui/connection_badge.py:99
 #, python-brace-format
@@ -226,11 +226,11 @@ msgstr "Не подключено"
 msgid "Components"
 msgstr "Компоненты"
 
-#: gui/dock_hub.py:179 gui/main_window.py:373
+#: gui/dock_hub.py:179 gui/main_window.py:369
 msgid "Config"
 msgstr "Конфиг"
 
-#: gui/dock_hub.py:180 gui/docks/config_tree.py:167 gui/main_window.py:269
+#: gui/dock_hub.py:180 gui/docks/config_tree.py:167 gui/main_window.py:265
 msgid "Trees"
 msgstr "Деревья"
 
@@ -241,7 +241,7 @@ msgstr "Сначала выберите запись Imprint."
 #: gui/dock_hub.py:574 gui/dock_hub.py:579 gui/dock_hub.py:1436
 #: gui/dock_hub.py:1500 gui/dock_hub.py:1506 gui/dock_hub.py:1512
 #: gui/docks/config_tree.py:158 gui/docks/imprint.py:873
-#: gui/docks/imprint.py:901 gui/main_window.py:417
+#: gui/docks/imprint.py:901 gui/main_window.py:413
 msgid "Imprints"
 msgstr "Отпечатки"
 
@@ -897,7 +897,7 @@ msgstr ""
 "например зависшая/«Not Responding» сессия, которая всё ещё блокирует "
 "подключение нового KiCad."
 
-#: gui/kicad_processes_dialog.py:53 gui/main_window.py:1089
+#: gui/kicad_processes_dialog.py:53 gui/slow_poll.py:185
 msgid "Refresh"
 msgstr "Обновить"
 
@@ -906,7 +906,7 @@ msgid "Force-close selected"
 msgstr "Принудительно закрыть выбранное"
 
 #: gui/docks/profile_import.py:106 gui/docks/trees_dock.py:5749
-#: gui/kicad_processes_dialog.py:59 gui/main_window.py:222
+#: gui/kicad_processes_dialog.py:59 gui/main_window.py:218
 msgid "Close"
 msgstr "Закрыть"
 
@@ -951,171 +951,171 @@ msgstr "Закрываю PID {pid}…"
 msgid "PID {pid} did not confirm closing within a reasonable time."
 msgstr "PID {pid} не подтвердил закрытие за разумное время."
 
-#: gui/main_window.py:152 gui/tray.py:52
+#: gui/main_window.py:148 gui/tray.py:52
 msgid "KiCadStamp"
 msgstr "KiCadStamp"
 
-#: gui/main_window.py:187
+#: gui/main_window.py:183
 msgid "&File"
 msgstr "&Файл"
 
-#: gui/main_window.py:188
+#: gui/main_window.py:184
 msgid "&Project..."
 msgstr "&Проект..."
 
-#: gui/main_window.py:205
+#: gui/main_window.py:201
 msgid "Recent project"
 msgstr "Недавний проект"
 
-#: gui/main_window.py:214 gui/main_window.py:918
+#: gui/main_window.py:210 gui/main_window.py:914
 msgid "&Save"
 msgstr "&Сохранить"
 
-#: gui/main_window.py:218
+#: gui/main_window.py:214
 msgid "&Discard unsaved changes..."
 msgstr "&Отменить несохранённые изменения..."
 
-#: gui/main_window.py:227
+#: gui/main_window.py:223
 msgid "&Quit"
 msgstr "&Выход"
 
-#: gui/main_window.py:248
+#: gui/main_window.py:244
 msgid "Edit"
 msgstr "Правка"
 
-#: gui/main_window.py:249
+#: gui/main_window.py:245
 msgid "&Import from profile..."
 msgstr "&Импорт из профиля..."
 
-#: gui/main_window.py:262
+#: gui/main_window.py:258
 msgid "Tools"
 msgstr "Инструменты"
 
-#: gui/main_window.py:274
+#: gui/main_window.py:270
 msgid "Extract tree..."
 msgstr "Извлечь дерево..."
 
-#: gui/main_window.py:284
+#: gui/main_window.py:280
 msgid "Create tree..."
 msgstr "Создать дерево..."
 
-#: gui/docks/trees_dock.py:2704 gui/main_window.py:288
+#: gui/docks/trees_dock.py:2704 gui/main_window.py:284
 msgid "Rename tree..."
 msgstr "Переименовать дерево..."
 
-#: gui/docks/trees_dock.py:2706 gui/main_window.py:292
+#: gui/docks/trees_dock.py:2706 gui/main_window.py:288
 msgid "Delete tree..."
 msgstr "Удалить дерево..."
 
-#: gui/main_window.py:303 kicadstamp/trees.py:151
+#: gui/main_window.py:299 kicadstamp/trees.py:151
 msgid "Copper"
 msgstr "Медь"
 
-#: gui/docks/trees_dock.py:2691 gui/main_window.py:307
+#: gui/docks/trees_dock.py:2691 gui/main_window.py:303
 msgid "Reread inter-node copper"
 msgstr "Перечитать межузловую медь"
 
-#: gui/main_window.py:313
+#: gui/main_window.py:309
 msgid "Select inter-node copper"
 msgstr "Выделить межузловую медь"
 
-#: gui/main_window.py:321
+#: gui/main_window.py:317
 msgid "Select recorded inter-node copper"
 msgstr "Выделить записанную межузловую медь"
 
-#: gui/main_window.py:328
+#: gui/main_window.py:324
 msgid "Whose copper is this?"
 msgstr "Чья эта медь?"
 
-#: gui/docks/trees_dock.py:2685 gui/main_window.py:341
+#: gui/docks/trees_dock.py:2685 gui/main_window.py:337
 msgid "Redraw selected"
 msgstr "Перерисовать выбранное"
 
-#: gui/docks/trees_dock.py:2688 gui/main_window.py:345
+#: gui/docks/trees_dock.py:2688 gui/main_window.py:341
 msgid "Redraw whole tree"
 msgstr "Перерисовать всё дерево"
 
-#: gui/docks/trees_dock.py:2702 gui/main_window.py:354
+#: gui/docks/trees_dock.py:2702 gui/main_window.py:350
 msgid "Instances..."
 msgstr "Копии шаблона..."
 
-#: gui/main_window.py:374
+#: gui/main_window.py:370
 msgid "Edit Cell..."
 msgstr "Изменить шаблон..."
 
-#: gui/main_window.py:379
+#: gui/main_window.py:375
 msgid "Extract cluster (by selection)"
 msgstr "Извлечь кластер (по выделению)"
 
-#: gui/main_window.py:389
+#: gui/main_window.py:385
 msgid "Update cell from selection..."
 msgstr "Обновить ячейку из выделения..."
 
-#: gui/main_window.py:394
+#: gui/main_window.py:390
 msgid "Update cell from selection (choose layers)..."
 msgstr "Обновить ячейку из выделения (выбрать слои)..."
 
-#: gui/docks/entity_tree.py:400 gui/main_window.py:400
+#: gui/docks/entity_tree.py:400 gui/main_window.py:396
 msgid "Add selected copper..."
 msgstr "Добавить выделенное..."
 
-#: gui/docks/entity_tree.py:418 gui/main_window.py:405
+#: gui/docks/entity_tree.py:418 gui/main_window.py:401
 msgid "Add selected copper (choose layers)..."
 msgstr "Добавить выделенное (выбрать слои)..."
 
-#: gui/main_window.py:418
+#: gui/main_window.py:414
 msgid "Record..."
 msgstr "Записать..."
 
-#: gui/docks/config_tree.py:1259 gui/main_window.py:422
+#: gui/docks/config_tree.py:1259 gui/main_window.py:418
 msgid "Reread..."
 msgstr "Перечитать..."
 
-#: gui/docks/config_tree.py:1266 gui/main_window.py:431
+#: gui/docks/config_tree.py:1266 gui/main_window.py:427
 msgid "Place..."
 msgstr "Разместить..."
 
-#: gui/docks/config_tree.py:1273 gui/main_window.py:440
+#: gui/docks/config_tree.py:1273 gui/main_window.py:436
 msgid "Re-source..."
 msgstr "Переисточить..."
 
-#: gui/main_window.py:450
+#: gui/main_window.py:446
 msgid "Place thermal vias..."
 msgstr "Расставить термо-виа"
 
-#: gui/docks/config_tree.py:180 gui/main_window.py:457
+#: gui/docks/config_tree.py:180 gui/main_window.py:453
 msgid "Add point..."
 msgstr "Добавить точку..."
 
-#: gui/main_window.py:465
+#: gui/main_window.py:461
 msgid "Edit template..."
 msgstr "Редактировать шаблон..."
 
-#: gui/main_window.py:472
+#: gui/main_window.py:468
 msgid "Settings..."
 msgstr "Настройки..."
 
-#: gui/main_window.py:486
+#: gui/main_window.py:482
 msgid "View"
 msgstr "Вид"
 
-#: gui/main_window.py:593
+#: gui/main_window.py:589
 msgid "No recent projects"
 msgstr "Нет недавних проектов"
 
-#: gui/main_window.py:791
+#: gui/main_window.py:787
 msgid "No project open — nothing to save"
 msgstr "Проект не открыт — нечего сохранять"
 
-#: gui/main_window.py:794
+#: gui/main_window.py:790
 msgid "Nothing to save"
 msgstr "Нечего сохранять"
 
-#: gui/docks/trees_dock.py:2278 gui/main_window.py:799
+#: gui/docks/trees_dock.py:2278 gui/main_window.py:795
 msgid "Save"
 msgstr "Сохранить"
 
-#: gui/main_window.py:800
+#: gui/main_window.py:796
 #, python-brace-format
 msgid ""
 "Save failed — nothing was written:\n"
@@ -1124,15 +1124,15 @@ msgstr ""
 "Не удалось сохранить — ничего не записано:\n"
 "{errors}"
 
-#: gui/main_window.py:803
+#: gui/main_window.py:799
 msgid "Project saved"
 msgstr "Проект сохранён"
 
-#: gui/main_window.py:812
+#: gui/main_window.py:808
 msgid "Discard unsaved changes"
 msgstr "Отменить несохранённые изменения"
 
-#: gui/main_window.py:813
+#: gui/main_window.py:809
 msgid ""
 "Discard will revert unsaved CONFIG edits, but NOT Redraw steps already "
 "applied to the board. Continue?"
@@ -1140,16 +1140,16 @@ msgstr ""
 "Отмена вернёт несохранённые правки КОНФИГА, но НЕ шаги Redraw, уже "
 "применённые к плате. Продолжить?"
 
-#: gui/main_window.py:826
+#: gui/main_window.py:822
 msgid "Unsaved config changes discarded"
 msgstr "Несохранённые изменения конфига отменены"
 
-#: gui/main_window.py:884
+#: gui/main_window.py:880
 #, python-brace-format
 msgid "KiCad: {ms} ms"
 msgstr "KiCad: {ms} мс"
 
-#: gui/main_window.py:886
+#: gui/main_window.py:882
 #, python-brace-format
 msgid "KiCad response time — median {median} ms, max {maximum} ms"
 msgstr "Время отклика KiCad — медиана {median} мс, максимум {maximum} мс"
@@ -1158,30 +1158,30 @@ msgstr "Время отклика KiCad — медиана {median} мс, мак
 # В отличие от соседней метки ● (несохранённые правки), эта НАЗЫВАЕТ операцию:
 # слово передаётся на месте вызова start_long_op (busy_text=...), а операция
 # без своего слова получает общую формулировку ниже.
-#: gui/main_window.py:902
+#: gui/main_window.py:898
 msgid "Working with the board…"
 msgstr "Работа с платой…"
 
-#: gui/main_window.py:905
+#: gui/main_window.py:901
 #, python-brace-format
 msgid "Working with the board: {what}"
 msgstr "Работа с платой: {what}"
 
-#: gui/main_window.py:914
+#: gui/main_window.py:910
 msgid "Project has unsaved config changes — press Ctrl+S to save"
 msgstr ""
 "В проекте есть несохранённые изменения конфига — нажмите Ctrl+S для "
 "сохранения"
 
-#: gui/main_window.py:918
+#: gui/main_window.py:914
 msgid "● &Save"
 msgstr "● &Сохранить"
 
-#: gui/main_window.py:1089 gui/main_window.py:1141 gui/status_bar.py:45
+#: gui/main_window.py:1020 gui/slow_poll.py:185 gui/status_bar.py:45
 msgid "Reconnect"
 msgstr "Переподключиться"
 
-#: gui/main_window.py:1176
+#: gui/main_window.py:1055
 #, python-brace-format
 msgid ""
 "Board snapshot is stale: {count} selected component(s) are not in it yet "
@@ -5119,25 +5119,29 @@ msgid ""
 "on the board"
 msgstr "роли ячейки — это компоненты, помеченные рабочим Кластером на плате"
 
-#: gui/docks/live_position.py:627
+#: gui/docks/live_position.py:640
 #, python-brace-format
 msgid ""
 "live cluster {cluster!r} is not a rigid copy of cell {cell!r} (worst "
 "deviation {dev:.3f} mm)"
-msgstr "живой кластер {cluster!r} — не жёсткая копия ячейки {cell!r} (худшее отклонение {dev:.3f} мм)"
+msgstr ""
+"живой кластер {cluster!r} — не жёсткая копия ячейки {cell!r} (худшее "
+"отклонение {dev:.3f} мм)"
 
-#: gui/docks/live_position.py:631
+#: gui/docks/live_position.py:644
 #, python-brace-format
 msgid "worst roles: {roles}"
 msgstr "худшие роли: {roles}"
 
-#: gui/docks/live_position.py:632
+#: gui/docks/live_position.py:645
 msgid ""
 "put the component(s) back onto the cell's places (Redraw) — or, if the "
 "board is right now, re-read the cell from the selection"
-msgstr "поставьте компонент(ы) на места по ячейке (перерисовка) — или, если на плате теперь правильно, перечитайте ячейку по выделению"
+msgstr ""
+"поставьте компонент(ы) на места по ячейке (перерисовка) — или, если на "
+"плате теперь правильно, перечитайте ячейку по выделению"
 
-#: gui/docks/live_position.py:702
+#: gui/docks/live_position.py:715
 #, python-brace-format
 msgid ""
 "Entity {name!r}: cannot read the live mount ({reason}) — using the "
@@ -6020,7 +6024,7 @@ msgstr ""
 "Отмеченные кластеры {clusters} все совпадают с собственным явным "
 "role-якорем дерева — ровно один кластер может быть его субъектом"
 
-#: gui/docks/tree_from_selection.py:815
+#: gui/docks/tree_from_selection.py:812
 #, python-brace-format
 msgid ""
 "Entity {name!r}: cannot read the live mount ({reason}) — using the zero-"
@@ -6031,7 +6035,7 @@ msgstr ""
 "позиция zero-slot компонента, которая может отличаться от монтажа A "
 "ячейки"
 
-#: gui/docks/tree_from_selection.py:840
+#: gui/docks/tree_from_selection.py:837
 msgid "tree anchor (from selection)"
 msgstr "якорь дерева (из выделения)"
 
@@ -17645,29 +17649,29 @@ msgstr ""
 " не может ссылаться сама на себя, прямо или косвенно; проверьте "
 "clone_placements: у ячейки {head!r}"
 
-#: kicadstamp/placement/services/clone_role_resolver.py:77
+#: kicadstamp/placement/services/clone_role_resolver.py:79
 #, python-brace-format
 msgid "{label}: no component tagged {tag_desc}"
 msgstr ""
 
-#: kicadstamp/placement/services/clone_role_resolver.py:78
+#: kicadstamp/placement/services/clone_role_resolver.py:80
 #, python-brace-format
 msgid ""
 "tag the target component's {fields} fields first (RoleClusterTreeDock or "
 "fieldstool), or check for a typo"
 msgstr ""
 
-#: kicadstamp/placement/services/clone_role_resolver.py:85
+#: kicadstamp/placement/services/clone_role_resolver.py:87
 #, python-brace-format
 msgid "{label}: {count} components tagged {tag_desc}, expected exactly one"
 msgstr ""
 
-#: kicadstamp/placement/services/clone_role_resolver.py:87
+#: kicadstamp/placement/services/clone_role_resolver.py:89
 #, python-brace-format
 msgid "{fields} is meant to be unique per instance — fix the tagging: {refs}"
 msgstr ""
 
-#: kicadstamp/placement/services/clone_role_resolver.py:400
+#: kicadstamp/placement/services/clone_role_resolver.py:402
 #, python-brace-format
 msgid ""
 "[{name}] role {role!r}: {count} identical candidates share net {net!r} — "
@@ -17680,27 +17684,27 @@ msgstr ""
 "резолвится каскадом размещения, net-matching (Кун) никогда не применяется"
 " к выбору инстанса"
 
-#: kicadstamp/placement/services/clone_role_resolver.py:499
+#: kicadstamp/placement/services/clone_role_resolver.py:501
 #, python-brace-format
 msgid "{ref}: no {field!r} field"
 msgstr "{ref}: нет поля {field!r}"
 
-#: kicadstamp/placement/services/clone_role_resolver.py:502
+#: kicadstamp/placement/services/clone_role_resolver.py:504
 #, python-brace-format
 msgid "{ref}: role {role!r} is not in the cell (cell roles: {roles})"
 msgstr "{ref}: роли {role!r} нет в шаблоне (роли шаблона: {roles})"
 
-#: kicadstamp/placement/services/clone_role_resolver.py:516
+#: kicadstamp/placement/services/clone_role_resolver.py:518
 #, python-brace-format
 msgid "role {role!r} appears twice in selection: {ref1!r} and {ref2!r}"
 msgstr "роль {role!r} встречается дважды в выделении: {ref1!r} и {ref2!r}"
 
-#: kicadstamp/placement/services/clone_role_resolver.py:532
+#: kicadstamp/placement/services/clone_role_resolver.py:534
 #, python-brace-format
 msgid "role {role!r} is in cell but not found anywhere on board"
 msgstr "роль {role!r} есть в шаблоне, но нигде не найдена на плате"
 
-#: kicadstamp/placement/services/clone_role_resolver.py:550
+#: kicadstamp/placement/services/clone_role_resolver.py:552
 #, python-brace-format
 msgid ""
 "[{name}] role {role!r} -> {ref} (single in its own cluster, no selection "
@@ -17709,32 +17713,32 @@ msgstr ""
 "[{name}] роль {role!r} -> {ref} (единственная в своём кластере, выделение"
 " не нужно)"
 
-#: kicadstamp/placement/services/clone_role_resolver.py:566
+#: kicadstamp/placement/services/clone_role_resolver.py:568
 #, python-brace-format
 msgid "selection does not match cell composition ({name!r})"
 msgstr "выделение не соответствует составу шаблона ({name!r})"
 
-#: kicadstamp/placement/services/clone_role_resolver.py:570
+#: kicadstamp/placement/services/clone_role_resolver.py:572
 #, python-brace-format
 msgid "[{name}] mapped by selection: {count} roles"
 msgstr "[{name}] сопоставлено по выделению: {count} ролей"
 
-#: kicadstamp/placement/services/clone_role_resolver.py:631
+#: kicadstamp/placement/services/clone_role_resolver.py:633
 #, python-brace-format
 msgid "refs: role {role!r} does not exist in cell {cell!r}"
 msgstr "refs: роли {role!r} нет в шаблоне {cell!r}"
 
-#: kicadstamp/placement/services/clone_role_resolver.py:636
+#: kicadstamp/placement/services/clone_role_resolver.py:638
 #, python-brace-format
 msgid "refs: component {ref!r} (role {role!r}) not found on board"
 msgstr "refs: компонент {ref!r} (роль {role!r}) не найден на плате"
 
-#: kicadstamp/placement/services/clone_role_resolver.py:640
+#: kicadstamp/placement/services/clone_role_resolver.py:642
 #, python-brace-format
 msgid "[{name}] role {role!r} -> {ref} (explicit refs)"
 msgstr "[{name}] роль {role!r} -> {ref} (явные refs)"
 
-#: kicadstamp/placement/services/clone_role_resolver.py:660
+#: kicadstamp/placement/services/clone_role_resolver.py:662
 #, python-brace-format
 msgid ""
 "role {role!r}: NO component with this role on the board at all (check the"
@@ -17743,13 +17747,13 @@ msgstr ""
 "роль {role!r}: на плате НЕТ ни одного компонента с этой ролью (проверьте "
 "поле Role в схеме и что был выполнен Update PCB from Schematic)"
 
-#: kicadstamp/placement/services/clone_role_resolver.py:744
+#: kicadstamp/placement/services/clone_role_resolver.py:746
 #, python-brace-format
 msgid "[{name}] role {role!r}: expected net {net!r} (source: {source})"
 msgstr "[{name}] роль {role!r}: ожидаемая сеть {net!r} (источник: {source})"
 
-#: kicadstamp/placement/services/clone_role_resolver.py:755
-#: kicadstamp/placement/services/clone_role_resolver.py:803
+#: kicadstamp/placement/services/clone_role_resolver.py:757
+#: kicadstamp/placement/services/clone_role_resolver.py:805
 #, python-brace-format
 msgid ""
 "role {role!r}: component(s) {refs} with this role exist on the board, but"
@@ -17760,7 +17764,7 @@ msgstr ""
 " не на цепи {expected!r} — на деле они на {found} (проверьте params/имя "
 "цепи или соединение в схеме)"
 
-#: kicadstamp/placement/services/clone_role_resolver.py:767
+#: kicadstamp/placement/services/clone_role_resolver.py:769
 #, python-brace-format
 msgid ""
 "[{name}] role {role!r}: the cell's baked net_template {baked!r} is not on"
@@ -17771,44 +17775,15 @@ msgstr ""
 "компонента своего кластера {ref} (цепь {live!r}) — решает компонент, а не"
 " записанная в ячейке цепь"
 
-#: kicadstamp/placement/services/clone_role_resolver.py:828
+#: kicadstamp/placement/services/clone_role_resolver.py:830
 #, python-brace-format
 msgid "net‑based mapping failed ({name!r})"
 msgstr "сопоставление по цепям не удалось ({name!r})"
 
-#: kicadstamp/placement/services/clone_role_resolver.py:832
+#: kicadstamp/placement/services/clone_role_resolver.py:834
 #, python-brace-format
 msgid "[{name}] mapped by nets: {count} roles"
 msgstr "[{name}] сопоставлено по цепям: {count} ролей"
-
-#: kicadstamp/placement/services/clone_role_resolver.py:843
-#, python-brace-format
-msgid "{label}: anchor_role {role!r} is ambiguous"
-msgstr "{label}: anchor_role {role!r} неоднозначен"
-
-#: kicadstamp/placement/services/clone_role_resolver.py:844
-#, python-brace-format
-msgid ""
-"candidates: {count} — {refs}. Solutions: refine anchor_sheet and/or "
-"anchor_cluster, OR select the desired instance on the board before "
-"running, OR use explicit anchor_ref instead of anchor_role: {first_ref!r}"
-msgstr ""
-"кандидатов: {count} — {refs}. Решения: уточните anchor_sheet и/или "
-"anchor_cluster, ИЛИ выделите нужный экземпляр на плате перед запуском, "
-"ИЛИ используйте явный anchor_ref вместо anchor_role: {first_ref!r}"
-
-#: kicadstamp/placement/services/clone_role_resolver.py:856
-#, python-brace-format
-msgid "{label}: anchor_role {role!r} not found on any component on the board"
-msgstr "{label}: anchor_role {role!r} не найден ни у одного компонента на плате"
-
-#: kicadstamp/placement/services/clone_role_resolver.py:858
-msgid ""
-"check that the Role field is set in the schematic and propagated to the "
-"PCB (Update PCB from Schematic)"
-msgstr ""
-"проверьте, что поле Role задано в схеме и перенесено на плату (Update PCB"
-" from Schematic)"
 
 #: kicadstamp/placement/services/component_pool.py:64
 #, python-brace-format
@@ -17907,7 +17882,7 @@ msgstr ""
 msgid "cell {cell!r}: anchor footprint {ref!r} has no pad {pad!r} ({where})"
 msgstr "ячейка {cell!r}: у якорного футпринта {ref!r} нет пада {pad!r} ({where})"
 
-#: kicadstamp/placement/services/coordinate_position_calculator.py:343
+#: kicadstamp/placement/services/coordinate_position_calculator.py:358
 msgid ""
 "this record was materialized from a tree's component node, whose address "
 "named this refdes when the run started — the footprint has left the board"
@@ -17917,7 +17892,7 @@ msgstr ""
 "этот refdes на момент старта прогона — с тех пор компонент покинул плату "
 "(удалён или переименован)"
 
-#: kicadstamp/placement/services/coordinate_position_calculator.py:383
+#: kicadstamp/placement/services/coordinate_position_calculator.py:398
 #, python-brace-format
 msgid "[{label}] {ref} -> ({x:.3f}, {y:.3f}) mm, {angle}°"
 msgstr "[{label}] {ref} -> ({x:.3f}, {y:.3f}) мм, {angle}°"
@@ -18005,6 +17980,35 @@ msgid ""
 msgstr ""
 "[{name}] роль {role!r}: не удалось сузить по близости — {d:.2f} мм против"
 " {d2:.2f} мм, отрыв недостаточный"
+
+#: kicadstamp/placement/services/role_refusals.py:23
+#, python-brace-format
+msgid "{label}: anchor_role {role!r} not found on any component on the board"
+msgstr "{label}: anchor_role {role!r} не найден ни у одного компонента на плате"
+
+#: kicadstamp/placement/services/role_refusals.py:25
+msgid ""
+"check that the Role field is set in the schematic and propagated to the "
+"PCB (Update PCB from Schematic)"
+msgstr ""
+"проверьте, что поле Role задано в схеме и перенесено на плату (Update PCB"
+" from Schematic)"
+
+#: kicadstamp/placement/services/role_refusals.py:35
+#, python-brace-format
+msgid "{label}: anchor_role {role!r} is ambiguous"
+msgstr "{label}: anchor_role {role!r} неоднозначен"
+
+#: kicadstamp/placement/services/role_refusals.py:36
+#, python-brace-format
+msgid ""
+"candidates: {count} — {refs}. Solutions: refine anchor_sheet and/or "
+"anchor_cluster, OR select the desired instance on the board before "
+"running, OR use explicit anchor_ref instead of anchor_role: {first_ref!r}"
+msgstr ""
+"кандидатов: {count} — {refs}. Решения: уточните anchor_sheet и/или "
+"anchor_cluster, ИЛИ выделите нужный экземпляр на плате перед запуском, "
+"ИЛИ используйте явный anchor_ref вместо anchor_role: {first_ref!r}"
 
 #: kicadstamp/placement/services/via_planner.py:88
 #, python-brace-format

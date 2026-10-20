@@ -58,6 +58,7 @@ from .role_narrowing import (
     narrow_candidates_by_sheet,
     own_cluster_candidates,
 )
+from .role_identity import current_generation, role_candidates
 from .role_refusals import raise_ambiguous, raise_role_not_found
 
 logger = logging.getLogger(__name__)
@@ -835,56 +836,11 @@ def resolve_roles_by_nets(adapter, cell: Cell, clone: ClonePlacement | CellPlace
     return role_to_ref
 
 
-def _role_candidates(adapter, role: str, snapshot) -> list:
-    """Every footprint carrying `role` — the IDENTITY half of the resolver.
-
-    From the caller's board snapshot (``connection.snapshot``, one ``Selected``
-    per footprint, its ``role`` being the same store-aware value the adapter's
-    own ``get_field_value`` answers) when the caller has one, else by sweeping
-    the board: one ``get_footprints()`` plus one ``get_field_value()`` PER
-    footprint (the 996 field scans of the 22.09.2026 UI-thread measurement).
-
-    The position is deliberately NOT taken from here: ``Selected.fp`` belongs to
-    the snapshot's generation, so the caller of this module's snapshot branch
-    re-reads the CHOSEN ref from the adapter — see `_current_generation`.
-
-    An EMPTY snapshot is treated as NO snapshot, deliberately: the connection
-    carries ``[]`` until its first poll rebuilds it, and "the board has nothing"
-    would be a lie about a board nobody has looked at yet (found live — the
-    re-hang guard of tests/gui/test_trees_dock.py went from green to a fatal the
-    moment a stand-in's empty snapshot was believed). Both ends of the question
-    — the emptiest board and the missing role — are the same fatal anyway."""
-    if snapshot:
-        from_snapshot = [selected.fp for selected in snapshot
-                         if selected.role == role]
-        if from_snapshot:
-            return from_snapshot
-        # A MISS in a non-empty snapshot is NOT an answer (fact Б, Denis 15.10,
-        # plan_2026_10_15_honest_live_read): the snapshot can have been built
-        # from the PREVIOUS board, and "the board has nothing" would then be a
-        # lie about a component standing right in front of the user. The LIVE
-        # board decides below — the same rule as its neighbour
-        # resolve_footprint_by_cluster_role. Only a HIT is free.
-    return [fp for fp in adapter.get_footprints()
-            if adapter.get_field_value(fp, ROLE_FIELD_NAME) == role]
-
-
-def _current_generation(adapter, chosen: Footprint, snapshot) -> Footprint | None:
-    """The object the resolver RETURNS: `chosen` itself when the candidates came
-    from the adapter, and the adapter's OWN current generation of it when they
-    came from a snapshot.
-
-    Why the re-read (plan_2026_09_22_board_door_finish §4.3): a snapshot answers
-    "which footprint is this", never "where is it NOW" — its ``Selected.fp`` was
-    copied at poll time.
-
-    None — the snapshot's ref has left the live board (deleted, renamed, or the
-    snapshot belongs to ANOTHER board): that is a snapshot fact, not a board
-    answer, so the caller asks the LIVE board (fact Б of
-    plan_2026_10_15_honest_live_read). Only the live sweep may say "not found"."""
-    if not snapshot:
-        return chosen
-    return adapter.get_footprint(chosen.ref)
+# The identity half (candidate list + the object to return) lives in
+# role_identity.py (extracted by the "giants only shrink" rule — Д-2 of the Ч1
+# acceptance). Kept under these names so every call site reads the same.
+_role_candidates = role_candidates
+_current_generation = current_generation
 
 
 def resolve_footprint_by_role(adapter, anchor_role: str, anchor_sheet: str | None,
@@ -943,7 +899,7 @@ def resolve_footprint_by_role(adapter, anchor_role: str, anchor_sheet: str | Non
     if len(narrowed) != 1:
         raise_ambiguous(label, anchor_role, narrowed)
 
-    live = _current_generation(adapter, narrowed[0], snapshot)
+    live = _current_generation(adapter, narrowed[0], snapshot, anchor_role)
     if live is not None:
         return live
 

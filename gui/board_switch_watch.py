@@ -45,35 +45,26 @@ button and the fast selection tick still own the error path.
 from time import perf_counter
 
 
-def identity_tick(connection, collect_names=None) -> dict:
+def identity_tick(connection) -> dict:
     """WORKER thread: the cheap per-tick board check.
 
-    Returns a result in the shape `MainWindow._finish_poll` already reads:
+    Returns a result in the shape `slow_poll.finish_poll` already reads:
 
     * `{"identity_only": True, "error": None, "duration_s": ...}` — the ordinary
       answer: the board is the same one (or the editor cannot say), so NOTHING
-      else happens. `_finish_poll` records the cost and returns; no badge touch,
-      no snapshot push, no net-name collection.
-    * `{"error": <text|None>, "board_changed": True, ...}` plus every key a normal
-      tick carries (`board_name`, `net_names`, `copper_net_names`) — the LIVE name
-      differs from the one the connection knows, so the board WAS re-read here,
-      once, and the UI half runs its usual success path: the badge names the new
-      board and the docks get the fresh snapshot.
+      else happens. The UI half records the cost and returns; no badge touch,
+      no snapshot push.
+    * `{"error": <text|None>, "board_changed": True, "duration_s": ...}` — the
+      LIVE name differs from the one the connection knows, so the board WAS
+      re-read here, once, and the UI half runs its usual success path.
 
-    `collect_names` is the caller's own net-name collector (MainWindow's
-    `_collect_net_names`): it is IPC, it belongs on this thread, and the docks
-    read the lists out of the very same result dict."""
+    The net-name lists are NOT collected here: `gui/slow_poll.identity_and_names`
+    calls its collector by name after this returns, which is what keeps that
+    one board-reading helper visible as a worker fn to the UI-thread door."""
     start = perf_counter()
     changed, error = connection.refresh_if_board_changed()
     if not changed:
         return {"identity_only": True, "error": None,
                 "duration_s": perf_counter() - start}
-    result = {"error": error, "board_changed": True,
-              "duration_s": perf_counter() - start}
-    if not error and collect_names is not None:
-        # Same reason the plain tick collects them here (Э1 of
-        # plan_2026_09_13_ui_thread_net_reads): this thread already owns the
-        # socket, so the net lists cost nothing extra — and WITHOUT them the
-        # docks' combos would go empty on a switch.
-        result.update(collect_names())
-    return result
+    return {"error": error, "board_changed": True,
+            "duration_s": perf_counter() - start}

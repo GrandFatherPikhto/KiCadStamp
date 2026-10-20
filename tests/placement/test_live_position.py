@@ -335,26 +335,30 @@ def _selected(fp, role, cluster):
 
 
 def _snapshot_only_adapter(live_fps):
-    """An adapter that answers `get_footprint` and DIES on either call the
-    snapshot branch must not make — a whole-board sweep or a field scan then
-    fails loudly instead of passing unnoticed."""
+    """An adapter that answers `get_footprint` and DIES on a whole-board SWEEP —
+    the call the snapshot branch must never make.
+
+    Field reads are ALLOWED and counted since Д-3 of the Ч1 acceptance: a snapshot
+    HIT now verifies the live footprint's Role/Cluster before answering (a
+    snapshot from another board can name an unrelated R21), which is one or two
+    `get_field_value` reads on the CACHED footprint — not the per-footprint scan
+    of a whole-board sweep. The cells below assert the SWEEP count, and name the
+    field reads where the number is the point."""
     adapter = _adapter(live_fps)
 
     def _sweep(*a, **k):
         raise AssertionError("get_footprints() was called: the board was swept")
     adapter.get_footprints.side_effect = _sweep
-
-    def _field(*a, **k):
-        raise AssertionError("get_field_value() was called: a field was scanned")
-    adapter.get_field_value.side_effect = _field
     return adapter
 
 
 class TestReadCoordinateLiveIdentifiesFromTheSnapshot:
     def test_the_snapshot_answers_identity_without_a_board_sweep(self):
-        """Cell 1 — the row in the snapshot names the footprint, so neither
-        get_footprints() nor get_field_value() is reached (both raise here)."""
-        live = _make_fp("R1", position=Vector2.from_xy_mm(5.0, 6.0), angle=30.0)
+        """Cell 1 — the row in the snapshot names the footprint, so the board is
+        NOT swept (that call raises here). The live footprint carries the same
+        Role/Cluster, which is what Д-3's verification reads."""
+        live = _make_fp("R1", role="R_CLK", cluster="FPGA_FLASH",
+                        position=Vector2.from_xy_mm(5.0, 6.0), angle=30.0)
         stale = _make_fp("R1", position=Vector2.from_xy_mm(1.0, 2.0))
         adapter = _snapshot_only_adapter([live])
 
@@ -367,7 +371,8 @@ class TestReadCoordinateLiveIdentifiesFromTheSnapshot:
         """Cell 2 — the snapshot row carries its own (stale) footprint object;
         the read must say where the component IS, i.e. return the adapter's
         current object, never the snapshot's cached one."""
-        live = _make_fp("R1", position=Vector2.from_xy_mm(5.0, 6.0), angle=30.0)
+        live = _make_fp("R1", role="R_CLK", cluster="FPGA_FLASH",
+                        position=Vector2.from_xy_mm(5.0, 6.0), angle=30.0)
         stale = _make_fp("R1", position=Vector2.from_xy_mm(1.0, 2.0), angle=0.0)
         adapter = _snapshot_only_adapter([live])
 
@@ -406,9 +411,9 @@ class TestReadCoordinateLiveIdentifiesFromTheSnapshot:
     def test_the_snapshot_pair_is_narrowed_by_sheet(self):
         """Cell 5 — two rows on two instances of a reused sheet: the sheet
         narrows to the one the form asked for, exactly as on the adapter path."""
-        ch0 = _make_fp("R1")
+        ch0 = _make_fp("R1", role="R_CLK", cluster="FPGA_FLASH")
         ch0.sheet_path_uuids = ("sheet-0", "own-0")
-        ch1 = _make_fp("R2")
+        ch1 = _make_fp("R2", role="R_CLK", cluster="FPGA_FLASH")
         ch1.sheet_path_uuids = ("sheet-1", "own-1")
         adapter = _snapshot_only_adapter([ch0, ch1])
         snapshot = [_selected(ch0, "R_CLK", "FPGA_FLASH"),

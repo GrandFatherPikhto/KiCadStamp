@@ -24,8 +24,9 @@ halves — the decision and the result shape `_finish_poll` consumes:
       latency window.
 """
 import pytest
+from types import SimpleNamespace
 
-from gui import board_switch_watch, connection as connection_mod
+from gui import board_switch_watch, connection as connection_mod, slow_poll
 from gui.board_switch_watch import identity_tick
 from gui.connection import BoardConnection
 
@@ -150,25 +151,34 @@ def _names():
             "board_name": "B.kicad_pcb"}
 
 
-def test_a_quiet_tick_collects_nothing():
+def _tick_window(connection):
+    """The window shape `slow_poll.identity_and_names` touches — its connection
+    and, for the collecting cases, the collector stubbed per cell."""
+    return SimpleNamespace(connection=connection)
+
+
+def test_a_quiet_tick_collects_nothing(monkeypatch):
     """В5 (quiet): the ordinary answer is `identity_only` — no net-name
     collection (that is IPC), no `board_name`, nothing for the badge."""
-    collected = []
+    monkeypatch.setattr(
+        slow_poll, "collect_net_names",
+        lambda _window: pytest.fail("a quiet tick collected net names"))
 
-    result = identity_tick(_TickConnection(),
-                           lambda: collected.append(1) or _names())
+    result = slow_poll.identity_and_names(_tick_window(_TickConnection()))
 
     assert result["identity_only"] is True
     assert result["error"] is None
-    assert collected == []
     assert "board_name" not in result
 
 
-def test_a_changed_board_brings_the_net_names_with_it():
+def test_a_changed_board_brings_the_net_names_with_it(monkeypatch):
     """В5 (changed): the full result a normal tick carries — `_finish_poll`'s
     success path must run unchanged, or the badge would name the old board and
     the docks' net combos would go empty."""
-    result = identity_tick(_TickConnection(changed=True), _names)
+    monkeypatch.setattr(slow_poll, "collect_net_names", lambda _window: _names())
+
+    result = slow_poll.identity_and_names(
+        _tick_window(_TickConnection(changed=True)))
 
     assert result["board_changed"] is True
     assert result["error"] is None
@@ -177,18 +187,20 @@ def test_a_changed_board_brings_the_net_names_with_it():
     assert "identity_only" not in result
 
 
-def test_a_failed_re_read_keeps_its_error_and_collects_no_names():
+def test_a_failed_re_read_keeps_its_error_and_collects_no_names(monkeypatch):
     """В5 (failure half): the switch was real but the re-read failed. The error
     travels to the badge exactly like a normal tick's — and the net names are
     NOT collected from a board that just went away."""
-    collected = []
+    monkeypatch.setattr(
+        slow_poll, "collect_net_names",
+        lambda _window: pytest.fail(
+            "net names were collected from a board that just went away"))
 
-    result = identity_tick(_TickConnection(changed=True, error="KiCad is gone"),
-                           lambda: collected.append(1) or _names())
+    result = slow_poll.identity_and_names(
+        _tick_window(_TickConnection(changed=True, error="KiCad is gone")))
 
     assert result["board_changed"] is True
     assert result["error"] == "KiCad is gone"
-    assert collected == []
 
 
 # ── В6: the wiring of the automatic tick ───────────────────────────────────
@@ -218,9 +230,8 @@ def test_the_automatic_tick_checks_the_identity_instead_of_returning(
 
     assert len(submitted) == 1
     fn, args, on_success = submitted[0]
-    assert fn is identity_tick
-    assert args[0] is window.connection
-    assert args[1] == window._collect_net_names
+    assert fn is slow_poll.identity_and_names
+    assert args == (window,)
     assert on_success == window._finish_poll
 
 
@@ -235,8 +246,8 @@ def test_a_disconnected_tick_still_only_tries_to_connect(real_main_window,
     window._poll()
 
     assert len(submitted) == 1
-    assert submitted[0][0] == window._run_poll
-    assert submitted[0][1] == (False,)
+    assert submitted[0][0] is slow_poll.run_poll
+    assert submitted[0][1] == (window, False)
 
 
 def test_a_busy_socket_skips_the_identity_tick_too(real_main_window, monkeypatch):

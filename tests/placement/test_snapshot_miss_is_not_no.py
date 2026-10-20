@@ -154,6 +154,66 @@ def test_a_role_on_neither_the_snapshot_nor_the_board_keeps_its_refusal():
     assert "no component tagged" in str(cluster_err.value)
 
 
+# ── С6-С7: a HIT must name the SAME part (Д-3 of the Ч1 acceptance) ────────
+
+def test_a_snapshot_ref_naming_another_part_is_a_miss():
+    """С6 (Д-3): the snapshot's row says (ROLE_A, CL_A) under refdes `R21`, and
+    the live board HAS an `R21` — but it is a DIFFERENT component (another
+    Role/Cluster). Denis's hole: before this, the resolver returned that
+    unrelated part silently, because a refdes means nothing on a board the
+    snapshot was not built from. The pair is verified against the live
+    footprint, and a mismatch is a MISS, so the live board answers with the ref
+    that really carries the pair.
+
+    Mutation check: drop the pair check (`_live_pair_matches`) and this cell
+    answers R21."""
+    stale_fp = _fp("R21", role="ROLE_A", cluster="CL_A")   # the OLD board's R21
+    live_impostor = _fp("R21", role="OTHER", cluster="CL_B")
+    right = _fp("NEW1", role="ROLE_A", cluster="CL_A")
+    adapter = _Adapter([live_impostor, right])
+    stale_snapshot = [_selected(stale_fp)]
+
+    resolved = resolve_footprint_by_cluster_role(
+        adapter, "CL_A", "ROLE_A", "label", snapshot=stale_snapshot)
+
+    assert resolved is right, \
+        "the snapshot's refdes was believed on a board it was not built from"
+
+
+def test_a_role_snapshot_ref_naming_another_part_is_a_miss():
+    """С7 — the same rule in the ROLE resolver: its one field of identity is the
+    Role, so that is what is verified on the live footprint (mutation: drop the
+    ROLE read in `_current_generation` and this answers R21)."""
+    stale_fp = _fp("R21", role="ANCHOR", cluster="CL_A")   # the OLD board's R21
+    live_impostor = _fp("R21", role="OTHER", cluster="CL_B")
+    right = _fp("NEW1", role="ANCHOR", cluster="CL_A")
+    adapter = _Adapter([live_impostor, right])
+    stale_snapshot = [_selected(stale_fp)]
+
+    resolved = resolve_footprint_by_role(
+        adapter, "ANCHOR", None, None, {}, "label", snapshot=stale_snapshot)
+
+    assert resolved is right
+
+
+def test_the_right_role_under_another_cluster_is_only_a_cluster_miss():
+    """С7 (cont.): a Role-only resolver never asks about clusters, so a live ref
+    with the right Role is its answer — while the CLUSTER resolver, which did
+    ask, treats the same footprint as a miss and finds the right instance."""
+    live = _fp("R21", role="ROLE_A", cluster="CL_B")
+    right = _fp("NEW1", role="ROLE_A", cluster="CL_A")
+    adapter = _Adapter([live, right])
+    stale_snapshot = [_selected(_fp("R21"))]
+
+    by_role = resolve_footprint_by_role(
+        adapter, "ROLE_A", None, None, {}, "label", snapshot=stale_snapshot)
+    by_cluster = resolve_footprint_by_cluster_role(
+        adapter, "CL_A", "ROLE_A", "label", snapshot=stale_snapshot)
+
+    assert by_role is live
+    assert by_cluster is right
+
+
 # ── С5: the hit is still free ──────────────────────────────────────────────
 
 def test_a_snapshot_hit_costs_no_sweep():

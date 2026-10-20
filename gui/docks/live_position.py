@@ -604,6 +604,19 @@ def _live_cluster_frame(adapter, cell, cluster: str, sheet: str, sheet_names,
     return frame.placement_origin, frame.rotation_deg, frame.mirror
 
 
+def entity_cluster_frame(adapter, cfg, entity, sheet_names):
+    """(mount, rotation_deg, mirror) of ONE Entity's live cluster, STRICT.
+
+    The frame is WRITTEN into the tree "Extract tree from selection" saves, so a
+    cluster that is not a rigid copy of the cell refuses (`NonRigidClusterError`)
+    instead of storing a guessed pose — Ч1-А, and Д-2's home for the decision:
+    it lives next to the reader it belongs to, not in the dock that calls it.
+    Everything else is `_live_cluster_frame`'s own behaviour."""
+    return _live_cluster_frame(adapter, cfg.cells[entity.cell], entity.cluster,
+                               getattr(entity, "sheet", None) or "", sheet_names,
+                               strict=True)
+
+
 def _non_rigid_refusal(cell, cluster, fit, relative_by_role, role_to_fp) -> str:
     """The ONE wording of the non-rigid refusal (Ч1-А).
 

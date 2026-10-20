@@ -110,7 +110,11 @@ class _CountingAdapter:
 
     @staticmethod
     def _role_of(fp):
-        return ROLE if fp.ref == "R_ANCHOR" else ""
+        """Every `R_ANCHOR*` footprint carries the anchor ROLE: it is the SHEET
+        that tells the two instances apart — and since Д-3 the live ref's ROLE is
+        what a snapshot HIT is verified by, so a fake that gave the role to one of
+        them only would make the narrowing cell answer the wrong instance."""
+        return ROLE if str(fp.ref).startswith("R_ANCHOR") else ""
 
 
 def _resolve(adapter, *, snapshot=None, sheet=None, cluster=None,
@@ -131,7 +135,11 @@ def test_the_snapshot_answers_the_identity_without_a_single_adapter_sweep():
 
     assert resolved.ref == "R_ANCHOR"
     assert adapter.calls["get_footprints"] == 0
-    assert adapter.calls["get_field_value"] == 0
+    # ONE field read since Д-3 of the Ч1 acceptance: the live footprint's ROLE is
+    # verified before a snapshot HIT is believed (a snapshot of the previous board
+    # can name an unrelated R21). That is a read of the CACHED footprint, not the
+    # whole-board scan the snapshot exists to avoid.
+    assert adapter.calls["get_field_value"] <= 1
     assert adapter.calls["get_footprint"] == 1      # position, from the live side
 
 

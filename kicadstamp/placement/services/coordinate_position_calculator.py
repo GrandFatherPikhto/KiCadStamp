@@ -89,6 +89,19 @@ def _index_snapshot_by_cluster_role(snapshot) -> dict:
     return index
 
 
+def _live_pair_matches(adapter, fp, role: str, cluster: str) -> bool:
+    """Whether the LIVE footprint really is the part the snapshot named.
+
+    TWO `get_field_value` reads on the adapter's CACHED footprint (no board
+    sweep, no IPC of its own): a snapshot is an identity CACHE, and the refdes it
+    carries means nothing on a board it was not built from — R21 there may be
+    another resistor entirely (Д-3 of the Ч1 acceptance). A mismatch is a MISS,
+    so the live sweep decides; `is_rigid`-style tolerance has no place here —
+    Role and Cluster are exact-match fields everywhere in this project."""
+    return (adapter.get_field_value(fp, ROLE_FIELD_NAME) == role
+            and adapter.get_field_value(fp, CLUSTER_FIELD_NAME) == cluster)
+
+
 def resolve_footprint_by_cluster_role(adapter, cluster: str, role: str, label: str,
                                       sheet: str | None = None,
                                       sheet_names: dict[str, str] | None = None,
@@ -154,12 +167,14 @@ def resolve_footprint_by_cluster_role(adapter, cluster: str, role: str, label: s
             chosen = match_unique_footprint_by_fields(matches, field_matches,
                                                      label)
             live = adapter.get_footprint(chosen.ref)
-            if live is not None:
+            if live is not None and _live_pair_matches(adapter, live, role, cluster):
                 return live
-            # The ref the snapshot named has left the live board (deleted,
-            # renamed, or the snapshot belongs to ANOTHER board), so the
-            # snapshot no longer describes it. Fall THROUGH to the live sweep
-            # below, which is the only source allowed to answer "not there".
+            # The ref the snapshot named has left the live board, OR the live
+            # board's footprint with that refdes is a DIFFERENT part (a snapshot
+            # from another board can name an unrelated R21 — Д-3 of the Ч1
+            # acceptance). Either way the snapshot no longer describes it, so
+            # fall THROUGH to the live sweep, which is the only source allowed
+            # to answer "not there".
     # The LIVE board decides — for "no snapshot", for a MISS in a non-empty
     # snapshot, and for a snapshot ref that vanished since the poll.
     #

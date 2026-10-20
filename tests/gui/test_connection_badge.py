@@ -341,11 +341,14 @@ def test_board_filename_swallows_a_failed_read():
 
 def test_the_worker_pass_collects_the_filename_with_the_net_lists(real_main_window):
     """The name travels in the SAME result dict as the two net lists, collected by
-    _collect_net_names on the poll worker — which is why the badge needs no board
-    read on the UI thread at all (door_lint counts this call chain as `worker`)."""
+    slow_poll.collect_net_names on the poll worker — which is why the badge needs
+    no board read on the UI thread at all (door_lint counts this call chain as
+    `worker`; the collector moved there with the slow tick, Д-2)."""
+    from gui import slow_poll
+
     window = _window_with_a_board(real_main_window, 2)
 
-    collected = window._collect_net_names()
+    collected = slow_poll.collect_net_names(window)
 
     assert collected["board_name"] == BOARD
     assert collected["net_names"] == []
@@ -354,10 +357,12 @@ def test_the_worker_pass_collects_the_filename_with_the_net_lists(real_main_wind
 
 def test_the_worker_pass_survives_an_adapter_that_cannot_name_the_board(
         real_main_window):
+    from gui import slow_poll
+
     window = _window_with_a_board(real_main_window, 2, filename=None)
     window.connection.board.adapter = _AdapterStub(blows_up=True)
 
-    collected = window._collect_net_names()
+    collected = slow_poll.collect_net_names(window)
 
     assert collected["board_name"] is None
 
