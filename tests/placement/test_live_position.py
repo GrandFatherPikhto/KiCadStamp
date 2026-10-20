@@ -378,9 +378,13 @@ class TestReadCoordinateLiveIdentifiesFromTheSnapshot:
         assert read.rotation_deg == 30.0
 
     def test_a_snapshot_with_no_matching_row_is_fatal(self):
-        """Cell 3 — the same canonical none-match fatal the adapter sweep gives."""
+        """Cell 3 — a snapshot MISS is answered by the LIVE board (fact Б of
+        plan_2026_10_15_honest_live_read Ч1-Б: a snapshot built from the
+        previous board must not say "not there" about a board nobody has looked
+        at). Here the live board has no R_CLK either, so the sweep's own
+        canonical none-match fatal is the answer."""
         other = _make_fp("R9")
-        adapter = _snapshot_only_adapter([other])
+        adapter = _adapter([other])
 
         with pytest.raises(ValidationError, match="no component tagged"):
             read_coordinate_live(adapter, "FPGA_FLASH", "R_CLK", None, {}, "R_CLK",
@@ -418,12 +422,14 @@ class TestReadCoordinateLiveIdentifiesFromTheSnapshot:
         assert read.footprint.ref == "R2"
 
     def test_a_snapshot_ref_that_left_the_board_is_fatal_not_stale(self):
-        """Cell 6 — the row names a ref the live board no longer has (deleted or
-        renamed since the poll): fatal, and never the snapshot's own object —
-        the point of the cell is that a vanished footprint must not be answered
-        with the position it had when the list was built."""
+        """Cell 6 — the row names a ref the live board no longer has (deleted,
+        renamed, or the snapshot is of ANOTHER board). Since Ч1-Б that is a
+        snapshot fact, not a board answer, so the LIVE board is asked — and it
+        has nothing either: fatal, and never the snapshot's own object (a
+        vanished footprint must not be answered with the position it had when
+        the list was built)."""
         stale = _make_fp("R1", position=Vector2.from_xy_mm(1.0, 2.0))
-        adapter = _snapshot_only_adapter([])          # no R1 on the live board
+        adapter = _adapter([])                       # no R1 on the live board
 
         with pytest.raises(ValidationError, match="no component tagged"):
             read_coordinate_live(adapter, "FPGA_FLASH", "R_CLK", None, {}, "R_CLK",

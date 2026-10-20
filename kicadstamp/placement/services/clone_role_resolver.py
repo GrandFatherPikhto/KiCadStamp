@@ -58,6 +58,7 @@ from .role_narrowing import (
     narrow_candidates_by_sheet,
     own_cluster_candidates,
 )
+from .role_refusals import raise_ambiguous, raise_role_not_found
 
 logger = logging.getLogger(__name__)
 
@@ -834,18 +835,6 @@ def resolve_roles_by_nets(adapter, cell: Cell, clone: ClonePlacement | CellPlace
     return role_to_ref
 
 
-def _raise_role_not_found(label: str, role: str | None) -> None:
-    """The canonical "this Role is on nothing" fatal — ONE wording for both
-    sources of candidates (the sweep and the snapshot), so a caller can never be
-    told two different things about the same absence."""
-    raise ValidationError(format_fatal_error(
-        _("{label}: anchor_role {role!r} not found on any component on the board")
-        .format(label=label, role=role),
-        [_("check that the Role field is set in the schematic and propagated to the PCB "
-           "(Update PCB from Schematic)")]
-    ))
-
-
 def _role_candidates(adapter, role: str, snapshot) -> list:
     """Every footprint carrying `role` — the IDENTITY half of the resolver.
 
@@ -866,28 +855,36 @@ def _role_candidates(adapter, role: str, snapshot) -> list:
     moment a stand-in's empty snapshot was believed). Both ends of the question
     — the emptiest board and the missing role — are the same fatal anyway."""
     if snapshot:
-        return [selected.fp for selected in snapshot if selected.role == role]
+        from_snapshot = [selected.fp for selected in snapshot
+                         if selected.role == role]
+        if from_snapshot:
+            return from_snapshot
+        # A MISS in a non-empty snapshot is NOT an answer (fact Б, Denis 15.10,
+        # plan_2026_10_15_honest_live_read): the snapshot can have been built
+        # from the PREVIOUS board, and "the board has nothing" would then be a
+        # lie about a component standing right in front of the user. The LIVE
+        # board decides below — the same rule as its neighbour
+        # resolve_footprint_by_cluster_role. Only a HIT is free.
     return [fp for fp in adapter.get_footprints()
             if adapter.get_field_value(fp, ROLE_FIELD_NAME) == role]
 
 
-def _current_generation(adapter, chosen: Footprint, snapshot, label: str,
-                        role: str | None) -> Footprint:
+def _current_generation(adapter, chosen: Footprint, snapshot) -> Footprint | None:
     """The object the resolver RETURNS: `chosen` itself when the candidates came
     from the adapter, and the adapter's OWN current generation of it when they
     came from a snapshot.
 
     Why the re-read (plan_2026_09_22_board_door_finish §4.3): a snapshot answers
     "which footprint is this", never "where is it NOW" — its ``Selected.fp`` was
-    copied at poll time. A ref the live board no longer has (deleted or renamed
-    since that poll) stays the canonical "not found" fatal, never the stale
-    object."""
+    copied at poll time.
+
+    None — the snapshot's ref has left the live board (deleted, renamed, or the
+    snapshot belongs to ANOTHER board): that is a snapshot fact, not a board
+    answer, so the caller asks the LIVE board (fact Б of
+    plan_2026_10_15_honest_live_read). Only the live sweep may say "not found"."""
     if not snapshot:
         return chosen
-    live = adapter.get_footprint(chosen.ref)
-    if live is None:
-        _raise_role_not_found(label, role)
-    return live
+    return adapter.get_footprint(chosen.ref)
 
 
 def resolve_footprint_by_role(adapter, anchor_role: str, anchor_sheet: str | None,
@@ -928,33 +925,43 @@ def resolve_footprint_by_role(adapter, anchor_role: str, anchor_sheet: str | Non
     sheet narrowing — and the returned object comes from the adapter's CURRENT
     generation. `None` (the default, and what apply/CLI/MCP pass) = the sweep,
     byte for byte. (``quiet`` is handed to the cascade — its docstring owns it.)"""
-    candidates = _role_candidates(adapter, anchor_role, snapshot)
-
-    if not candidates:
-        _raise_role_not_found(label, anchor_role)
-
     selected_items = adapter.get_selected_items()
     selected_refs = {i.ref for i in selected_items
                      if isinstance(i, Footprint)}
+
+    # The candidate LIST comes from `_role_candidates`, which already refuses to
+    # let a snapshot MISS decide anything (fact Б).
+    candidates = _role_candidates(adapter, anchor_role, snapshot)
+    if not candidates:
+        raise_role_not_found(label, anchor_role)
 
     narrowed = _narrow_by_sheet_cluster_selection(
         candidates, adapter, selected_refs,
         anchor_sheet, anchor_cluster,
         sheet_names, label, anchor_role, quiet=quiet,
     )
+    if len(narrowed) != 1:
+        raise_ambiguous(label, anchor_role, narrowed)
 
-    if len(narrowed) == 1:
-        return _current_generation(adapter, narrowed[0], snapshot, label,
-                                   anchor_role)
+    live = _current_generation(adapter, narrowed[0], snapshot)
+    if live is not None:
+        return live
 
-    refs = sorted(fp.ref for fp in narrowed)
-    raise ValidationError(format_fatal_error(
-        _("{label}: anchor_role {role!r} is ambiguous").format(label=label, role=anchor_role),
-        [_("candidates: {count} — {refs}. Solutions: refine anchor_sheet "
-           "and/or anchor_cluster, OR select the desired instance on the board "
-           "before running, OR use explicit anchor_ref instead of anchor_role: {first_ref!r}")
-         .format(count=len(narrowed), refs=refs, first_ref=refs[0])]
-    ))
+    # The snapshot named a ref the live board no longer has (deleted, renamed,
+    # or a snapshot of ANOTHER board): that is a snapshot fact, not a board
+    # answer, so the LIVE board decides — one sweep, paid only on this miss
+    # (fact Б of plan_2026_10_15_honest_live_read).
+    candidates = _role_candidates(adapter, anchor_role, None)
+    if not candidates:
+        raise_role_not_found(label, anchor_role)
+    narrowed = _narrow_by_sheet_cluster_selection(
+        candidates, adapter, selected_refs,
+        anchor_sheet, anchor_cluster,
+        sheet_names, label, anchor_role, quiet=quiet,
+    )
+    if len(narrowed) != 1:
+        raise_ambiguous(label, anchor_role, narrowed)
+    return narrowed[0]
 
 
 def resolve_anchor_by_role(adapter, clone: ClonePlacement, sheet_names: dict[str, str]) -> Footprint:

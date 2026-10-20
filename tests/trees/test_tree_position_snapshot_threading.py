@@ -272,11 +272,16 @@ def _entity_rig(tree):
     cell<->world frame fit actually read: `anchor_xy` None (the mount comes from
     the anchor ROLE's own slot), `anchor_pad` None (no live pad re-derivation)
     and each component's along/across offsets."""
+    # The stored offsets are the LIVE deltas of `_CountingAdapter`'s layout
+    # (footprint i stands at (i, 2i) mm), so the instance is a RIGID copy of
+    # the cell: since Ч1-А a writing consumer refuses a non-rigid cluster, and
+    # this rig measures SWEEPS, not geometry — a diagonal-vs-straight mismatch
+    # would only say "not rigid" here.
     cell = SimpleNamespace(
         name="dac_buf", layer="F.Cu", anchor_role=ENTITY_ROLES[0], anchor_xy=None,
         anchor_pad=None,
-        components=[SimpleNamespace(role=role, offset_along_mm=index * 5.0,
-                                    offset_across_mm=0.0)
+        components=[SimpleNamespace(role=role, offset_along_mm=float(index),
+                                    offset_across_mm=float(index) * 2.0)
                     for index, role in enumerate(ENTITY_ROLES)])
     entity = SimpleNamespace(name="dac_buf_channel_0", cell="dac_buf",
                              cluster=ENTITY_CLUSTER, sheet="")

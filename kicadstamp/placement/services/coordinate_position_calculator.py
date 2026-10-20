@@ -149,16 +149,25 @@ def resolve_footprint_by_cluster_role(adapter, cluster: str, role: str, label: s
         # from the adapter's current generation.
         matches = [s.fp for s in
                    _index_snapshot_by_cluster_role(snapshot).get((role, cluster), [])]
-        matches = narrow_candidates_by_sheet(matches, sheet, sheet_names or {})
-        chosen = match_unique_footprint_by_fields(matches, field_matches, label)
-        live = adapter.get_footprint(chosen.ref)
-        if live is None:
-            # The ref the snapshot named has left the live board (deleted or
-            # renamed since the poll that built it). Called for its raise: the
-            # canonical "no component tagged ..." fatal, never the stale
-            # snapshot object — a vanished footprint is exactly that fact.
-            match_unique_footprint_by_fields([], field_matches, label)
-        return live
+        if matches:
+            matches = narrow_candidates_by_sheet(matches, sheet, sheet_names or {})
+            chosen = match_unique_footprint_by_fields(matches, field_matches,
+                                                     label)
+            live = adapter.get_footprint(chosen.ref)
+            if live is not None:
+                return live
+            # The ref the snapshot named has left the live board (deleted,
+            # renamed, or the snapshot belongs to ANOTHER board), so the
+            # snapshot no longer describes it. Fall THROUGH to the live sweep
+            # below, which is the only source allowed to answer "not there".
+    # The LIVE board decides — for "no snapshot", for a MISS in a non-empty
+    # snapshot, and for a snapshot ref that vanished since the poll.
+    #
+    # Fact Б (Denis 15.10, plan_2026_10_15_honest_live_read): a snapshot built
+    # from the PREVIOUS board answered "cluster X is not on the live board" for
+    # a cluster standing right in front of him, and the read refused a placement
+    # that was perfectly possible. A snapshot is a CACHE of identity, never an
+    # authority: its miss costs one honest sweep, and only its hit is free.
     matches = [fp for fp in adapter.get_footprints()
                if all(adapter.get_field_value(fp, field) == value
                       for field, value in field_matches.items())]

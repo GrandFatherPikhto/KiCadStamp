@@ -148,7 +148,11 @@ def test_the_position_comes_from_the_adapter_not_from_the_snapshot():
 
 
 def test_a_snapshot_with_no_matching_role_is_fatal():
-    """Cell 3 — the absence says the same thing it says on the sweep."""
+    """Cell 3 — the absence says the same thing it says on the sweep, and since
+    Ч1-Б of plan_2026_10_15_honest_live_read it is the LIVE BOARD that says it:
+    a miss in a non-empty snapshot costs exactly ONE sweep (a snapshot built
+    from the previous board must not answer "nowhere" about the live one), and
+    the canonical wording is the sweep's own."""
     other = _fp("R_OTHER", role="SOMETHING_ELSE")
     adapter = _CountingAdapter([other])
 
@@ -156,7 +160,9 @@ def test_a_snapshot_with_no_matching_role_is_fatal():
         _resolve(adapter, snapshot=[_selected(other, role="SOMETHING_ELSE")])
 
     assert "not found on any component" in str(excinfo.value)
-    assert adapter.calls["get_footprints"] == 0
+    assert adapter.calls["get_footprints"] == 1, (
+        "the miss must be answered by the live board — one sweep, the only "
+        "source allowed to say the role is nowhere")
 
 
 def test_an_ambiguous_snapshot_role_is_fatal():
