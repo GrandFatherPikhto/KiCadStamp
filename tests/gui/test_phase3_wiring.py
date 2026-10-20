@@ -42,6 +42,41 @@ from tests.gui.create_entity_helpers import open_project, write_config
 from tests.fakes.write_later import write_later
 
 
+def _explode_modal(*_a, **_k):
+    """A modal coming back to this flow must FAIL the cell, not hang it."""
+    raise AssertionError("the Extract-cluster flow writes to the Log now")
+
+
+class _WorkerAdapter:
+    """The board adapter `run_extract_cluster_worker` builds ITSELF (Ч3):
+    refreshed once, closed in `finally` — never the UI's poll adapter."""
+
+    def __init__(self):
+        self.refreshed = 0
+        self.closed = 0
+
+    def refresh_board(self):
+        self.refreshed += 1
+
+    def close(self):
+        self.closed += 1
+
+
+def _own_adapter_for_the_worker(monkeypatch):
+    """Point the factory the worker imports LAZILY at a fake and hand back every
+    adapter it built, so a cell can assert the worker really made its own."""
+    created = []
+
+    def _factory(**_kwargs):
+        adapter = _WorkerAdapter()
+        created.append(adapter)
+        return adapter
+
+    monkeypatch.setattr("kicadstamp.adapter_factory.create_board_adapter", _factory)
+    return created
+
+
+
 def _find_item(model, text):
     def walk(item):
         for row in range(item.rowCount()):
@@ -1005,34 +1040,37 @@ def test_dock_hub_tree_actions_forward_to_trees_dock(real_main_window, monkeypat
         assert called == [True], f"{delegate} must forward to TreesDock.{handler}"
 
 
-def test_extract_cluster_no_fully_selected_cluster_shows_message(
-        real_main_window, tmp_path, monkeypatch):
-    """No fully-selected cluster -> the same warning text as "Extract tree..."
-    and the dialog is NOT opened."""
+def test_extract_cluster_no_fully_selected_cluster_logs_and_opens_no_dialog(
+        real_main_window, tmp_path, monkeypatch, caplog):
+    """Ч3 (plan_2026_10_15_extract_and_read_paths_cleanup): no fully-selected
+    cluster is an ERROR line in the Log now — the same precise wording as
+    "Extract tree..." — and the dialog is NOT opened. A returning modal FAILS
+    this cell instead of hanging it."""
     root = tmp_path / "root.sexp"
     _write(root)
     real_main_window.root_metadata_dock.set_root_file(root)
     real_main_window.connection = SimpleNamespace(
-        board=SimpleNamespace(adapter=object()), snapshot=[], long_op_active=False)
+        board=SimpleNamespace(adapter=object()), snapshot=[], long_op_active=False,
+        is_connected=True)
     hub = real_main_window._dock_hub
     hub._selection_footprints = []
     hub._selection_raw_items = []
 
-    warnings = []
-    monkeypatch.setattr(dock_hub_mod.QMessageBox, "warning",
-                        lambda *a, **k: warnings.append(a[2]))
+    monkeypatch.setattr(dock_hub_mod.QMessageBox, "warning", _explode_modal)
     constructed = []
     monkeypatch.setattr("gui.docks.extract_cluster_dialog.ExtractClusterDialog",
                         lambda *a, **k: constructed.append(True) or object())
 
-    hub.extract_cluster_from_selection()
+    with caplog.at_level(logging.ERROR, logger="gui.extract_cluster_flow"):
+        hub.extract_cluster_from_selection()
 
-    assert any("No fully selected Cluster" in w for w in warnings)
+    assert any("No fully selected Cluster" in r.getMessage()
+               for r in caplog.records)
     assert constructed == []
 
 
 def test_extract_cluster_happy_path_writes_cell_and_entity(
-        real_main_window, tmp_path, monkeypatch):
+        real_main_window, tmp_path, monkeypatch, qapp, caplog):
     """The full flow: after OK the root config gains a NEW standalone Entity
     (+ its generated cell) in entities:/cells: — NO trees:, NO net_traces, NO
     anchor. The write is staged (WORKING_SET.flush to read back), ConfigTreeDock
@@ -1044,7 +1082,7 @@ def test_extract_cluster_happy_path_writes_cell_and_entity(
     sel = _selected_tree("R1", "PIF_AVDD", "Channel_1", {})
     real_main_window.connection = SimpleNamespace(
         board=SimpleNamespace(adapter=object()), snapshot=[sel],
-        long_op_active=False)
+        long_op_active=False, is_connected=True)
     hub._selection_footprints = [sel]
     hub._selection_raw_items = [sel.fp]
 
@@ -1081,9 +1119,8 @@ def test_extract_cluster_happy_path_writes_cell_and_entity(
                         {name: {"components": [
                             {"role": "DAC", "offset_along_mm": 0.0,
                              "offset_across_mm": 0.0}]}})
-    infos = []
-    monkeypatch.setattr(dock_hub_mod.QMessageBox, "information",
-                        lambda *a, **k: infos.append(a[2]))
+    monkeypatch.setattr(dock_hub_mod.QMessageBox, "information", _explode_modal)
+    created_adapters = _own_adapter_for_the_worker(monkeypatch)
     refresh_called = []
     monkeypatch.setattr(real_main_window.config_tree_dock, "refresh",
                         lambda: refresh_called.append(True))
@@ -1091,7 +1128,10 @@ def test_extract_cluster_happy_path_writes_cell_and_entity(
     real_main_window.config_tree_dock.graph_changed.connect(
         lambda: graph_changed.append(True))
 
+    from tests.gui.conftest import _pump
+
     hub.extract_cluster_from_selection()
+    _pump(qapp, lambda: hub._extract_cluster_op is None)
 
     WORKING_SET.flush(root)
     data = sexp_to_dict(root.read_text(encoding="utf-8"))
@@ -1113,11 +1153,14 @@ def test_extract_cluster_happy_path_writes_cell_and_entity(
     assert not (data.get("trees") or [])
     assert not (data.get("net_traces") or [])
     assert refresh_called and graph_changed
-    assert infos, "a success message must be shown"
+    assert created_adapters and created_adapters[0].refreshed == 1
+    assert created_adapters[0].closed == 1, "the worker must close its own adapter"
+    infos = [r.getMessage() for r in caplog.records if r.levelno == logging.INFO]
+    assert any("saved to" in m for m in infos), "a success line must reach the Log"
 
 
 def test_extract_cluster_remembers_cell_edit_context(real_main_window,
-                                                     tmp_path, monkeypatch):
+                                                     tmp_path, monkeypatch, qapp):
     """Phase E (plan_2026_09_09_..._phase_e): creating a cell via "Extract
     cluster..." records its (Cluster, Sheet) under gui_state.json's
     cell_edit_context, scoped by the root config path (the DockHub wiring)."""
@@ -1129,7 +1172,7 @@ def test_extract_cluster_remembers_cell_edit_context(real_main_window,
     sel = _selected_tree("R1", "PIF_AVDD", "Channel_1", {})
     real_main_window.connection = SimpleNamespace(
         board=SimpleNamespace(adapter=object()), snapshot=[sel],
-        long_op_active=False)
+        long_op_active=False, is_connected=True)
     hub._selection_footprints = [sel]
     hub._selection_raw_items = [sel.fp]
 
@@ -1160,10 +1203,13 @@ def test_extract_cluster_remembers_cell_edit_context(real_main_window,
                         {name: {"components": [
                             {"role": "DAC", "offset_along_mm": 0.0,
                              "offset_across_mm": 0.0}]}})
-    monkeypatch.setattr(dock_hub_mod.QMessageBox, "information",
-                        lambda *a, **k: None)
+    monkeypatch.setattr(dock_hub_mod.QMessageBox, "information", _explode_modal)
+    _own_adapter_for_the_worker(monkeypatch)
+
+    from tests.gui.conftest import _pump
 
     hub.extract_cluster_from_selection()
+    _pump(qapp, lambda: hub._extract_cluster_op is None)
     WORKING_SET.flush(root)
 
     context = settings.state.get(CELL_EDIT_CONTEXT_KEY, {})
@@ -1231,7 +1277,7 @@ def test_extract_tree_remembers_new_cells_context(real_main_window,
 
 
 def test_extract_cluster_existing_entity_reuse_writes_nothing(
-        real_main_window, tmp_path, monkeypatch):
+        real_main_window, tmp_path, monkeypatch, caplog):
     """A cluster whose (cluster, sheet) Entity already exists -> OK REUSES it:
     nothing is staged/written (no .bak, no extra entities: row), the flow just
     refreshes and confirms."""
@@ -1252,7 +1298,7 @@ def test_extract_cluster_existing_entity_reuse_writes_nothing(
     sel = _selected_tree("R1", "PIF_AVDD", "Channel_1", {})
     real_main_window.connection = SimpleNamespace(
         board=SimpleNamespace(adapter=object()), snapshot=[sel],
-        long_op_active=False)
+        long_op_active=False, is_connected=True)
     hub._selection_footprints = [sel]
     hub._selection_raw_items = [sel.fp]
 
@@ -1278,14 +1324,13 @@ def test_extract_cluster_existing_entity_reuse_writes_nothing(
 
     monkeypatch.setattr("gui.docks.extract_cluster_dialog.ExtractClusterDialog",
                         _FakeDialog)
-    infos = []
-    monkeypatch.setattr(dock_hub_mod.QMessageBox, "information",
-                        lambda *a, **k: infos.append(a[2]))
+    monkeypatch.setattr(dock_hub_mod.QMessageBox, "information", _explode_modal)
     refresh_called = []
     monkeypatch.setattr(real_main_window.config_tree_dock, "refresh",
                         lambda: refresh_called.append(True))
 
-    hub.extract_cluster_from_selection()
+    with caplog.at_level(logging.INFO, logger="gui.extract_cluster_flow"):
+        hub.extract_cluster_from_selection()
 
     # Nothing was written by the REUSE: no NEW backup, and the on-disk
     # entities: are unchanged.
@@ -1293,7 +1338,9 @@ def test_extract_cluster_existing_entity_reuse_writes_nothing(
     data = sexp_to_dict(root.read_text(encoding="utf-8"))
     assert len(data.get("entities") or []) == 1
     assert refresh_called
-    assert infos and any("already exists" in i for i in infos)
+    infos = [r.getMessage() for r in caplog.records if r.levelno == logging.INFO]
+    assert any("already exists" in m for m in infos), \
+        "the reuse answer must reach the Log"
 
 
 def test_tree_net_trace_nets_collects_net_trace_refs():
@@ -2002,7 +2049,7 @@ def test_extract_tree_refreshes_the_snapshot_before_detecting_clusters(
 
 
 def test_extract_cluster_refreshes_the_snapshot_first(
-        qapp, real_main_window, tmp_path, monkeypatch):
+        qapp, real_main_window, tmp_path, monkeypatch, caplog):
     """The sibling flow goes through the SAME shared rebuild point (R.2.2 asks
     for one place, not two copies) — same partial-selection-after-connect gate,
     with the dialog never constructed."""
@@ -2021,9 +2068,7 @@ def test_extract_cluster_refreshes_the_snapshot_first(
     hub._selection_footprints = [sel1]
     hub._selection_raw_items = []
 
-    warnings = []
-    monkeypatch.setattr(dock_hub_mod.QMessageBox, "warning",
-                        lambda *a, **k: warnings.append(a[2]))
+    monkeypatch.setattr(dock_hub_mod.QMessageBox, "warning", _explode_modal)
     constructed = []
     monkeypatch.setattr("gui.docks.extract_cluster_dialog.ExtractClusterDialog",
                         lambda *a, **k: constructed.append(True) or object())
@@ -2035,7 +2080,8 @@ def test_extract_cluster_refreshes_the_snapshot_first(
     assert len(threads) == 1
     assert threads[0] != threading.main_thread().name
     # Same precise partial-selection cause as "Extract tree..." (V.2).
-    assert any("selected 1 of 2" in w and "R2" in w for w in warnings)
+    messages = [r.getMessage() for r in caplog.records]
+    assert any("selected 1 of 2" in m and "R2" in m for m in messages)
     assert constructed == []
 
 

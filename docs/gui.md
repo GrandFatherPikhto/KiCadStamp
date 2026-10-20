@@ -1604,6 +1604,17 @@ placing this one (a manual tree node, a `tree_instances:` template, ...) is a se
 and is the ONLY one since 13.10 (the duplicate Tools → Trees entry was removed —
 plan_2026_10_13_trees_menus_cleanup).
 
+Since 2026-10-20 (plan `plan_2026_10_15_extract_and_read_paths_cleanup` Ч3) the flow lives in
+`gui/extract_cluster_flow.py` and the BOARD is read only on a worker: `run_extract_cluster_worker`
+builds its OWN board adapter (create + one `refresh_board()` + `close()` in `finally`, like
+"Select cell on the board"), re-reads the config fresh, and hands back plain data (the Entity dict, the
+cells it generated, whether the cell is new). The UI half only checks, shows the dialog and WRITES the
+config. The flow's nine former modal windows are now Log lines with the same wording — Not connected /
+Set the project root / no fully-selected Cluster as warnings, a failed config load and a failed save as
+errors, "already exists … reused" and "saved to …" as info — and a worker failure (a dead socket, where
+nothing was read at all) says "Failed to extract the cluster: …". That move also took `gui/dock_hub.py`
+down from 3067 to 2925 lines and the board-door census from 24 suspects to 23.
+
 The new Cell's origin is picked AUTOMATICALLY by default (the cluster role present exactly once).
 Since 2026-09-04 (plan `extract_origin_pad_restore`)
 the same dialog offers an OPTIONAL "Override origin (Role/Pad)…" checkbox to override it by hand:
