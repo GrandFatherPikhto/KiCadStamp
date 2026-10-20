@@ -168,3 +168,38 @@ def test_the_overlay_read_resolves_a_clean_pair():
 def test_role_field_name_is_the_one_the_adapter_answers_for():
     """Guard against the fixture drifting away from the product's field name."""
     assert ROLE_FIELD_NAME
+
+
+# ── The UI half: the dock reports the guard's lines VERBATIM ───────────────
+
+def test_the_cell_dock_reports_the_guards_lines_verbatim(qapp):
+    """Д-1 of the Ч4 acceptance: with the `duplicate` branch turned into
+    `if False:` in the dock's result handler, EVERY cell stayed green — the
+    worker answered correctly and nobody checked that the dock says it. The slot
+    must hand the guard's OWN lines to the Log as ONE message, line for line, at
+    ERROR level, and nothing else."""
+    from gui.docks._common import ERROR_STYLE
+    from gui.docks.cell_editor import CellDock
+
+    lines = [
+        _("{ref!r} stands on the board {count} times — the record is refused, "
+          "nothing of it is moved:").format(ref="R5", count=2),
+        _("  copy 1/2: uuid {uuid}, {position}").format(
+            uuid="u-new", position="at 10.000, 20.000 mm"),
+        _("  copy 2/2: uuid {uuid}, {position}{orphan}").format(
+            uuid="u-orphan", position="at 10.000, 20.000 mm",
+            orphan=" — NOT linked to the schematic"),
+        _("  delete the orphan (Update PCB from Schematic with “Delete footprints "
+          "with no symbols”) or re-annotate; nothing of this record was moved."),
+    ]
+    dock = CellDock.__new__(CellDock)
+    dock._active_op = "op-handle"
+    seen = []
+    dock._show_message = lambda text, style="": seen.append((text, style))
+
+    dock._finish_select_cluster_on_board({"duplicate": lines})
+
+    assert dock._active_op is None
+    assert seen == [("\n".join(lines), ERROR_STYLE)], (
+        "the guard's lines must reach the Log verbatim, as ONE ERROR message — "
+        f"saw {seen!r}")

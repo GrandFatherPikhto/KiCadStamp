@@ -120,6 +120,7 @@ from ..mixed_selection import narrow_mixed_selection
 from ..read_outcome import select_after_read
 from ..select_cell import pick_instance, resolve_action_instance
 from .cell_form_guard import anchor_role_selection, effective_anchor_role
+from .select_cell_report import select_cell_report
 from ._common import (ERROR_STYLE as _ERROR_STYLE, SUCCESS_STYLE as _SUCCESS_STYLE,
                       WARN_STYLE as _WARN_STYLE, configure_searchable, display_path,
                       merge_write, parse_float_field, set_combo_items, show_message,
@@ -2513,59 +2514,15 @@ class CellDock(QWidget):
 
     def _finish_select_cluster_on_board(self, result: Dict[str, Any]) -> None:
         """UI thread (worker finished): report what got selected, or — when
-        nothing did — say why. A stale context (and a stale identification, Р7)
-        is never a fatal and never a modal: this stage's rule is "no modal
-        windows", and the error path here used to be the last QMessageBox.warning
-        of the three live flows of this dock (X.1.3 test_cell_editor_live_flows…)."""
+        nothing did — say why. The ANSWER TABLE itself lives in
+        gui/docks/select_cell_report.py (доделка Ч4 of
+        plan_2026_10_15_extract_and_read_paths_cleanup: this giant may only
+        shrink, and the Ч4 duplicate branch pushed it over its ceiling); this
+        slot only shows the answer. A refusal is never a modal — this stage's
+        rule is "no modal windows"."""
         self._active_op = None
-        if result.get("error"):
-            self._show_message(
-                _("Select cluster failed: {error}").format(error=result["error"]),
-                _ERROR_STYLE)
-            return
-        if result.get("duplicate"):
-            # Ч4 (plan_2026_10_15_extract_and_read_paths_cleanup): a refdes that
-            # stands on the board twice — the guard's OWN lines, verbatim (both
-            # copies, which one is an orphan, what to do), and NOTHING was
-            # selected. Never worded as "stale": the fix is deleting the extra
-            # copy, not identifying the instance again.
-            self._show_message("\n".join(result["duplicate"]), _ERROR_STYLE)
-            return
-        if result.get("stale"):
-            self._show_message(
-                _("the remembered refs are stale ({reasons}) — nothing was "
-                  "selected; identify the instance again with “Fill from "
-                  "selection” on the cell-anchor page")
-                .format(reasons="; ".join(result["stale"])),
-                _WARN_STYLE)
-            return
-        if result.get("line"):
-            # «Select cell» with copper (СЦ-2): the honest counters line, ready
-            # for "Re-read by selection".
-            self._show_message(result["line"], _SUCCESS_STYLE)
-            return
-        # часть 3, п.4: the CellDock buttons are gone, so these two lines send the
-        # user to the ENTITY leaf's item instead — a message pointing at a caption
-        # that is no longer on screen is the untruth Р6 of
-        # plan_2026_09_17_cell_dialog_min_width removed.
-        if result.get("identified"):
-            self._show_message(
-                _("Selected the {count} identified footprint(s) of this cell on "
-                  "the board — ready for “Update from selection…”.")
-                .format(count=result["selected"]),
-                _SUCCESS_STYLE)
-        elif result["selected"]:
-            self._show_message(
-                _("Selected {count} footprint(s) of cluster {cluster!r} on the "
-                  "board — ready for “Update from selection…”.")
-                .format(count=result["selected"], cluster=result["cluster"]),
-                _SUCCESS_STYLE)
-        else:
-            self._show_message(
-                _("No footprint of cluster {cluster!r} is on the current board "
-                  "— the remembered context no longer resolves; select the "
-                  "cluster by hand.").format(cluster=result["cluster"]),
-                _WARN_STYLE)
+        text, style = select_cell_report(result)
+        self._show_message(text, style)
 
     def _on_select_cluster_failed(self, message: str) -> None:
         self._active_op = None
