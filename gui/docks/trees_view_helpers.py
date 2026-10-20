@@ -49,6 +49,23 @@ def _is_copper_group_item(data) -> bool:
 # pseudo-node like every other copper node).
 _COPPER_ROW_KINDS = frozenset({"net_trace", "copper"})
 
+# Panel identity of the "Copper" pseudo-node's selection (Т1.2): selecting it
+# leaves the right-hand panel EMPTY, which is neither "a node's editor"
+# (_current_node_ref is a ref str) nor "the anchor form / the read-only stub"
+# (_current_node_ref is None) — so the panel state needs a value of its own, or
+# _refresh_form_panel's "same selection, keep the form" guard would confuse the
+# empty panel with the anchor form and keep the wrong one.
+_COPPER_GROUP_PANEL = object()
+
+# Panel identity of a MULTI-node selection (Ч1 п.9 of
+# plan_2026_10_14_tree_group_move_and_mount_rebase, once the tree allows
+# ExtendedSelection): two or more selected real nodes have no single editor, so
+# the panel shows the COUNT instead. The identity is a TUPLE with that count,
+# because `_refresh_form_panel` keeps the current page while the identity is
+# unchanged — with a bare marker the panel would keep showing "2 nodes selected"
+# after the selection grew to three.
+_MULTI_SELECTION_PANEL = "multi-selection"
+
 
 def _anchor_label(anchor: TreeAnchor) -> str:
     """Human-readable label for a tree's anchor pseudo-root — one branch per

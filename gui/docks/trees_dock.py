@@ -95,6 +95,7 @@ from .trees_dnd import make_node_tree_widget
 # shrink" rule of the Ч1-А доделка moved them out of this file. Re-exported
 # here so every caller and test seam still reaches them through this module
 # (`.trees_mount_point` still fetches `_mount_marker_keys` through it).
+from .live_cfg import live_cfg
 from .trees_markers import (  # noqa: F401 — re-export for callers and tests
     _MOUNT_POINT_NS,
     _TREE_ANCHOR_NS,
@@ -113,8 +114,10 @@ from .trees_markers import (  # noqa: F401 — re-export for callers and tests
 # re-exported, so every caller and test that asks THIS module for them is
 # unchanged.
 from .trees_view_helpers import (  # noqa: F401 — re-export for callers and tests
+    _COPPER_GROUP_PANEL,
     _COPPER_ROW_KINDS,
     _CopperGroupItem,
+    _MULTI_SELECTION_PANEL,
     _anchor_label,
     _is_copper_group_item,
     _tree_net_trace_nets,
@@ -236,22 +239,8 @@ _POSITIONLESS_NODE_KINDS = frozenset({"net_trace", "copper"})
 # names the marker explicitly through _is_copper_group_item.
 
 
-# Panel identity of the "Copper" pseudo-node's selection (Т1.2): selecting it
-# leaves the right-hand panel EMPTY, which is neither "a node's editor"
-# (_current_node_ref is a ref str) nor "the anchor form / the read-only stub"
-# (_current_node_ref is None) — so the panel state needs a value of its own, or
-# _refresh_form_panel's "same selection, keep the form" guard would confuse the
-# empty panel with the anchor form and keep the wrong one.
-_COPPER_GROUP_PANEL = object()
-
-# Panel identity of a MULTI-node selection (Ч1 п.9 of
-# plan_2026_10_14_tree_group_move_and_mount_rebase, once the tree allows
-# ExtendedSelection): two or more selected real nodes have no single editor, so
-# the panel shows the COUNT instead. The identity is a TUPLE with that count,
-# because `_refresh_form_panel` keeps the current page while the identity is
-# unchanged — with a bare marker the panel would keep showing "2 nodes selected"
-# after the selection grew to three.
-_MULTI_SELECTION_PANEL = "multi-selection"
+# (both panel identities live with the rest of the Copper pseudo-node's view
+# values in trees_view_helpers.py, re-exported through the import block above)
 _ORIGIN = Vector2.from_xy(0, 0)
 
 
@@ -1913,6 +1902,9 @@ class TreesDock(QWidget):
         below reparents visually without touching _dock."""
         return AnchorFormWidget(
             self, self._all_ref_candidates(), cfg=self._cfg,
+            # The form asks the DOCK at use time, never a snapshot (2026-10-20):
+            # a cell saved while this panel is open must reach its live reads.
+            cfg_supplier=lambda: self._cfg,
             sheet_names=self._ctx.sheet_names if self._ctx is not None else {},
             role_candidates=self._live_roles(),
             cluster_candidates=self._live_clusters(),
@@ -1928,6 +1920,7 @@ class TreesDock(QWidget):
         Parent combo's rows (Э1, plan_2026_09_12_node_dialog_usability)."""
         return NodeFormWidget(
             self, self._all_ref_candidates(), self._used_refs(), _("Edit node"),
+            cfg_supplier=lambda: self._cfg,
             # No `adapter=`: see the note in _build_anchor_form (Т2-8).
             cfg=self._cfg,
             sheet_names=self._ctx.sheet_names if self._ctx is not None else {},
@@ -4215,13 +4208,17 @@ class NodeFormWidget(QWidget):
     _dock: Optional["TreesDock"] = None
     _touched: bool = False
 
+    # Ask-at-use-time, never a snapshot (2026-10-20: a cell saved while this form
+    # was open stayed invisible to "Read current position"). See live_cfg.
+    _cfg = live_cfg()
+
     def __init__(self, parent, ref_candidates: list[tuple[str, str]], used_refs: set[str],
                  title: str, cfg=None, adapter=None, sheet_names=None,
                  tree=None, parent_node=None, existing=None,
                  module_candidates=None, all_trees=None,
                  role_candidates=None, cluster_candidates=None,
                  parent_candidates=None, net_trace_candidates=None,
-                 used_ref_locations=None):
+                 used_ref_locations=None, cfg_supplier=None):
         super().__init__(parent)
         # `title` is accepted for signature compatibility with the former
         # QDialog (its caller set the window title); a plain QWidget form has
@@ -4232,7 +4229,7 @@ class NodeFormWidget(QWidget):
         # Ref combo's greyed rows + tooltip and build_node's own wording.
         # Optional: a standalone form may pass only the set (no greying then).
         self._used_ref_locations = dict(used_ref_locations or {})
-        self._cfg = cfg
+        self._cfg_supplier = cfg_supplier or (lambda: cfg)   # dock: lambda: self._cfg
         self._adapter = adapter
         # Set by _base_pose: whether the last base resolve had anything to read
         # WITH. _no_live_base_reason keys its "no live board connection" text on
@@ -5663,7 +5660,7 @@ class _NodeDialog(QDialog):
                  module_candidates=None, all_trees=None,
                  role_candidates=None, cluster_candidates=None,
                  parent_candidates=None, net_trace_candidates=None,
-                 used_ref_locations=None):
+                 used_ref_locations=None, cfg_supplier=None):
         super().__init__(parent)
         self.setWindowTitle(title)
         # The FORM is built with the original `parent` (the TreesDock, not this
@@ -5671,6 +5668,7 @@ class _NodeDialog(QDialog):
         # addWidget below reparents the form visually without touching _dock.
         self._form = NodeFormWidget(
             parent, ref_candidates, used_refs, title, cfg=cfg, adapter=adapter,
+            cfg_supplier=cfg_supplier,
             sheet_names=sheet_names, tree=tree, parent_node=parent_node,
             existing=existing, module_candidates=module_candidates,
             net_trace_candidates=net_trace_candidates,
@@ -5867,12 +5865,14 @@ class AnchorFormWidget(QWidget):
     Extracted from the former _AnchorDialog (plan §2.1); the class keeps the
     exact constructor signature and every field/method the picker/edit flows
     use, just as a plain QWidget."""
+    _cfg = live_cfg()   # same rule/reason as NodeFormWidget._cfg — see live_cfg
+
     def __init__(self, parent, ref_candidates, *, cfg=None, sheet_names=None,
                  role_candidates=None, cluster_candidates=None, existing=None,
-                 tree=None, adapter=None, all_trees=None):
+                 tree=None, adapter=None, all_trees=None, cfg_supplier=None):
         super().__init__(parent)
         self._ref_candidates = list(ref_candidates or [])
-        self._cfg = cfg
+        self._cfg_supplier = cfg_supplier or (lambda: cfg)
         self._sheet_names = dict(sheet_names or {})
         self._role_candidates = list(role_candidates or [])
         self._cluster_candidates = list(cluster_candidates or [])
@@ -7076,7 +7076,7 @@ class _AnchorDialog(QDialog):
 
     def __init__(self, parent, ref_candidates, *, cfg=None, sheet_names=None,
                  role_candidates=None, cluster_candidates=None, existing=None,
-                 tree=None):
+                 tree=None, cfg_supplier=None):
         super().__init__(parent)
         self.setWindowTitle(_("Set anchor"))
         self._result: Optional[TreeAnchor] = None
@@ -7087,7 +7087,7 @@ class _AnchorDialog(QDialog):
             parent, ref_candidates, cfg=cfg, sheet_names=sheet_names,
             role_candidates=role_candidates,
             cluster_candidates=cluster_candidates, existing=existing,
-            tree=tree)
+            tree=tree, cfg_supplier=cfg_supplier)
         layout = QVBoxLayout(self)
         layout.addWidget(self._form)
         buttons = QHBoxLayout()

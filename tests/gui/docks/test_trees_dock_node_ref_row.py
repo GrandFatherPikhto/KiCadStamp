@@ -516,13 +516,14 @@ def test_a_ref_taken_in_another_tree_is_refused_by_the_forest_probe(
 
 def test_an_entity_staged_while_the_form_is_open_resolves_at_apply(
         main_window, tmp_path, format3):
-    """(и) The name -> uuid map comes from the DOCK's CURRENT cfg — the snapshot a
-    form took when it OPENED is stale the moment anything is created elsewhere (a
-    Save in another dock, a "Create entity" of this very session). The rig
-    reproduces Denis's order exactly: the form is open FIRST, the Entity is
-    written and the dock re-reads the graph AFTERWARDS — so `form._cfg` no longer
-    is `dock._cfg` at Apply time, and judging by the snapshot would refuse a record
-    that exists (the false "names no existing entities record")."""
+    """(и, subject changed 20.10) The name -> uuid map comes from the dock's
+    CURRENT cfg — and since the 2026-10-20 fix the form has NO snapshot to go
+    stale: it asks the dock at use time. The rig keeps Denis's order exactly (the
+    form is open FIRST, the Entity is written and the dock re-reads the graph
+    AFTERWARDS), so the assertion that USED to read "form._cfg is not dock._cfg"
+    now reads the stronger "the form is looking at the dock's live object"; the
+    end-to-end half (a free-typed name resolves, the uuid is written) is
+    unchanged."""
     from kicadstamp.config_writer import read_data, write_data
 
     dock, root = _rich_dock(main_window, tmp_path)
@@ -532,7 +533,8 @@ def test_an_entity_staged_while_the_form_is_open_resolves_at_apply(
     data["entities"].append({"name": "E_NEW", "cell": "c", "uuid": "U-NEW"})
     write_data(root, data)                            # the product's write path
     dock.refresh_ref_candidates()                     # the dock swaps its cfg
-    assert form._cfg is not dock._cfg, "the rig must keep the form's snapshot stale"
+    assert form._cfg is dock._cfg, (
+        "the form must ASK the dock at use time — a snapshot is the 20.10 bug")
 
     form.ref_combo.setCurrentText("E_NEW")            # free-typed: the combo is old
     assert form.apply() is True
@@ -540,6 +542,36 @@ def test_an_entity_staged_while_the_form_is_open_resolves_at_apply(
     written = _node_shot(root)
     assert (written["ref"], written["ref_uuid"]) == ("E_NEW", "U-NEW")
     assert _reload(root).trees[0].nodes[0].ref == "E_NEW"
+
+
+def test_a_cell_saved_while_the_form_is_open_reaches_its_live_reads(
+        main_window, tmp_path, format3):
+    """THE 2026-10-20 live fact (profile 3ch-awg-tia-v103): a cell is re-read from
+    the selection and saved while a node form is open; "Read current position"
+    kept comparing the board against the OLD cell and refused a pair that is rigid
+    on the board (2.653 mm at the FPGA).
+
+    The form must not hold a cfg COPY: it asks the dock at use time, so the very
+    object `refresh_ref_candidates` swaps in is the one every live read sees. The
+    cell pins both halves — the identity and the CONTENT (the new cell shows up).
+    Mutation: `self._cfg = cfg` in `NodeFormWidget.__init__` (the snapshot) reddens
+    this."""
+    from kicadstamp.config_writer import read_data, write_data
+
+    dock, root = _rich_dock(main_window, tmp_path)
+    _widget, _item, form = _open_form(dock, "E1")     # the form is OPEN now
+    assert "c" in form._cfg.cells
+
+    data = read_data(root)
+    data["cells"]["c"] = {"components": [{"role": "RE_READ_FROM_SELECTION"}]}
+    write_data(root, data)                            # what CellDock's Save does
+    dock.refresh_ref_candidates()                     # and what the signal does
+
+    assert form._cfg is dock._cfg, (
+        "the form kept a cfg snapshot taken at construction — the 20.10 bug")
+    assert [c.role for c in form._cfg.cells["c"].components] == [
+        "RE_READ_FROM_SELECTION"], (
+        "the form's live reads still see the OLD cell")
 
 
 def test_reparenting_the_handle_under_a_mount_is_refused(main_window, tmp_path,
