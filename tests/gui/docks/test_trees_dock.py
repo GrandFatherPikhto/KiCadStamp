@@ -2219,10 +2219,13 @@ def test_reread_node_flow_overwrites_xy_rotation_and_marks_dirty(
 
 
 def test_reread_node_flow_resolution_failure_leaves_node_untouched(
-        main_window, tmp_path, monkeypatch, qapp):
+        main_window, tmp_path, monkeypatch, qapp, caplog):
     """Error path (a ref that can't currently be resolved live) leaves the
-    node's old values intact — no partial write — and does not mark dirty (the
-    warning is shown by the worker's UI half, hence the pump)."""
+    node's old values intact — no partial write — and does not mark dirty.
+
+    Ч2 moved this refusal from a modal to a WARNING Log line (Denis 20.10,
+    decision 8), so the cell watches the Log; `QMessageBox.warning` is armed to
+    explode, which makes a returning modal a failure instead of a hang."""
     import gui.docks.trees_dock as td_mod
     main_window.connection.board = _FakeBoard()
     dock, _root = _dock_with(main_window, tmp_path)
@@ -2231,20 +2234,22 @@ def test_reread_node_flow_resolution_failure_leaves_node_untouched(
     node.rotation = 12.0
     before = (node.xy, node.polar, node.rotation)
 
-    warnings = []
-    monkeypatch.setattr(td_mod.QMessageBox, "warning",
-                        lambda *a, **k: warnings.append(a) or None)
+    def _explode(*_a, **_k):
+        raise AssertionError("this refusal must not open a modal any more")
+
+    monkeypatch.setattr(td_mod.QMessageBox, "warning", _explode)
 
     def _boom(*a, **k):
         raise ValidationError("ref not on board")
     monkeypatch.setattr(td_mod, "_resolve_live_offset", _boom)
 
-    dock._reread_node_flow(tree, node)
-    _pump(qapp, lambda: not main_window.connection.long_op_active)
+    with caplog.at_level(logging.WARNING, logger="gui.docks.trees_dock"):
+        dock._reread_node_flow(tree, node)
+        _pump(qapp, lambda: not main_window.connection.long_op_active)
 
     assert (node.xy, node.polar, node.rotation) == before
     assert dock._dirty is False
-    assert warnings
+    assert any("ref not on board" in r.getMessage() for r in caplog.records)
 
 
 # ── tree-anchor live base: every anchor mode (2026-09-02) ──────────────────
@@ -5127,10 +5132,11 @@ def test_a_non_rigid_child_node_is_refused(main_window, tmp_path):
     assert "worst roles" in text
 
 
-def test_reread_mirrored_instance_warns_and_leaves_the_node_untouched(
-        main_window, tmp_path, monkeypatch, qapp):
-    """§2.3: "Reread current position" on a mirrored instance shows the honest
-    warning and writes NOTHING."""
+def test_reread_mirrored_instance_logs_and_leaves_the_node_untouched(
+        main_window, tmp_path, monkeypatch, qapp, caplog):
+    """§2.3: "Reread current position" on a mirrored instance says so in the Log
+    and writes NOTHING. Ч2: the refusal is a WARNING line, not a modal (Denis
+    20.10, decision 8) — `QMessageBox.warning` is armed to explode."""
     import gui.docks.trees_dock as td_mod
 
     dock, _root = _dock_with(main_window, tmp_path, LIVE_CLUSTER_CFG)
@@ -5146,15 +5152,18 @@ def test_reread_mirrored_instance_warns_and_leaves_the_node_untouched(
         _live_fp("IC2", "CAP", "CL", 40.0, 56.0, 0.0,
                  layer=BoardLayer.BL_B_Cu),
     ]))
-    warnings = []
-    monkeypatch.setattr(td_mod.QMessageBox, "warning",
-                        lambda *a, **k: warnings.append(a) or None)
 
-    dock._reread_node_flow(tree, node)
-    _pump(qapp, lambda: not main_window.connection.long_op_active)
+    def _explode(*_a, **_k):
+        raise AssertionError("this refusal must not open a modal any more")
 
-    assert warnings
-    assert "MIRRORED" in str(warnings[0][2])
+    monkeypatch.setattr(td_mod.QMessageBox, "warning", _explode)
+
+    with caplog.at_level(logging.WARNING, logger="gui.docks.trees_dock"):
+        dock._reread_node_flow(tree, node)
+        _pump(qapp, lambda: not main_window.connection.long_op_active)
+
+    assert any("MIRRORED" in r.getMessage() for r in caplog.records), \
+        "the mirror refusal must reach the Log"
     assert (node.xy, node.polar, node.rotation) == before
     assert dock._dirty is False
 

@@ -33,7 +33,7 @@ from .config.models import (
 )
 from .domain.board import Footprint, Track, Via
 from .domain.geometry import Box2, Vector2, clip_segment_to_box
-from .exceptions import ValidationError, format_fatal_error
+from .exceptions import ValidationError, format_read_fatal
 from .template_selection import _filter_tracks_and_vias_within_selection
 from .channel_copy import _FOREIGN_BBOX_MARGIN_MM
 from .constants import ANGLE_TOLERANCE_DEG, POSITION_TOLERANCE_MM
@@ -223,9 +223,20 @@ def capture_imprint(
     the same derivation for both Record tabs, never a network-prefix guess
     (channel_copy.sheet_name_of_fp). Without either the record is "in place
     only" (source_sheet None).
+
+    READ-ONLY FOOTER RULE (Ч2, plan_2026_10_15_extract_and_read_paths_cleanup):
+    both refusals below carry read_only_verdict(), NOT the caller's verdict.
+    Capture never follows a board write — every caller (Record, Re-source, the
+    Reread/Apply diff, this module's own build_imprint_diff, the CLI, the MCP
+    server, the probes) reads the board here and writes, if at all, only the
+    CONFIG afterwards — so "nothing was placed or modified on the board" is
+    true for every one of them, while "Fix the config and run again" is false
+    (the fix is a board refdes or a pad, not the config). A future caller that
+    WRITES the board BEFORE capturing owes its own write verdict: it must not
+    rely on this module's footer.
     """
     if not refs:
-        raise ValidationError(format_fatal_error(
+        raise ValidationError(format_read_fatal(
             _("cannot record imprint {name!r}: no refs given").format(name=name),
             [_("an Imprint needs at least one component ref to capture")]))
 
@@ -233,7 +244,7 @@ def capture_imprint(
     fp_by_ref = {fp.ref: fp for fp in all_footprints}
     missing = sorted(set(refs) - set(fp_by_ref))
     if missing:
-        raise ValidationError(format_fatal_error(
+        raise ValidationError(format_read_fatal(
             _("cannot record imprint {name!r}: refs not found on the board: {refs}").format(
                 name=name, refs=", ".join(missing)),
             [_("Imprint capture is a snapshot of real footprints — every "

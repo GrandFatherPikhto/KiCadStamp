@@ -35,7 +35,7 @@ from dataclasses import dataclass, field
 from typing import Any, Iterable, Mapping, Optional
 
 from kicadstamp.cluster_matching import cluster_prefix_match
-from kicadstamp.exceptions import ValidationError, format_fatal_error
+from kicadstamp.exceptions import ValidationError, format_read_fatal
 from kicadstamp.i18n import _
 
 from .docks.reead import group_selected
@@ -164,7 +164,7 @@ def identify_cell_instance(cell, selected, cluster_members, entities=(),
     would pin the wrong instance."""
     selected = list(selected or ())
     if not selected:
-        raise ValidationError(format_fatal_error(
+        raise ValidationError(format_read_fatal(
             _("nothing is selected on the board — select the components of ONE "
               "instance of cell {cell!r}").format(cell=_cell_name(cell)),
             [_("a spoke cell is identified by exactly ONE pair; an ordinary "
@@ -191,7 +191,7 @@ def identify_cell_instance(cell, selected, cluster_members, entities=(),
 
     untagged = [s for s in selected if not getattr(s, "role", None)]
     if untagged:
-        raise ValidationError(format_fatal_error(
+        raise ValidationError(format_read_fatal(
             _("no Role on {refs} — every selected component must be tagged with "
               "a Role before the instance can be identified").format(
                   refs=_refs(untagged)),
@@ -201,7 +201,7 @@ def identify_cell_instance(cell, selected, cluster_members, entities=(),
     duplicated = sorted(role for role, count in Counter(
         s.role for s in selected).items() if count > 1)
     if duplicated:
-        raise ValidationError(format_fatal_error(
+        raise ValidationError(format_read_fatal(
             _("the same Role is selected twice ({roles}) — select exactly one "
               "component per Role").format(roles=", ".join(duplicated)),
             [_("two components of one Role say nothing about WHICH component is "
@@ -209,7 +209,7 @@ def identify_cell_instance(cell, selected, cluster_members, entities=(),
 
     clusters = {s.cluster for s in selected}
     if len(clusters) > 1:
-        raise ValidationError(format_fatal_error(
+        raise ValidationError(format_read_fatal(
             _("the selection spans several clusters ({clusters}) — an instance "
               "belongs to ONE cluster").format(
                   clusters=", ".join(sorted(str(c) for c in clusters))),
@@ -217,7 +217,7 @@ def identify_cell_instance(cell, selected, cluster_members, entities=(),
                "identify again")]))
     cluster = next(iter(clusters), None)
     if not cluster:
-        raise ValidationError(format_fatal_error(
+        raise ValidationError(format_read_fatal(
             _("no Cluster on {refs} — the instance cannot be told from another "
               "one of the same cell").format(refs=_refs(selected)),
             [_("set the Cluster on the board — the “Refs” tab of this cell "
@@ -230,7 +230,7 @@ def identify_cell_instance(cell, selected, cluster_members, entities=(),
     groups = group_selected(selected, entities, sheet_names)
     if len(groups) > 1:
         sheets = sorted(str(sheet) for (_cluster, sheet) in groups)
-        raise ValidationError(format_fatal_error(
+        raise ValidationError(format_read_fatal(
             _("cluster {cluster!r} stands on several sheets ({sheets}) — the "
               "selection mixes two instances").format(
                   cluster=cluster, sheets=", ".join(sheets)),
@@ -242,7 +242,7 @@ def identify_cell_instance(cell, selected, cluster_members, entities=(),
     foreign = [s for s in selected if s.role not in cell_roles]
     if foreign:
         first = foreign[0]
-        raise ValidationError(format_fatal_error(
+        raise ValidationError(format_read_fatal(
             _("{ref} has Role {role!r} which is not in cell {cell!r}").format(
                 ref=first.ref, role=first.role, cell=_cell_name(cell)),
             [_("cell {cell!r} has roles: {roles}").format(
@@ -263,7 +263,7 @@ def identify_cell_instance(cell, selected, cluster_members, entities=(),
         # can say which pair is meant — and it must name every role exactly once.
         missing = sorted(cell_roles - {s.role for s in selected})
         if missing or len(selected) != len(cell_roles):
-            raise ValidationError(format_fatal_error(
+            raise ValidationError(format_read_fatal(
                 _("a spoke needs exactly one component per cell role: missing "
                   "{missing}").format(missing=", ".join(missing) or "?"),
                 [_("select ONE pair of this cell on the board (the repeated "

@@ -31,7 +31,7 @@ from kicadstamp.config import clone_placement_effective_name
 from kicadstamp.constants import CLUSTER_FIELD_NAME, ROLE_FIELD_NAME
 from kicadstamp.domain.board import Footprint, Track, Via
 from kicadstamp.domain.geometry import Vector2
-from kicadstamp.exceptions import ValidationError, format_fatal_error
+from kicadstamp.exceptions import ValidationError, format_read_fatal
 from kicadstamp.geometry.cell_anchor import cell_mount_offset
 from kicadstamp.geometry.spoke_layout import rotate_local_offset
 from kicadstamp.i18n import _
@@ -304,7 +304,7 @@ def classify_selection_anchor(adapter, items, label: str = "anchor") -> dict:
     selected pad whose owner footprint is not on the board."""
     items = list(items or [])
     if not items:
-        raise ValidationError(format_fatal_error(
+        raise ValidationError(format_read_fatal(
             _("{label}: nothing is selected on the board — select one component "
               "(or one of its pads)").format(label=label),
             [_("click a component (or one of its pads) in the PCB editor, then "
@@ -318,7 +318,7 @@ def classify_selection_anchor(adapter, items, label: str = "anchor") -> dict:
             pad_uuid = _pad_uuid(item)
             owner = find_pad_owner(adapter, adapter.get_footprints(), pad_uuid)
             if owner is None:
-                raise ValidationError(format_fatal_error(
+                raise ValidationError(format_read_fatal(
                     _("{label}: the selected pad {pad!r} has no footprint "
                       "owner on the live board").format(label=label,
                                                         pad=item.number),
@@ -345,7 +345,7 @@ def classify_selection_anchor(adapter, items, label: str = "anchor") -> dict:
         listing = ", ".join(
             "{c!r} ({refs})".format(c=cluster, refs=", ".join(refs))
             for cluster, refs in sorted(clusters.items()))
-        raise ValidationError(format_fatal_error(
+        raise ValidationError(format_read_fatal(
             _("{label}: the selection spans several clusters — {listing}")
             .format(label=label, listing=listing),
             [_("an anchor belongs to ONE placed instance; select components of "
@@ -373,7 +373,7 @@ def classify_selection_anchor(adapter, items, label: str = "anchor") -> dict:
             listing = ", ".join(
                 "{r!r} ({refs})".format(r=role, refs=", ".join(refs))
                 for role, refs in sorted(roles.items()))
-            raise ValidationError(format_fatal_error(
+            raise ValidationError(format_read_fatal(
                 _("{label}: the selection contains several roles — {listing}")
                 .format(label=label, listing=listing),
                 [_("select exactly ONE component (or its pad), then press the "
@@ -382,7 +382,7 @@ def classify_selection_anchor(adapter, items, label: str = "anchor") -> dict:
         pad = None
 
     if not role:
-        raise ValidationError(format_fatal_error(
+        raise ValidationError(format_read_fatal(
             _("{label}: the selected footprint has no Role field").format(label=label),
             [_("tag the component with a Role (Tools -> tree -> Tag selected) "
                "or pick another component")]))
@@ -414,7 +414,7 @@ def read_anchor_source(adapter, items, cell_roles, cell_name: str,
     then skipped."""
     items = list(items or [])
     if not items:
-        raise ValidationError(format_fatal_error(
+        raise ValidationError(format_read_fatal(
             _("{label}: nothing is selected on the board — select one component "
               "(or one of its pads) of cell {cell!r}").format(
                   label=label, cell=cell_name),
@@ -423,7 +423,7 @@ def read_anchor_source(adapter, items, cell_roles, cell_name: str,
     read = classify_selection_anchor(adapter, items, label)
     role = read["role"]
     if cell_roles and role and role not in cell_roles:
-        raise ValidationError(format_fatal_error(
+        raise ValidationError(format_read_fatal(
             _("{label}: role {role!r} is not a component of cell {cell!r}")
             .format(label=label, role=role, cell=cell_name),
             [_("the cell anchor must name one of this cell's own components — "
@@ -481,7 +481,7 @@ def _single_candidate(candidates, cell_name: str, cluster: str):
     if len(candidates) > 1:
         names = ", ".join(sorted(
             clone_placement_effective_name(c) for c in candidates))
-        raise ValidationError(format_fatal_error(
+        raise ValidationError(format_read_fatal(
             _("cell {cell!r}: several clone placements match cluster {cluster!r} "
               "— {names}").format(cell=cell_name, cluster=cluster, names=names),
             [_("pick a more specific Cluster/Sheet, or edit the anchor while "

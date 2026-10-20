@@ -23,7 +23,7 @@ from .domain.board import Footprint, Pad, Via, Track
 from .domain.geometry import Vector2
 
 from .constants import POSITION_TOLERANCE_MM, ROLE_FIELD_NAME
-from .exceptions import ValidationError, format_fatal_error
+from .exceptions import ValidationError, format_read_fatal
 from .geometry.pad_area import PadArea, pad_area_of, warn_bbox_fallback
 from .kicad.adapter import KiCadBoardAdapter
 from .utils.units import MM
@@ -336,14 +336,14 @@ def _find_origin(footprints: list[Footprint], vias: list[Via],
     if origin_via_net is not None:
         candidates = [v for v in vias if v.net_name == origin_via_net]
         if not candidates:
-            raise ValidationError(format_fatal_error(
+            raise ValidationError(format_read_fatal(
                 _("--origin-by-via-net {net!r} not found in selection").format(net=origin_via_net),
                 [_("among {count} selected vias, none is on net {net!r}").format(
                     count=len(vias), net=origin_via_net)]
             ))
         if len(candidates) > 1:
             positions = [f"({v.position.x/MM:.3f}, {v.position.y/MM:.3f})" for v in candidates]
-            raise ValidationError(format_fatal_error(
+            raise ValidationError(format_read_fatal(
                 _("--origin-by-via-net {net!r} is ambiguous").format(net=origin_via_net),
                 [_("selection contains {count} vias on this net: {pos} — "
                    "refine the selection (keep only one such via) or use "
@@ -356,7 +356,7 @@ def _find_origin(footprints: list[Footprint], vias: list[Via],
         candidates = [fp for fp in footprints
                       if adapter.get_field_value(fp, ROLE_FIELD_NAME) == origin_component_role]
         if not candidates:
-            raise ValidationError(format_fatal_error(
+            raise ValidationError(format_read_fatal(
                 _("--origin-by-component-role {role!r} not found in selection").format(role=origin_component_role),
                 [_("among {count} selected components, none has role {role!r}").format(
                     count=len(footprints), role=origin_component_role)]
@@ -372,7 +372,7 @@ def _find_origin(footprints: list[Footprint], vias: list[Via],
                 sheet_names or {}, _("extract origin"), origin_component_role)
         if len(candidates) > 1:
             refs = sorted(fp.ref for fp in candidates)
-            raise ValidationError(format_fatal_error(
+            raise ValidationError(format_read_fatal(
                 _("--origin-by-component-role {role!r} is ambiguous").format(role=origin_component_role),
                 [_("selection contains {count} components with role {role!r}: {refs} — "
                    "set the Origin Cluster and/or Sheet to pick one").format(
@@ -383,7 +383,7 @@ def _find_origin(footprints: list[Footprint], vias: list[Via],
             return fp.position
         pad = adapter.get_pad_by_number(fp, origin_component_pad)
         if pad is None:
-            raise ValidationError(format_fatal_error(
+            raise ValidationError(format_read_fatal(
                 _("--origin-by-component-pad {pad!r} not found").format(pad=origin_component_pad),
                 [_("component with role {role!r} ({ref}) has no pad {pad!r} — "
                    "pad numbers are strings as in KiCad").format(

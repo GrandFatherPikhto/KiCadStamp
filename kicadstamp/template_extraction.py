@@ -48,7 +48,7 @@ from .domain.board import Footprint, Via, Track
 
 from .constants import ROLE_FIELD_NAME
 from .degenerate_segments import collapse_degenerate_segments
-from .exceptions import ValidationError, format_fatal_error
+from .exceptions import ValidationError, format_read_fatal
 from .kicad.adapter import KiCadBoardAdapter
 from .net_resolution import ROLELESS_NETS, discover_net_template_pattern, parametrize_net
 from .net_from_role_resolver import classify_net
@@ -273,7 +273,7 @@ def extract_template_from_selection(
                     .format(total=len(tracks_selected), kept=len(tracks)))
 
     if not footprints and not vias and not tracks:
-        raise ValidationError(format_fatal_error(
+        raise ValidationError(format_read_fatal(
             _("nothing to extract"),
             [_("Nothing is selected (or selected objects are not footprints/vias/tracks) — "
                "select the desired board area in KiCad before running")]
@@ -297,7 +297,7 @@ def extract_template_from_selection(
         roles_seen[role] = ref
 
     if problems:
-        raise ValidationError(format_fatal_error(_("problems in current selection"), problems))
+        raise ValidationError(format_read_fatal(_("problems in current selection"), problems))
 
     if origin is None:
         # Caller (CLI/scripts) didn't pre-resolve the origin — the default
@@ -373,7 +373,7 @@ def extract_template_from_selection(
             fp_pads = adapter.get_footprint_pads(fp)
             fp_nets = sorted({p.net_name for p in fp_pads if p.net_name})
             if literal not in fp_nets:
-                raise ValidationError(format_fatal_error(
+                raise ValidationError(format_read_fatal(
                     _("--net-template-role for role {role!r} asks for net {literal!r}, "
                       "but it is not on any pad of {ref}").format(role=role, literal=literal,
                                                                    ref=fp.ref),
@@ -381,7 +381,7 @@ def extract_template_from_selection(
                        "--net-template-role or in the role itself").format(nets=fp_nets)]
                 ))
             if literal not in net_template_map:
-                raise ValidationError(format_fatal_error(
+                raise ValidationError(format_read_fatal(
                     _("--net-template-role for role {role!r} asks for net {literal!r}, "
                       "which is not in net_template_map").format(role=role, literal=literal),
                     [_("add {literal!r} to --net-template/net_template (or to params "

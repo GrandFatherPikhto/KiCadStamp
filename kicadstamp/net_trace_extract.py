@@ -36,7 +36,7 @@ from .config import NetTrace, net_trace_effective_name
 from .config.sexp_format import dict_to_sexp, sexp_to_dict
 from .exceptions import (
     ValidationError,
-    format_fatal_error,
+    format_read_fatal,
     unknown_extension_config_error,
     yaml_removed_config_error,
 )
@@ -139,7 +139,7 @@ def extract_net_trace(
         pad = adapter.get_pad_by_number(anchor_fp, anchor_pad)
         if pad is None:
             ref = anchor_fp.ref
-            raise ValidationError(format_fatal_error(
+            raise ValidationError(format_read_fatal(
                 _("{label}: anchor pad {pad!r} not found on {ref}").format(
                     label=label, pad=anchor_pad, ref=ref),
                 [_("--anchor-pad must name an existing pad number of the anchor "
@@ -191,7 +191,7 @@ def extract_net_trace(
         })
 
     if not tracks and not vias:
-        raise ValidationError(format_fatal_error(
+        raise ValidationError(format_read_fatal(
             _("net {net!r} has no copper (tracks or vias) on the board").format(net=net),
             [_("a net_traces record needs at least one track or via on the net — "
                "check the net name (are you looking at a LOCAL hierarchical net "

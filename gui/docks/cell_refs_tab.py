@@ -72,7 +72,7 @@ from PyQt6.QtWidgets import (QComboBox, QHBoxLayout, QHeaderView, QLabel,
 
 from kicadstamp.constants import CLUSTER_FIELD_NAME, ROLE_FIELD_NAME
 from kicadstamp.domain.board import Footprint
-from kicadstamp.exceptions import ValidationError, format_fatal_error
+from kicadstamp.exceptions import ValidationError, format_read_fatal
 from kicadstamp.field_overrides import SOURCE_CELL_TABLE, symbol_uuid_of
 from kicadstamp.i18n import _
 from kicadstamp.sheet_names import resolve_sheet_path_names
@@ -160,7 +160,7 @@ def read_selection_rows_worker(payload: dict) -> dict:
     footprints = [item for item in (adapter.get_selected_items() or ())
                   if isinstance(item, Footprint)]
     if not footprints:
-        raise ValidationError(format_fatal_error(
+        raise ValidationError(format_read_fatal(
             _("nothing is selected on the board — select the components to tag"),
             [_("select the components of one instance (a spoke pair, say) in the "
                "PCB editor, then press the button again")]))

@@ -167,20 +167,28 @@ def test_a_non_rigid_reread_lands_in_the_log_and_the_node_keeps_its_numbers(
     assert "re-read the cell from the selection" in logged
 
 
-def test_the_other_refusals_say_it_in_a_modal(monkeypatch):
-    """The same UI half, a refusal of the OLD class: the modal is still opened
-    (Ч2 of the extract cleanup is the task that moves it), so the routing cell
-    above cannot be satisfied by "never show anything"."""
-    shown = []
-    monkeypatch.setattr(trees_mod.QMessageBox, "warning",
-                        lambda *a: shown.append(a))
+def test_the_other_refusals_are_a_warning_line_not_a_modal(monkeypatch, caplog):
+    """The same UI half, a refusal of the OLD class: Ч2 of the extract cleanup
+    moved it to the Log as well (Denis 20.10, decision 8), so the routing cell
+    above cannot be satisfied by "never show anything" — this cell pins the
+    OTHER line's SEVERITY (a WARNING, while the non-rigid class stays an ERROR).
+    A modal would fail here: QMessageBox.warning is armed to explode."""
+    def _explode(*_a, **_k):
+        raise AssertionError("this flow opens no modal any more")
+
+    monkeypatch.setattr(trees_mod.QMessageBox, "warning", _explode)
     dock = TreesDock.__new__(TreesDock)
     dock._active_op = None
 
-    dock._finish_reread_node_flow({"ok": False, "error": "ref not on board"},
-                                  _node())
+    with caplog.at_level(logging.WARNING, logger="gui.docks.trees_dock"):
+        dock._finish_reread_node_flow({"ok": False, "error": "ref not on board"},
+                                      _node())
 
-    assert shown and shown[0][2] == "ref not on board"
+    warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+    assert any("ref not on board" in r.getMessage() for r in warnings), \
+        "an ordinary refusal must be a WARNING line in the Log"
+    assert not [r for r in caplog.records if r.levelno == logging.ERROR], \
+        "only the non-rigid class is an ERROR — the flag still classifies"
 
 
 # ── A node under a diverged PARENT is refused naming the PARENT ─────────────

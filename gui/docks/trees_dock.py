@@ -37,6 +37,7 @@ from kicadstamp.exceptions import (
     NonRigidClusterError,
     ValidationError,
     format_fatal_error,
+    read_only_verdict,
 )
 from kicadstamp.i18n import _
 from kicadstamp.link_trees import (
@@ -415,8 +416,9 @@ def run_node_reread_worker(payload: dict) -> dict:
     selection-poll tick produces.
 
     NEVER raises for a refusal: a ValidationError (or any other failure) comes
-    back as {"ok": False, "error": <text>} so the UI half can show the very
-    modal warning it always showed, with the node left untouched. The dock's
+    back as {"ok": False, "error": <text>} so the UI half can write it to the
+    Log, with the node left untouched (Ч2: this flow has no modal any more).
+    The dock's
     OWN live adapter travels in the payload instead of a second one being built
     here — it is the adapter this read always used, and start_long_op holds the
     shared socket for the whole call.
@@ -432,11 +434,15 @@ def run_node_reread_worker(payload: dict) -> dict:
             # A COMPONENT node's address travels in the payload the same way a
             # mount node's base_anchor does. `.get`, not [], so every existing
             # payload (and every existing test's payload) is untouched.
-            component_address=payload.get("component_address"))
+            component_address=payload.get("component_address"),
+            # Ч2: this IS a read — the mirrored refusals of the resolver must
+            # not claim the placement was stopped or the config is at fault.
+            verdict=read_only_verdict())
     except Exception as exc:  # noqa: BLE001 — a refusal is a normal result here
-        # `log_only` (Ч1-А): a NON-RIGID cluster is information, not an
-        # interruption — the UI half writes it to the Log and shows no modal
-        # (Denis 20.10). Every other refusal keeps its modal.
+        # `log_only` (Ч1-А) still CLASSIFIES the cause in plain data: a NON-RIGID
+        # cluster is information about the board, not a failed read. Since Ч2
+        # both classes land in the Log; the flag now picks the line's severity
+        # (ERROR vs WARNING) instead of modal vs Log.
         return {"ok": False, "error": str(exc),
                 "log_only": isinstance(exc, NonRigidClusterError)}
     return {"ok": True, "xy": (offset_mm[0], offset_mm[1]), "rotation": rotation}
@@ -692,7 +698,7 @@ def _resolve_live_offset(cfg, adapter, sheet_names, tree: Tree,
                          parent_node: Optional[TreeNode], ref: str, kind: str | None,
                          base_anchor: Optional[TreeAnchor] = None,
                          component_address: Optional[TreeAnchor] = None, *,
-                         snapshot=None
+                         snapshot=None, verdict: str | None = None
                          ) -> tuple[tuple[float, float], Optional[float]]:
     """((local_offset_x_mm, local_offset_y_mm), relative_rotation_deg | None) for
     the "would-be" child `ref`/`kind` relative to its base (parent_node None =
@@ -735,6 +741,15 @@ def _resolve_live_offset(cfg, adapter, sheet_names, tree: Tree,
     live adapter (the caller's own sign names that cost). Default None = the
     historical behaviour byte for byte, which is what apply/CLI/MCP keep getting.
 
+    `verdict` (Ч2, plan_2026_10_15_extract_and_read_paths_cleanup): the closing
+    line of this helper's two MIRRORED refusals. None keeps the historical footer
+    byte for byte — the WRITE-side callers (_rehang_plan's rehang read,
+    trees_mount_rebase) are preparing a config edit and keep it. The two READING
+    callers (run_node_reread_worker's "Reread current position" and
+    NodeFormWidget._on_read_position) pass read_only_verdict(): nothing is placed
+    or modified on the board here, and the fix is in the board (unmirror the
+    component), not in the config.
+
     A note on the historic path: `resolve_base_live_position` /
     `resolve_base_rotation_deg` stay on THIS module's names, so the existing
     tests' monkeypatches of them keep driving the pass-through kinds (clone/
@@ -757,7 +772,8 @@ def _resolve_live_offset(cfg, adapter, sheet_names, tree: Tree,
         raise ValidationError(format_fatal_error(
             _("the base of this node is MIRRORED on the live board"),
             [_("a tree node cannot store a mirror — unmirror the component in "
-               "KiCad (or pick another base), then read the position again")]))
+               "KiCad (or pick another base), then read the position again")],
+            verdict=verdict))
     base_rot = base_deg if base_deg is not None else 0.0
 
     if component_address is not None:
@@ -792,7 +808,8 @@ def _resolve_live_offset(cfg, adapter, sheet_names, tree: Tree,
         raise ValidationError(format_fatal_error(
             _("this node's instance is MIRRORED on the live board"),
             [_("a tree node cannot store a mirror — unmirror the component in "
-               "KiCad, then read the position again")]))
+               "KiCad, then read the position again")],
+            verdict=verdict))
 
     board_offset = ((child_pos.x - base_pos.x) / MM,
                     (child_pos.y - base_pos.y) / MM)
@@ -3151,17 +3168,17 @@ class TreesDock(QWidget):
 
     def _finish_reread_node_flow(self, result: dict, node: TreeNode) -> None:
         """The worker's result, on the UI thread — the ONLY half that touches a
-        widget (Э1). A refusal shows the very same modal warning the synchronous
-        read showed, with the node left untouched (Э4.3) — EXCEPT the non-rigid
-        cluster refusal (Ч1-А), which is a Log line by decision (Denis 20.10):
-        the node stays untouched either way."""
+        widget (Э1). A refusal is a LOG LINE, never a modal (Denis 20.10): Ч1-А
+        moved the non-rigid cluster refusal (an ERROR line), Ч2 moved the rest
+        (a WARNING line — decision 8 of the Ч0 review). The node stays untouched
+        either way, and the Log shows the reason itself: strip_fatal_block drops
+        the fatal box and the verdict line, which in the GUI say nothing (there
+        is nothing to "run again")."""
         self._active_op = None
         if not result.get("ok"):
-            if result.get("log_only"):
-                show_message(result["error"], _ERROR_STYLE, logger)
-                return
-            QMessageBox.warning(self, _("Reread current position"),
-                                result["error"])
+            show_message(result["error"],
+                         _ERROR_STYLE if result.get("log_only") else _WARN_STYLE,
+                         logger)
             return
         node.xy = result["xy"]
         node.polar = None
@@ -3172,9 +3189,12 @@ class TreesDock(QWidget):
 
     def _on_reread_node_flow_failed(self, message: str) -> None:
         """start_long_op's failure path — reached only by something the worker
-        could not turn into a refusal itself. Same modal, no new wording."""
+        could not turn into a refusal itself. Ч2: a Log line, in the SAME form
+        the dock's other worker failures already use
+        ("Reread inter-node copper failed: {error}"), not a modal."""
         self._active_op = None
-        QMessageBox.warning(self, _("Reread current position"), message)
+        show_message(_("Reread current position failed: {error}").format(error=message),
+                     _ERROR_STYLE, logger)
 
     # ── Inter-node copper: re-read (plan_2026_09_12_internode_copper_core Э4) ──
 
@@ -5260,7 +5280,10 @@ class NodeFormWidget(QWidget):
                 self._cfg, adapter, self._sheet_names,
                 self._tree, self._selected_parent_node(), ref, kind,
                 base_anchor=base_anchor, component_address=component_address,
-                snapshot=self._live_snapshot())
+                snapshot=self._live_snapshot(),
+                # Ч2: "Read current position" only READS — its mirrored refusal
+                # must not claim the placement stopped or the config is to blame.
+                verdict=read_only_verdict())
         except NonRigidClusterError as e:
             # Ч1-А (Denis 20.10): the non-rigid refusal goes to the Log, never a
             # modal, even here where other read fatals still use one — the

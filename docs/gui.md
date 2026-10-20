@@ -162,6 +162,20 @@ keep their values) and is simply repeated: the tick holds the socket for millise
 moved the one flow whose read could genuinely take seconds — the node's **Reread current position** —
 onto a worker under `start_long_op`, so it no longer freezes the window either.
 
+**Every path that only READS the board refuses with the READ-ONLY footer** (2026-10-20, plan
+`plan_2026_10_15_extract_and_read_paths_cleanup` Ч2): "Nothing was placed or modified on the board — this
+was a read-only check." instead of "Placement stopped, board not modified. Fix the config and run again."
+The ordinary footer is true only where the run really stops a placement (CLI apply, MCP, config
+validation) and stays there. The read paths that carry the honest one are: Extract from the selection and
+its origin resolution, the net-trace Extract, Select cell / Fill from selection, Place marker / Read
+position of the anchor page, the Refs tab's Take selection, the imprint capture, and — through a `verdict`
+parameter passed by its two READING callers — the node form's **Read current position** and the node
+context menu's **Reread current position**. The SAME tree helper's write-side callers (the rehang read of
+*Move to…*, the mount rebase) pass nothing and keep the ordinary footer, because there a config edit
+really is being prepared. Two write paths are deliberately out of scope and named so: `gui/board_overlay.py`
+(the overlay layer is drawn and erased there) and `gui/docks/entity_export.py` (a profile import/export,
+not a board read at all).
+
 The tree-anchor base read of the now-removed (13.10, plan_2026_10_13_trees_menus_cleanup) **Instantiate
 from Cell…** dialog left that refused list on 2026-09-14 (plan_2026_09_14_ui_thread_offenders): it cost
 1x `get_footprints` plus one field read PER footprint (138.6 ms measured on a 325-footprint board), so it
@@ -724,7 +738,10 @@ context menu (Add child / Add sibling / Reread current position / Edit node… /
 / Move to…); **Reread current position** re-resolves the node against the LIVE board and rewrites its
 `xy`/rotation in place, with no confirmation (not saving is the undo) — since 2026-09-12 that read runs
 on a worker (the status bar names it, the window stays responsive) and it is refused rather than
-interleaved while another owner holds the one shared kipy socket. The tree ROOT row's context menu is
+interleaved while another owner holds the one shared kipy socket. Its REFUSAL is a Log line, not a modal
+(2026-10-20, the same Ч2): the node keeps every number it had, and the Log shows the reason itself — the
+fatal box and the footer line never reach it (that is `strip_fatal_block`'s own rule, and in the GUI
+there is nothing to "run again"). The tree ROOT row's context menu is
 the FULL tree menu (2026-10-13, plan_2026_10_13_trees_menus_cleanup Ч2): **Add node**, **Set anchor…**
 (a shortcut that selects that root row), then **Redraw selected** / **Redraw whole tree** / **Reread
 inter-node copper**, then **Instances…** / **Rename tree…** / **Delete tree…**. Every item acts on THIS

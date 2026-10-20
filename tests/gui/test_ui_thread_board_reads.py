@@ -210,10 +210,14 @@ def test_reread_node_flow_reads_on_a_worker_under_the_token(
     assert connection.long_op_active is False
 
 
-def test_reread_node_flow_failure_keeps_the_node_and_warns(
-        main_window, tmp_path, monkeypatch, qapp):
-    """Э4.3 — behaviour on refusal is unchanged: the SAME modal warning text,
-    the node left untouched, the dock not marked dirty."""
+def test_reread_node_flow_failure_keeps_the_node_and_logs_a_warning(
+        main_window, tmp_path, monkeypatch, qapp, caplog):
+    """The property CHANGED on purpose (Ч2 of plan_2026_10_15_extract_and_read
+    _paths_cleanup, Denis 20.10, decision 8): this refusal used to open the
+    "Reread current position" modal, and now it is a WARNING line in the Log —
+    the node left untouched, the dock not marked dirty. `QMessageBox.warning`
+    is armed to explode, so a modal coming back fails this cell instead of
+    hanging it; the Log line's own severity is what "warns" means here."""
     _board(main_window, object())
     dock, _root = _dock_with(main_window, tmp_path)
     tree = dock._current_tree()
@@ -221,22 +225,53 @@ def test_reread_node_flow_failure_keeps_the_node_and_warns(
     node.rotation = 12.0
     before = (node.xy, node.polar, node.rotation)
 
-    warnings = []
-    monkeypatch.setattr(td_mod.QMessageBox, "warning",
-                        lambda *a, **k: warnings.append(a) or None)
+    def _explode(*_a, **_k):
+        raise AssertionError("the refusal must not open a modal any more")
+
+    monkeypatch.setattr(td_mod.QMessageBox, "warning", _explode)
 
     def _boom(*args, **kwargs):
         raise ValidationError("ref not on board")
 
     monkeypatch.setattr(td_mod, "_resolve_live_offset", _boom)
 
-    dock._reread_node_flow(tree, node)
-    _pump(qapp, lambda: not main_window.connection.long_op_active)
+    with caplog.at_level(logging.WARNING, logger="gui.docks.trees_dock"):
+        dock._reread_node_flow(tree, node)
+        _pump(qapp, lambda: not main_window.connection.long_op_active)
 
-    assert warnings and warnings[0][1] == _("Reread current position")
-    assert "ref not on board" in str(warnings[0][2])
     assert (node.xy, node.polar, node.rotation) == before
     assert dock._dirty is False
+    lines = [r for r in caplog.records
+             if r.levelno >= logging.WARNING and "ref not on board" in r.getMessage()]
+    assert lines, "the refusal must be a line in the Log"
+    assert lines[0].levelno == logging.WARNING, \
+        "an ordinary read refusal is a WARNING (decision 8)"
+
+
+def test_reread_node_flow_failure_path_is_a_log_line(
+        main_window, tmp_path, monkeypatch, caplog):
+    """start_long_op's OWN failure path (something the worker could not turn
+    into a refusal): Ч2 writes it to the Log in the dock's established form
+    ("Reread current position failed: {error}", the same shape as
+    "Reread inter-node copper failed: {error}") — no modal, node untouched."""
+    dock, _root = _dock_with(main_window, tmp_path)
+    tree = dock._current_tree()
+    node = tree.nodes[0]
+    before = (node.xy, node.polar, node.rotation)
+
+    def _explode(*_a, **_k):
+        raise AssertionError("the failure path must not open a modal any more")
+
+    monkeypatch.setattr(td_mod.QMessageBox, "warning", _explode)
+
+    with caplog.at_level(logging.ERROR, logger="gui.docks.trees_dock"):
+        dock._on_reread_node_flow_failed("socket died")
+
+    assert dock._active_op is None
+    errors = [r for r in caplog.records if r.levelno == logging.ERROR]
+    assert any("Reread current position failed: socket died" in r.getMessage()
+               for r in errors), "the failure must name itself in the Log"
+    assert (node.xy, node.polar, node.rotation) == before
 
 
 def test_reread_node_flow_without_a_board_logs_instead_of_opening_a_worker(
