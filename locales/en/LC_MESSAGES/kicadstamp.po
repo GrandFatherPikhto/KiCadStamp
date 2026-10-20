@@ -17192,6 +17192,52 @@ msgstr "KiCad rejected the move of {ref!r} — the board was not modified"
 msgid "footprint {ref!r} not found on the board"
 msgstr "footprint {ref!r} not found on the board"
 
+#: gui/docks/tree_place_drift.py:185
+#, python-brace-format
+msgid "Tree redraw: could not check {ref!r}: {reason}"
+msgstr "Tree redraw: could not check {ref!r}: {reason}"
+
+#: gui/docks/tree_place_drift.py:206
+#, python-brace-format
+msgid ""
+"Tree redraw: could not check {ref!r}: the cluster on the board is not a "
+"rigid copy of its cell (residual {residual:.3f} mm) — put the parts back "
+"onto the cell's places or re-read the cell; until then the nodes below it "
+"are placed from the tree pose"
+msgstr ""
+"Tree redraw: could not check {ref!r}: the cluster on the board is not a "
+"rigid copy of its cell (residual {residual:.3f} mm) — put the parts back "
+"onto the cell's places or re-read the cell; until then the nodes below it "
+"are placed from the tree pose"
+
+#: gui/docks/tree_place_drift.py:220
+#, python-brace-format
+msgid ""
+"Tree redraw: ancestor {ref!r} is NOT being redrawn and stands {mm:.4f} mm "
+"from its place in the tree (planned ({px:.4f}, {py:.4f}), live ({lx:.4f}, "
+"{ly:.4f}); turn {deg:+.2f} deg) — the nodes below it are placed from the "
+"tree pose, so {children} will land off by that amount relative to where "
+"{ref!r} stands. Redraw the whole tree, or put {ref!r} in its place first."
+msgstr ""
+"Tree redraw: ancestor {ref!r} is NOT being redrawn and stands {mm:.4f} mm "
+"from its place in the tree (planned ({px:.4f}, {py:.4f}), live ({lx:.4f}, "
+"{ly:.4f}); turn {deg:+.2f} deg) — the nodes below it are placed from the "
+"tree pose, so {children} will land off by that amount relative to where "
+"{ref!r} stands. Redraw the whole tree, or put {ref!r} in its place first."
+
+#: kicadstamp/tree_plan_warnings.py:40
+#, python-brace-format
+msgid ""
+"Node {ref!r} will be redrawn from {parent!r}'s place in the tree (not in "
+"selection) — that pose comes from the tree, not from the board, so if "
+"{parent!r} really stands elsewhere, {ref!r} will land off by that "
+"difference"
+msgstr ""
+"Node {ref!r} will be redrawn from {parent!r}'s place in the tree (not in "
+"selection) — that pose comes from the tree, not from the board, so if "
+"{parent!r} really stands elsewhere, {ref!r} will land off by that "
+"difference"
+
 #~ msgid ""
 #~ "role {role!r} occurs {count} times in"
 #~ " cluster {cluster!r} — this is a "

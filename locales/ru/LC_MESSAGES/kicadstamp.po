@@ -18127,6 +18127,53 @@ msgstr "KiCad отклонил перемещение {ref!r} — плата н�
 msgid "footprint {ref!r} not found on the board"
 msgstr "футпринт {ref!r} не найден на плате"
 
+#: gui/docks/tree_place_drift.py:185
+#, python-brace-format
+msgid "Tree redraw: could not check {ref!r}: {reason}"
+msgstr "Перерисовка дерева: не удалось проверить {ref!r}: {reason}"
+
+#: gui/docks/tree_place_drift.py:206
+#, python-brace-format
+msgid ""
+"Tree redraw: could not check {ref!r}: the cluster on the board is not a "
+"rigid copy of its cell (residual {residual:.3f} mm) — put the parts back "
+"onto the cell's places or re-read the cell; until then the nodes below it "
+"are placed from the tree pose"
+msgstr ""
+"Перерисовка дерева: не удалось проверить {ref!r}: кластер на плате не "
+"является жёсткой копией своей ячейки (остаток {residual:.3f} мм) — верните "
+"детали на места из ячейки или перечитайте ячейку; до тех пор узлы под ним "
+"ставятся от позы дерева"
+
+#: gui/docks/tree_place_drift.py:220
+#, python-brace-format
+msgid ""
+"Tree redraw: ancestor {ref!r} is NOT being redrawn and stands {mm:.4f} mm "
+"from its place in the tree (planned ({px:.4f}, {py:.4f}), live ({lx:.4f}, "
+"{ly:.4f}); turn {deg:+.2f} deg) — the nodes below it are placed from the "
+"tree pose, so {children} will land off by that amount relative to where "
+"{ref!r} stands. Redraw the whole tree, or put {ref!r} in its place first."
+msgstr ""
+"Перерисовка дерева: предок {ref!r} НЕ перерисовывается и стоит в {mm:.4f} "
+"мм от своего места в дереве (план ({px:.4f}, {py:.4f}), плата ({lx:.4f}, "
+"{ly:.4f}); поворот {deg:+.2f}°) — узлы под ним ставятся от позы дерева, "
+"поэтому {children} окажутся смещены на эту величину относительно того "
+"места, где {ref!r} стоит. Перерисуйте всё дерево или поставьте {ref!r} "
+"на место."
+
+#: kicadstamp/tree_plan_warnings.py:40
+#, python-brace-format
+msgid ""
+"Node {ref!r} will be redrawn from {parent!r}'s place in the tree (not in "
+"selection) — that pose comes from the tree, not from the board, so if "
+"{parent!r} really stands elsewhere, {ref!r} will land off by that "
+"difference"
+msgstr ""
+"Узел {ref!r} будет перерисован от места {parent!r} в дереве (не в "
+"выделении) — эта поза берётся из дерева, а не с платы, поэтому если "
+"{parent!r} на самом деле стоит в другом месте, {ref!r} окажется смещён на "
+"эту разницу"
+
 #~ msgid ""
 #~ "role {role!r} occurs {count} times in"
 #~ " cluster {cluster!r} — this is a "

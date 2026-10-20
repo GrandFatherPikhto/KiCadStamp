@@ -62,6 +62,12 @@ from .placement.services.coordinate_position_calculator import (
     resolve_target_position,
 )
 from .placement.services.point_resolver import resolve_point_chain
+from .tree_plan_warnings import (
+    anchor_base_label,
+    inline_anchor_override_warning,
+    parent_outside_selection_warning,
+    parent_pose_comes_from_plan,
+)
 from .trees import (
     Tree,
     TreeAnchor,
@@ -1272,34 +1278,14 @@ def apply_rigid_override(adapter, cfg, parent_ref, parent_record, capture: Rigid
     return PositionOverride(position=child_pos_new, rotation_deg=child_rot_new)
 
 
-def anchor_base_label(linked_anchor: LinkedAnchor) -> str:
-    """How a warning NAMES a node's base when that base is the tree's own ANCHOR
-    (plan_2026_09_18 Часть A, Ф10).
-
-    A ref/external anchor is named by its ref — what the user typed. Every OTHER
-    anchor used to be printed as the hard-coded "(origin)", whatever it really
-    was, so a ROLE-anchored tree's top-level nodes announced "will be redrawn
-    from the current position of '(origin)'" — a warning that read as "this tree
-    is origin-anchored" and cost a wrong diagnosis (it is what made the plan
-    assume (origin)). The label is a NAME, like a refdes, so it stays
-    untranslated — exactly like the ref it replaces."""
-    ref = linked_anchor.anchor.ref
-    if ref:
-        return ref
-    if linked_anchor.is_origin:
-        return "(origin)"
-    anchor = linked_anchor.anchor
-    if anchor.role:
-        return f"(role {anchor.role!r})"
-    if getattr(anchor, "point", None):
-        return f"(point {anchor.point!r})"
-    if getattr(anchor, "is_self", False):
-        return "(self)"
-    return "(origin)"
+# `anchor_base_label` now LIVES in tree_plan_warnings (Ч1-3 of plan_2026_10_20_
+# cells_save_keeps_trees_cfg_fresh: this giant must not grow) and is re-exported
+# by the import at the top, so the historical
+# `from kicadstamp.tree_position import anchor_base_label` keeps working.
 
 
-def curated_redraw_plan(linked_tree: LinkedTree, selected_refs: set[str]
-                        ) -> tuple[list[str], list[str]]:  # (names, warnings)
+def curated_redraw_plan(linked_tree: LinkedTree, selected_refs: set[str],
+                        cfg=None) -> tuple[list[str], list[str]]:  # (names, warnings)
     """DFS over the linked tree, parent strictly before child. A node emits
     into `names` (as record.name — record.name == node.ref by construction of
     link_trees's index) if record is not None and record.kind != "point" —
@@ -1326,7 +1312,11 @@ def curated_redraw_plan(linked_tree: LinkedTree, selected_refs: set[str]
     Warning: a selected node whose parent (another node, OR the tree's own
     anchor) is NOT in the selection — covers both plain nesting and the
     top-level-node-with-config-anchor case where the anchor "wasn't just
-    redrawn"."""
+    redrawn". The wording depends on WHERE that parent's pose comes from: a
+    kind "placement" parent and an internal mount are read from the TREE (so the
+    warning says "place in the tree"), everything else is read from the board
+    ("current position"). `cfg` is only needed for the mount half — None keeps
+    the historical wording, never a wrong claim."""
     names: list[str] = []
     warnings: list[str] = []
 
@@ -1342,15 +1332,15 @@ def curated_redraw_plan(linked_tree: LinkedTree, selected_refs: set[str]
     else:
         anchor_in_sel = anchor.anchor.ref in selected_refs
 
-    def walk(linked_node: LinkedNode, parent_in_sel: bool, parent_label: str) -> None:
+    def walk(linked_node: LinkedNode, parent_in_sel: bool, parent_label: str,
+             parent_from_plan: bool) -> None:
         ref = linked_node.node.ref
         is_selected = ref in selected_refs
         if is_selected and not parent_in_sel:
-            warnings.append(
-                _("Node {ref!r} will be redrawn from the current position of "
-                  "{parent!r} (not in selection); if {parent!r} moved, {ref!r} "
-                  "will land from the old point")
-                .format(ref=ref, parent=parent_label))
+            # The wording depends on WHERE the parent's pose comes from — the
+            # rule and both texts live in tree_plan_warnings.
+            warnings.append(parent_outside_selection_warning(
+                ref, parent_label, parent_from_plan))
         if is_selected and _emits_a_name(linked_node):
             conflict_field = inline_anchor_field(linked_node.record)
             # A net_trace's anchor_role/anchor_pad is its INTRINSIC placement
@@ -1358,18 +1348,25 @@ def curated_redraw_plan(linked_tree: LinkedTree, selected_refs: set[str]
             # position, so no inline-anchor warning (phase D, 2026-09-01).
             if conflict_field is not None and linked_node.record.kind != "net_trace":
                 warnings.append(
-                    _("Node {ref!r} also has its own {field} — the regular "
-                      "(non-tree) Apply/Redraw keeps using it; this tree redraw "
-                      "moves it TEMPORARILY, without touching the record")
-                    .format(ref=ref, field=conflict_field))
+                    inline_anchor_override_warning(ref, conflict_field))
             # A component node (Э3) owns no record — its name is its own ref.
             names.append(linked_node.record.name if linked_node.record is not None
                          else linked_node.node.ref)
+        # Where THIS node's pose comes from decides the wording of its children's
+        # warning — resolved once per node, config-only (no board read).
+        children_from_plan = (parent_pose_comes_from_plan(linked_node,
+                                                          linked_tree.name, cfg)
+                              if linked_node.children else False)
         for child in linked_node.children:
-            walk(child, parent_in_sel=is_selected, parent_label=ref)
+            walk(child, parent_in_sel=is_selected, parent_label=ref,
+                 parent_from_plan=children_from_plan)
 
+    # A top-level node's parent IS the tree's anchor, and an anchor is always
+    # resolved LIVE (every anchor mode reads the board or a config point) —
+    # never from the plan.
     for top in linked_tree.nodes:
-        walk(top, parent_in_sel=anchor_in_sel, parent_label=anchor_label)
+        walk(top, parent_in_sel=anchor_in_sel, parent_label=anchor_label,
+             parent_from_plan=False)
 
     return names, warnings
 

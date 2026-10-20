@@ -595,3 +595,46 @@ def test_the_single_tree_redraw_also_skips_its_refused_records(
     assert err.startswith("skipped: ")
     assert "NOT redrawn" in err
     assert "tree 'bad'" in caplog.text
+
+
+def test_the_place_drift_line_reaches_the_warnings_and_the_log(
+        monkeypatch, tmp_path, caplog):
+    """Point 2 of plan_2026_10_20_cells_save_keeps_trees_cfg_fresh, M7: the drift
+    check is not decoration — its line must travel to BOTH the returned warnings
+    (the dock's "{count} warning(s) — see log") and the Log dock. The check's own
+    behaviour has its cells in test_tree_place_drift.py; here only the wiring is
+    pinned, and the run's own names must reach it (a check over an empty set could
+    never warn)."""
+    cfg = _curated_cfg()
+    trees = _load_tree(tmp_path, '(tree (name "t") (anchor (origin))\n'
+                                 '      (node (ref "CL_A") (xy 1 2)))')
+    line = ("Tree redraw: ancestor 'CL_A' is NOT being redrawn and stands 3.0000 mm "
+            "from its place in the tree")
+    seen = {}
+
+    def _fake_drift(adapter, cfg_arg, linked, names, sheet_names):
+        seen["names"] = set(names)
+        return [line]
+
+    class _FakePipeline(_PipelineStubLifetime):
+        def __init__(self, config_path, preloaded_cfg=None, preloaded_ctx=None,
+                     timeout_ms=None,
+                     only=None, dry_run=False, position_overrides=None):
+            pass
+
+        def run(self):
+            pass
+
+    monkeypatch.setattr(cascade_mod, "place_drift_lines", _fake_drift)
+    monkeypatch.setattr(cascade_mod, "ApplyPipeline", _FakePipeline)
+    monkeypatch.setattr(cascade_mod, "create_board_adapter",
+                        lambda **k: MagicMock())
+
+    caplog.clear()
+    with caplog.at_level(logging.WARNING):
+        _results, warnings = run_curated_tree_redraw(
+            "/root.sexp", cfg, None, trees, "t", {"CL_A"})
+
+    assert seen["names"] == {"CL_A"}
+    assert line in warnings
+    assert any(record.message == line for record in caplog.records)

@@ -17,7 +17,13 @@ ROOT = Path(__file__).parent.parent
 # у pybabel extract нет ключа в babel.cfg для этого, только --ignore-dirs.
 # --ignore-dirs ПОЛНОСТЬЮ заменяет дефолт (".* ._"), не дополняет его — поэтому
 # дефолтные шаблоны дописаны явно, чтобы не потерять их.
-IGNORE_DIRS = [".*", "._", "files", "old", "arch", "test_sample", "venv"]
+# tests (2026-10-20): a test's `_("...")` is an ASSERTION about a product string,
+# not a product string. Extracting them put test-only msgids into both catalogs,
+# and `pybabel update` then fuzzy-matched them onto neighbouring PRODUCT entries
+# ("Fix the config" got the translation of "Failed to load the config."), which
+# broke tests/utils/test_i18n.py's duplicate/placeholder guards. The catalogs
+# must describe the SHIPPED source only — the same scope test_i18n.py checks.
+IGNORE_DIRS = [".*", "._", "files", "old", "arch", "test_sample", "venv", "tests"]
 
 
 def pybabel(args):
@@ -52,9 +58,17 @@ def main():
             pybabel(["init", "-i", "messages.pot", "-d", "locales",
                      "-l", lang, "-D", "kicadstamp"])
 
-    # 3. Компиляция .mo
+    # 3. Компиляция .mo.
+    # --use-fuzzy (2026-10-20): `pybabel update` marks a NEWLY extracted or
+    # CHANGED msgid as fuzzy when it guesses a translation, and plain `compile`
+    # SILENTLY DROPS fuzzy entries — so the .po/.mo pair went out of sync and
+    # tests/utils/test_i18n.py::test_compiled_ru_mo_is_in_sync_with_po failed
+    # (three entries extracted from test files after a re-extraction). Compiling
+    # them is what the accept gates have always assumed; the guess is still
+    # marked fuzzy in the .po, so a human pass can find it.
     for lang in ("en", "ru"):
-        pybabel(["compile", "-d", "locales", "-l", lang, "-D", "kicadstamp"])
+        pybabel(["compile", "-d", "locales", "-l", lang, "-D", "kicadstamp",
+                 "--use-fuzzy"])
 
     # 4. Удаление временного .pot
     (ROOT / "messages.pot").unlink(missing_ok=True)

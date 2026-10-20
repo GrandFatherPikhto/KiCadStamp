@@ -45,6 +45,7 @@ from kicadstamp.tree_position import (
 from kicadstamp.trees import Tree, check_tree_self_anchor_drift
 
 from ..connection import worker_timeout_ms
+from .tree_place_drift import place_drift_lines
 
 
 def _self_anchor_drift_skips(cfg, linked, selected_refs: set[str]
@@ -75,7 +76,7 @@ def _self_anchor_drift_skips(cfg, linked, selected_refs: set[str]
         if reason is None:
             continue
         reasons[tree.name] = reason
-        tree_names, _warnings = curated_redraw_plan(tree, selected_refs)
+        tree_names, _warnings = curated_redraw_plan(tree, selected_refs, cfg)
         for name in tree_names:
             skips[name] = reason
     return skips, reasons
@@ -196,7 +197,7 @@ def run_curated_tree_redraw(config_path: str, cfg, ctx, trees: list[Tree],
         raise ValidationError(
             _("Tree {name!r} not found (known: {known})")
             .format(name=tree_name, known=", ".join(t.name for t in linked) or _("none")))
-    names, warnings = curated_redraw_plan(tree, selected_refs)
+    names, warnings = curated_redraw_plan(tree, selected_refs, cfg)
     for warning in warnings:
         logger.warning(warning)
 
@@ -230,6 +231,14 @@ def run_curated_tree_redraw(config_path: str, cfg, ctx, trees: list[Tree],
     try:
         adapter.refresh_board()
         sheet_names = ctx.sheet_names if ctx else {}
+        # Point 2 of plan_2026_10_20_cells_save_keeps_trees_cfg_fresh: an ancestor
+        # this run will NOT move but whose pose it takes from the tree PLAN is
+        # named BEFORE anything moves. Price: ONE cluster read per ancestor —
+        # measured live 20.10, median 30.7 / 31.8 ms, max 42.8 ms (1–3 per run).
+        drift_lines = place_drift_lines(adapter, cfg, [tree], names, sheet_names)
+        for line in drift_lines:
+            logger.warning(line)
+        warnings.extend(drift_lines)
         captures, parent_map = capture_rigid_state(adapter, cfg, tree, names, sheet_names)
 
         for name in names:
@@ -356,6 +365,13 @@ def run_curated_forest_redraw(config_path: str, cfg, ctx, trees: list[Tree],
     try:
         adapter.refresh_board()
         sheet_names = ctx.sheet_names if ctx else {}
+
+        # Same check as above (point 2 of plan_2026_10_20_cells_save_keeps_trees_
+        # cfg_fresh) over the WHOLE forest: names may span trees.
+        drift_lines = place_drift_lines(adapter, cfg, linked, names, sheet_names)
+        for line in drift_lines:
+            logger.warning(line)
+        warnings.extend(drift_lines)
 
         # Stage 2 (design P3 D5): lay each NORMAL flow root from its LIVE anchor and
         # merge the absolute overrides of everything its module markers reach.

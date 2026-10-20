@@ -40,8 +40,17 @@ class NonRigidClusterError(ValidationError):
     asked for by pressing a read button, not an interruption — the write-path
     consumers that would show a modal for a read failure route THIS one to the
     Log (error level) instead. That decision is stated once here so a future
-    `except ValidationError` does not silently bring the modal back."""
-    pass
+    `except ValidationError` does not silently bring the modal back.
+
+    ``residual_mm`` — the fit's OWN worst deviation (mm) that made the read
+    refuse, or None when the raiser did not measure one. It is carried as data,
+    NOT parsed out of the message text, so a caller that only needs to NAME the
+    number (a warning line, a probe table) never copies the refusal wording
+    (plan_2026_10_20_cells_save_keeps_trees_cfg_fresh, клетка 8 of пункт 2)."""
+
+    def __init__(self, message: str, *, residual_mm: float | None = None):
+        super().__init__(message)
+        self.residual_mm = residual_mm
 
 
 class MissingIncludeError(ValidationError):

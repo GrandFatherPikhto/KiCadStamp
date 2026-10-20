@@ -593,7 +593,7 @@ def _live_cluster_frame(adapter, cell, cluster: str, sheet: str, sheet_names,
         # so the numbers in the text are the fit's own, never a second count.
         raise NonRigidClusterError(_non_rigid_refusal(
             cell, cluster, fit, dict(zip(pairs_by_role, relative_pairs)),
-            role_to_fp))
+            role_to_fp), residual_mm=fit.residual_mm)
     single_rot: float | None = None
     if fit is None and len(role_to_fp) == 1:
         # `only_slot` is always found: role_to_fp only ever carries roles
