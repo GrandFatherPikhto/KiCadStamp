@@ -512,7 +512,11 @@ def test_c9_all_three_overlay_workers_forward_the_refs(monkeypatch):
 
     seen = []
 
-    def spy(adapter, cell, cluster, sheet, sheet_names, role_to_ref=None):
+    def spy(adapter, cell, cluster, sheet, sheet_names, role_to_ref=None,
+            **kwargs):
+        # `**kwargs` — the reader gained keyword-only arguments over time
+        # (`snapshot` in Кl/Кj of plan_2026_09_22_live_adapter_class, `strict`
+        # in Ч1-А); the cell is about `role_to_ref` reaching all three workers.
         seen.append(role_to_ref)
         raise ValidationError("spy: the frame was reached, stop before the read")
 

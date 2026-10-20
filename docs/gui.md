@@ -73,11 +73,30 @@ human picks and confirms here, never a heuristic decision the tool makes on its 
 `gui/kicad_processes_dialog.py`).
 
 Nothing here pushes updates from KiCad — kipy 0.7.1 has no selection/board-change events, so
-"live" means polled: a slow timer (~2s) only reconnects while disconnected and never rebuilds the
-tree on its own (an earlier version did, and the visible flicker on an idle board was worse than
-useless); a fast timer (~400ms) tracks the board's own selection and reflects it back into the
-tree. Rebuilding the full snapshot happens only on an explicit action — the status-bar button
-(**Reconnect** while disconnected, **Refresh** while connected).
+"live" means polled: a slow timer (~2s) reconnects while disconnected and, while CONNECTED, asks
+KiCad exactly one cheap question — which BOARD has it open (`gui/board_switch_watch.py`, В of
+plan_2026_10_15_honest_live_read). A board switched inside KiCad is otherwise invisible: the
+connection holds the descriptor captured at connect, so the badge, the snapshot and every live
+read would keep describing the previous board. The tick re-reads the board ONLY when that name
+changed (measured 20.10.2026 on 3CH-AWG-TIA-v103, 336 footprints: the identity request is 0.127 ms
+median, a refresh plus the board read it forces is ~30 ms). It never rebuilds the tree on an
+unchanged board — an earlier version refreshed on every tick, and the visible flicker on an idle
+board was worse than useless. Rebuilding the full snapshot otherwise happens only on an explicit
+action — the status-bar button (**Reconnect** while disconnected, **Refresh** while connected). A
+fast timer (~400ms) tracks the board's own selection and reflects it back into the tree.
+
+**A cluster that is not a rigid copy of its cell is REFUSED, in the Log** (2026-10-20,
+plan_2026_10_15_honest_live_read Ч1-А): every consumer that would WRITE a frame into the config —
+"Read current position" on a tree node, the node form's read button, the mount-anchor marker read,
+tree-from-selection — checks the fitted frame against the EXISTING `RIGID_TOLERANCE_MM` and refuses
+when the cluster on the board is not a rigid copy of the cell. The text names the cluster and the
+cell, the worst deviation, the 2–3 worst roles with their refdes, and both exits ("put the
+component(s) back onto the cell's places (Redraw)" — or, if the board is right now, "re-read the
+cell from the selection"). The refusal is a **Log line at ERROR level, never a modal**
+(`NonRigidClusterError`, `gui/docks/live_position.py`); a node whose non-rigid PARENT diverged is
+refused naming the parent. The drawing consumers (the overlay bbox/marker workers) stay non-strict
+and keep drawing what is on the board — the value of a non-rigid frame is a guess by definition,
+which is exactly why writing it is no longer allowed.
 
 **DRC markers in the selection are not a lost connection** (2026-10-15): KiCad sends every
 `PCB_MARKER` in `GetSelection` as an EMPTY `google.protobuf.Any`, which kipy's own selection
@@ -85,6 +104,15 @@ reader cannot unpack. Selecting a group that contains DRC markers therefore used
 dead connection to the fast tick. The adapter now skips such items (and any type kipy does not
 know), keeps the readable ones, and logs the skipped count once per change — the badge stays
 green and the tree keeps tracking the selection.
+
+**A snapshot is a cache, never an authority** (2026-10-20, Ч1-Б of the same plan): a MISS in a
+non-empty `connection.snapshot` — no (Role, Cluster) row, a bare Role missing, or a row naming a ref
+the live board no longer has — is answered by the LIVE board, once. Before this, a snapshot built
+from the board open at connect time said "cluster X is not on the live board" about a cluster
+standing in front of the user right after a board switch (the bad case of the same family as В: the
+snapshot described a board nobody had open). A HIT is still free — it is the miss that costs one
+sweep, and only the live board may answer "not there" (`_role_candidates`,
+`resolve_footprint_by_cluster_role`).
 
 The window has a **menu bar** with two top-level menus built by FUNCTION, not per dock: **File**
 (Open/New/**Save**/**Discard unsaved changes...**/Recent/Close/Quit — see
@@ -345,7 +373,8 @@ Two data sources, one tree, toggled by the **Not yet applied** checkbox:
   target into fieldstool (same as clicking used to inside fieldstool's own, now-retired, internal
   tree) and brings the fieldstool tab to front. Refreshes automatically whenever fieldstool's own
   Rescan runs, or the schematic-vs-board diff changes (a rebuilt board snapshot — the main GUI's
-  manual Refresh, or the Rescan itself, which rebuilds it first; the automatic ~2s tick is a no-op
+  manual Refresh, or the Rescan itself, which rebuilds it first; the automatic ~2s tick only checks
+  which board is open (never a snapshot rebuild)
   once connected — or a Stage/Clear all write).
 
 The grouping choice and the live/schematic toggle are both remembered across restarts. **Filter**
@@ -394,8 +423,8 @@ launch is bound from the first attempt. A **write** by any of the GUI's own pane
 fieldstool's Stage, the Components tree's Tag/Delete, Pending's "forget") is announced once and reaches
 every holder of that store — this adapter included: it re-reads the file from the bound store's own
 path and rebinds the layer. The board is deliberately NOT re-read by that event — it did not change,
-and spending a socket round-trip on a board nobody changed is exactly what the poll's no-op rule
-forbids.
+and spending a socket round-trip on a board nobody changed is exactly what the poll's per-tick
+budget forbids (one cheap identity request while connected, never a board re-read).
 
 The combo boxes offer as suggestions the sorted unique Role/Cluster values already present in the
 live snapshot — there is no separate fixed vocabulary, the board is its own source of known values,
@@ -404,7 +433,8 @@ suggestion lists (every dock's Role/Cluster combos, the working-context Cluster 
 dialog candidates) are re-read from a board snapshot REBUILT on the worker thread at the point of use
 — switching a Config right-QView page, or opening a Tree node/anchor dialog (2026-09-11,
 plan_2026_09_11_stale_snapshot_role_lists.md) — instead of freezing at connect time (the automatic
-poll tick is a no-op once connected); the components TREE rows themselves and the status-bar counter
+poll tick only checks which board is open and never rebuilds the snapshot); the components TREE rows
+themselves and the status-bar counter
 still update only on the manual Refresh. That rebuild shares the one KiCad socket with the ~400 ms
 selection-poll tick, which holds it ~16 % of the time, so a click can meet a busy socket: the rebuild
 then makes ONE deferred retry (~120 ms) and, if that is refused too, the lists come from the CACHED

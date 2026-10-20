@@ -33,7 +33,11 @@ from kicadstamp.adapter_factory import create_board_adapter
 from kicadstamp.config_writer import read_data, upsert_entity, write_data
 from kicadstamp.domain.board import Footprint, Track, Via
 from kicadstamp.domain.geometry import BoardLayer, Vector2
-from kicadstamp.exceptions import ValidationError, format_fatal_error
+from kicadstamp.exceptions import (
+    NonRigidClusterError,
+    ValidationError,
+    format_fatal_error,
+)
 from kicadstamp.i18n import _
 from kicadstamp.link_trees import (
     _PLACEABLE_KINDS,
@@ -85,6 +89,23 @@ from .trees_move_flow import (RehangPlan, _MOVE_OFFSET_REFUSED,
                               _REHANG_SIGN, local_polar_from_xy, plan_rehang,
                               reexpress_offset, run_group_move, run_single_move)
 from .trees_dnd import make_node_tree_widget
+# The overlay NAMES (the tree's anchor/base circles and a mount node's point/base
+# pair) and the tree-marker WORKER live in trees_markers.py — the "giants only
+# shrink" rule of the Ч1-А доделка moved them out of this file. Re-exported
+# here so every caller and test seam still reaches them through this module
+# (`.trees_mount_point` still fetches `_mount_marker_keys` through it).
+from .trees_markers import (  # noqa: F401 — re-export for callers and tests
+    _MOUNT_POINT_NS,
+    _TREE_ANCHOR_NS,
+    _TREE_BASE_NS,
+    _mount_base_key,
+    _mount_marker_keys,
+    _mount_point_key,
+    _show_tree_markers_worker,
+    _tree_anchor_key,
+    _tree_base_key,
+    _tree_marker_keys,
+)
 from .trees_mount_rebase import run_mount_rebase
 from .trees_selection import (empty_selection_page, multi_selection_page,
                               on_selection_changed, select_only,
@@ -277,134 +298,6 @@ def _anchor_label(anchor: TreeAnchor) -> str:
 
 _ORIGIN = Vector2.from_xy(0, 0)
 
-# ── Overlay circles for a tree's anchor and base (З, 2026-09-12) ──────────
-# The overlay owner (gui/overlay_markers.py, task Е) owns the key -> uuid map;
-# these two namespaced keys are what the tree-settings form draws through it.
-# The slugs live HERE rather than in the owner because the owner reserves
-# `tree-inner` / `tree-outer` — the design §О.3.1 pair this task deliberately
-# REPLACES: the inner (suspension) point lands EXACTLY on the anchor by
-# construction (resolve_module_effective_base makes the pivot land on the
-# marker), so two circles there would coincide. The pair worth drawing is the
-# ANCHOR (where the tree hangs — what it is moved and rotated by) and the BASE
-# (the origin of its local frame, from which every node's xy is measured and
-# which is invisible today); the vector between them IS the rotated suspension
-# point made visible.
-_TREE_ANCHOR_NS = "tree-anchor"
-_TREE_BASE_NS = "tree-base"
-
-
-def _tree_anchor_key(name) -> str:
-    """Overlay key of the circle showing where tree `name` hangs."""
-    return f"{_TREE_ANCHOR_NS}/{name}"
-
-
-def _tree_base_key(name) -> str:
-    """Overlay key of the circle showing the origin of tree `name`'s own local
-    frame."""
-    return f"{_TREE_BASE_NS}/{name}"
-
-
-def _tree_marker_keys(name) -> tuple:
-    """BOTH overlay keys one tree's toggle owns, anchor first."""
-    return (_tree_anchor_key(name), _tree_base_key(name))
-
-
-# ── The mount-point marker (plan_2026_09_16_mount_point_marker Э1) ───────────
-# A kind "mount" node's offset used to be typed as two numbers only. The pair
-# below is the third consumer of the overlay owner on this dock (after the tree
-# anchor/base circles): a DRAGGABLE circle at the node's own point and a SQUARE
-# at the base it is measured from — deliberately NOT a circle, so "what moves"
-# can never be confused with "what it is measured against" (Р2).
-#
-# The slug lives HERE, next to the tree pair, for the same reason (Ф3): the
-# consumer owns its slug, the owner only reserves the namespace.
-_MOUNT_POINT_NS = "mount-point"
-
-
-def _mount_point_key(tree_name, ref) -> str:
-    """Overlay key of the DRAGGABLE circle at mount node `ref`'s own point."""
-    return f"{_MOUNT_POINT_NS}/{tree_name}/{ref}/point"
-
-
-def _mount_base_key(tree_name, ref) -> str:
-    """Overlay key of the SQUARE marking the base the circle is measured from."""
-    return f"{_MOUNT_POINT_NS}/{tree_name}/{ref}/base"
-
-
-def _mount_marker_keys(tree_name, ref) -> tuple:
-    """BOTH overlay keys one mount node's "show" owns, point first."""
-    return (_mount_point_key(tree_name, ref), _mount_base_key(tree_name, ref))
-
-
-def _tree_marker_points(adapter, cfg, tree, sheet_names, forest) -> tuple:
-    """(anchor_mm, base_mm) for `tree` — the two LIVE positions the circles
-    show, in world mm. anchor = `_anchor_base_live_position` (every anchor
-    mode); base = `tree_layout_base` (that same raw anchor pose plus the tree's
-    own suspension point and angle). No new maths is introduced: both functions
-    already exist and are only converted from nm to mm here. Raises
-    ValidationError when the anchor cannot resolve — the caller turns that into
-    one Log line."""
-    anchor_pos, _anchor_rot = _anchor_base_live_position(
-        adapter, cfg, tree, sheet_names)
-    base_pos, _base_rot = tree_layout_base(
-        adapter, cfg, tree, sheet_names, forest)
-    return ((anchor_pos.x / MM, anchor_pos.y / MM),
-            (base_pos.x / MM, base_pos.y / MM))
-
-
-def _show_tree_markers_worker(payload) -> dict:
-    """WORKER thread — no widget access anywhere in here.
-
-    Draw ONE tree's anchor circle and (when it does not coincide with the
-    anchor) a second circle at its local-frame base, through the shared overlay
-    owner. The owner's ensure_marker is idempotent BY KEY (Е.2.2), so pressing
-    the toggle again MOVES the two circles instead of stacking new ones.
-
-    З.2.3: when base and anchor are closer than
-    `overlay_markers.orphan_tolerance_mm()` (a zero suspension point at a zero
-    angle — the first row of the task's own measurement) ONLY the anchor is
-    drawn and a stale `tree-base` key is removed, so two circles can never end
-    up in one spot, even if the user enabled the toggle at a different pivot
-    first.
-
-    Never raises (Е.2.6): a circle is a visualisation, so a failed anchor
-    resolve or a disabled overlay layer degrades to one Log line returned in
-    the result dict — never to an exception or a modal."""
-    adapter = payload["adapter"]
-    tree = payload["tree"]
-    try:
-        anchor_mm, base_mm = _tree_marker_points(
-            adapter, payload["cfg"], tree, payload["sheet_names"],
-            payload["forest"])
-    except Exception as e:  # noqa: BLE001 — a resolve failure is a Log line
-        return {"error": _("Tree {name!r}: the anchor did not resolve: {error}")
-                .format(name=tree.name, error=e)}
-    try:
-        overlay_markers.owner.ensure_marker(
-            adapter, _tree_anchor_key(tree.name), anchor_mm[0], anchor_mm[1])
-    except Exception:  # noqa: BLE001 — drawing never breaks the caller
-        return {"error": _(
-            "Tree {name!r}: the anchor marker was not drawn — the overlay "
-            "layer {layer!r} is not enabled on this board, or the board read "
-            "failed.").format(name=tree.name,
-                              layer=board_overlay.overlay_layer_name())}
-    tol = overlay_markers.orphan_tolerance_mm()
-    if (abs(base_mm[0] - anchor_mm[0]) <= tol
-            and abs(base_mm[1] - anchor_mm[1]) <= tol):
-        # No second circle in the same spot — and drop a base key left over
-        # from an earlier pivot (З.2.3).
-        overlay_markers.owner.remove_key(adapter, _tree_base_key(tree.name))
-        return {"anchor_mm": anchor_mm, "base_mm": None}
-    try:
-        overlay_markers.owner.ensure_marker(
-            adapter, _tree_base_key(tree.name), base_mm[0], base_mm[1])
-    except Exception:  # noqa: BLE001 — the anchor circle is already down
-        return {"anchor_mm": anchor_mm, "base_mm": None, "warning": _(
-            "Tree {name!r}: the base marker was not drawn — the overlay layer "
-            "{layer!r} is not enabled on this board, or the board read "
-            "failed.").format(name=tree.name,
-                              layer=board_overlay.overlay_layer_name())}
-    return {"anchor_mm": anchor_mm, "base_mm": base_mm}
 
 
 def collect_tree_refs(tree: "Tree") -> list[str]:
@@ -541,7 +434,11 @@ def run_node_reread_worker(payload: dict) -> dict:
             # payload (and every existing test's payload) is untouched.
             component_address=payload.get("component_address"))
     except Exception as exc:  # noqa: BLE001 — a refusal is a normal result here
-        return {"ok": False, "error": str(exc)}
+        # `log_only` (Ч1-А): a NON-RIGID cluster is information, not an
+        # interruption — the UI half writes it to the Log and shows no modal
+        # (Denis 20.10). Every other refusal keeps its modal.
+        return {"ok": False, "error": str(exc),
+                "log_only": isinstance(exc, NonRigidClusterError)}
     return {"ok": True, "xy": (offset_mm[0], offset_mm[1]), "rotation": rotation}
 
 
@@ -691,8 +588,11 @@ def _resolve_node_base_pose(cfg, adapter, sheet_names, tree: Tree,
         return frames.point_pos, frames.point_rot, False
     parent_record, _is_external = _resolve_probe_ref(
         cfg, parent_node.ref, parent_node.kind)
+    # strict=True (Ч1-А): the base is WRITTEN into the node's numbers, so a
+    # non-rigid PARENT cluster refuses here — and the refusal names the parent's
+    # cluster/cell (the frame being read), never the caller's node.
     pose = read_record_live_pose(adapter, cfg, parent_node.ref, parent_record,
-                                 sheet_names, snapshot=snapshot)
+                                 sheet_names, snapshot=snapshot, strict=True)
     return pose.position, pose.rotation_deg, pose.mirror
 
 
@@ -873,8 +773,11 @@ def _resolve_live_offset(cfg, adapter, sheet_names, tree: Tree,
         child_deg = float(fp.angle_deg)
         child_mirror = _component_footprint_is_mirrored(fp)
     elif child_record is not None and getattr(child_record, "kind", None) == "placement":
+        # strict=True (Ч1-А): the child's offset/rotation are saved into the
+        # config, so a non-rigid cluster of the CHILD's own instance refuses.
         child_pose = read_record_live_pose(adapter, cfg, ref, child_record,
-                                          sheet_names, snapshot=snapshot)
+                                          sheet_names, snapshot=snapshot,
+                                          strict=True)
         child_pos = child_pose.position
         child_deg = child_pose.rotation_deg
         child_mirror = child_pose.mirror
@@ -3249,9 +3152,14 @@ class TreesDock(QWidget):
     def _finish_reread_node_flow(self, result: dict, node: TreeNode) -> None:
         """The worker's result, on the UI thread — the ONLY half that touches a
         widget (Э1). A refusal shows the very same modal warning the synchronous
-        read showed, with the node left untouched (Э4.3)."""
+        read showed, with the node left untouched (Э4.3) — EXCEPT the non-rigid
+        cluster refusal (Ч1-А), which is a Log line by decision (Denis 20.10):
+        the node stays untouched either way."""
         self._active_op = None
         if not result.get("ok"):
+            if result.get("log_only"):
+                show_message(result["error"], _ERROR_STYLE, logger)
+                return
             QMessageBox.warning(self, _("Reread current position"),
                                 result["error"])
             return
@@ -5353,6 +5261,12 @@ class NodeFormWidget(QWidget):
                 self._tree, self._selected_parent_node(), ref, kind,
                 base_anchor=base_anchor, component_address=component_address,
                 snapshot=self._live_snapshot())
+        except NonRigidClusterError as e:
+            # Ч1-А (Denis 20.10): the non-rigid refusal goes to the Log, never a
+            # modal, even here where other read fatals still use one — the
+            # fields keep their values.
+            show_message(str(e), _ERROR_STYLE, logger)
+            return
         except ValidationError as e:
             QMessageBox.warning(self, _("Read current position"), str(e))
             return

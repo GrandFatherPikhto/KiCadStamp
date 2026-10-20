@@ -235,12 +235,17 @@ def _read_marker_worker(adapter, cell, cluster, sheet, sheet_names,
     """Read the (user-dragged) marker's world position for `key` and convert it
     into the cell's own bbox-frame anchor (anchor_xy) — the world->local
     inversion uses the SAME live-cluster frame the marker was placed from. None
-    when the marker is no longer on the board."""
+    when the marker is no longer on the board.
+
+    STRICT (Ч1-А): the result is written into the node's saved `anchor_xy`, so a
+    non-rigid cluster must refuse instead of producing a guessed local offset.
+    The two overlay workers below stay non-strict: they draw what is on the
+    board and never write the config."""
     pos = overlay_markers.owner.read_position(adapter, key)
     if pos is None:
         return None
     origin, rotation, mirror = _live_cluster_frame(
-        adapter, cell, cluster, sheet, sheet_names, role_to_ref)
+        adapter, cell, cluster, sheet, sheet_names, role_to_ref, strict=True)
     world = Vector2.from_xy(int(round(pos[0] * MM)), int(round(pos[1] * MM)))
     rel = world_pos_to_cell_local_offset(origin, rotation, mirror, world)
     a0, a1 = cell_mount_offset(cell)

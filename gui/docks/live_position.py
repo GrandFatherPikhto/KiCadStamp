@@ -24,14 +24,18 @@ from collections import Counter
 from dataclasses import dataclass
 
 from kicadstamp.cell_frame import (CellFrame, fit_cell_frame, mirror_for_layer,
-                                   reference_relative_pairs,
+                                   pair_deviation_mm, reference_relative_pairs,
                                    single_slot_rotation)
 from kicadstamp.cluster_matching import cluster_prefix_match
 from kicadstamp.config import clone_placement_effective_name
 from kicadstamp.constants import CLUSTER_FIELD_NAME, ROLE_FIELD_NAME
 from kicadstamp.domain.board import Footprint
 from kicadstamp.domain.geometry import BoardLayer, Vector2
-from kicadstamp.exceptions import ValidationError, format_read_fatal
+from kicadstamp.exceptions import (
+    NonRigidClusterError,
+    ValidationError,
+    format_read_fatal,
+)
 from kicadstamp.geometry.cell_anchor import cell_mount_offset
 from kicadstamp.geometry.clone_geometry import clone_origin_from_component
 from kicadstamp.geometry.spoke_layout import rotate_local_offset
@@ -346,7 +350,7 @@ def _reference_slot(cell, role_to_ref: dict[str, str]):
 
 def _live_cluster_frame(adapter, cell, cluster: str, sheet: str, sheet_names,
                         role_to_ref: dict[str, str] | None = None, *,
-                        snapshot=None):
+                        snapshot=None, strict: bool = False):
     """(mount, rotation_deg, mirror) of ONE cell EXACTLY as it stands on the
     board right now — derived from the LIVE CLUSTER alone (2026-09-10, plan
     overlay_frame_from_cluster).
@@ -451,7 +455,17 @@ def _live_cluster_frame(adapter, cell, cluster: str, sheet: str, sheet_names,
     function's FAILURE path — `role_multiplicity_in_cluster` and the "is the
     cluster on the board at all" check — take no snapshot and still sweep. They
     run once, immediately before a fatal message, and are paid on an error, not
-    on the ordinary resolve."""
+    on the ordinary resolve.
+
+    `strict` (2026-10-20, plan_2026_10_15_honest_live_read Ч1-А; Denis: strict
+    refusal at the EXISTING `RIGID_TOLERANCE_MM`, no second constant): when the
+    fitted frame is NOT `is_rigid`, the read is REFUSED with
+    `NonRigidClusterError` instead of returning a guessed pose. Only the
+    consumers that would WRITE the guess into the config pass True (tree node
+    read/move/re-hang, the node form, the marker read, tree-from-selection); the
+    two overlay workers (`_ensure_bbox_worker`/`_ensure_marker_worker`) keep the
+    default False and go on drawing what is on the board. `single_slot_rotation`
+    is unaffected: one component has nothing to diverge from."""
     adapter.refresh_board()
     label = _("cell {cell!r} on cluster {cluster!r}").format(
         cell=getattr(cell, "name", "?"), cluster=cluster)
@@ -544,13 +558,14 @@ def _live_cluster_frame(adapter, cell, cluster: str, sheet: str, sheet_names,
     slot_by_role = {s.role: s for s in cell.components}
     reference = (float(slot.offset_along_mm), float(slot.offset_across_mm),
                  fp.position.x / MM, fp.position.y / MM)
-    fit = fit_cell_frame(
-        reference_relative_pairs(reference, [
-            (float(slot_by_role[role].offset_along_mm),
-             float(slot_by_role[role].offset_across_mm),
-             live.position.x / MM, live.position.y / MM)
-            for role, live in role_to_fp.items() if role in slot_by_role]),
-        mirror=mirror)
+    pairs_by_role = {
+        role: (float(slot_by_role[role].offset_along_mm),
+               float(slot_by_role[role].offset_across_mm),
+               live.position.x / MM, live.position.y / MM)
+        for role, live in role_to_fp.items() if role in slot_by_role}
+    relative_pairs = reference_relative_pairs(reference,
+                                              list(pairs_by_role.values()))
+    fit = fit_cell_frame(relative_pairs, mirror=mirror)
     # ONE resolved component (2026-10-13, plan_2026_10_13_single_slot_rotation —
     # Denis: "Read current position" reported 0 for a part he had to turn by
     # hand): with fewer than TWO resolved slots there is no pair to fit against,
@@ -558,6 +573,17 @@ def _live_cluster_frame(adapter, cell, cluster: str, sheet: str, sheet_names,
     # math live in the ONE owner (cell_frame.single_slot_rotation, which delegates
     # to the placement's own inverse formula). A MULTI-part cell keeps the fit: a
     # symmetric part's angle is ambiguous by 180° there, geometry is not.
+    if strict and fit is not None and not fit.is_rigid:
+        # The cluster on the board is NOT a rigid copy of the cell, so "where
+        # this cell stands" is a guess — and a guess must not be written into a
+        # config (plan_2026_10_15_honest_live_read, fact А). The refusal names
+        # the worst ROLES, because "re-read the cell" is only actionable when
+        # the user sees WHICH parts diverged. The pairs handed to it are the
+        # SAME reference-relative ones the fit judged (zip keeps their order),
+        # so the numbers in the text are the fit's own, never a second count.
+        raise NonRigidClusterError(_non_rigid_refusal(
+            cell, cluster, fit, dict(zip(pairs_by_role, relative_pairs)),
+            role_to_fp))
     single_rot: float | None = None
     if fit is None and len(role_to_fp) == 1:
         # `only_slot` is always found: role_to_fp only ever carries roles
@@ -576,6 +602,35 @@ def _live_cluster_frame(adapter, cell, cluster: str, sheet: str, sheet_names,
         live_ref_mm=reference[2:],
         residual_mm=fit.residual_mm if fit is not None else 0.0)
     return frame.placement_origin, frame.rotation_deg, frame.mirror
+
+
+def _non_rigid_refusal(cell, cluster, fit, relative_by_role, role_to_fp) -> str:
+    """The ONE wording of the non-rigid refusal (Ч1-А).
+
+    Names the cluster and the cell, the worst deviation, the 2–3 roles that
+    diverged most with their refdes and their own deviation, and BOTH exits
+    Denis asked for: put the parts back onto the cell's places (Redraw), or —
+    if the board is right now — re-read the cell from the selection. The
+    read-only footer comes from `format_read_fatal` itself.
+
+    `relative_by_role` — the reference-RELATIVE pairs (`reference_relative_pairs`)
+    the fit itself judged, per role: the per-role numbers in the text are the
+    same arithmetic as `residual_mm`, never a parallel count."""
+    worst = sorted(
+        ((role, role_to_fp[role].ref,
+          pair_deviation_mm(pair, fit.rotation_deg, fit.mirror))
+         for role, pair in relative_by_role.items()),
+        key=lambda item: item[2], reverse=True)[:3]
+    roles = ", ".join(f"{role} ({ref}): {dev:.3f} mm"
+                      for role, ref, dev in worst)
+    return format_read_fatal(
+        _("live cluster {cluster!r} is not a rigid copy of cell {cell!r} "
+          "(worst deviation {dev:.3f} mm)").format(
+              cluster=cluster, cell=getattr(cell, "name", "?"),
+              dev=fit.residual_mm),
+        [_("worst roles: {roles}").format(roles=roles),
+         _("put the component(s) back onto the cell's places (Redraw) — or, if "
+           "the board is right now, re-read the cell from the selection")])
 
 
 @dataclass
@@ -600,7 +655,7 @@ class LiveRecordPose:
 
 
 def read_record_live_pose(adapter, cfg, ref: str, record, sheet_names, *,
-                          snapshot=None) -> LiveRecordPose:
+                          snapshot=None, strict: bool = False) -> LiveRecordPose:
     """THE "where this record stands on the board right now" dispatcher
     (plan_2026_09_11_tree_node_live_read_and_board_frame §2.2).
 
@@ -638,7 +693,7 @@ def read_record_live_pose(adapter, cfg, ref: str, record, sheet_names, *,
             # still comes from the adapter's current generation.
             pos, rot, mirror = _live_cluster_frame(
                 adapter, cell, cluster, getattr(entity, "sheet", None) or "",
-                sheet_names, snapshot=snapshot)
+                sheet_names, snapshot=snapshot, strict=strict)
             return LiveRecordPose(position=pos, rotation_deg=rot,
                                   mirror=mirror, from_cluster=True)
         reason = entity_mount_fallback_reason(cfg, entity)

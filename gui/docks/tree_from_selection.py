@@ -804,9 +804,12 @@ def resolve_entity_live_position_mm(adapter, cfg, entity: Any, sheet_names,
         # live_position module is needed; importing it lazily keeps the
         # load-time graph flat (the same idiom the fallback below uses).
         from .live_position import _live_cluster_frame
+        # strict=True (Ч1-А): A's world position is written into the tree that
+        # the Extract flow saves, so a non-rigid cluster must refuse rather than
+        # store a guessed frame.
         origin, rotation_deg, _mirror = _live_cluster_frame(
             adapter, cfg.cells[entity.cell], entity.cluster,
-            getattr(entity, "sheet", None) or "", sheet_names)
+            getattr(entity, "sheet", None) or "", sheet_names, strict=True)
         return origin.x / MM, origin.y / MM, rotation_deg
     logger.warning(
         _("Entity {name!r}: cannot read the live mount ({reason}) — using the "

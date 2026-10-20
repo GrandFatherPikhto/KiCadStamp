@@ -5081,10 +5081,15 @@ def test_mirrored_live_instance_is_refused(main_window, tmp_path):
 
     dock, _root = _dock_with(main_window, tmp_path, LIVE_CLUSTER_CFG)
     tree = dock._current_tree()
+    # A RIGID mirrored copy: CAP sits at (50 - 10, 60 - 4) = (40, 56), the
+    # mirror of its stored (+10, -4). Since Ч1-А a cluster that is not a rigid
+    # copy is refused EARLIER and with its own wording, so this cell's fixture
+    # has to be geometrically rigid for the MIRROR refusal to be the one under
+    # test (the previous fixture drew the UNMIRRORED layout on the back side).
     adapter = _ClusterAdapter([
         _live_fp("IC1", "ORIG", "CL", 50.0, 60.0, 0.0,
                  layer=BoardLayer.BL_B_Cu),
-        _live_fp("IC2", "CAP", "CL", 60.0, 56.0, 0.0,
+        _live_fp("IC2", "CAP", "CL", 40.0, 56.0, 0.0,
                  layer=BoardLayer.BL_B_Cu),
     ])
 
@@ -5105,10 +5110,12 @@ def test_reread_mirrored_instance_warns_and_leaves_the_node_untouched(
     node = tree.nodes[0]
     before = (node.xy, node.polar, node.rotation)
 
+    # A RIGID mirrored copy (see test_mirrored_live_instance_is_refused): the
+    # mirror refusal must be the first one the read can raise.
     main_window.connection.board = SimpleNamespace(adapter=_ClusterAdapter([
         _live_fp("IC1", "ORIG", "CL", 50.0, 60.0, 0.0,
                  layer=BoardLayer.BL_B_Cu),
-        _live_fp("IC2", "CAP", "CL", 60.0, 56.0, 0.0,
+        _live_fp("IC2", "CAP", "CL", 40.0, 56.0, 0.0,
                  layer=BoardLayer.BL_B_Cu),
     ]))
     warnings = []
@@ -7006,7 +7013,11 @@ def test_toggle_with_an_unresolvable_anchor_logs_and_draws_nothing(
 
     def _boom(*_a, **_k):
         raise ValidationError("anchor gone")
-    monkeypatch.setattr(trees_dock_mod, "_anchor_base_live_position", _boom)
+    # The seam moved with the code: the tree-marker worker lives in
+    # gui/docks/trees_markers.py (the "giants only shrink" rule of Ч1-А), and
+    # THAT module's imported name is what the worker calls.
+    from gui.docks import trees_markers as markers_worker_mod
+    monkeypatch.setattr(markers_worker_mod, "_anchor_base_live_position", _boom)
     _no_modal(monkeypatch)
 
     form._do_toggle_markers()

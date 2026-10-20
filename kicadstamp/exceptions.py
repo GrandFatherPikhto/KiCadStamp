@@ -29,6 +29,21 @@ class ValidationError(PlacerError):
     pass
 
 
+class NonRigidClusterError(ValidationError):
+    """A LIVE READ refused because the cluster on the board is NOT a rigid copy
+    of the cell (plan_2026_10_15_honest_live_read Ч1-А; Denis 20.10: strict
+    refusal at the existing `RIGID_TOLERANCE_MM`).
+
+    A ValidationError subclass, so every existing `except ValidationError` keeps
+    catching it and the message is untouched. Its extra meaning is about the
+    PRESENTATION: a divergence of the board from the cell is information the user
+    asked for by pressing a read button, not an interruption — the write-path
+    consumers that would show a modal for a read failure route THIS one to the
+    Log (error level) instead. That decision is stated once here so a future
+    `except ValidationError` does not silently bring the modal back."""
+    pass
+
+
 class MissingIncludeError(ValidationError):
     """Fatal `include:` entry pointing at a file that does not exist.
 

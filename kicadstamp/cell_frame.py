@@ -151,15 +151,27 @@ class CellFit:
         return self.residual_mm <= RIGID_TOLERANCE_MM
 
 
+def pair_deviation_mm(pair: tuple[float, float, float, float],
+                      rotation_deg: float, mirror: bool) -> float:
+    """|predicted - live| (mm) for ONE reference-relative pair under this frame.
+
+    The same arithmetic `_worst_deviation` maximises and `fit_cell_frame` reports
+    as `residual_mm`; public because a refusal must be able to NAME the worst
+    ROLES, not just the number (Ч1-А), and a second copy of this math would be a
+    second answer to "how far is this slot"."""
+    sa, sc, lx, ly = pair
+    px, py = rotate_ydown_mm(sa, sc, rotation_deg)
+    if mirror:
+        px = -px
+    return math.hypot(px - lx, py - ly)
+
+
 def _worst_deviation(pairs, rotation_deg: float, mirror: bool) -> float:
     """The largest |predicted - live| (mm) over every pair for this candidate
     frame — the fit's honesty measure."""
     worst = 0.0
-    for sa, sc, lx, ly in pairs:
-        px, py = rotate_ydown_mm(sa, sc, rotation_deg)
-        if mirror:
-            px = -px
-        worst = max(worst, math.hypot(px - lx, py - ly))
+    for pair in pairs:
+        worst = max(worst, pair_deviation_mm(pair, rotation_deg, mirror))
     return worst
 
 

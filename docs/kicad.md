@@ -137,6 +137,18 @@ Reading the raw answer is what lets an item KiCad cannot serialise be **skipped 
   (2026-10-15, Ч3). The GUI reconnects every ~5 s while no PCB editor is open, and this block used to
   be its noisiest output; `check_version()` is still called on every connect, so kipy's own
   comparison rule is never copied.
+- **Which board the editor has open, cheaply** (2026-10-20, В of
+  plan_2026_10_15_honest_live_read): `read_open_board_name()` in
+  `kicadstamp/kicad/kipy_board_identity.py` sends ONE `GetOpenDocuments(DOCTYPE_PCB)` and returns
+  `DocumentSpecifier.board_filename` — the same field `Board.name` (the descriptor captured at
+  connect) is built from, so a board SWITCHED inside KiCad is invisible to the stored name until a
+  request is made. Measured 20.10.2026 (3CH-AWG-TIA-v103, 336 footprints, KiCad 10.0.7,
+  `kicadstamp.diagnostics.probe_identity_tick_cost`): median 0.127 ms, max 0.489 ms per request,
+  versus ~30 ms for one `refresh_board()` plus the board read it forces (the refresh itself only
+  fetches the descriptor — it DROPS the caches). The GUI's automatic poll tick does exactly this
+  one request and re-reads the board only when the name changed (`gui/board_switch_watch.py`); an
+  automatic tick treats kipy's "no handler available" refusal as "nothing to say", never as a lost
+  connection.
 
 ---
 
@@ -215,7 +227,7 @@ The adapter uses the following elements that go beyond the stable public API of 
 | `adapter.remove_by_id()` | **New, potentially unstable** | Added recently (July 2025), may change. |
 | `board.get_tracks()` | **Undocumented** | Used to retrieve all tracks on the board for registry reconciliation. |
 | `board.get_item_bounding_box(list)` | **Undocumented** | Used for batch bounding‑box requests. |
-| `kicad.get_open_documents()` | **Official but rarely used** | Used to check if the schematic is open (crash warning). |
+| `kicad.get_open_documents()` | **Official but rarely used** | Used to check if the schematic is open (crash warning) and — since 2026-10-20 — as the ONE per-tick board-identity request (`read_open_board_name()`, `kicadstamp/kicad/kipy_board_identity.py`): its `DocumentSpecifier.board_filename` is the same field `Board.name` is built from. |
 
 All such places are **documented** in the code and covered by unit tests, allowing early detection of breakage when updating KiCad or `kipy`.
 
