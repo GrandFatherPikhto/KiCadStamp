@@ -574,6 +574,33 @@ def test_a_cell_saved_while_the_form_is_open_reaches_its_live_reads(
         "the form's live reads still see the OLD cell")
 
 
+def test_an_anchor_panel_open_across_a_save_asks_the_dock_for_cfg(
+        main_window, tmp_path, format3):
+    """Mirror of the node-form cell, for the ANCHOR panel (Д-1 of the 20.10
+    acceptance): `_build_anchor_form` must pass the supplier too. With
+    `cfg_supplier=None` there, the form falls back to the `cfg=self._cfg` object
+    captured at build time and every OTHER cell stayed green — the anchor's
+    board-frame reads would keep resolving against the OLD cell exactly like the
+    node form did.
+
+    Mutation: `cfg_supplier=None` in `_build_anchor_form` reddens this."""
+    from kicadstamp.config_writer import read_data, write_data
+
+    dock, root = _rich_dock(main_window, tmp_path)
+    form = dock._build_anchor_form(dock._current_tree())
+    assert "c" in form._cfg.cells
+
+    data = read_data(root)
+    data["cells"]["c"] = {"components": [{"role": "ANCHOR_SAW_THE_SAVE"}]}
+    write_data(root, data)                            # what CellDock's Save does
+    dock.refresh_ref_candidates()                     # and what the signal does
+
+    assert form._cfg is dock._cfg, (
+        "the anchor form kept the cfg captured at build time — the 20.10 bug")
+    assert [c.role for c in form._cfg.cells["c"].components] == [
+        "ANCHOR_SAW_THE_SAVE"], "the anchor form's live reads still see the OLD cell"
+
+
 def test_reparenting_the_handle_under_a_mount_is_refused(main_window, tmp_path,
                                                          format3, caplog):
     """(к) The tree's pivot-ref must stay a node that FOLLOWS the tree: re-hanging
