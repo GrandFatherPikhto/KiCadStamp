@@ -2523,6 +2523,14 @@ class CellDock(QWidget):
                 _("Select cluster failed: {error}").format(error=result["error"]),
                 _ERROR_STYLE)
             return
+        if result.get("duplicate"):
+            # Ч4 (plan_2026_10_15_extract_and_read_paths_cleanup): a refdes that
+            # stands on the board twice — the guard's OWN lines, verbatim (both
+            # copies, which one is an orphan, what to do), and NOTHING was
+            # selected. Never worded as "stale": the fix is deleting the extra
+            # copy, not identifying the instance again.
+            self._show_message("\n".join(result["duplicate"]), _ERROR_STYLE)
+            return
         if result.get("stale"):
             self._show_message(
                 _("the remembered refs are stale ({reasons}) — nothing was "

@@ -25,6 +25,7 @@ import logging
 
 from kicadstamp.constants import ROLE_FIELD_NAME
 from kicadstamp.i18n import _
+from kicadstamp.refdes_duplicates import duplicate_refusal_lines
 
 logger = logging.getLogger(__name__)
 
@@ -36,12 +37,25 @@ __all__ = [
 
 
 def identified_footprints(adapter, refs) -> tuple:
-    """(footprints, stale_reasons) for the identified refs of ONE instance.
+    """(footprints, stale_reasons, duplicate_lines) for the identified refs of
+    ONE instance.
 
     The refs are an INTERFACE CACHE (gui_state.json), so they are checked on the
     worker against the board as it is NOW: a ref that is gone, or whose Role is
     no longer the one the map claims, makes the identification STALE. Pure data
-    in / data out (no widget)."""
+    in / data out (no widget).
+
+    Ч4 (plan_2026_10_15_extract_and_read_paths_cleanup): a refdes that stands on
+    the board MORE THAN ONCE is refused FIRST, by the duplicate guard's own
+    wording (`kicadstamp.refdes_duplicates.duplicate_refusal_lines`), because
+    `adapter.get_footprint(ref)` silently returns the first copy — the same
+    ambiguity the apply pipeline refuses. It travels in its own slot and never
+    as a "stale" reason: stale says "identify the instance again", which is not
+    what a duplicate asks for (it asks to delete the extra copy)."""
+    duplicate_lines = duplicate_refusal_lines(adapter.get_footprints(),
+                                              refs.values())
+    if duplicate_lines:
+        return [], [], duplicate_lines
     stale: list = []
     footprints: list = []
     for role in sorted(refs):
@@ -56,7 +70,7 @@ def identified_footprints(adapter, refs) -> tuple:
                 ref=ref, role=live_role))
             continue
         footprints.append(fp)
-    return footprints, stale
+    return footprints, stale, []
 
 
 def select_identified_refs(adapter, refs: dict) -> dict:
@@ -64,8 +78,11 @@ def select_identified_refs(adapter, refs: dict) -> dict:
 
     A stale map selects NOTHING and the reasons travel back — never a fallback
     to the whole cluster (on the spoke FPGA_PWR_BANK that would hand the user 50
-    components he did not ask for)."""
-    footprints, stale = identified_footprints(adapter, refs)
+    components he did not ask for). A DUPLICATED refdes selects nothing too, and
+    its reason is the guard's own lines under `duplicate` (Ч4)."""
+    footprints, stale, duplicate = identified_footprints(adapter, refs)
+    if duplicate:
+        return {"duplicate": duplicate}
     if stale:
         return {"stale": stale}
     if footprints:
@@ -146,7 +163,10 @@ def _run_with_copper(payload: dict) -> dict:
         vias, tracks = pipeline.plan_copper()
         refs = payload.get("refs") or {}
         if refs:
-            footprints, stale = identified_footprints(pipeline.adapter, refs)
+            footprints, stale, duplicate = identified_footprints(
+                pipeline.adapter, refs)
+            if duplicate:
+                return {"duplicate": duplicate}
             if stale:
                 return {"stale": stale}
         if (not vias and not tracks

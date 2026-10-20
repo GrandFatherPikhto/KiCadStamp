@@ -56,6 +56,7 @@ from kicadstamp.placement.services.coordinate_position_calculator import (
 )
 from kicadstamp.placement.services.point_resolver import resolve_point_chain
 from kicadstamp.placement.services.role_narrowing import own_cluster_candidates
+from kicadstamp.refdes_duplicates import duplicate_refusal_lines
 from kicadstamp.role_conflict_reasons import role_conflict_problems
 from kicadstamp.utils.units import MM
 
@@ -302,6 +303,15 @@ def _role_to_fp_by_refs(adapter, cell, role_to_ref: dict[str, str], label: str
     A role absent from `role_to_ref` is simply left out (the caller decides);
     an EMPTY map can only mean the refs belong to another cell, which is stale
     too — never a crash on an empty reference slot."""
+    # Ч4 (plan_2026_10_15_extract_and_read_paths_cleanup): the same reference
+    # door the apply pipeline guards — a refdes on the board twice has no single
+    # right answer, and `get_footprint` would silently take the first copy. The
+    # refusal is the guard's OWN wording (read-only verdict: nothing is drawn).
+    duplicate_lines = duplicate_refusal_lines(adapter.get_footprints(),
+                                              role_to_ref.values())
+    if duplicate_lines:
+        raise ValidationError(format_read_fatal(duplicate_lines[0],
+                                                duplicate_lines[1:]))
     role_to_fp: dict = {}
     for slot in cell.components:
         ref = role_to_ref.get(slot.role)

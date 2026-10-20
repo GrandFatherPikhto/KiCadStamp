@@ -628,6 +628,17 @@ screen. Tools → Config →
 "Update cell from selection..." / "Add selected copper..." act on the selected ENTITY leaf; on a cell
 leaf they log «pick an entity of cell '...'» and read nothing.
 
+**Select cell components / Select cell and the cell overlay refuse a DUPLICATED refdes** (2026-10-20,
+plan `plan_2026_10_15_extract_and_read_paths_cleanup` Ч4): all three address a footprint by its bare
+refdes, and `get_footprint(ref)` silently returns the FIRST copy — exactly the ambiguity the apply
+pipeline refuses. When an identified refdes stands on the live board more than once, NOTHING is selected
+and NO overlay frame is drawn: the Log gets the duplicate guard's own lines (two copies with uuid and
+position, which one is not linked to the schematic, and "delete the orphan … or re-annotate"), and the
+message is never re-worded as "stale" (the fix is deleting the extra copy, not identifying the instance
+again). The rule lives ONCE, in `kicadstamp/refdes_duplicates.duplicate_refusal_lines`, so the reading
+doors and the write door can never describe a duplicate differently. An ORPHAN WITHOUT a duplicate keeps
+working as before — one footprint is unambiguous.
+
 Right-click any entry for:
 - **Rename...** — renames the entry; for Cells/Points, also rewrites every reference to it
   (`cell:`/`anchor_point:`) anywhere in the whole include: graph, not just the file it's declared in.

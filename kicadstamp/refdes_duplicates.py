@@ -50,8 +50,8 @@ from .utils.units import MM
 
 __all__ = [
     "DuplicateCopy", "duplicate_copy_of", "duplicate_refdes_groups",
-    "duplicate_log_lines", "duplicate_short_reason", "orphan_short_reason",
-    "duplicate_summary_line", "refdes_duplicate_of",
+    "duplicate_log_lines", "duplicate_refusal_lines", "duplicate_short_reason",
+    "orphan_short_reason", "duplicate_summary_line", "refdes_duplicate_of",
 ]
 
 
@@ -237,6 +237,32 @@ def refdes_duplicate_of(refs: Iterable,
         if ref in duplicates:
             return ref
     return None
+
+
+def duplicate_refusal_lines(records: Iterable, refs: Iterable) -> list[str]:
+    """The refusal of a READ-ONLY door addressed by refdes: the guard's own Log
+    lines, or [] when every ref in ``refs`` is unique on the board.
+
+    Ч4 of plan_2026_10_15_extract_and_read_paths_cleanup: "Select cell" /
+    "Select cell components" and the cell overlay's identified-pair read pick a
+    footprint BY REFDES, exactly like the apply pipeline — and ``get_footprint``
+    silently returns the first copy. A duplicated refdes has no single right
+    answer there either, so those reads now answer the way the write door does:
+    refuse, name both copies, say which one is an orphan, say what to do.
+
+    ONE place, ONE wording: this is a thin composition of the detector's own
+    three functions (``duplicate_refdes_groups`` -> ``refdes_duplicate_of`` ->
+    ``duplicate_log_lines``), so a reading door can never invent a second way to
+    describe a duplicate. ``refs`` narrows the scan exactly like the pipeline's
+    door guard does: a duplicate the read never addresses refuses nothing."""
+    wanted = [str(ref) for ref in (refs or ()) if ref]
+    if not wanted:
+        return []
+    duplicates = duplicate_refdes_groups(records, wanted)
+    ref = refdes_duplicate_of(wanted, duplicates)
+    if ref is None:
+        return []
+    return duplicate_log_lines(ref, duplicates[ref])
 
 
 def duplicate_summary_line(labels: Iterable[str]) -> str:
