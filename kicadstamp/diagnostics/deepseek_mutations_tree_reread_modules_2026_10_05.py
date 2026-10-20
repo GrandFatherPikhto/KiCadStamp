@@ -26,7 +26,7 @@ the plan's own mutation list.
   * M10 two different modules -> module          -> between-modules cell red (Т4-1)
   * M11 A2 narrowed-to-one is enough             -> chain-between-channels red (Т4-2)
   * M12 A4 module's own children not walked      -> own-child cell red (Т4-2)
-  * M13 A6 fallback from pads[0]                 -> mid-via cell red (Т4-2)
+  * M13 (A6 fallback from pads[0]) — RETIRED 20.10, see the note in the row list
   * M14 T4-3 module label without the sheet      -> three-channels cell red (Т4-3)
   * M15 T4-4 cache only the candidates           -> cascade-once cell red (Т4-4)
   * M16 T5-1 selection takes CLUSTER too         -> select-exactly-bridge red (Т5-1)
@@ -128,13 +128,9 @@ MUTATIONS = [
      "                continue",
      "                continue  # MUTATION",
      "die", GUARDS, ()),
-    ("M13 A6 fallback from pads[0]", CAPTURE,
-     "    tracks, vias = _items_from_unit(adapter, unit, components, point, "
-     "anchor_pad,",
-     "    anchor_pad = unit.pads[0]  # MUTATION\n"
-     "    tracks, vias = _items_from_unit(adapter, unit, components, point, "
-     "anchor_pad,",
-     "die", GUARDS, ()),
+    # M13 (A6 fallback from pads[0]) снята 20.10: шаблон исчез с переносом
+    # _items_from_unit в Д-1 (239a1363); смысл несут G4 (существующая запись) и
+    # G2 + клетка A6 (новая запись) оснастки 15.10.
     ("M14 T4-3 module label without the sheet", NODES,
      '        return f"{cluster}/{sheet}" if sheet else label',
      "        return label  # MUTATION",
