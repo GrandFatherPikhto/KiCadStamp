@@ -19,6 +19,10 @@ from typing import Callable, Deque, Dict, Iterator, List, Optional, Tuple
 from kicadstamp.constants import DEFAULT_TIMEOUT_MS
 from kicadstamp.explore import Board, Selected
 from kicadstamp.i18n import _
+# В of plan_2026_10_15_honest_live_read: the ONE cheap request that answers
+# "which board has KiCad open right now" (the stored descriptor cannot).
+from kicadstamp.kicad.kipy_board_identity import (board_name_changed,
+                                                  read_open_board_name)
 
 logger = logging.getLogger(__name__)
 
@@ -686,6 +690,45 @@ class BoardConnection:
         self._last_connect_failure = None
         logger.info("Connected to KiCad")
         return None
+
+    def refresh_if_board_changed(self) -> Tuple[bool, Optional[str]]:
+        """ONE cheap identity request per call; a full `refresh()` ONLY when
+        KiCad has a DIFFERENT board open (В of plan_2026_10_15_honest_live_read).
+
+        Why it lives HERE: it is board access, and this class is the board's
+        access layer (the UI-thread door deliberately exempts this file — the
+        same reason `refresh`/`connect` live here). The caller is the
+        automatic poll tick's worker fn (`gui/board_switch_watch.py`), so no
+        widget is touched and the shared socket is already held.
+
+        Why it exists at all: `adapter.get_board_filename()` reads `Board.name`
+        off the descriptor captured at connect / the last refresh, so switching
+        the board inside KiCad changes NOTHING it can see. One
+        `GetOpenDocuments(DOCTYPE_PCB)` (kicadstamp/kicad/kipy_board_identity.py)
+        answers the live name; measured 20.10.2026 on 3CH-AWG-TIA-v103 (336
+        footprints, KiCad 10.0.7): median 0.127 ms, max 0.489 ms, versus ~30 ms
+        for one refresh plus the board read it forces.
+
+        Returns `(changed, error)`. `changed` is False for the ordinary tick
+        (same board) AND when the request could not be answered — kipy refuses
+        it with an ApiError while the PCB editor has no frame or is switching
+        documents, and a courtesy check must never turn that into an error or a
+        lost connection. `changed=True` means the board WAS re-read here, with
+        its own error string (None on success) exactly like `refresh()`."""
+        if self.board is None:
+            return False, None
+        adapter = getattr(self.board, "adapter", None)
+        try:
+            live_name = read_open_board_name(getattr(adapter, "_kicad", None))
+        except Exception as exc:  # noqa: BLE001 — a courtesy check, never a verdict
+            logger.debug("Board-identity check skipped: %s", exc)
+            return False, None
+        if not board_name_changed(live_name, adapter.get_board_filename()):
+            return False, None
+        logger.info(_("The board in KiCad changed ({known!r} -> {live!r}) — "
+                      "re-reading it").format(
+                          known=adapter.get_board_filename(), live=live_name))
+        return True, self.refresh()
 
     def refresh(self) -> Optional[str]:
         """Re-fetches the footprint snapshot on an already-connected board.

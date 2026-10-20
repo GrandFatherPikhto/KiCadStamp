@@ -27,14 +27,18 @@ directly against
 the installed kipy.board.Board class), so "live" here means polled on a
 QTimer, not pushed.
 
-The timer's automatic tick only ever tries to CONNECT (while disconnected)
-— it deliberately never re-fetches/rebuilds the tree on its own. An earlier
-version also auto-refreshed every tick while connected, which rebuilds
-RoleClusterTreeDock's whole QStandardItemModel each time; even with
+The timer's automatic tick CONNECTS while disconnected, and while connected
+does exactly ONE cheap thing: asks KiCad which board it has open (one
+`GetOpenDocuments` round trip, gui/board_switch_watch.py) and re-fetches the
+board ONLY when that name differs from the one the connection holds (В of
+plan_2026_10_15_honest_live_read — the tick that never looked kept naming and
+answering about the board it connected to). It still never rebuilds the tree
+on an unchanged board: an earlier version auto-refreshed EVERY tick, which
+rebuilds RoleClusterTreeDock's whole QStandardItemModel each time; even with
 selection/expansion restored, the visible flash/scroll-jump on an idle,
 unchanged board was distracting (reported live 2026-08-01). Re-fetching the
-snapshot and rebuilding the tree now only happens on an explicit action —
-the status-bar button (Reconnect while disconnected, Refresh while
+snapshot and rebuilding the tree otherwise only happens on an explicit action
+— the status-bar button (Reconnect while disconnected, Refresh while
 connected) — a deliberate user action, not a timer tick.
 
 A SEPARATE, faster timer watches the board's own GUI selection (board ->
@@ -93,6 +97,8 @@ from kicadstamp.i18n import _
 
 from . import exit_guard, settings, tray
 from .board_nets import board_filename, board_net_names, copper_net_names
+# The cheap per-tick board-identity check of В, plan_2026_10_15_honest_live_read.
+from .board_switch_watch import identity_tick
 from .connection import (BoardConnection, LATENCY_KIND_FAST,
                          LATENCY_KIND_SLOW)
 from .dock_hub import DockHub
@@ -943,11 +949,15 @@ class MainWindow(QMainWindow):
 
     def _poll(self, manual: bool = False) -> None:
         """manual=True (button click) always does real work. manual=False (an
-        automatic timer tick) only tries to connect while disconnected — see
-        module docstring for why an already-connected idle tick is a
-        deliberate no-op. Collect/decide here on the UI thread; the actual
-        IPC (connect()/refresh()) runs on the persistent poll worker thread
-        (see module docstring for why) — this method itself never blocks."""
+        automatic timer tick) tries to connect while disconnected, and while
+        CONNECTED does exactly ONE cheap thing: asks KiCad which board it has
+        open (В of plan_2026_10_15_honest_live_read, gui/board_switch_watch.py) —
+        a full refresh only when that name differs from the one the connection
+        holds. Never a refresh per tick: that is what the old no-op avoided and
+        what ~0.13 ms versus ~30 ms buys (measured 20.10, same module). Collect/
+        decide here on the UI thread; the actual IPC (connect()/refresh()/the
+        identity request) runs on the persistent poll worker thread (see module
+        docstring for why) — this method itself never blocks."""
         # A long op (Extract/Redraw) or another still-running poll tick holds
         # the shared socket; connecting/refreshing now would interleave a
         # second request into its in-flight REQ transaction. Skip silently —
@@ -955,6 +965,10 @@ class MainWindow(QMainWindow):
         if self.connection.long_op_active:
             return
         if self.connection.is_connected and not manual:
+            self._poll_worker.submit(
+                self.connection, identity_tick,
+                (self.connection, self._collect_net_names),
+                self._finish_poll, self._on_poll_failed)
             return
         self._poll_worker.submit(
             self.connection, self._run_poll, (manual,), self._finish_poll, self._on_poll_failed)
@@ -1025,6 +1039,14 @@ class MainWindow(QMainWindow):
 
     def _finish_poll(self, result: dict) -> None:
         """UI thread: reflect the worker's result into widgets."""
+        if result.get("identity_only"):
+            # В (plan_2026_10_15_honest_live_read): the cheap per-tick board
+            # check found nothing to say — the board is the same one. Its cost
+            # is its OWN number (it is not a refresh and must not feed that
+            # window): one DEBUG line, no widget touched.
+            logger.debug("board-identity tick: %.1f ms",
+                         1000.0 * (result.get("duration_s") or 0.0))
+            return
         self._record_latency(LATENCY_KIND_SLOW, result.get("duration_s"))
         error = result["error"]
         if error:
