@@ -133,6 +133,13 @@ MUTATIONS = [
      "                and False))  # MUTATION: never from the plan\n",
      ["test_the_forest_planner_names_a_placement_parent_as_the_trees_place"]),
 
+    ("M16 the FOREST entry does not hand cfg to the planner (Д-6)", CASCADE,
+     "    names, warnings = curated_redraw_plan_forest(\n"
+     "        linked, selected_refs, copper_deps=copper_deps, cfg=cfg)\n",
+     "    names, warnings = curated_redraw_plan_forest(\n"
+     "        linked, selected_refs, copper_deps=copper_deps)  # MUTATION: no cfg\n",
+     ["test_the_forest_redraw_hands_cfg_to_the_planner_for_a_mount_parent"]),
+
     ("K1 a cosmetic comment in the host (CONTROL)", DRIFT,
      "_TOL_NM = int(RIGID_TOLERANCE_MM * MM)\n",
      "_TOL_NM = int(RIGID_TOLERANCE_MM * MM)  # control\n",

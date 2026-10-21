@@ -681,3 +681,59 @@ def test_the_place_drift_line_reaches_the_forest_warnings_and_the_log(
     assert seen["names"] == {"CL_A"}
     assert line in warnings
     assert any(record.message == line for record in caplog.records)
+
+
+def _mount_cfg_with_tree(tmp_path):
+    """COMP places a cell carrying role FPGA, and a mount anchored to that role
+    carries E_PIF — the INTERNAL-mount shape whose warning wording needs `cfg`."""
+    trees = _load_tree(tmp_path,
+        '(tree (name "t") (anchor (origin))\n'
+        '      (node (ref "COMP") (kind placement) (xy 0 0))\n'
+        '      (node (ref "m1") (kind mount) (anchor (role "FPGA"))\n'
+        '            (node (ref "E_PIF") (kind placement) (xy 1 0))))')
+    cfg = Config(
+        cells={"comp_cell": Cell(name="comp_cell", components=[
+                   TemplateComponentSlot(role="FPGA")]),
+               "child_cell": Cell(name="child_cell", components=[
+                   TemplateComponentSlot(role="R_CHILD")])},
+        entities=[Entity(name="COMP", cell="comp_cell"),
+                  Entity(name="E_PIF", cell="child_cell")],
+        trees=trees,
+    )
+    return cfg, trees
+
+
+def test_the_forest_redraw_hands_cfg_to_the_planner_for_a_mount_parent(
+        monkeypatch, tmp_path, caplog):
+    """Д-6 of the acceptance (21.10): the forest entry must pass `cfg` on to
+    `curated_redraw_plan_forest`. Without it an INTERNAL mount parent cannot be
+    classified, so its wording silently falls back to the historical "current
+    position" — although its children ARE laid from the tree pose.
+
+    Product path only: the real planner and the real wiring; the drift check and
+    the pipeline are seams (they have their own cells)."""
+    cfg, trees = _mount_cfg_with_tree(tmp_path)
+
+    class _FakePipeline(_PipelineStubLifetime):
+        def __init__(self, config_path, preloaded_cfg=None, preloaded_ctx=None,
+                     timeout_ms=None,
+                     only=None, dry_run=False, position_overrides=None):
+            pass
+
+        def run(self):
+            pass
+
+    monkeypatch.setattr(cascade_mod, "ApplyPipeline", _FakePipeline)
+    monkeypatch.setattr(cascade_mod, "create_board_adapter",
+                        lambda **k: MagicMock())
+    monkeypatch.setattr(cascade_mod, "place_drift_lines", lambda *a, **k: [])
+
+    caplog.clear()
+    with caplog.at_level(logging.WARNING):
+        _results, warnings = run_curated_forest_redraw(
+            "/root.sexp", cfg, None, trees, {"E_PIF"})
+
+    lines = [w for w in warnings if "'E_PIF'" in w]
+    assert lines, f"a mount parent outside the run must warn, got {warnings}"
+    assert "place in the tree" in lines[0]
+    assert "current position" not in lines[0]

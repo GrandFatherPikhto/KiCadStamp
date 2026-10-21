@@ -340,7 +340,7 @@ def run_curated_forest_redraw(config_path: str, cfg, ctx, trees: list[Tree],
                          "against its own components").format(error=e))
 
     names, warnings = curated_redraw_plan_forest(
-        linked, selected_refs, copper_deps=copper_deps)
+        linked, selected_refs, copper_deps=copper_deps, cfg=cfg)
     for warning in warnings:
         logger.warning(warning)
 
