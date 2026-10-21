@@ -35,14 +35,23 @@ does not pick it up (the deletion rides in the same command):
 
     d=$(mktemp -d); cp -r profiles/3ch-awg-tia-v103 "$d/p"
     .venv/bin/python -m kicadstamp.diagnostics.probe_2026_10_21_place_drift_lines \
-        --config "$d/p/config.sexp" --out /tmp/place_drift_lines.txt
+        --config "$d/p/config.sexp" \
+        --sheets-from profiles/3ch-awg-tia-v103/config.sexp \
+        --out /tmp/place_drift_lines.txt
     rm -rf "$d"
 
-Two honest notes about that copy: its `root_sheet` is relative four levels up
-(rule 34), so in `mktemp` it resolves to a path that does not exist — this probe
-never reads the schematic (the board comes through the IPC adapter), so that is
-harmless, and the probe says so in its header. KiCad must be RUNNING with the
-board open; without it there is no measurement.
+WHY `--sheets-from`. The copy's `schematic_files` are relative four levels up
+(rule 34), so inside `mktemp` they point at /KiCad/… and the {uuid: sheet-name}
+map cannot be built. The SHEET MAP is what the product passes as
+`ctx.sheet_names` (gui/docks/cascade.py), and without it a tree INSTANCE's
+self-anchor cannot be narrowed — the probe would print "could not check" for
+three `dac_buf` trees that the PRODUCT resolves fine. `--sheets-from` therefore
+builds that map from the ORIGINAL profile's config: READ ONLY, the same reading
+the GUI does; the original is never written. Without the flag the probe falls
+back to the copy's own map, prints how it went, and says in the summary what
+that costs.
+
+KiCad must be RUNNING with the board open; without it there is no measurement.
 """
 from __future__ import annotations
 
@@ -55,9 +64,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from kicadstamp.adapter_factory import create_board_adapter            # noqa: E402
 from kicadstamp.config import load_config                              # noqa: E402
 from kicadstamp.constants import DEFAULT_TIMEOUT_MS                    # noqa: E402
+from kicadstamp.exceptions import ValidationError                      # noqa: E402
 from kicadstamp.link_trees import link_trees                           # noqa: E402
 from kicadstamp.tree_plan_warnings import plan_pose_subject            # noqa: E402
-from kicadstamp.utils.units import MM                                  # noqa: E402
 
 from gui.docks.tree_place_drift import place_drift_lines               # noqa: E402
 
@@ -86,6 +95,24 @@ def _candidates(linked_trees, cfg, only_tree):
 
         walk(linked_tree.nodes)
     return out
+
+
+def _sheet_names(ctx, source: Path | None) -> tuple[dict, str | None]:
+    """({uuid: sheet name}, note) — the map the GUI's `ctx.sheet_names` carries.
+
+    A copy in `mktemp` cannot build it (`schematic_files` are relative four
+    levels up), so `--sheets-from` names the ORIGINAL profile whose map is built
+    instead: READ ONLY, exactly the reading the GUI does. Never a silent {}: the
+    caller prints the outcome, because an empty map is what turns a resolvable
+    tree instance into "could not check"."""
+    try:
+        if source is not None:
+            _cfg, src_ctx = load_config(source)
+            return dict(src_ctx.sheet_names), None
+        return dict(ctx.sheet_names), None
+    except ValidationError as exc:
+        reason = str(exc).splitlines()[0]
+        return {}, f"sheet names unavailable ({reason})"
 
 
 def _report(adapter, cfg, linked_trees, only_tree, sheet_names) -> tuple[list[str], dict]:
@@ -125,6 +152,10 @@ def main(argv: list[str] | None = None) -> int:
                         help="path to a COPY of a profile's config.sexp")
     parser.add_argument("--tree", default=None,
                         help="only this tree (default: every tree)")
+    parser.add_argument("--sheets-from", default=None,
+                        help="ORIGINAL profile config.sexp to build the "
+                             "{uuid: sheet name} map from (read only) — needed "
+                             "when --config is a copy outside profiles/")
     parser.add_argument("--out", default=None,
                         help="also write the report to this file")
     parser.add_argument("--timeout-ms", type=int, default=DEFAULT_TIMEOUT_MS)
@@ -140,11 +171,16 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     cfg, ctx = load_config(config_path)
+    sheet_names, sheet_note = _sheet_names(
+        ctx, Path(args.sheets_from) if args.sheets_from else None)
     root_sheet = getattr(ctx, "root_sheet", None)
     header = [
         f"config: {config_path}",
         f"root_sheet: {root_sheet} "
-        f"({'exists' if root_sheet and Path(root_sheet).is_file() else 'NOT resolved — this probe reads no schematic'})",
+        f"({'exists' if root_sheet and Path(root_sheet).is_file() else 'NOT resolved in the copy — see --sheets-from'})",
+        f"sheet names: {len(sheet_names)}"
+        + (f" (from {args.sheets_from})" if args.sheets_from else "")
+        + (f" — {sheet_note}" if sheet_note else ""),
         f"trees: {len(getattr(cfg, 'trees', []) or [])}"
         + (f", only {args.tree!r}" if args.tree else ""),
     ]
@@ -153,7 +189,6 @@ def main(argv: list[str] | None = None) -> int:
                                    config_path=str(config_path))
     try:
         adapter.refresh_board()
-        sheet_names = {}
         body, counts = _report(adapter, cfg, linked, args.tree, sheet_names)
     finally:
         adapter.close()
