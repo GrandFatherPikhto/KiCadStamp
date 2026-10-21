@@ -34,6 +34,7 @@ from .placement.services.clone_role_resolver import (
 )
 from .placement.services.coordinate_position_calculator import resolve_footprint_by_cluster_role
 from .role_cluster_damage import check_role_cluster_fields_intact
+from .sheet_names import empty_dictionary_hint, is_root_sheet
 from .i18n import _
 
 logger = logging.getLogger(__name__)
@@ -196,31 +197,55 @@ def check_no_duplicate_clone_anchors(cfg: Config) -> None:
 
 def check_anchor_sheet_configured(cfg: Config, sheet_names=None) -> None:
     """
-    Pure config check. anchor_sheet is resolved via sheet_names.
-    If sheet_names is empty, it means neither schematic_dir nor schematic_files
-    were set (or none of the .kicad_sch files could be parsed), and anchor_sheet
-    will NEVER narrow anything — it will silently do nothing, and later ambiguity
-    of anchor_role will fail with a less helpful fatal. Better to say it upfront.
+    Pure config check. anchor_sheet is resolved via sheet_names, so an EMPTY
+    dictionary means a real sheet name can never narrow anything — it would
+    silently do nothing, and the later ambiguity of anchor_role would fail with
+    a less helpful fatal. Better to say it upfront.
+
+    The ROOT_SHEET marker is NOT such a user (2026-10-21,
+    plan_2026_10_21_root_sheet_anchor_on_flat_schematic): "/" names the EMPTY
+    sheet chain, so it resolves with no dictionary at all — and that emptiness
+    is exactly what tells the root from a sub-sheet (whose chain is [None] when
+    the map cannot name it). A single-page schematic therefore legitimately has
+    0 sheets in the map while a record carrying "/" is perfectly resolvable;
+    refusing it was the bug (live: profiles/Test04, a net_traces record the
+    inter-node capture had just written).
+
+    Every OTHER name still refuses on an empty map, and the hint is now honest
+    about WHY the map is empty — empty_dictionary_hint owns that distinction:
+    "you need schematic_dir" was a lie when the schematics WERE configured and
+    read (0 sheets because there are no sub-sheets).
+
+    Ordering note (deliberate, not a requirement): this config-only check runs
+    from check_config_structure, i.e. BEFORE the board is connected, so it
+    precedes the bug-4 F8 guard of run_all_checks. A config defect does not
+    depend on the board and is cheaper to fix first, and that guard cannot be
+    hoisted past the connection it needs (Д4 of the plan).
     """
     _sn = dict(sheet_names) if sheet_names is not None else {}
     users = [clone_placement_effective_name(c)
-             for c in cfg.clone_placements if not c.retired and c.anchor_sheet]
-    if users and not _sn:
-        raise ValidationError(format_fatal_error(
-            _("anchor_sheet is used but sheet name dictionary is empty"),
-            [_("clone_placements with anchor_sheet: {users}").format(users=users),
-             _("you need schematic_dir (or schematic_files) at the root of the config — "
-               "path to the folder with *.kicad_sch files, relative to this YAML")]
-        ))
-    net_trace_users = [nt.net for nt in cfg.net_traces if not nt.retired and nt.anchor_sheet]
-    if net_trace_users and not _sn:
-        raise ValidationError(format_fatal_error(
-            _("anchor_sheet is used but sheet name dictionary is empty"),
-            [_("net_traces with anchor_sheet: {users}").format(users=net_trace_users),
-             _("you need schematic_dir (or schematic_files) at the root of the config — "
-               "path to the folder with *.kicad_sch files, relative to this YAML")]
-        ))
-    logger.debug(_("anchor_sheet/sheet_names check passed"))
+             for c in cfg.clone_placements
+             if not c.retired and c.anchor_sheet
+             and not is_root_sheet(c.anchor_sheet)]
+    net_trace_users = [nt.net for nt in cfg.net_traces
+                       if not nt.retired and nt.anchor_sheet
+                       and not is_root_sheet(nt.anchor_sheet)]
+    if _sn or not (users or net_trace_users):
+        logger.debug(_("anchor_sheet/sheet_names check passed"))
+        return
+    problems = []
+    if users:
+        problems.append(
+            _("clone_placements with anchor_sheet: {users}").format(users=users))
+    if net_trace_users:
+        problems.append(
+            _("net_traces with anchor_sheet: {users}").format(users=net_trace_users))
+    # The real cause of the empty map: no source configured at all, or the
+    # schematics were read and simply have no sub-sheets (single-page).
+    problems.append(empty_dictionary_hint(getattr(cfg, "schematic_dir", None),
+                                          getattr(cfg, "schematic_files", None)))
+    raise ValidationError(format_fatal_error(
+        _("anchor_sheet is used but sheet name dictionary is empty"), problems))
 
 
 def check_clone_nets_exist_on_board(adapter: KiCadBoardAdapter, cfg: Config) -> None:

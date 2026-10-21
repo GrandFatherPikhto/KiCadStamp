@@ -2850,16 +2850,14 @@ class DockHub:
             fn()
 
     def _warn_if_sheet_narrowing_disabled(self, path) -> None:
-        """V.3 (plan_2026_09_11_extract_selection_diagnostics): without
-        schematic_dir/schematic_files sheet names cannot be resolved, so every
-        sheet-based narrowing silently does nothing — the misleading "No fully
-        selected Cluster found" of V.0 is one symptom. Log ONE informational
-        line (never a modal, never repeated for the same root) the first time
-        such a config is loaded WITH a live board. Gated on the board because
-        without it the warning is not actionable; skipped entirely for configs
-        that DO carry schematic_dir. Called from _sync_root_to_docks (a project
-        opened while already connected) and set_board_selection (connected
-        after opening)."""
+        """V.3 (plan_2026_09_11_extract_selection_diagnostics): an EMPTY
+        sheet-name map means no name can be resolved, so sheet-based narrowing
+        silently does nothing — one informational Log line (never a modal, never
+        repeated for the same root) the first time such a config is loaded WITH a
+        live board. The map is empty for TWO reasons (nothing configured, or a
+        single-page schematic — the live Test04) and the cause comes from
+        sheet_names.sheet_narrowing_disabled_line, the ONE wording host both this
+        line and the config check use; the root sheet "/" needs no map at all."""
         if path is None:
             return
         key = str(path)
@@ -2883,10 +2881,10 @@ class DockHub:
             return
         if has_sheets:
             return
-        logging.info(_(
-            "This config has no schematic_dir/schematic_files — sheet names "
-            "cannot be resolved, so sheet-based narrowing (Extract "
-            "cluster/tree, anchor_sheet) is disabled."))
+        from kicadstamp.sheet_names import sheet_narrowing_disabled_line
+        logging.info(sheet_narrowing_disabled_line(
+            getattr(_cfg, "schematic_dir", None),
+            getattr(_cfg, "schematic_files", None)))
 
     def _on_root_file_changed_for_logging(self, path) -> None:
         """Attaches a FileHandler using the CURRENT root config's own

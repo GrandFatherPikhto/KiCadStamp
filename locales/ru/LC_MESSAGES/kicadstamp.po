@@ -12622,6 +12622,26 @@ msgstr ""
 "нужен schematic_dir (или schematic_files) в корне конфига — путь к папке "
 "с файлами *.kicad_sch, относительно этого YAML"
 
+#: kicadstamp/sheet_names.py:246
+#, python-brace-format
+msgid ""
+"the schematic has no sub-sheets (it is a single-page schematic), so a "
+"sheet name other than the root sheet can never be found — remove "
+"anchor_sheet, or use {root} for the root sheet"
+msgstr ""
+"схема одностраничная — подлистов в ней нет, поэтому имя листа, отличное "
+"от корневого, найти невозможно — удалите anchor_sheet или укажите {root} "
+"для корневого листа"
+
+#: kicadstamp/sheet_names.py:294
+#, python-brace-format
+msgid ""
+"sheet names cannot be resolved, so sheet-based narrowing (Extract "
+"cluster/tree, anchor_sheet) cannot work: {hint}"
+msgstr ""
+"имена листов не разрешаются, поэтому сужение по листам (Extract "
+"cluster/tree, anchor_sheet) не работает: {hint}"
+
 #: kicadstamp/validation.py:218
 #, python-brace-format
 msgid "net_traces with anchor_sheet: {users}"

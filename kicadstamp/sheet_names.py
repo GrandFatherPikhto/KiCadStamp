@@ -248,6 +248,49 @@ def is_root_sheet(sheet) -> bool:
     return sheet == ROOT_SHEET
 
 
+def empty_dictionary_hint(schematic_dir, schematic_files) -> str:
+    """The ONE wording for "the sheet-name dictionary is empty" — its two
+    causes are DIFFERENT facts and must not share one sentence (2026-10-21,
+    plan_2026_10_21_root_sheet_anchor_on_flat_schematic):
+
+      * neither schematic_dir nor schematic_files is configured -> the map
+        could not have been built at all; the config lacks its source;
+      * they ARE configured and were read, yet the map holds 0 sheets -> the
+        schematic simply has no sub-sheets (single-page), so a sheet name
+        other than the ROOT_SHEET marker can never match anything. The old
+        "you need schematic_dir" text was a lie exactly here — live proof:
+        profiles/Test04/logs/actions.log printed "scanned 1 .kicad_sch files,
+        0 sheets in dictionary" right beside it.
+
+    The ROOT marker is neither cause's business (is_root_sheet): it names the
+    EMPTY chain, which needs no dictionary at all — that is why it must not be
+    refused when the map is empty.
+
+    Called by validation.check_anchor_sheet_configured (the fatal's hint line)
+    and by sheet_narrowing_disabled_line below, so the two doors can never tell
+    the user two different stories. Takes the two VALUES rather than a Config
+    on purpose: this module must not import the config package."""
+    if schematic_dir or schematic_files:
+        return _("the schematic has no sub-sheets (it is a single-page "
+                 "schematic), so a sheet name other than the root sheet can "
+                 "never be found — remove anchor_sheet, or use {root} for the "
+                 "root sheet").format(root=ROOT_SHEET)
+    return _("you need schematic_dir (or schematic_files) at the root of the "
+             "config — path to the folder with *.kicad_sch files, relative to "
+             "this YAML")
+
+
+def sheet_narrowing_disabled_line(schematic_dir, schematic_files) -> str:
+    """The GUI's ONE Log line for "sheet names are unavailable" — the V.3 line
+    gui/dock_hub._warn_if_sheet_narrowing_disabled prints once per root. It
+    lives HERE so the dock keeps only the call (the dock is a giant) and so the
+    sentence is testable without a Qt window; the CAUSE still comes from
+    empty_dictionary_hint, the one owner of that distinction."""
+    return _("sheet names cannot be resolved, so sheet-based narrowing "
+             "(Extract cluster/tree, anchor_sheet) cannot work: {hint}"
+             ).format(hint=empty_dictionary_hint(schematic_dir, schematic_files))
+
+
 def instance_label(name: object, sheet: object) -> str:
     """`"<name>/<sheet>"` — THE one way an instance's (Cluster, Sheet) pair is
     written for people: the explode plan's rows and their `touches`, the CLI's

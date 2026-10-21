@@ -11828,6 +11828,26 @@ msgstr ""
 "you need schematic_dir (or schematic_files) at the root of the config — "
 "path to the folder with *.kicad_sch files, relative to this YAML"
 
+#: kicadstamp/sheet_names.py:246
+#, python-brace-format
+msgid ""
+"the schematic has no sub-sheets (it is a single-page schematic), so a "
+"sheet name other than the root sheet can never be found — remove "
+"anchor_sheet, or use {root} for the root sheet"
+msgstr ""
+"the schematic has no sub-sheets (it is a single-page schematic), so a "
+"sheet name other than the root sheet can never be found — remove "
+"anchor_sheet, or use {root} for the root sheet"
+
+#: kicadstamp/sheet_names.py:294
+#, python-brace-format
+msgid ""
+"sheet names cannot be resolved, so sheet-based narrowing (Extract "
+"cluster/tree, anchor_sheet) cannot work: {hint}"
+msgstr ""
+"sheet names cannot be resolved, so sheet-based narrowing (Extract "
+"cluster/tree, anchor_sheet) cannot work: {hint}"
+
 #: kicadstamp/validation.py:218
 #, python-brace-format
 msgid "net_traces with anchor_sheet: {users}"
