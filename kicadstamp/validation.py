@@ -33,6 +33,7 @@ from .placement.services.clone_role_resolver import (
     clone_uses_selection_mode,
 )
 from .placement.services.coordinate_position_calculator import resolve_footprint_by_cluster_role
+from .role_cluster_damage import check_role_cluster_fields_intact
 from .i18n import _
 
 logger = logging.getLogger(__name__)
@@ -628,6 +629,12 @@ def run_all_checks(adapter: KiCadBoardAdapter, cfg: Config, sheet_names=None) ->
     # would validate against the WRONG board and report misleading results
     # (see check_board_identity's docstring for the real incident this guards).
     check_board_identity(cfg, adapter)
+    # SECOND, before anything that resolves a Role/Cluster (2026-10-21, Ч1 of
+    # plan_2026_10_21_role_lookup_steals_across_clusters): a board KiCad's
+    # "Update Footprints from Library" renamed our fields on cannot be trusted
+    # by ANY role/cluster address, so every other check would describe the
+    # wreckage instead of naming the bug. Silent on a healthy board.
+    check_role_cluster_fields_intact(adapter)
     check_config_structure(cfg, sheet_names=_sn)
     check_bridging_pad_hints_are_self_consistent(cfg)
     check_single_selection_based_clone(cfg, adapter=adapter, sheet_names=_sn)

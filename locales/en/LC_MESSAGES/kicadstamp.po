@@ -17408,3 +17408,47 @@ msgstr ""
 #~ "DAC_PI_3V3_C1 vs DAC_PI_AVDD_C1), OR use "
 #~ "explicit refs: {{ {role}: {first_ref} }}"
 
+
+#: kicadstamp/role_cluster_damage.py:112
+#, python-brace-format
+msgid "{ref} ({fields})"
+msgstr ""
+
+#: kicadstamp/role_cluster_damage.py:116
+#, python-brace-format
+msgid "{shown} and {count} more"
+msgstr ""
+
+#: kicadstamp/role_cluster_damage.py:119
+#, python-brace-format
+msgid ""
+"{count} component(s) on this board lost their Role/Cluster fields — "
+"KiCad's “Update Footprints from Library” renamed them to "
+"{library_field!r}"
+msgstr ""
+
+#: kicadstamp/role_cluster_damage.py:123
+#, python-brace-format
+msgid "the renamed fields: {shown}"
+msgstr ""
+
+#: kicadstamp/role_cluster_damage.py:124
+msgid ""
+"this is the known KiCad bug: a library field is matched to a board field "
+"by position while the value stays ours, so a placement addressed by "
+"Role/Cluster would take a component of ANOTHER cluster instead of "
+"refusing"
+msgstr ""
+
+#: kicadstamp/role_cluster_damage.py:128
+#, python-brace-format
+msgid ""
+"press Update PCB from Schematic (F8) with its defaults — it removes "
+"{library_field!r} and restores both fields from the schematic; nothing "
+"else on the board is touched"
+msgstr ""
+
+#: kicadstamp/placement/services/role_refusals.py:43
+#, python-brace-format
+msgid "{label}: anchor_role {role!r} is not in cluster {cluster!r}"
+msgstr ""

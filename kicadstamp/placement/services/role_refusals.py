@@ -27,6 +27,25 @@ def raise_role_not_found(label: str, role: str | None) -> None:
     ))
 
 
+def raise_role_outside_cluster(label: str, role: str | None,
+                               cluster: str | None, problems: list[str]) -> None:
+    """The canonical "this Role exists, but NOT in the cluster the caller named"
+    fatal — the third wording of an anchor_role resolve (2026-10-21, Ч1 of
+    plan_2026_10_21_role_lookup_steals_across_clusters).
+
+    The LINES are deliberately NOT written here: they come from
+    ``role_conflict_reasons.role_not_in_cluster_problems`` — the same text the
+    entity path has used since 2026-10-13 («… carries this role but has no
+    Cluster field — it is NOT taken») — so a caller can never be told two
+    different things about the same foreign or untagged candidate. This
+    function only supplies the label prefix the other two refusals carry."""
+    raise ValidationError(format_fatal_error(
+        _("{label}: anchor_role {role!r} is not in cluster {cluster!r}")
+        .format(label=label, role=role, cluster=cluster),
+        problems
+    ))
+
+
 def raise_ambiguous(label: str, role: str | None, narrowed: list) -> None:
     """The canonical "this Role is on several components" fatal — ONE wording for
     both candidate sources (the snapshot and the live sweep)."""

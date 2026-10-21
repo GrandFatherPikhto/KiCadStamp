@@ -158,13 +158,21 @@ def _item_net_name(adapter, nt: NetTrace, item, sheet_names: dict[str, str],
 
     ``quiet`` — the role search of a DRY, per-record question (``record_nets``)
     then logs its narrowing steps at DEBUG instead of INFO (part 2 of
-    plan_2026_10_08_narrowing_net_traces_cost); planning a record passes nothing."""
+    plan_2026_10_08_narrowing_net_traces_cost); planning a record passes nothing.
+
+    ``cluster_is_hint=True`` — because ``nt.anchor_cluster`` is the cluster of the
+    record's ANCHOR, NOT of the role searched here: the two ends of one piece of
+    copper may stand in different clusters (the FPGA side of a channel bridge), so
+    the cluster may only NARROW the choice, never refuse a unique role. Since Ч1
+    of plan_2026_10_21_role_lookup_steals_across_clusters the resolver confines by
+    the cluster at ANY count by default (the anchor case), and this is the ONE
+    caller that says «hint» instead — «Ответ Claude на находку Ч1» of that plan."""
     role = getattr(item, "net_from_role", None)
     if role is None:
         return item.net or nt.net
     fp = resolve_footprint_by_role(
         adapter, role, nt.anchor_sheet, nt.anchor_cluster, sheet_names,
-        label=label, quiet=quiet)
+        label=label, quiet=quiet, cluster_is_hint=True)
     return resolve_net_from_role(role, getattr(item, "net_from_role_pad", None),
                                  {role: fp.ref}, adapter)
 

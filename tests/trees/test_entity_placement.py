@@ -118,16 +118,22 @@ def test_role_anchor_tree_materializes_on_resolved_footprint():
     """Phase 4.2: a (role ...) tree anchor is resolved LIVE via
     ComponentResolver (same logic as Rule.anchor_role) — the placement-node
     materializes at the matched footprint's current position + node offset,
-    NOT skipped/fatal. anchor_sheet/anchor_cluster narrow the same cascade."""
+    NOT skipped/fatal. anchor_sheet/anchor_cluster narrow the same cascade —
+    and since 21.10 (Ч1 of plan_2026_10_21_role_lookup_steals_across_clusters)
+    a NAMEAD cluster is a hard confinement, so the footprint has to CARRY it:
+    the stub hands over the Cluster field as a live board does, instead of
+    answering None for every field but Role."""
     fpga = MagicMock(spec=FootprintInstance)
     fpga.ref = "IC1"
     fpga._role = "FPGA"
+    fpga._cluster = "FPGA"
     fpga.position = Vector2.from_xy_mm(30.0, 40.0)
     fpga.angle_deg = 0.0
     adapter = MagicMock()
     adapter.get_footprints.return_value = [fpga]
     adapter.get_field_value.side_effect = (
-        lambda fp, name: getattr(fp, "_role", None) if name == "Role" else None)
+        lambda fp, name: {"Role": getattr(fp, "_role", None),
+                          "Cluster": getattr(fp, "_cluster", None)}.get(name))
     adapter.get_selected_items.return_value = []
 
     cfg = _cfg(

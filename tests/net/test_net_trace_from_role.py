@@ -130,12 +130,20 @@ def test_net_from_role_without_a_pad_uses_lemma_two():
 
 def test_net_from_role_narrowed_by_the_records_own_cluster():
     """Two components share the role (the channel-copy case) — the record's own
-    anchor_cluster picks the instance, exactly as it does for the anchor."""
+    anchor_cluster, which is the ANCHOR's cluster, also HINTS the instance at
+    the copper end (it picks the one standing in that cluster).
+
+    The anchor carries the cluster too (since Ч1 of
+    plan_2026_10_21_role_lookup_steals_across_clusters a named cluster ADDRESSES
+    the anchor and must be carried by it — a record whose anchor_cluster names
+    another part's cluster is not a legal record); at the copper end the same
+    value is only a hint, which is why `_item_net_name` passes
+    cluster_is_hint=True."""
     track = TemplateTrack(net_from_role="DAC_BUF", net_from_role_pad="5",
                           layer="F.Cu")
     nt = _record(tracks=[track], anchor_cluster="PIF_DVDD")
     adapter = _board(
-        [_fp("U_FPGA", role="FPGA"),
+        [_fp("U_FPGA", role="FPGA", cluster="PIF_DVDD"),
          _fp("U_A", role="DAC_BUF", cluster="PIF_AVDD"),
          _fp("U_B", role="DAC_BUF", cluster="PIF_DVDD")],
         {"U_A": [_pad("5", "/Channel_1/AVDD/+3V3")],

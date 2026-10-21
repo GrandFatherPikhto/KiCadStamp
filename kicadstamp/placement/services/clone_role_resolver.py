@@ -59,7 +59,8 @@ from .role_narrowing import (
     own_cluster_candidates,
 )
 from .role_identity import current_generation, role_candidates
-from .role_refusals import raise_ambiguous, raise_role_not_found
+from .role_refusals import (raise_ambiguous, raise_role_not_found,
+                            raise_role_outside_cluster)
 
 logger = logging.getLogger(__name__)
 
@@ -843,9 +844,55 @@ _role_candidates = role_candidates
 _current_generation = current_generation
 
 
+def _confine_candidates_to_anchor_cluster(adapter, candidates, anchor_role: str,
+                                          anchor_cluster: str | None,
+                                          label: str, *, hint: bool = False) -> list:
+    """The candidates of an anchor role, confined to the cluster the CALLER named.
+
+    Ч1 of plan_2026_10_21_role_lookup_steals_across_clusters (В1): a named
+    cluster means the candidate MUST carry it — however many candidates there
+    are, one or ten. Before this, the cascade narrowed by cluster only at 2+
+    (`_narrow_by_sheet_cluster_selection`, `len(narrowed) > 1`) and a single
+    candidate was returned unchecked: the live fact — `R_LED`/`P5V_IN` resolved
+    to R2 of `LDO_P3V3`, whose Cluster had been renamed away by KiCad's
+    "Update Footprints from Library".
+
+    The FILTER is `role_narrowing.own_cluster_candidates` and the WORDS are
+    `role_conflict_reasons.role_scope_problems` (→ `role_not_in_cluster_problems`)
+    — the one pair the entity path has used since 2026-10-13
+    (plan_2026_10_13_cluster_confined_roles). This function only WIRES them in
+    front of the cascade, which keeps its own "narrow only if it reduces the
+    set" rule (guard: tests/placement/test_role_narrowing.py, the 0-1 candidate
+    no-op cell) — the internal-role path still relies on exactly that rule.
+
+    An unnamed cluster (None/'') answers the candidates untouched: refs-only and
+    sheet-only addressing keep today's behaviour byte for byte. An empty
+    candidate list is NOT this rule's business — the caller has already raised
+    "not found" (the live board's honest answer), and a board fact must never be
+    re-worded as a cluster complaint.
+
+    ``hint`` — the cluster is NOT an address of this role, only a suggestion
+    (one caller: ``net_trace_planner._item_net_name``, where it is the ANCHOR's
+    cluster handed to the role at the OTHER end of the copper). Then nothing is
+    filtered here and the shared cascade narrows softly, exactly as before Ч1:
+    it applies only if the set actually shrinks, and a unique role on a foreign
+    cluster still resolves. Decision: «Ответ Claude на находку Ч1» of
+    plan_2026_10_21_role_lookup_steals_across_clusters.
+    """
+    if not anchor_cluster or hint:
+        return list(candidates)
+    confined = own_cluster_candidates(adapter, candidates, anchor_cluster)
+    if not confined:
+        raise_role_outside_cluster(
+            label, anchor_role, anchor_cluster,
+            role_scope_problems(adapter, anchor_role, anchor_cluster, []))
+    return confined
+
+
 def resolve_footprint_by_role(adapter, anchor_role: str, anchor_sheet: str | None,
                               anchor_cluster: str | None, sheet_names: dict[str, str],
-                              label: str, *, snapshot=None, quiet: bool = False) -> Footprint:
+                              label: str, *, snapshot=None, quiet: bool = False,
+                              cluster_is_hint: bool = False) -> Footprint:
     """
     Resolves ANY anchor component by anchor_role (Role field on the board,
     NOT a cell role — this is different: here we search for the anchor itself
@@ -855,12 +902,24 @@ def resolve_footprint_by_role(adapter, anchor_role: str, anchor_sheet: str | Non
     narrowing cascade:
 
       1. candidates = all footprints with Role == anchor_role.
+      1a. anchor_cluster named — the candidates are CONFINED to it FIRST, at any
+          count (see _confine_candidates_to_anchor_cluster; Ч1 of
+          plan_2026_10_21_role_lookup_steals_across_clusters). Nothing left →
+          the cluster refusal, not "ambiguous", not "not found".
+          ``cluster_is_hint=True`` skips this step: the cluster is then a
+          SUGGESTION for a role it does not address (the copper end of a
+          net_trace, whose cluster belongs to the record's ANCHOR) and the
+          cascade's own soft cluster step is all it gets. One caller —
+          net_trace_planner._item_net_name.
       2. several — narrow by anchor_sheet (if set): the human‑readable path of fp
          (via sheet_names, see kicadstamp/sheet_names.py) contains this segment
          (see _fp_on_sheet).
-      2b. still several — narrow by anchor_cluster (if set):
-          Cluster field matches by prefix segments (see cluster_prefix_match) —
-          independent of anchor_sheet, read from the schematic, not from UUID/sheet_path.
+      2b. still several — narrow by anchor_cluster (if set): Cluster field matches
+          by prefix segments (see cluster_prefix_match) — independent of
+          anchor_sheet, read from the schematic, not from UUID/sheet_path. After
+          step 1a this step can no longer SELECT a foreign candidate (every
+          survivor already carries the cluster); it stays because it is the
+          shared cascade's own step, exercised by the 2+ cells.
       3. still several — narrow to the current selection on the board.
       4. still several, or 0 — FATAL with candidate list and hints
          (anchor_sheet/anchor_cluster/selection/explicit anchor_ref).
@@ -875,10 +934,11 @@ def resolve_footprint_by_role(adapter, anchor_role: str, anchor_sheet: str | Non
     snapshot (2026-09-22, plan_2026_09_22_live_adapter_class Т2-4/Т2-7, the А+
     decision) — the caller's ``connection.snapshot`` when it OWNS one. Then the
     candidate LIST (the identity question, which is what the whole-board sweep
-    was paying for) comes from the snapshot in memory, the narrowing cascade
-    below runs unchanged — its cluster step still asks the adapter, but only
-    when the role is genuinely ambiguous, i.e. when 2+ candidates survive the
-    sheet narrowing — and the returned object comes from the adapter's CURRENT
+    was paying for) comes from the snapshot in memory and the narrowing cascade
+    below runs unchanged — its cluster step asks the adapter only when 2+
+    candidates survive the sheet narrowing, while step 1a's cluster CONFINEMENT
+    asks it at every count (once, for a single candidate too — that is the whole
+    of Ч1) — and the returned object comes from the adapter's CURRENT
     generation. `None` (the default, and what apply/CLI/MCP pass) = the sweep,
     byte for byte. (``quiet`` is handed to the cascade — its docstring owns it.)"""
     selected_items = adapter.get_selected_items()
@@ -890,6 +950,11 @@ def resolve_footprint_by_role(adapter, anchor_role: str, anchor_sheet: str | Non
     candidates = _role_candidates(adapter, anchor_role, snapshot)
     if not candidates:
         raise_role_not_found(label, anchor_role)
+    # Step 1a — the named Cluster is a hard confinement, at ANY candidate count,
+    # unless the caller says it is only a hint (see the docstring).
+    candidates = _confine_candidates_to_anchor_cluster(
+        adapter, candidates, anchor_role, anchor_cluster, label,
+        hint=cluster_is_hint)
 
     narrowed = _narrow_by_sheet_cluster_selection(
         candidates, adapter, selected_refs,
@@ -910,6 +975,12 @@ def resolve_footprint_by_role(adapter, anchor_role: str, anchor_sheet: str | Non
     candidates = _role_candidates(adapter, anchor_role, None)
     if not candidates:
         raise_role_not_found(label, anchor_role)
+    # The SAME step 1a on the live sweep — the property belongs to the CLASS,
+    # not to one of its two candidate sources (the neighbouring snapshot cells
+    # are asserted on both branches for the same reason).
+    candidates = _confine_candidates_to_anchor_cluster(
+        adapter, candidates, anchor_role, anchor_cluster, label,
+        hint=cluster_is_hint)
     narrowed = _narrow_by_sheet_cluster_selection(
         candidates, adapter, selected_refs,
         anchor_sheet, anchor_cluster,
