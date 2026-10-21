@@ -16,6 +16,9 @@ on 20.10 (3CH-AWG-TIA-v103): six such nodes, `fpga_vcca_35` exactly 3.0000 mm,
 
 WHAT this module does, and what it does NOT do:
 
+  * WHO is plan-borne is not decided here: `tree_plan_warnings.plan_pose_subject`
+    is THE ONE HOST of that rule (both planners and this module ask it). The
+    acceptance of 21.10 found the copies it used to have disagreeing;
   * the PLAN pose is whatever the redraw itself reads for that ancestor
     (`resolve_base_live_position` / `resolve_base_rotation_deg`) — never a
     second computation of "its place in the tree";
@@ -24,24 +27,34 @@ WHAT this module does, and what it does NOT do:
     copy of its cell REFUSES (`NonRigidClusterError`), and then NO deviation
     number is reported at all: a guess is not a number (the honest_live_read
     decision of 20.10);
-  * the comparison is `> RIGID_TOLERANCE_MM` / `> ANGLE_TOLERANCE_DEG`, done in
-    WHOLE nanometres, and no second constant is introduced (Denis, 20.10);
-  * only ancestors whose pose the redraw takes from the PLAN are examined
-    (kind "placement", and the placing node of an internal mount). A clone or a
-    coordinate ancestor is read LIVE by the redraw, so the nodes below it follow
-    it and a warning there would be false.
+  * the deviation is the DISTANCE between the two poses (`math.hypot` over whole
+    nanometres), never the largest axis: "stands N mm" must be the number the
+    comparison uses (21.10 — the axis version understated it by up to sqrt 2);
+  * the comparison is `> RIGID_TOLERANCE_MM` / `> ANGLE_TOLERANCE_DEG`, and no
+    second constant is introduced (Denis, 20.10). The turn goes through the
+    project's own `cell_frame.normalize_deg` — no third copy of that formula;
+  * the ancestor that IS in the run is skipped as a SUBJECT — for an internal
+    mount the subject is the PLACING node, and when THAT node is redrawn it
+    lands on its own plan, so no gap is left (21.10: the check used to test the
+    mount NODE and cried wolf about a component that was being moved);
+  * a plan-borne subject whose plan pose cannot be READ (a mount placed by a
+    node that is not a "placement" record) gets one honest "could not check"
+    line with the reason in words — silence would read as "checked, in place".
 
 The result is a list of Log lines; the caller (gui/docks/cascade.py, a worker)
 logs them and hands them to the dock's warning counter. Nothing is written.
 
-Module content of an embedded tree (stage-2 layout) is deliberately NOT covered
-— a recorded gap of the plan, not an oversight.
+Two recorded gaps, not oversights: module content of an embedded tree (stage-2
+layout) is NOT covered, and the tree parents of a MOUNT ancestor are still
+walked (an internal mount's base comes from the placing component, not from
+where the mount node itself hangs — no profile holds a (kind mount) node yet).
 """
 from __future__ import annotations
 
 import dataclasses
+import math
 
-from kicadstamp.cell_frame import RIGID_TOLERANCE_MM
+from kicadstamp.cell_frame import RIGID_TOLERANCE_MM, normalize_deg
 from kicadstamp.constants import ANGLE_TOLERANCE_DEG
 from kicadstamp.exceptions import (
     NonRigidClusterError,
@@ -49,12 +62,11 @@ from kicadstamp.exceptions import (
     fatal_error_reason,
 )
 from kicadstamp.i18n import _
-from kicadstamp.tree_plan_warnings import plain_tree_by_name
+from kicadstamp.tree_plan_warnings import plan_pose_subject
 from kicadstamp.tree_position import (
     resolve_base_live_position,
     resolve_base_rotation_deg,
 )
-from kicadstamp.trees import resolve_internal_mount_match
 from kicadstamp.utils.units import MM
 
 from .live_position import read_record_live_pose
@@ -71,11 +83,14 @@ class AncestorOutsidePlan:
     ref      — the record's name, i.e. what the warning shows;
     record   — the Record itself (kind "placement" by construction);
     children — the run's own names that hang below it (the ones that will land
-               off by the ancestor's deviation)."""
+               off by the ancestor's deviation);
+    reason   — set when that deviation CANNOT be measured: the check then owes
+               one honest "could not check" line, never silence."""
 
     ref: str
     record: object
     children: list = dataclasses.field(default_factory=list)
+    reason: str | None = None
 
 
 def _forest_index(linked_trees) -> tuple[dict, dict, dict]:
@@ -100,85 +115,95 @@ def _forest_index(linked_trees) -> tuple[dict, dict, dict]:
     return nodes, parent, owner
 
 
-def _plan_owner(cfg, index: dict, linked_tree, linked_node):
-    """(ref, record) whose pose the redraw takes from the PLAN for this node, or
-    None when the redraw reads this node LIVE (then the nodes below it follow it
-    and there is nothing to warn about).
+def _host_subject(cfg, linked_node, tree_name):
+    """`plan_pose_subject` with a mount classifier's fatal turned into a reason.
 
-    kind "placement" — an Entity: its "live" resolution IS the tree, by design.
-    kind "mount" — an INTERNAL mount lays its children from the tree pose of the
-    node that places the anchored role (`_internal_mount_base` reads only the
-    pad's SHAPE), so the owner is that placing node. A LIVE mount (a role outside
-    the tree) is resolved from the board and is skipped."""
-    node = linked_node.node
-    if node.kind == "placement":
-        # Both halves must say "placement": the tree node's kind AND the record's
-        # kind (link_trees derives one from the other, so a disagreement is a bug
-        # somewhere else — and it must not turn into a false warning here).
-        record = linked_node.record
-        return (node.ref, record) if getattr(record, "kind", None) == "placement" else None
-    if node.kind != "mount":
-        return None
-    plain = plain_tree_by_name(cfg, linked_tree.name)
-    if plain is None:
-        return None
-    match = resolve_internal_mount_match(cfg, plain, node)
-    if match is None:
-        return None
-    placing = index.get(match.node.ref)
-    if placing is None or placing.record is None:
-        return None
-    if getattr(placing.record, "kind", None) != "placement":
-        return None
-    return (placing.node.ref, placing.record)
+    The classifier raises config-level fatals (ambiguity / module crossing /
+    cycle). The load-time guard already reports them, but this check runs inside
+    a worker: it must never break the redraw and it must never fall silent
+    either (acceptance 21.10) — so the reason travels to the line, not the
+    traceback."""
+    try:
+        return plan_pose_subject(cfg, linked_node, tree_name), None
+    except Exception as exc:  # noqa: BLE001 — a warning check never breaks a redraw
+        return None, fatal_error_reason(exc)
+
+
+def _unreadable_plan(record, linked_node) -> str:
+    """Why a plan-borne subject has no readable plan pose: the redraw lays the
+    nodes below it from the tree, `resolve_base_live_position` answers such a
+    pose only for a "placement" record, and a guess is not a number (21.10)."""
+    kind = (getattr(record, "kind", None)
+            or getattr(getattr(linked_node, "node", None), "kind", None)
+            or "component")
+    return _("its plan pose comes from the tree, but the node that places it is "
+             "a {kind} record — that pose cannot be read").format(kind=kind)
 
 
 def ancestors_outside_plan(cfg, linked_trees, names) -> list:
     """Every ancestor of a redrawn name that this run will NOT move and whose
-    pose comes from the plan — ONE entry per ancestor, oldest first.
+    pose comes from the plan — ONE entry per SUBJECT, oldest first.
 
     The WHOLE chain is walked, not just the immediate parent (Denis, 20.10): with
     the father and the child checked and the grandfather shifted, the line must
-    name the GRANDFATHER. An ancestor that IS in `names` is skipped as a subject
-    (it will be moved onto its planned place) but the walk continues past it.
-    Nothing selected below an ancestor means it is never reached — that silence
-    is the point (клетка 11)."""
+    name the GRANDFATHER. The membership test is on the SUBJECT and nowhere
+    else — for an internal mount that is the PLACING component, never the mount
+    node: when the placing component IS redrawn it lands on its own plan, so no
+    gap is left and a line about it would be false (acceptance 21.10). The walk
+    continues past a redrawn ancestor, and nothing selected below an ancestor
+    means it is never reached — that silence is the point (cell 11)."""
     wanted = set(names or ())
     index, parent, owner = _forest_index(linked_trees)
     found: dict = {}
+
+    def entry(ref, record, reason=None):
+        made = found.get(ref)
+        if made is None:
+            made = AncestorOutsidePlan(ref=ref, record=record, reason=reason)
+            found[ref] = made
+        return made
+
     for name in wanted:
         if name not in index:
             continue
         parent_ref = parent.get(name)
         while parent_ref is not None:
-            if parent_ref not in wanted:
-                subject = _plan_owner(cfg, index, owner[parent_ref],
-                                      index[parent_ref])
-                if subject is not None:
-                    ref, record = subject
-                    entry = found.get(ref)
-                    if entry is None:
-                        entry = AncestorOutsidePlan(ref=ref, record=record)
-                        found[ref] = entry
-                    if name not in entry.children:
-                        entry.children.append(name)
+            node = index[parent_ref]
+            subject, reason = _host_subject(cfg, node, owner[parent_ref].name)
+            if reason is not None:
+                # A mount we could not classify: its children ARE laid from the
+                # tree, so say so instead of falling silent.
+                entry(parent_ref, None, reason)
+            elif subject is not None:
+                ref, record = subject
+                if record is None:                 # a mount's placing node
+                    placing = index.get(ref)
+                    record = None if placing is None else placing.record
+                if ref not in wanted:
+                    if getattr(record, "kind", None) != "placement":
+                        entry(ref, record, _unreadable_plan(record, index.get(ref)))
+                    else:
+                        made = entry(ref, record)
+                        if name not in made.children:
+                            made.children.append(name)
             parent_ref = parent.get(parent_ref)
     return list(found.values())
 
 
-def _normalized_deg(delta: float) -> float:
-    """Relative angle in (-180, 180] — the project's own normalisation."""
-    return (delta + 180.0) % 360.0 - 180.0
+def _deviation(used_pos, used_deg, live) -> tuple[float, float | None]:
+    """(DISTANCE between the plan and the live pose in WHOLE nm, turn or None).
 
-
-def _deviation(used_pos, used_deg, live) -> tuple[int, float | None]:
-    """(largest per-axis drift in WHOLE nm, normalised turn or None)."""
-    drift_nm = max(abs(int(live.position.x) - int(used_pos.x)),
-                   abs(int(live.position.y) - int(used_pos.y)))
+    The distance, not the largest axis: the line says "stands N mm", so N must be
+    what the tolerance is compared with. (2.5, 2.5) mm is 3.5355 mm away, not
+    2.5000 — the axis version understated the deviation by up to sqrt 2 and
+    compared a different number than it printed (acceptance 21.10)."""
+    dx = int(live.position.x) - int(used_pos.x)
+    dy = int(live.position.y) - int(used_pos.y)
+    distance_nm = math.hypot(dx, dy)
     turn = None
     if live.rotation_deg is not None and used_deg is not None:
-        turn = _normalized_deg(float(live.rotation_deg) - float(used_deg))
-    return drift_nm, turn
+        turn = normalize_deg(float(live.rotation_deg) - float(used_deg))
+    return distance_nm, turn
 
 
 def _could_not_check(ref: str, reason: str) -> str:
@@ -189,6 +214,10 @@ def _could_not_check(ref: str, reason: str) -> str:
 def _lines_for(adapter, cfg, ancestor: AncestorOutsidePlan, sheet_names) -> list:
     """The Log lines this ONE ancestor earns — usually none."""
     ref, record = ancestor.ref, ancestor.record
+    if ancestor.reason is not None:
+        # The deviation cannot be measured (no readable plan pose, or a mount
+        # the classifier refused): one honest line, no invented number.
+        return [_could_not_check(ref, ancestor.reason)]
     try:
         used_pos = resolve_base_live_position(adapter, cfg, ref, record, {},
                                               sheet_names)
@@ -213,9 +242,9 @@ def _lines_for(adapter, cfg, ancestor: AncestorOutsidePlan, sheet_names) -> list
     except Exception as exc:  # noqa: BLE001 — same rule as above
         return [_could_not_check(ref, fatal_error_reason(exc))]
 
-    drift_nm, turn = _deviation(used_pos, used_deg, live)
+    distance_nm, turn = _deviation(used_pos, used_deg, live)
     turned = turn is not None and abs(turn) > ANGLE_TOLERANCE_DEG
-    if drift_nm <= _TOL_NM and not turned:
+    if distance_nm <= _TOL_NM and not turned:
         return []
     return [_("Tree redraw: ancestor {ref!r} is NOT being redrawn and stands "
               "{mm:.4f} mm from its place in the tree (planned ({px:.4f}, "
@@ -224,7 +253,7 @@ def _lines_for(adapter, cfg, ancestor: AncestorOutsidePlan, sheet_names) -> list
               "land off by that amount relative to where {ref!r} stands. Redraw "
               "the whole tree, or put {ref!r} in its place first.")
             .format(ref=ref,
-                    mm=drift_nm / MM,
+                    mm=distance_nm / MM,
                     px=used_pos.x / MM, py=used_pos.y / MM,
                     lx=live.position.x / MM, ly=live.position.y / MM,
                     deg=0.0 if turn is None else turn,
@@ -232,8 +261,9 @@ def _lines_for(adapter, cfg, ancestor: AncestorOutsidePlan, sheet_names) -> list
 
 
 def place_drift_lines(adapter, cfg, linked_trees, names, sheet_names=None) -> list:
-    """The Log lines for a curated redraw about to place `names` — the ancestors
-    it will NOT move but whose pose it takes from the plan.
+    """The Log lines for a curated redraw about to place `names` — the SUBJECTS
+    (ancestors, or the components that place a mount ancestor) it will NOT move
+    but whose pose it takes from the plan.
 
     Read-only and best-effort BY CONTRACT: a check that cannot be made becomes
     one honest "could not check" line, never an exception and never a made-up

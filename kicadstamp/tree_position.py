@@ -66,7 +66,8 @@ from .tree_plan_warnings import (
     anchor_base_label,
     inline_anchor_override_warning,
     parent_outside_selection_warning,
-    parent_pose_comes_from_plan,
+    plan_pose_subject,
+    top_level_anchor_labels,
 )
 from .trees import (
     Tree,
@@ -1352,14 +1353,13 @@ def curated_redraw_plan(linked_tree: LinkedTree, selected_refs: set[str],
             # A component node (Э3) owns no record — its name is its own ref.
             names.append(linked_node.record.name if linked_node.record is not None
                          else linked_node.node.ref)
-        # Where THIS node's pose comes from decides the wording of its children's
-        # warning — resolved once per node, config-only (no board read).
-        children_from_plan = (parent_pose_comes_from_plan(linked_node,
-                                                          linked_tree.name, cfg)
-                              if linked_node.children else False)
+        # Where THIS node's pose comes from decides its children's wording —
+        # ONE host, once per node, config-only (no board read).
+        subject = (plan_pose_subject(cfg, linked_node, linked_tree.name)
+                   if linked_node.children else None)
         for child in linked_node.children:
             walk(child, parent_in_sel=is_selected, parent_label=ref,
-                 parent_from_plan=children_from_plan)
+                 parent_from_plan=subject is not None)
 
     # A top-level node's parent IS the tree's anchor, and an anchor is always
     # resolved LIVE (every anchor mode reads the board or a config point) —
@@ -1415,12 +1415,14 @@ class _ForestIndex:
     node_index: dict[str, LinkedNode]
     parent_map: dict[str, str | None]
     top_level: set[str]
+    owner_map: dict[str, str]          # node ref -> the tree that holds it
 
 
 def _forest_index(linked_trees: list[LinkedTree]) -> _ForestIndex:
     node_index: dict[str, LinkedNode] = {}
     parent_map: dict[str, str | None] = {}
     top_level: set[str] = set()
+    owner_map: dict[str, str] = {}
     for tree in linked_trees:
         anchor_ref = tree.anchor.anchor.ref
 
@@ -1429,13 +1431,14 @@ def _forest_index(linked_trees: list[LinkedTree]) -> _ForestIndex:
             for ln in nodes:
                 node_index[ln.node.ref] = ln
                 parent_map[ln.node.ref] = parent_ref
+                owner_map[ln.node.ref] = tree.name
                 if under_anchor:
                     top_level.add(ln.node.ref)
                 walk(ln.children, ln.node.ref, under_anchor=False)
 
         walk(tree.nodes, anchor_ref, under_anchor=True)
     return _ForestIndex(node_index=node_index, parent_map=parent_map,
-                        top_level=top_level)
+                        top_level=top_level, owner_map=owner_map)
 
 
 # ── edge providers (plan_2026_09_17 Э1, Т1.2) ─────────────────────────────────
@@ -1590,8 +1593,8 @@ def _module_placement_checks(active,
 
 def _plan_forest(index: _ForestIndex, linked_trees: list[LinkedTree],
                  selected_refs: set[str],
-                 copper_deps: dict[str, set[str]] | None = None
-                 ) -> tuple[list[str], list[str]]:
+                 copper_deps: dict[str, set[str]] | None = None,
+                 cfg=None) -> tuple[list[str], list[str]]:
     """The forest order — ONE implementation for every caller (plan_2026_09_17
     Э1). The old split into a "plain fast path" (_plan_forest_plain) and a
     "module branch" is gone: the module pass is two extra walks over the nodes
@@ -1650,25 +1653,21 @@ def _plan_forest(index: _ForestIndex, linked_trees: list[LinkedTree],
     # A top-level node's base is its tree's ANCHOR — named by its real mode
     # (Ф10): a (role ...)/(point ...)/(self ...) anchor is a live, floating base
     # and printing "(origin)" for it read as "this tree is origin-anchored".
-    top_level_anchor_label: dict[str, str] = {}
-    for linked_tree in linked_trees:
-        label = anchor_base_label(linked_tree.anchor)
-        for linked_node in linked_tree.nodes:
-            top_level_anchor_label[linked_node.node.ref] = label
+    # WHERE that pose comes from is the ONE rule of tree_plan_warnings (21.10:
+    # this planner spelled the old "current position" out here by hand).
+    labels = top_level_anchor_labels(linked_trees)
     for ref in selected:
         if ref in copper_refs:
             # Copper's base is its OWN anchor pad, never its tree parent — the
             # note below is false for it (P.2.2 of the 2026-09-16 plan).
             continue
         p = index.parent_map.get(ref)
-        parent_label = (p if p is not None
-                        else top_level_anchor_label.get(ref, "(origin)"))
+        parent_label = p if p is not None else labels.get(ref, "(origin)")
         if p is None or (p not in selected and p not in content_refs):
-            warnings.append(
-                _("Node {ref!r} will be redrawn from the current position of "
-                  "{parent!r} (not in selection); if {parent!r} moved, {ref!r} "
-                  "will land from the old point")
-                .format(ref=ref, parent=parent_label))
+            warnings.append(parent_outside_selection_warning(
+                ref, parent_label,
+                plan_pose_subject(cfg, index.node_index.get(p),
+                                  index.owner_map.get(p)) is not None))
     return names, warnings
 
 
@@ -1836,8 +1835,8 @@ def _module_content_record_refs(m: LinkedNode, kind: str | None = None) -> set[s
 
 def curated_redraw_plan_forest(linked_trees: list[LinkedTree],
                                selected_refs: set[str],
-                               copper_deps: dict[str, set[str]] | None = None
-                               ) -> tuple[list[str], list[str]]:
+                               copper_deps: dict[str, set[str]] | None = None,
+                               cfg=None) -> tuple[list[str], list[str]]:
     """Global curated-redraw order over a FOREST of linked trees: within-tree
     parent-before-child, cross-tree anchor edges, AND — when module markers are
     active (plan_2026_09_02_tree_module_embedding.md P3 п.1/1a, design P3
@@ -1886,7 +1885,7 @@ def curated_redraw_plan_forest(linked_trees: list[LinkedTree],
     through their module. point/external nodes are bases, never emitted. The
     D3 2+-parent conflict and any cycle raise ValidationError."""
     return _plan_forest(_forest_index(linked_trees), linked_trees, selected_refs,
-                        copper_deps=copper_deps)
+                        copper_deps=copper_deps, cfg=cfg)
 
 
 def curated_forest_module_content(linked_trees: list[LinkedTree],

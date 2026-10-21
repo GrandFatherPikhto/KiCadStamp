@@ -17192,12 +17192,21 @@ msgstr "KiCad rejected the move of {ref!r} — the board was not modified"
 msgid "footprint {ref!r} not found on the board"
 msgstr "footprint {ref!r} not found on the board"
 
-#: gui/docks/tree_place_drift.py:185
+#: gui/docks/tree_place_drift.py:210
 #, python-brace-format
 msgid "Tree redraw: could not check {ref!r}: {reason}"
 msgstr "Tree redraw: could not check {ref!r}: {reason}"
 
-#: gui/docks/tree_place_drift.py:206
+#: gui/docks/tree_place_drift.py:139
+#, python-brace-format
+msgid ""
+"its plan pose comes from the tree, but the node that places it is a {kind} "
+"record — that pose cannot be read"
+msgstr ""
+"its plan pose comes from the tree, but the node that places it is a {kind} "
+"record — that pose cannot be read"
+
+#: gui/docks/tree_place_drift.py:235
 #, python-brace-format
 msgid ""
 "Tree redraw: could not check {ref!r}: the cluster on the board is not a "

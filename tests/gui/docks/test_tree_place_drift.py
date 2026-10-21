@@ -63,7 +63,7 @@ def _live(x_nm, y_nm, deg=0.0):
 
 @pytest.fixture
 def seams(monkeypatch):
-    """Wire the three seams; returns a dict the cells adjust before calling.
+    """Wire the FOUR seams; returns a dict the cells adjust before calling.
 
     Every seam takes the record REF as its third positional argument, so a cell
     that needs one specific ancestor to differ from the rest can say so through
@@ -72,11 +72,28 @@ def seams(monkeypatch):
     `nonrigid` models the STRICT contract of the live read: a non-rigid cluster
     raises only when `strict=True` was asked for, while a non-strict read would
     answer with a (guessed) pose `nonrigid` mm away — that is what makes the
-    strict flag of cell 8 observable instead of decorative."""
+    strict flag of cell 8 observable instead of decorative.
+
+    The FOURTH seam is the plan-borne host (`plan_pose_subject`), faked here: it
+    has its OWN cells (tests/trees/test_tree_plan_warnings.py). A cell declares a
+    mount's SUBJECT through `subject_by_node`; otherwise a "placement" node is
+    its own subject, exactly as the real host answers."""
     state = {"used": Vector2.from_xy(100 * MM, 100 * MM), "used_deg": 0.0,
              "live": _live(100 * MM, 100 * MM), "raises": None,
              "nonrigid": None, "used_by_ref": {}, "live_by_ref": {},
-             "raises_by_ref": {}}
+             "raises_by_ref": {}, "subject_by_node": {}, "subject_raises": None}
+
+    def _subject(cfg, linked_node, tree_name):
+        if state["subject_raises"] is not None:
+            raise state["subject_raises"]
+        override = state["subject_by_node"].get(linked_node.node.ref)
+        if override is not None:
+            return override
+        node = linked_node.node
+        record = linked_node.record
+        if node.kind == "placement" and getattr(record, "kind", None) == "placement":
+            return (node.ref, record)
+        return None
 
     monkeypatch.setattr(
         tpd, "resolve_base_live_position",
@@ -99,6 +116,7 @@ def seams(monkeypatch):
         return state["live_by_ref"].get(ref, state["live"])
 
     monkeypatch.setattr(tpd, "read_record_live_pose", _read)
+    monkeypatch.setattr(tpd, "plan_pose_subject", _subject)
     return state
 
 
@@ -187,39 +205,35 @@ def test_turning_within_the_angle_tolerance_is_silent(seams):
     assert _lines(seams, linked, {"child"}) == []
 
 
-def test_an_internal_mount_ancestor_names_the_placing_component(seams, monkeypatch):
+def test_an_internal_mount_ancestor_names_the_placing_component(seams):
     """A mount node owns no record, so the line must name the COMPONENT whose
     plan pose the mount's children are laid from — never the mount itself.
 
-    The placing component is a node of the SAME tree (that is what "internal"
-    means), so the index resolves its record."""
+    WHICH node places the mount is the host's answer (its own cells live in
+    tests/trees/test_tree_plan_warnings.py); here the mount's subject is
+    declared through the seam, and the cell pins the LINE, not the classification."""
     placing = _node("COMP")
-    monkeypatch.setattr(tpd, "plain_tree_by_name", lambda cfg, name: object())
-    monkeypatch.setattr(tpd, "resolve_internal_mount_match",
-                        lambda cfg, tree, node: SimpleNamespace(node=placing.node))
+    seams["subject_by_node"] = {"m1": ("COMP", placing.record)}
     seams["live"] = _live(100 * MM, 97 * MM)
     mount = _node("m1", kind="mount", children=[_node("child")],
                   anchor=TreeAnchor(role="FPGA"))
     linked = _tree("t", [placing, mount])
 
-    lines = _lines(seams, linked, {"child"}, cfg=SimpleNamespace(trees=[]))
+    lines = _lines(seams, linked, {"child"})
 
     assert len(lines) == 1
     assert "COMP" in lines[0] and "m1" not in lines[0]
 
 
-def test_a_live_mount_ancestor_is_silent(seams, monkeypatch):
+def test_a_live_mount_ancestor_is_silent(seams):
     """A mount whose role is OUTSIDE the tree is read from the board, so the
-    nodes below it follow it — nothing to warn about."""
-    monkeypatch.setattr(tpd, "plain_tree_by_name", lambda cfg, name: object())
-    monkeypatch.setattr(tpd, "resolve_internal_mount_match",
-                        lambda cfg, tree, node: None)
+    nodes below it follow it — nothing to warn about (the host answers None)."""
     seams["live"] = _live(100 * MM, 97 * MM)
     mount = _node("m1", kind="mount", children=[_node("child")],
                   anchor=TreeAnchor(role="FPGA"))
     linked = _tree("t", [mount])
 
-    assert _lines(seams, linked, {"child"}, cfg=SimpleNamespace(trees=[])) == []
+    assert _lines(seams, linked, {"child"}) == []
 
 
 def test_a_clone_ancestor_is_silent(seams):
@@ -314,3 +328,128 @@ def test_every_ancestor_of_a_run_across_two_trees_is_reachable(seams):
     lines = tpd.place_drift_lines(object(), None, [other], {"child"}, {})
 
     assert len(lines) == 1 and "parent" in lines[0]
+
+
+# ── acceptance of 21.10: the SUBJECT, the DISTANCE, the turn ────────────────
+
+def test_a_mounts_placing_component_that_is_redrawn_is_silent(seams):
+    """Д-1 (experience 7 of the acceptance): the subject of an internal mount is
+    the PLACING component, and when that component is in the run it lands on its
+    own plan — no gap is left, so a line about it would be FALSE.
+
+    Before the fix the membership test was on the MOUNT node, and exactly this
+    selection printed "COMP is NOT being redrawn"."""
+    comp = _node("COMP")
+    seams["subject_by_node"] = {"m1": ("COMP", comp.record)}
+    seams["live"] = _live(100 * MM, 97 * MM)
+    mount = _node("m1", kind="mount", children=[_node("child")],
+                  anchor=TreeAnchor(role="FPGA"))
+    linked = _tree("t", [comp, mount])
+
+    assert _lines(seams, linked, {"COMP", "child"}) == []
+
+
+def test_a_mounts_placing_component_outside_the_run_is_named(seams):
+    """Д-1 control: with the placing component NOT in the run it is not moved, so
+    the line must still come — about COMP, and only about it."""
+    comp = _node("COMP")
+    seams["subject_by_node"] = {"m1": ("COMP", comp.record)}
+    seams["live"] = _live(100 * MM, 97 * MM)
+    mount = _node("m1", kind="mount", children=[_node("child")],
+                  anchor=TreeAnchor(role="FPGA"))
+    linked = _tree("t", [comp, mount])
+
+    lines = _lines(seams, linked, {"child"})
+
+    assert len(lines) == 1 and "COMP" in lines[0]
+    assert "NOT being redrawn" in lines[0]
+
+
+def test_a_diagonal_shift_is_reported_as_the_distance(seams):
+    """Д-2 (experience 8): (2.5, 2.5) mm is 3.5355 mm away, not 2.5000 — the line
+    promises a DISTANCE, so the largest axis was the wrong number."""
+    seams["live"] = _live(100 * MM + 2_500_000, 100 * MM + 2_500_000)
+    linked = _tree("t", [_node("parent", children=[_node("child")])])
+
+    lines = _lines(seams, linked, {"child"})
+
+    assert len(lines) == 1
+    assert "stands 3.5355 mm" in lines[0]
+
+
+def test_both_axes_below_the_tolerance_can_still_be_a_deviation(seams):
+    """Д-2, the comparison itself: 0.04 mm on BOTH axes is 0.0566 mm away, i.e.
+    OVER RIGID_TOLERANCE_MM — the tolerance is compared with the distance, not
+    with an axis (the axis version was silent here)."""
+    seams["live"] = _live(100 * MM + 40_000, 100 * MM + 40_000)
+    linked = _tree("t", [_node("parent", children=[_node("child")])])
+
+    lines = _lines(seams, linked, {"child"})
+
+    assert 40_000 < TOL_NM            # each axis alone is UNDER the tolerance
+    assert len(lines) == 1
+    assert "stands 0.0566 mm" in lines[0]
+
+
+def test_a_full_turn_between_the_plan_and_the_board_is_no_deviation(seams):
+    """Cell 12: the plan says 360 deg, the board says 0 deg — the SAME
+    orientation. The turn goes through cell_frame.normalize_deg, so it is 0 and
+    the check is silent; without that normalisation it would read -360 deg."""
+    seams["used_deg"] = 360.0
+    seams["live"] = _live(100 * MM, 100 * MM, deg=0.0)
+    linked = _tree("t", [_node("parent", children=[_node("child")])])
+
+    assert _lines(seams, linked, {"child"}) == []
+
+
+def test_a_one_degree_turn_survives_the_round_trip_through_360(seams):
+    """The control for cell 12: the same normalisation must not swallow a real
+    turn — plan 360, board 1 is ONE degree, over ANGLE_TOLERANCE_DEG."""
+    seams["used_deg"] = 360.0
+    seams["live"] = _live(100 * MM, 100 * MM, deg=1.0)
+    linked = _tree("t", [_node("parent", children=[_node("child")])])
+
+    lines = _lines(seams, linked, {"child"})
+
+    assert len(lines) == 1 and "+1.00" in lines[0]
+
+
+def test_a_plan_borne_subject_with_no_readable_plan_pose_is_one_honest_line(seams):
+    """Д-3м (decision of 21.10): an internal mount placed by a node that is NOT a
+    "placement" record still lays its children from the tree, but
+    `resolve_base_live_position` cannot give that pose. No deviation number and
+    no silence — one "could not check" line with the reason in words.
+
+    The subject comes from the seam here because `find_role_placement_matches`
+    only matches kind "placement" nodes — this branch is the DEFENSIVE half of
+    the rule, and the line (not the classification) is what this cell pins."""
+    seams["subject_by_node"] = {
+        "m1": ("COMP", SimpleNamespace(kind="clone", name="COMP"))}
+    mount = _node("m1", kind="mount", children=[_node("child")],
+                  anchor=TreeAnchor(role="FPGA"))
+    linked = _tree("t", [_node("COMP", kind="clone", record_kind="clone"), mount])
+
+    lines = _lines(seams, linked, {"child"})
+
+    assert len(lines) == 1
+    assert "could not check" in lines[0] and "'COMP'" in lines[0]
+    assert "clone record" in lines[0]
+    assert "mm from its place" not in lines[0]
+
+
+def test_a_mount_the_classifier_refuses_is_one_honest_line(seams):
+    """The safety net of 21.10: `resolve_internal_mount_match` raises config-level
+    fatals (ambiguity / module crossing / cycle). Inside a worker that raise must
+    become ONE "could not check" line — never silence, never a broken redraw."""
+    seams["subject_raises"] = ValidationError(
+        "tree 't': mount node 'm1' is anchored to a role this tree places twice")
+    mount = _node("m1", kind="mount", children=[_node("child")],
+                  anchor=TreeAnchor(role="FPGA"))
+    linked = _tree("t", [mount])
+
+    lines = _lines(seams, linked, {"child"})
+
+    assert len(lines) == 1
+    assert "could not check" in lines[0] and "'m1'" in lines[0]
+    assert "places twice" in lines[0]
+    assert "mm from its place" not in lines[0]
