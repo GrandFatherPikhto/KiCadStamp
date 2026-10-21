@@ -1,18 +1,20 @@
 """kicad-python: FootprintInstance.orientation setter drops 3D models.
 
-Open the sample board in the PCB editor, then:
-    python repro_1_orientation_setter_drops_models.py          # local only, board untouched
-    python repro_1_orientation_setter_drops_models.py --write  # also send it back with update_items
+Open the sample board (Test02) in the PCB editor, then:
+    python repro_1_orientation_setter_drops_models.py [REF]          # local only, board untouched
+    python repro_1_orientation_setter_drops_models.py [REF] --write  # also send it back with update_items
+REF defaults to U1; every footprint of Test02 shows it.
 """
 import sys
 
 from kipy import KiCad
 
-REF = "U3"
+args = [a for a in sys.argv[1:] if not a.startswith("--")]
+REF = args[0] if args else "U1"
 
 kicad = KiCad()
 board = kicad.get_board()
-print("KiCad", kicad.get_version())
+print("KiCad", kicad.get_version(), "| board", board.name)
 
 
 def find(ref):
