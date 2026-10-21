@@ -62,6 +62,14 @@ def _signature(fp):
     return models, polys
 
 
+def _lib_generator(fp):
+    """The library footprint's own KiLib_Generator value, or None."""
+    for prop in _children(fp, "property"):
+        if len(prop) > 2 and prop[1] == "KiLib_Generator":
+            return prop[2]
+    return None
+
+
 def _ref(fp):
     for prop in _children(fp, "property"):
         if len(prop) > 2 and prop[1] == "Reference":
@@ -149,6 +157,7 @@ def main(argv):
     print(f"board {board_path.name}: {len(fps)} footprint(s); library {lib_dir}")
     bad = missing = 0
     cache = {}
+    generators = {}   # ref -> the library's KiLib_Generator value
     for fp in fps:
         lib_id = fp[1]
         ref = _ref(fp)
@@ -159,8 +168,9 @@ def main(argv):
             missing += 1
             continue
         if mod not in cache:
-            cache[mod] = _signature(_parse(mod.read_text(encoding="utf-8")))
-        want = cache[mod]
+            lib_fp = _parse(mod.read_text(encoding="utf-8"))
+            cache[mod] = (_signature(lib_fp), _lib_generator(lib_fp))
+        want, generators[ref] = cache[mod]
         got = _signature(fp)
         problems = []
         if got[0] < want[0]:
@@ -185,6 +195,10 @@ def main(argv):
     # where "Remove text items if not in library footprint" deleted BOTH fields on EVERY footprint.
     lost = [r for r, p in props.items()
             if ("Role" not in p or "Cluster" not in p) and (with_rc or traced)]
+    # A KiLib_Generator whose value is not the library's is one of OUR fields under the library's
+    # name (Sim.Pins, a BOM field...) even when Role and Cluster survived.
+    renamed = [r for r, p in props.items() if r not in lost and "KiLib_Generator" in p
+               and r in generators and p["KiLib_Generator"] != generators[r]]
     if lost:
         print(f"FIELDS LOST: {len(lost)} footprint(s) lack Role or Cluster — KiCadStamp would read them "
               f"wrong; run F8 (update fields from schematic) BEFORE any placement:")
@@ -193,7 +207,13 @@ def main(argv):
             print(f"  {r:6} Role={p.get('Role', '—')!s:16} Cluster={p.get('Cluster', '—')!s:22} "
                   f"KiLib_Generator={p.get('KiLib_Generator', '—')}")
         bad += len(lost)
-    else:
+    if renamed:
+        print(f"FIELD RENAMED: {len(renamed)} footprint(s) carry KiLib_Generator with a value that is not the "
+              f"library's — some other field of ours was renamed; run F8:")
+        for r in sorted(renamed):
+            print(f"  {r:6} KiLib_Generator={props[r]['KiLib_Generator']!s:22} library has {generators[r]}")
+        bad += len(renamed)
+    if not lost:
         print(f"fields: ok ({len(with_rc)} footprint(s) with Role and Cluster)"
               + (f"; {len(traced)} also carry KiLib_Generator — a trace of Update Footprints from "
                  f"Library, harmless while Role/Cluster are intact" if traced else ""))
