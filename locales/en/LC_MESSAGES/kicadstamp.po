@@ -7788,6 +7788,35 @@ msgstr ""
 msgid "records outside this cell reference the removed role {role!r}: {refs}"
 msgstr ""
 
+#: kicadstamp/cell_geometry_refresh.py:654
+msgid ""
+"none of the cell's roles is in the current selection — there is nothing to "
+"measure the geometry from"
+msgstr ""
+"none of the cell's roles is in the current selection — there is nothing to "
+"measure the geometry from"
+
+#: kicadstamp/cell_origin.py:161
+msgid ""
+"no component would stand at the cell's local (0, 0) after this update — the "
+"origin went away with the removed role; nothing was written, and the cell "
+"needs a new origin (extract the cluster again)"
+msgstr ""
+"no component would stand at the cell's local (0, 0) after this update — the "
+"origin went away with the removed role; nothing was written, and the cell "
+"needs a new origin (extract the cluster again)"
+
+#: kicadstamp/cell_origin.py:166
+#, python-brace-format
+msgid ""
+"{n} components would stand at the cell's local (0, 0) after this update — the "
+"origin would be ambiguous; nothing was written, and the cell needs a single "
+"origin (extract the cluster again)"
+msgstr ""
+"{n} components would stand at the cell's local (0, 0) after this update — the "
+"origin would be ambiguous; nothing was written, and the cell needs a single "
+"origin (extract the cluster again)"
+
 #: kicadstamp/cell_geometry_refresh.py:1136
 msgid "cannot refresh cell geometry from the current selection"
 msgstr "cannot refresh cell geometry from the current selection"

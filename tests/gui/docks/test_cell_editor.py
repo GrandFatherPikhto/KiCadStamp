@@ -1127,6 +1127,9 @@ def test_refresh_geometry_validation_error_logs_red_tables_untouched(
     before_components = [dict(c) for c in dock._components]
 
     # Live board is a DIFFERENT cluster: only the CAP role, no ORIG (origin).
+    # 2026-10-21: the missing role is now a ROLE problem ("in the cell but not in
+    # the selection"), not the origin-stop the plan removed — the refusal itself
+    # (a red Log line, lists untouched) is unchanged.
     board = _RefreshBoard([_refresh_dto_fp("R-CAP", "CAP", 5.0, 0.0)],
                           roles={"R-CAP": "CAP"})
     messages = []
@@ -1139,7 +1142,10 @@ def test_refresh_geometry_validation_error_logs_red_tables_untouched(
     assert "error" in result
     dock._finish_refresh_geometry(result)
 
-    assert any("zero-offset origin" in text for text, _style in messages)
+    assert any("is in the cell but not in the selection" in text
+               for text, _style in messages)
+    assert any("Nothing was placed or modified on the board" in text
+               for text, _style in messages)
     assert dock._components == before_components
     assert dock._vias == [{"offset_along_mm": 0.5, "offset_across_mm": 1.5,
                            "net": "GND"}]
@@ -1357,8 +1363,9 @@ def test_import_preview_rows_lists_only_new_records(main_window, tmp_path):
 def test_import_validation_error_logs_red_tables_untouched(
         main_window, tmp_path, monkeypatch):
     """Н4.7: a structural mismatch is NOT softened by Import — a wrong cluster
-    (missing the zero-offset origin role) is a RED LOG LINE and the dock's
-    lists/tables do not change."""
+    (a cell role missing from the selection) is a RED LOG LINE and the dock's
+    lists/tables do not change. 2026-10-21: the line names the missing ROLE, and
+    the footer is the read-only one (nothing is placed here)."""
     dock, _ = _make_dock(main_window, tmp_path, _loaded_cell_data())
     dock.load_entry("t")
     before_vias = [dict(v) for v in dock._vias]
@@ -1375,7 +1382,10 @@ def test_import_validation_error_logs_red_tables_untouched(
     assert "error" in result
     dock._finish_import_vias_tracks(result)
 
-    assert any("zero-offset origin" in text for text, _style in messages)
+    assert any("is in the cell but not in the selection" in text
+               for text, _style in messages)
+    assert any("Nothing was placed or modified on the board" in text
+               for text, _style in messages)
     assert dock._vias == before_vias
     assert dock._tracks == []
     assert dock.vias_table.rowCount() == 1

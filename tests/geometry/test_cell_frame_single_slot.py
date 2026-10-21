@@ -210,9 +210,11 @@ def test_the_reread_frame_carries_the_single_slots_rotation():
     fp = _make_fp("J3", role="CONN_LCD", cluster=CLUSTER, position=origin,
                   angle=270.0)
 
+    # 2026-10-21: the surrogate is the (role, stored, live) tuple the ONE host
+    # picked — here that is the cell's own (0,0) slot, i.e. the same frame.
     frame = frame_for_live_selection(
-        _matched_one(angle=0.0), [fp], {"CONN_LCD": "J3"}, origin, (0.0, 0.0),
-        "F.Cu")
+        _matched_one(angle=0.0), [fp], {"CONN_LCD": "J3"},
+        ("CONN_LCD", 0.0, 0.0, 100.0, 100.0), (0.0, 0.0), "F.Cu")
 
     assert frame.rotation_deg == pytest.approx(_norm(270.0), abs=0.01)
 
@@ -227,8 +229,8 @@ def test_the_reread_frame_keeps_zero_and_says_so_when_the_side_is_unknown(caplog
 
     with caplog.at_level("WARNING", logger="kicadstamp.cell_frame"):
         frame = frame_for_live_selection(
-            _matched_one(angle=0.0), [fp], {"CONN_LCD": "J3"}, origin,
-            (0.0, 0.0), None)
+            _matched_one(angle=0.0), [fp], {"CONN_LCD": "J3"},
+            ("CONN_LCD", 0.0, 0.0, 100.0, 100.0), (0.0, 0.0), None)
 
     assert frame.rotation_deg == 0.0
     assert "could not be determined" in caplog.text
@@ -245,8 +247,8 @@ def test_the_reread_frame_of_a_multi_part_cell_still_fits():
     fp_a = _make_fp("A1", position=origin, angle=-90.0)
     fp_b = _make_fp("B1", position=Vector2.from_xy_mm(100.0, 110.0), angle=-90.0)
 
-    frame = frame_for_live_selection(matched, [fp_a, fp_b],
-                                     {"A": "A1", "B": "B1"}, origin, (0.0, 0.0),
+    frame = frame_for_live_selection(matched, [fp_a, fp_b], {"A": "A1", "B": "B1"},
+                                     ("A", 0.0, 0.0, 100.0, 100.0), (0.0, 0.0),
                                      "F.Cu")
 
     assert frame.rotation_deg == pytest.approx(-90.0, abs=0.01)

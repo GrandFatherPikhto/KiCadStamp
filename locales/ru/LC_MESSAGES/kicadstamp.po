@@ -8324,6 +8324,35 @@ msgstr "вложенное {name!r}: {reason} — запись не тронут
 msgid "records outside this cell reference the removed role {role!r}: {refs}"
 msgstr "записи вне этой ячейки ссылаются на удаляемую роль {role!r}: {refs}"
 
+#: kicadstamp/cell_geometry_refresh.py:654
+msgid ""
+"none of the cell's roles is in the current selection — there is nothing to "
+"measure the geometry from"
+msgstr ""
+"ни одна роль шаблона не попала в текущее выделение — мерить геометрию не от "
+"чего"
+
+#: kicadstamp/cell_origin.py:161
+msgid ""
+"no component would stand at the cell's local (0, 0) after this update — the "
+"origin went away with the removed role; nothing was written, and the cell "
+"needs a new origin (extract the cluster again)"
+msgstr ""
+"после этого обновления в локальном (0, 0) шаблона не окажется ни одной детали — "
+"начало ушло вместе с удалённой ролью; ничего не записано, шаблону нужно новое "
+"начало (извлеките кластер заново)"
+
+#: kicadstamp/cell_origin.py:166
+#, python-brace-format
+msgid ""
+"{n} components would stand at the cell's local (0, 0) after this update — the "
+"origin would be ambiguous; nothing was written, and the cell needs a single "
+"origin (extract the cluster again)"
+msgstr ""
+"после этого обновления в локальном (0, 0) шаблона окажутся {n} детали — начало "
+"стало бы неоднозначным; ничего не записано, шаблону нужно единственное начало "
+"(извлеките кластер заново)"
+
 #: kicadstamp/cell_geometry_refresh.py:1136
 msgid "cannot refresh cell geometry from the current selection"
 msgstr "не удаётся обновить геометрию шаблона по текущему выделению"

@@ -428,13 +428,26 @@ def test_duplicate_role_in_selection_fatal():
         build_refresh_plan(components, [], [], footprints, [], [], adapter)
 
 
-def test_origin_role_not_in_selection_fatal():
+def test_a_plan_that_leaves_no_component_on_the_origin_is_refused_in_words():
+    """REPLACED 2026-10-21 (plan_2026_10_21_cell_refresh_origin_role_renamed),
+    not weakened: this cell used to pin the very refusal the plan calls a DEFECT
+    — "role 'ORIG' is not in the current selection" stopped the update of a whole
+    cluster. The origin role may now be gone (the board was renamed); what must
+    still stop the write is a plan that would leave no component at the cell's
+    local (0,0), because the NEXT read refuses such a cell.
+
+    Same shape, opposite subject: ORIG leaves, the remaining CAP sits at 1.0 mm,
+    so nothing lands on (0,0) — refused, with the READ-ONLY verdict."""
     components = [{"role": "ORIG"}, {"role": "CAP", "offset_along_mm": 1.0}]
     footprints = [_fp("R-CAP", "CAP", 5.0, 0.0)]
     adapter = _FakeAdapter(roles={"R-CAP": "CAP"})
-    with pytest.raises(ValidationError,
-                       match="zero-offset origin.*not in the current selection"):
-        build_refresh_plan(components, [], [], footprints, [], [], adapter)
+    with pytest.raises(ValidationError) as exc:
+        build_refresh_plan(components, [], [], footprints, [], [], adapter,
+                           reconcile_components=True, cell_layer="F.Cu")
+    text = str(exc.value)
+    assert "no component would stand at the cell's local (0, 0)" in text
+    assert "Nothing was placed or modified on the board" in text
+    assert "Fix the config" not in text
 
 
 # ── copper tier 2: concrete nets ───────────────────────────────────────────

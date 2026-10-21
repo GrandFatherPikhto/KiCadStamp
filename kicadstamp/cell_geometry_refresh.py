@@ -64,13 +64,15 @@ from typing import Any
 from .cell_frame import (CellFrame, fit_cell_frame, frame_for_live_selection,
                          frame_warnings, mirror_for_layer,
                          reference_relative_pairs)
+from .cell_origin import (cell_zero_slot_role, plan_components, refresh_origin,
+                          require_one_zero_origin)
 from .frame_node_pose import FrameReadContext, follow_the_tree_node
 from .cluster_matching import cluster_prefix_match
 from .config import Cell, load_cell_placement
 from .constants import ROLE_FIELD_NAME
 from .domain.board import Footprint, Track, Via
 from .domain.geometry import BoardLayer, Vector2
-from .exceptions import ValidationError, format_fatal_error
+from .exceptions import (ValidationError, format_fatal_error, format_read_fatal)
 from .geometry.cell_anchor import cell_mount_offset
 from .geometry.clone_geometry import clone_layout_origin
 from .i18n import _
@@ -102,33 +104,9 @@ __all__ = [
 _PLACEHOLDER_RE = re.compile(r"\{[^{}]*\}")
 
 
-def cell_zero_slot_role(components: list[dict]) -> str:
-    """The role of the cell's own (local 0,0) component — the "zero-offset
-    slot" convention (design §3), the same one entity_placement's
-    _entity_own_zero_slot_live_position uses for the auto tree anchor. The
-    component whose offset_along_mm/offset_across_mm are both 0.0 (missing
-    keys default to 0.0, same as a freshly-extracted slot that never wrote
-    them). Fatal when there is no such component or more than one — the
-    refresh cannot pick its origin by guessing."""
-    zero = [c for c in components
-            if c.get("offset_along_mm", 0.0) == 0.0
-            and c.get("offset_across_mm", 0.0) == 0.0]
-    if not zero:
-        raise ValidationError(format_fatal_error(
-            _("no zero-offset component to use as the refresh origin"),
-            [_("cell has no component with offset_along_mm/offset_across_mm both "
-               "equal to 0 (its local (0,0)) to act as the origin of the refresh — "
-               "select a cell whose origin component is at (0,0)")]
-        ))
-    if len(zero) > 1:
-        raise ValidationError(format_fatal_error(
-            _("{n} zero-offset components — the refresh origin is ambiguous")
-            .format(n=len(zero)),
-            [_("exactly one component must sit at the cell's local (0,0); found "
-               "{n} — fix the cell so a single component has offset 0/0")
-             .format(n=len(zero))]
-        ))
-    return zero[0]["role"]
+# `cell_zero_slot_role` now LIVES in kicadstamp/cell_origin (2026-10-21: the
+# origin rules moved out of this giant, which must not grow) and is re-exported
+# by the import at the top, so every historical import path keeps working.
 
 
 def match_components(components: list[dict], role_to_ref: dict[str, str]
@@ -600,18 +578,21 @@ def _cell_selection_context(components: list[dict], footprints: list[Footprint],
                             adapter: Any, action_label: str,
                             origin_role: str | None = None,
                             reconcile: bool = False,
-                            ) -> tuple[dict[str, str], list[dict], Vector2 | None,
+                            ) -> tuple[dict[str, str], list[dict], tuple | None,
                                        tuple[float, float], list[str]]:
     """Shared origin/role prelude for BOTH refresh and import (plan §B.2:
     "Import ТРЕБУЕТ тот же чистый матчинг компонентов по ролям, что и
     Refresh" — a missing/extra role is the same "wrong/incomplete cluster"
     fatal in both).
 
-    Returns (role_to_ref, matched_components, origin_or_None, mount, problems).
-    `mount` is the surrogate role's STORED offset (the cell's mount A, in the
-    cell's own frame) — callers need it to build the cell frame (cell_frame.py:
-    the stored offsets are measured from A, not from the stored (0,0)).
-    Never raises itself; a zero/multiple zero-slot cell raises via
+    Returns (role_to_ref, matched_components, surrogate_or_None, mount, problems).
+    `surrogate` — (role, stored_along_mm, stored_across_mm, live_x_mm,
+    live_y_mm) of the role the TRANSLATION is measured from (2026-10-21: it is
+    no longer "the origin role or nothing" — see cell_origin.refresh_origin),
+    None when no role of the cell is in the selection. `mount` is the cell's own
+    mount A (the anchor role's stored offset, or (0,0) for a legacy cell) — it
+    comes from the CONFIG and never from the selection.
+    Never raises itself; a zero/multiple zero-slot LEGACY cell raises via
     cell_zero_slot_role (a cell-local defect, nothing can proceed without a
     known origin). Collected role problems are the caller's to merge with its
     copper-tier problems into ONE ValidationError."""
@@ -649,53 +630,34 @@ def _cell_selection_context(components: list[dict], footprints: list[Footprint],
                               "cell — {action} cannot add components")
                             .format(role=role, action=action_label))
 
-    # Origin surrogate — the live reference the whole refresh is measured from.
-    #   - origin_role set (v2: the cell's anchor_role, the MOUNT component): the
-    #     surrogate KEEPS its stored offset (frame-preserving) — every recomputed
-    #     offset = surrogate_stored + (live − live_surrogate), so the cell's own
-    #     frame and its anchor stay truthful even when the mount is NOT at the
-    #     stored (0,0).
-    #   - origin_role None (legacy): the single zero-offset slot component
-    #     (cell_zero_slot_role) is the surrogate and lands on stored (0,0),
-    #     exactly as before design_2026_09_05.
-    # A zero/multiple zero-slot LEGACY cell raises immediately
-    # (cell_zero_slot_role). An origin ROLE absent from the selection is a
-    # structural problem (wrong cluster selected), collected like the rest.
+    # The cell's own MOUNT A — from the CONFIG, never from the selection: v2 cells
+    # store it as the anchor role's offset, a legacy cell's mount IS its stored
+    # (0,0). It is what the cell frame subtracts, so it must survive the anchor
+    # role leaving the selection.
     if origin_role is not None:
         comp = next((c for c in components if c.get("role") == origin_role), None)
         if comp is None:
             problems.append(_("role {role!r} (the cell's anchor origin) is not a "
                               "component of this cell").format(role=origin_role))
-            surrogate_along = surrogate_across = 0.0
-        else:
-            surrogate_along = float(comp.get("offset_along_mm", 0.0))
-            surrogate_across = float(comp.get("offset_across_mm", 0.0))
-        origin_label = _("role {role!r} (the cell's anchor origin)").format(
-            role=origin_role)
+        mount = ((float(comp.get("offset_along_mm", 0.0)),
+                  float(comp.get("offset_across_mm", 0.0))) if comp else (0.0, 0.0))
     else:
-        origin_role = cell_zero_slot_role(components)
-        surrogate_along = surrogate_across = 0.0
-        origin_label = _("role {role!r} (the cell's zero-offset origin)").format(
-            role=origin_role)
-    origin_ref = role_to_ref.get(origin_role)
-    origin: Vector2 | None = None
-    ref_to_fp = {fp.ref: fp for fp in footprints}
-    if origin_ref is None:
-        problems.append(_("{label} is not in the current selection").format(
-            label=origin_label))
+        mount = (0.0, 0.0)
+    # WHO anchors the translation — ONE host (kicadstamp/cell_origin): the cell's
+    # own origin role when it is in the selection (then the frame is today's, to
+    # the nanometre), else the FIRST matched role in the cell's order. 2026-10-21:
+    # a renamed origin role must not stop the update — the rule Denis states is
+    # "the whole cluster in the selection means the cell is simply updated".
+    picked = refresh_origin(components, role_to_ref, origin_role)
+    surrogate = None
+    if picked is None:
+        problems.append(_("none of the cell's roles is in the current selection "
+                          "— there is nothing to measure the geometry from"))
     else:
-        origin_fp = ref_to_fp.get(origin_ref)
-        if origin_fp is None:
-            problems.append(_("footprint {ref!r} ({label}) not found in the "
-                              "selection").format(ref=origin_ref, label=origin_label))
-        else:
-            # Effective origin = live surrogate − its stored offset, so every
-            # recomputed offset = (live − origin) puts the surrogate back on its
-            # STORED offset (frame preserved); legacy (0,0) keeps old behaviour.
-            origin = Vector2.from_xy(
-                origin_fp.position.x - int(surrogate_along * MM),
-                origin_fp.position.y - int(surrogate_across * MM))
-    return role_to_ref, matched, origin, (surrogate_along, surrogate_across), problems
+        role, along, across = picked
+        fp = {f.ref: f for f in footprints}[role_to_ref[role]]
+        surrogate = (role, along, across, fp.position.x / MM, fp.position.y / MM)
+    return role_to_ref, matched, surrogate, mount, problems
 
 
 def _frame_and_context(components, footprints, adapter, action_label,
@@ -720,26 +682,28 @@ def _frame_and_context(components, footprints, adapter, action_label,
     Refresh and import need the other outputs too, so the construction lives HERE
     and they share it with the public :func:`cell_frame_from_live` — one place,
     never a copy (rule: "одно правило — одно место")."""
-    role_to_ref, matched, origin, mount, problems = _cell_selection_context(
+    role_to_ref, matched, surrogate, mount, problems = _cell_selection_context(
         components, footprints, adapter, action_label, origin_role, reconcile)
-    frame = (frame_for_live_selection(matched, footprints, role_to_ref, origin,
+    frame = (frame_for_live_selection(matched, footprints, role_to_ref, surrogate,
                                       mount, cell_layer)
-             if origin is not None else None)
+             if surrogate is not None else None)
     frame, node_lines = follow_the_tree_node(
         frame, node_context, adapter, [c.get("role") for c in components])
-    return (frame, role_to_ref, matched, origin, mount, problems, node_lines)
+    return (frame, role_to_ref, matched, problems, node_lines)
 
 
 def cell_frame_from_live(components, footprints, adapter, origin_role=None):
     """PUBLIC: the cell frame of a LIVE instance, built by the VERY code path
-    "Refresh geometry from selection" uses — the role match (with its origin and
-    mount) plus the fit, never a second implementation.
+    "Refresh geometry from selection" uses — the role match (with its surrogate
+    and mount) plus the fit, never a second implementation.
 
     ``components`` — the cell's slots as dicts (role + the two stored offsets;
     :func:`cell_slot_dicts` turns a loaded Cell into that shape), ``footprints``
     — the instance's live footprints, ``origin_role`` — the cell's ``anchor_role``
-    (None keeps the legacy zero-offset-slot origin). None when the origin cannot
-    be resolved: the caller then has nothing to measure against and must say so
+    (None keeps the legacy zero-offset-slot origin). 2026-10-21: the frame no
+    longer needs the origin ROLE to be among `footprints` — cell_origin picks any
+    matched role as the surrogate. None only when NO role of the cell is in the
+    selection: the caller then has nothing to measure against and must say so
     instead of guessing."""
     return _frame_and_context(components, footprints, adapter, _("refresh"),
                               origin_role)[0]
@@ -810,15 +774,18 @@ def _read_nested_live(adapter, placement, cell, parent_frame: CellFrame,
     if not matched:
         return None, _("none of its resolved components is on the live board")
     slot_by_role = {s.role: s for s in cell.components}
-    ref_slot = None
-    if cell.anchor_role and cell.anchor_role in slot_by_role \
-            and cell.anchor_role in role_to_ref:
-        ref_slot = slot_by_role[cell.anchor_role]
-    if ref_slot is None:
-        ref_slot = next((slot_by_role[role] for role, _fp in matched
-                         if role in slot_by_role), None)
-    if ref_slot is None:
+    # WHICH slot anchors the translation — the ONE host (kicadstamp/cell_origin),
+    # the same one the refresh asks; this used to be a second copy of the rule.
+    # `require_canonical=False`: this is a READ of a nested cell, so a legacy
+    # nested cell without a single zero-offset slot is still answered rather than
+    # turning into a fatal (a refusal here is a Log line, never a stop).
+    picked = refresh_origin(
+        [{"role": s.role, "offset_along_mm": float(s.offset_along_mm),
+          "offset_across_mm": float(s.offset_across_mm)} for s in cell.components],
+        role_to_ref, cell.anchor_role, require_canonical=False)
+    if picked is None:
         return None, _("none of the resolved components is a role of its cell")
+    ref_slot = slot_by_role[picked[0]]
     ref_fp = ref_to_fp[role_to_ref[ref_slot.role]]
     # Mirror — the ONE "which side of the board" rule of the project
     # (cell_frame.mirror_for_layer), read off the reference footprint against the
@@ -989,7 +956,7 @@ def build_refresh_plan(components: list[dict], vias: list[dict], tracks: list[di
     # The ONE cell frame construction (kicadstamp/cell_frame.py, J.1) — the role
     # match, the origin/mount it needs and the fit, the same code the public
     # `cell_frame_from_live` door runs: one place, never a second implementation.
-    (frame, role_to_ref, matched, origin, mount, problems,
+    (frame, role_to_ref, matched, problems,
      node_lines) = _frame_and_context(
         components, footprints, adapter, _("refresh"), origin_role,
         reconcile=reconcile_components, cell_layer=cell_layer,
@@ -1130,11 +1097,29 @@ def build_refresh_plan(components: list[dict], vias: list[dict], tracks: list[di
     # EVERY problem collected into ONE message (design §2.3-2.5) — role
     # mismatches and every per-net/template/net:null count problem and every
     # extra-copper item (only in the strict mode), never the first one only.
+    # READ-ONLY footer (2026-10-21): nothing is placed on the board here, and the
+    # config is usually not at fault (the BOARD changed) — the historical
+    # "Placement stopped, board not modified. Fix the config" is false twice.
     all_problems = problems + via_problems + track_problems
     if all_problems:
-        raise ValidationError(format_fatal_error(
+        raise ValidationError(format_read_fatal(
             _("cannot refresh cell geometry from the current selection"),
             all_problems))
+
+    # The cell's component list AS THIS PLAN leaves it — ONE builder, used twice:
+    # the write precondition below and the copper classifier (a re-created
+    # record's net_from_role must be able to pick the role that was just ADDED;
+    # with the old list the geometric tiebreak cannot see it at all).
+    planned_components = plan_components(components, component_updates,
+                                         new_component_records,
+                                         removed_component_records)
+    # 2026-10-21: a LEGACY cell (no anchor_xy) is read back by cell_zero_slot_role,
+    # so the plan must leave EXACTLY one slot at the cell's local (0,0) — checked
+    # with the read's own predicate on the values this plan already rounded (a
+    # tolerance of its own would let a write through whose next read refuses).
+    # v2 cells are exempt: their origin is the stored anchor_xy, untouched here.
+    if frame is not None and origin_role is None:
+        require_one_zero_origin(planned_components)
 
     # Additive mode: turn the tier-4 leftover live copper into NEW records.
     # Exactly the Import path (build_import_plan) — _selection_role_nets once
@@ -1146,11 +1131,11 @@ def build_refresh_plan(components: list[dict], vias: list[dict], tracks: list[di
         role_nets = _selection_role_nets(adapter, footprints)
         for live in via_leftover:
             rec = _import_via_record(live, frame)
-            _classify_import_net(rec, live, role_nets, components)
+            _classify_import_net(rec, live, role_nets, planned_components)
             new_via_records.append(rec)
         for live in track_leftover:
             rec = _import_track_record(live, frame, cell_layer)
-            _classify_import_net(rec, live, role_nets, components)
+            _classify_import_net(rec, live, role_nets, planned_components)
             new_track_records.append(rec)
 
     # Н4.2: copper whose component role left the board goes regardless of
@@ -1310,7 +1295,7 @@ def build_import_plan(components: list[dict], vias: list[dict], tracks: list[dic
     # (_frame_and_context) — importing from a rotated instance must append
     # offsets in the cell's own frame too. The mirror follows the same physical
     # side rule whenever the cell's layer is known (2026-10-12).
-    (frame, role_to_ref, matched, origin, mount, problems,
+    (frame, role_to_ref, matched, problems,
      node_lines) = _frame_and_context(
         components, footprints, adapter, _("import"), origin_role,
         reconcile=reconcile_components, cell_layer=cell_layer,
@@ -1341,7 +1326,9 @@ def build_import_plan(components: list[dict], vias: list[dict], tracks: list[dic
 
     all_problems = problems + via_problems + track_problems
     if all_problems:
-        raise ValidationError(format_fatal_error(
+        # Same READ-ONLY footer as the Refresh door (2026-10-21): importing reads
+        # the selection and appends records to the CONFIG — the board is untouched.
+        raise ValidationError(format_read_fatal(
             _("cannot import vias/tracks from the current selection"),
             all_problems))
 

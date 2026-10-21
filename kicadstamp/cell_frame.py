@@ -57,7 +57,7 @@ from __future__ import annotations
 
 import logging
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Iterable
 
 from .domain.geometry import BoardLayer, Vector2
@@ -318,48 +318,51 @@ class CellFrame:
             world_angle_deg, self.rotation_deg, self.mirror)
 
 
-def frame_for_live_selection(matched, footprints, role_to_ref, origin, mount,
+def frame_for_live_selection(matched, footprints, role_to_ref, surrogate, mount,
                              cell_layer=None) -> CellFrame:
-    """The ONE cell<->world frame for a LIVE selection (J.1): the origin is the
-    surrogate's live position offset back by the mount, the rotation is FITTED
-    from the stored offsets against the live deltas of EVERY matched role at once
-    (never a placement, never one component's angle), and the mirror — when the
-    caller knows the cell's layer — is the instance's PHYSICAL side
-    (mirror_for_layer), never the fit's choice.
+    """The ONE cell<->world frame for a LIVE selection (J.1): the translation is
+    measured from ONE surrogate role, the rotation is FITTED from the stored
+    offsets against the live deltas of EVERY matched role at once (never a
+    placement, never one component's angle), and the mirror — when the caller
+    knows the cell's layer — is the instance's PHYSICAL side (mirror_for_layer),
+    never the fit's choice.
 
     Moved here from cell_geometry_refresh (2026-10-12, plan_2026_10_12_reread_
     frame_mirror, Г1 of its acceptance): the frame belongs to THIS module, and
-    that giant only shrinks. `origin`/`mount` are the role match's own outputs
-    (_cell_selection_context); with no usable pair (a first extraction, a
-    single-component cell) the historical theta=0 / mirror=False frame is kept."""
-    placement_origin = Vector2.from_xy(
-        origin.x + int(round(mount[0] * MM)),
-        origin.y + int(round(mount[1] * MM)))
-    # The side of the INSTANCE: the surrogate's footprint IS the one standing on
-    # `placement_origin` (the origin was built from it), so no second lookup rule
-    # is invented here; the rule itself is the ONE host above. No known side ->
+    that giant only shrinks. With no usable pair (a first extraction, a
+    single-component cell) the historical theta=0 / mirror=False frame is kept.
+
+    `surrogate` — (role, stored_along_mm, stored_across_mm, live_x_mm,
+    live_y_mm) of the role the TRANSLATION is measured from. It used to be
+    "always the mount's own component" (the caller passed `origin`/`mount` and the
+    frame was anchored on `origin + mount`); on 2026-10-21 the refresh had to
+    survive a cell whose origin ROLE was renamed on the board, so the surrogate is
+    now whichever matched role `cell_origin.refresh_origin` picks and the frame is
+    anchored with `CellFrame.from_reference` — the same arithmetic the nested-cell
+    reader runs, and identical numbers when the surrogate IS the mount's
+    component (then the stored reference equals `mount`)."""
+    ref_to_fp = {fp.ref: fp for fp in footprints}
+    role, stored_along, stored_across, live_x, live_y = surrogate
+    # The side of the INSTANCE: the surrogate IS the footprint the translation
+    # comes from, so no second lookup rule is invented here. No known side ->
     # None -> the fit stays free.
+    ref_fp = ref_to_fp.get(role_to_ref.get(role))
     mirror: bool | None = None
     side_layer: str | None = None
-    if cell_layer is not None:
-        for fp in footprints:
-            if fp.position.x == placement_origin.x \
-                    and fp.position.y == placement_origin.y:
-                mirror = mirror_for_layer(fp.layer, cell_layer, fallback=None)
-                if isinstance(fp.layer, BoardLayer):
-                    side_layer = layer_to_str(fp.layer)
-                break
-    ref_to_fp = {fp.ref: fp for fp in footprints}
+    if cell_layer is not None and ref_fp is not None:
+        mirror = mirror_for_layer(ref_fp.layer, cell_layer, fallback=None)
+        if isinstance(ref_fp.layer, BoardLayer):
+            side_layer = layer_to_str(ref_fp.layer)
     pairs: list[tuple[float, float, float, float]] = []
     for rec in matched:
         fp = ref_to_fp.get(role_to_ref.get(rec.get("role")))
         if fp is None:
             continue
         pairs.append((
-            float(rec.get("offset_along_mm", 0.0)) - mount[0],
-            float(rec.get("offset_across_mm", 0.0)) - mount[1],
-            (fp.position.x - placement_origin.x) / MM,
-            (fp.position.y - placement_origin.y) / MM))
+            float(rec.get("offset_along_mm", 0.0)) - stored_along,
+            float(rec.get("offset_across_mm", 0.0)) - stored_across,
+            fp.position.x / MM - live_x,
+            fp.position.y / MM - live_y))
     fit = fit_cell_frame(pairs, mirror=mirror)
     # Fewer than TWO matched slots -> no pair to fit, and the ONE component's live
     # angle is the only exact source (the rule and its math live in
@@ -379,15 +382,17 @@ def frame_for_live_selection(matched, footprints, role_to_ref, origin, mount,
                 float(single_fp.angle_deg),
                 float(only.get("angle_deg", 0.0)), bool(mirror))
     if fit is None:
-        return CellFrame(placement_origin=placement_origin,
-                         rotation_deg=single_rot if single_rot is not None else 0.0,
-                         mirror=bool(mirror) if single_rot is not None else False,
-                         mount=(mount[0], mount[1]), side_layer=side_layer,
-                         cell_layer=cell_layer)
-    return CellFrame(placement_origin=placement_origin,
-                     rotation_deg=fit.rotation_deg, mirror=fit.mirror,
-                     mount=(mount[0], mount[1]), residual_mm=fit.residual_mm,
-                     side_layer=side_layer, cell_layer=cell_layer)
+        frame = CellFrame.from_reference(
+            rotation_deg=single_rot if single_rot is not None else 0.0,
+            mirror=bool(mirror) if single_rot is not None else False,
+            mount=(mount[0], mount[1]), stored_ref=(stored_along, stored_across),
+            live_ref_mm=(live_x, live_y))
+    else:
+        frame = CellFrame.from_reference(
+            rotation_deg=fit.rotation_deg, mirror=fit.mirror,
+            mount=(mount[0], mount[1]), stored_ref=(stored_along, stored_across),
+            live_ref_mm=(live_x, live_y), residual_mm=fit.residual_mm)
+    return replace(frame, side_layer=side_layer, cell_layer=cell_layer)
 
 
 def frame_warnings(frame: CellFrame | None) -> list[str]:
