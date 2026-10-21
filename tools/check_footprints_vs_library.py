@@ -172,6 +172,31 @@ def main(argv):
             print(f"  {ref:6} {lib_id}: " + "; ".join(problems))
         elif show_all:
             print(f"  {ref:6} {lib_id}: ok (models {got[0]}, fp_poly {got[1]})")
+    # Bug 4: "Update Footprints from Library" renames a user field to the library's
+    # KiLib_Generator (keeping our value). What matters to KiCadStamp is a Role/Cluster that is
+    # GONE; a KiLib_Generator next to intact Role/Cluster is only the trace of such an update.
+    props = {}
+    for fp in fps:
+        props[_ref(fp)] = {c[1]: (c[2] if len(c) > 2 else "") for c in _children(fp, "property") if len(c) > 1}
+    with_rc = [r for r, p in props.items() if "Role" in p or "Cluster" in p]
+    traced = [r for r, p in props.items() if "KiLib_Generator" in p]
+    # A footprint without Role or Cluster is damage when its neighbours still have them, or when it
+    # carries the library's KiLib_Generator (the update touched it) — that also catches the case
+    # where "Remove text items if not in library footprint" deleted BOTH fields on EVERY footprint.
+    lost = [r for r, p in props.items()
+            if ("Role" not in p or "Cluster" not in p) and (with_rc or traced)]
+    if lost:
+        print(f"FIELDS LOST: {len(lost)} footprint(s) lack Role or Cluster — KiCadStamp would read them "
+              f"wrong; run F8 (update fields from schematic) BEFORE any placement:")
+        for r in sorted(lost):
+            p = props[r]
+            print(f"  {r:6} Role={p.get('Role', '—')!s:16} Cluster={p.get('Cluster', '—')!s:22} "
+                  f"KiLib_Generator={p.get('KiLib_Generator', '—')}")
+        bad += len(lost)
+    else:
+        print(f"fields: ok ({len(with_rc)} footprint(s) with Role and Cluster)"
+              + (f"; {len(traced)} also carry KiLib_Generator — a trace of Update Footprints from "
+                 f"Library, harmless while Role/Cluster are intact" if traced else ""))
     print(f"result: {len(fps) - bad - missing} ok, {bad} damaged, {missing} not checked")
     return 1 if bad else 0
 
