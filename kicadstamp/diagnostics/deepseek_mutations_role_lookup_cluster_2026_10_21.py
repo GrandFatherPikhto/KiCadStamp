@@ -5,8 +5,9 @@ Two decisions are pinned here, each with ONE host:
 
   1. a cluster named by the caller CONFINDS an anchor_role lookup at any
      candidate count — the filter is `role_narrowing.own_cluster_candidates`
-     wired in `clone_role_resolver._confine_candidates_to_anchor_cluster`, the
-     words are `role_conflict_reasons.role_scope_problems` (cells С1-С8 of
+     behind `role_narrowing.confine_candidates_to_cluster` (where Д-1 of the Ч1
+     acceptance moved it), the words are
+     `role_conflict_reasons.role_scope_problems` (cells С1-С8 of
      tests/placement/test_role_lookup_cluster_confined.py);
   2. a board whose Role/Cluster fields KiCad renamed has ONE door —
      `role_cluster_damage.check_role_cluster_fields_intact`, called from
@@ -31,6 +32,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 
 RESOLVER = "kicadstamp/placement/services/clone_role_resolver.py"
+# The confinement itself lives with the filter it uses (Д-1 of the Ч1 acceptance:
+# the giant only shrinks), so its mutations point here, not at the resolver.
+NARROWING = "kicadstamp/placement/services/role_narrowing.py"
 DAMAGE = "kicadstamp/role_cluster_damage.py"
 VALIDATION = "kicadstamp/validation.py"
 PLANNER = "kicadstamp/net_trace_planner.py"
@@ -41,33 +45,33 @@ GUARDS = ("tests/placement/test_role_lookup_cluster_confined.py "
           "tests/net/test_net_trace_from_role.py "
           "tests/net/test_internode_capture_modules.py")
 
-_CONFINE = ("    if not anchor_cluster or hint:\n"
+_CONFINE = ("    if not cluster or hint:\n"
             "        return list(candidates)\n"
-            "    confined = own_cluster_candidates(adapter, candidates, anchor_cluster)\n")
+            "    confined = own_cluster_candidates(adapter, candidates, cluster)\n")
 
 MUTATIONS = [
-    ("M1 the confinement is cascade-shaped again (only at 2+)", RESOLVER,
+    ("M1 the confinement is cascade-shaped again (only at 2+)", NARROWING,
      _CONFINE,
-     "    if not anchor_cluster or hint or len(candidates) <= 1:  # MUTATION: only 2+\n"
+     "    if not cluster or hint or len(candidates) <= 1:  # MUTATION: only 2+\n"
      "        return list(candidates)\n"
-     "    confined = own_cluster_candidates(adapter, candidates, anchor_cluster)\n",
+     "    confined = own_cluster_candidates(adapter, candidates, cluster)\n",
      ["test_c1_a_single_foreign_candidate_is_not_taken",
       "test_c2_a_single_untagged_candidate_is_not_taken",
       "test_c8_the_live_branch_confines_the_cluster_too"]),
 
-    ("M2 the field is not checked (every candidate is 'own')", RESOLVER,
-     "    confined = own_cluster_candidates(adapter, candidates, anchor_cluster)\n",
+    ("M2 the field is not checked (every candidate is 'own')", NARROWING,
+     "    confined = own_cluster_candidates(adapter, candidates, cluster)\n",
      "    confined = list(candidates)  # MUTATION: the Cluster field is not checked\n",
      ["test_c1_a_single_foreign_candidate_is_not_taken",
       "test_c2_a_single_untagged_candidate_is_not_taken",
       "test_c5_two_foreign_candidates_are_both_named_as_not_taken"]),
 
     ("M3 the old 'narrow only if it reduces the set' answer for a foreign set",
-     RESOLVER,
+     NARROWING,
      "    if not confined:\n"
      "        raise_role_outside_cluster(\n"
-     "            label, anchor_role, anchor_cluster,\n"
-     "            role_scope_problems(adapter, anchor_role, anchor_cluster, []))\n"
+     "            label, role, cluster,\n"
+     "            role_scope_problems(adapter, role, cluster, []))\n"
      "    return confined\n",
      "    if not confined:  # MUTATION: leaves the old cascade answer\n"
      "        return list(candidates)\n"
@@ -80,12 +84,12 @@ MUTATIONS = [
     # removes the doorway itself and therefore kills the two paths that go
     # through it (С15 = ApplyPipeline.run, С16 = run_apply) plus the ordering
     # cell; expecting С9 here would have been a lie about what it guards.
-    ("M4 the refusal stops naming the candidates (empty problems)", RESOLVER,
+    ("M4 the refusal stops naming the candidates (empty problems)", NARROWING,
      "        raise_role_outside_cluster(\n"
-     "            label, anchor_role, anchor_cluster,\n"
-     "            role_scope_problems(adapter, anchor_role, anchor_cluster, []))\n",
+     "            label, role, cluster,\n"
+     "            role_scope_problems(adapter, role, cluster, []))\n",
      "        raise_role_outside_cluster(\n"
-     "            label, anchor_role, anchor_cluster, [])  # MUTATION: no names\n",
+     "            label, role, cluster, [])  # MUTATION: no names\n",
      ["test_c1_a_single_foreign_candidate_is_not_taken",
       "test_c2_a_single_untagged_candidate_is_not_taken"]),
 
@@ -101,7 +105,7 @@ MUTATIONS = [
      "        if not adapter.has_field(fp, KILIB_GENERATOR_FIELD_NAME):\n"
      "            continue\n",
      "        # MUTATION: the library field is not required\n",
-     ["test_c11_an_untagged_part_is_silent"]),
+     ["test_c11_a_part_without_the_fingerprint_is_silent"]),
 
     ("M7 the guard asks the VALUE in force instead of the physical field", DAMAGE,
      "        missing = [name for name in (ROLE_FIELD_NAME, CLUSTER_FIELD_NAME)\n"
@@ -123,23 +127,23 @@ MUTATIONS = [
      ["test_the_new_record_is_anchored_on_the_side_it_redraws_from",
       "test_copper_between_clusters_that_share_a_role_gets_a_record_from_the_second_tier"]),
 
-    ("M9 the resolver IGNORES the hint flag (always confines)", RESOLVER,
-     "    if not anchor_cluster or hint:\n",
-     "    if not anchor_cluster:  # MUTATION: the flag is ignored\n",
+    ("M9 the resolver IGNORES the hint flag (always confines)", NARROWING,
+     "    if not cluster or hint:\n",
+     "    if not cluster:  # MUTATION: the flag is ignored\n",
      ["test_c17_a_hint_never_refuses_a_unique_foreign_role",
       "test_the_new_record_is_anchored_on_the_side_it_redraws_from"]),
 
     ("M10 the resolver is ALWAYS soft (the addressing case lost)",
-     RESOLVER,
-     "    if not anchor_cluster or hint:\n",
-     "    if not anchor_cluster or True:  # MUTATION: always a hint\n",
+     NARROWING,
+     "    if not cluster or hint:\n",
+     "    if not cluster or True:  # MUTATION: always a hint\n",
      ["test_c1_a_single_foreign_candidate_is_not_taken",
       "test_c2_a_single_untagged_candidate_is_not_taken",
       "test_c5_two_foreign_candidates_are_both_named_as_not_taken"]),
 
-    ("K1 a cosmetic comment beside the filter (CONTROL)", RESOLVER,
-     "    confined = own_cluster_candidates(adapter, candidates, anchor_cluster)\n",
-     "    confined = own_cluster_candidates(adapter, candidates, anchor_cluster)  # control\n",
+    ("K1 a cosmetic comment beside the filter (CONTROL)", NARROWING,
+     "    confined = own_cluster_candidates(adapter, candidates, cluster)\n",
+     "    confined = own_cluster_candidates(adapter, candidates, cluster)  # control\n",
      "survive"),
 ]
 

@@ -7,9 +7,11 @@ plan_2026_10_21_role_lookup_steals_across_clusters.md, решение В2)
 KiCad's Tools → Update Footprints from Library has a bug
 (`techdocs/bugreport/2026_10_15_footprint_update/4_…`, KiCad #25887): it renames
 a USER footprint field into the NAME of a library field, keeping OUR value. The
-library field is picked by position, so on one footprint `Cluster` becomes
-`KiLib_Generator`, on another `Role`, and two runs over the same data damage
-different fields. Measured on `Tests/Test02` (21.10, .history snapshots):
+pairing is by SIMILARITY of the fields' text (attributes and position count
+too; a tie goes by memory address), never by name — so on one footprint
+`Cluster` becomes `KiLib_Generator`, on another `Role`, and two runs over the
+same data damage different fields. Measured on `Tests/Test02` (21.10, .history
+snapshots):
 
     after F8 (clean)                  KiLib_Generator 0
     after Update Footprints, run 1    9 components: C1 C3 C4 C5 C6 D1 D2 R1 R2
@@ -30,11 +32,18 @@ The control samples are what make it sharp rather than a guess:
 
   * a clean saved board carries NO `KiLib_Generator` at all (0 on v103, Heating,
     Test02 after F8) — so its presence alone already smells of the dialog;
-  * a component that was never tagged has NEITHER Role NOR Cluster and no
-    `KiLib_Generator` (U1 of the "all boxes ticked" run) — that is not damage,
-    it is an untagged part, and refusing over it would block every fresh board;
   * a component whose values match no library text keeps both fields and gets
-    `KiLib_Generator` BESIDE them (C2, J1) — also not damage.
+    `KiLib_Generator` BESIDE them (C2, J1) — not damage;
+  * U1 of the "all boxes ticked" run HAS neither Role nor Cluster and WAS damaged
+    (Remove text items deleted both fields) — yet the guard does NOT see it,
+    because SOT-223 carries no `KiLib_Generator` in its library copy; and no
+    theft follows either, since a part without `Role` is not a candidate at all
+    ("not found"). This is the signature's honest LIMIT: it catches the rename
+    that leaves the library field's name behind, not a plain deletion of ours.
+    A part that was NEVER tagged and then went through Update Footprints from
+    Library gets `KiLib_Generator` WITHOUT `Role` and IS refused here — F8
+    clears it, since the symbol carries no such field. No such part exists on
+    our boards (v103 336/336, Heating 77/77, Test02 12/12 are tagged).
 
 So the plain XOR of Role/Cluster is deliberately NOT the guard: the 15.10 v103
 log did look like XOR ("… carries this role but has no Cluster field" on dozens
@@ -54,8 +63,10 @@ ANOTHER cluster that the config does not address. No dialog, no question: a
 `ValidationError` from the one pre-validation door (`validation.run_all_checks`,
 which `ApplyPipeline._validate` calls for apply, redraw, cascade, the CLI and
 every GUI worker) — the Log shows it, the run does not start. The cure is the
-same every time and it always works: F8 with its defaults removes
-`KiLib_Generator` and restores both fields from the schematic.
+same every time: F8 with its defaults removes `KiLib_Generator` and restores
+both fields from the schematic (F8 is a full update from the schematic — it
+refreshes footprints, values and nets too, so the refusal says only what it
+can promise).
 """
 from __future__ import annotations
 
@@ -82,9 +93,11 @@ def damaged_footprints(adapter) -> list:
 
     The detector is the pair described in the module docstring, and it reads the
     PHYSICAL board through ``adapter.has_field`` only: a damaged footprint whose
-    value happens to come from the override store is still damaged, and a part
-    that was simply never tagged (no Role, no Cluster, no `KiLib_Generator`) is
-    not. The refdes is a label here, never a key — the caller only names parts.
+    value happens to come from the override store is still damaged. A footprint
+    with no `KiLib_Generator` is out of this signature's reach whether it was
+    never tagged or was damaged by a plain deletion — the module docstring says
+    so and why that is acceptable. The refdes is a label here, never a key — the
+    caller only names parts.
     """
     damaged = []
     for fp in adapter.get_footprints():
@@ -122,12 +135,11 @@ def check_role_cluster_fields_intact(adapter) -> None:
         [
             _("the renamed fields: {shown}").format(shown=shown),
             _("this is the known KiCad bug: a library field is matched to a board "
-              "field by position while the value stays ours, so a placement "
-              "addressed by Role/Cluster would take a component of ANOTHER "
-              "cluster instead of refusing"),
+              "field by similarity of their text, not by name, while the value "
+              "stays ours, so a placement addressed by Role/Cluster would take a "
+              "component of ANOTHER cluster instead of refusing"),
             _("press Update PCB from Schematic (F8) with its defaults — it removes "
-              "{library_field!r} and restores both fields from the schematic; "
-              "nothing else on the board is touched")
+              "{library_field!r} and restores both fields from the schematic")
             .format(library_field=KILIB_GENERATOR_FIELD_NAME),
         ]
     ))

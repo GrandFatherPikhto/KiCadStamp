@@ -17409,17 +17409,17 @@ msgstr ""
 #~ "explicit refs: {{ {role}: {first_ref} }}"
 
 
-#: kicadstamp/role_cluster_damage.py:112
+#: kicadstamp/role_cluster_damage.py:125
 #, python-brace-format
 msgid "{ref} ({fields})"
 msgstr ""
 
-#: kicadstamp/role_cluster_damage.py:116
+#: kicadstamp/role_cluster_damage.py:129
 #, python-brace-format
 msgid "{shown} and {count} more"
 msgstr ""
 
-#: kicadstamp/role_cluster_damage.py:119
+#: kicadstamp/role_cluster_damage.py:132
 #, python-brace-format
 msgid ""
 "{count} component(s) on this board lost their Role/Cluster fields — "
@@ -17427,25 +17427,24 @@ msgid ""
 "{library_field!r}"
 msgstr ""
 
-#: kicadstamp/role_cluster_damage.py:123
+#: kicadstamp/role_cluster_damage.py:136
 #, python-brace-format
 msgid "the renamed fields: {shown}"
 msgstr ""
 
-#: kicadstamp/role_cluster_damage.py:124
+#: kicadstamp/role_cluster_damage.py:137
 msgid ""
 "this is the known KiCad bug: a library field is matched to a board field "
-"by position while the value stays ours, so a placement addressed by "
-"Role/Cluster would take a component of ANOTHER cluster instead of "
-"refusing"
+"by similarity of their text, not by name, while the value stays ours, so "
+"a placement addressed by Role/Cluster would take a component of ANOTHER "
+"cluster instead of refusing"
 msgstr ""
 
-#: kicadstamp/role_cluster_damage.py:128
+#: kicadstamp/role_cluster_damage.py:141
 #, python-brace-format
 msgid ""
 "press Update PCB from Schematic (F8) with its defaults — it removes "
-"{library_field!r} and restores both fields from the schematic; nothing "
-"else on the board is touched"
+"{library_field!r} and restores both fields from the schematic"
 msgstr ""
 
 #: kicadstamp/placement/services/role_refusals.py:43

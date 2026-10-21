@@ -52,6 +52,8 @@ from ...cluster_matching import cluster_prefix_match
 from ...constants import CLUSTER_FIELD_NAME
 from ...sheet_names import resolve_sheet_path_names, sheet_in_path
 from ...i18n import _
+from ...role_conflict_reasons import role_scope_problems
+from .role_refusals import raise_role_outside_cluster
 
 logger = logging.getLogger(__name__)
 
@@ -127,6 +129,43 @@ def own_cluster_candidates(adapter, candidates, cluster) -> list:
     return [fp for fp in candidates
             if cluster_prefix_match(
                 adapter.get_field_value(fp, CLUSTER_FIELD_NAME) or '', cluster)]
+
+
+def confine_candidates_to_cluster(adapter, candidates, role: str,
+                                  cluster: str | None, label: str,
+                                  *, hint: bool = False) -> list:
+    """``candidates`` confined to a cluster the caller NAMED — at ANY count.
+
+    Ч1 of plan_2026_10_21_role_lookup_steals_across_clusters (В1): a named
+    cluster means the candidate MUST carry it, one candidate or ten. Before this
+    the cascade narrowed by cluster only at 2+, so a single candidate was
+    returned unchecked — the live fact: `R_LED`/`P5V_IN` resolved to R2 of
+    `LDO_P3V3` after KiCad renamed that Cluster away.
+
+    FILTER — `own_cluster_candidates` above; WORDS —
+    `role_conflict_reasons.role_scope_problems`, the pair the entity path has
+    used since 2026-10-13; `role_refusals.raise_role_outside_cluster` only adds
+    the label prefix the other anchor refusals carry. The cascade keeps its own
+    "narrow only if it reduces the set" rule — that is the internal-role path's.
+
+    ``hint=True`` — the cluster is NOT an address of ``role``, only a suggestion.
+    The ONE caller is ``net_trace_planner._item_net_name``, where the value is
+    the ANCHOR's cluster handed to the role at the OTHER end of the copper (the
+    FPGA side of a channel bridge). Nothing is filtered then and only the
+    cascade's soft cluster step applies, exactly as before Ч1.
+
+    An unnamed cluster (None/'') returns the candidates untouched, and an EMPTY
+    list is not this rule's business: the caller raises "not found" first, so a
+    board fact is never re-worded as a cluster complaint.
+    """
+    if not cluster or hint:
+        return list(candidates)
+    confined = own_cluster_candidates(adapter, candidates, cluster)
+    if not confined:
+        raise_role_outside_cluster(
+            label, role, cluster,
+            role_scope_problems(adapter, role, cluster, []))
+    return confined
 
 
 def _narrow_by_sheet_cluster_selection(

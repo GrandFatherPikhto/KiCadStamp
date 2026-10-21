@@ -18367,17 +18367,17 @@ msgstr ""
 #~ "{first_ref} }}"
 
 
-#: kicadstamp/role_cluster_damage.py:112
+#: kicadstamp/role_cluster_damage.py:125
 #, python-brace-format
 msgid "{ref} ({fields})"
 msgstr "{ref} ({fields})"
 
-#: kicadstamp/role_cluster_damage.py:116
+#: kicadstamp/role_cluster_damage.py:129
 #, python-brace-format
 msgid "{shown} and {count} more"
 msgstr "{shown} и ещё {count}"
 
-#: kicadstamp/role_cluster_damage.py:119
+#: kicadstamp/role_cluster_damage.py:132
 #, python-brace-format
 msgid ""
 "{count} component(s) on this board lost their Role/Cluster fields — "
@@ -18387,32 +18387,30 @@ msgstr ""
 "{count} деталей на плате потеряли поля Role/Cluster — «Update Footprints "
 "from Library» в KiCad переименовала их в {library_field!r}"
 
-#: kicadstamp/role_cluster_damage.py:123
+#: kicadstamp/role_cluster_damage.py:136
 #, python-brace-format
 msgid "the renamed fields: {shown}"
 msgstr "переименованные поля: {shown}"
 
-#: kicadstamp/role_cluster_damage.py:124
+#: kicadstamp/role_cluster_damage.py:137
 msgid ""
 "this is the known KiCad bug: a library field is matched to a board field "
-"by position while the value stays ours, so a placement addressed by "
-"Role/Cluster would take a component of ANOTHER cluster instead of "
-"refusing"
+"by similarity of their text, not by name, while the value stays ours, so "
+"a placement addressed by Role/Cluster would take a component of ANOTHER "
+"cluster instead of refusing"
 msgstr ""
 "это известный баг KiCad: библиотечное поле сопоставляется с полем платы по "
-"позиции, а значение остаётся нашим, поэтому расстановка по Role/Cluster "
-"взяла бы деталь ЧУЖОГО кластера вместо отказа"
+"похожести текста, а не по имени, и значение остаётся нашим, поэтому "
+"расстановка по Role/Cluster взяла бы деталь ЧУЖОГО кластера вместо отказа"
 
-#: kicadstamp/role_cluster_damage.py:128
+#: kicadstamp/role_cluster_damage.py:141
 #, python-brace-format
 msgid ""
 "press Update PCB from Schematic (F8) with its defaults — it removes "
-"{library_field!r} and restores both fields from the schematic; nothing "
-"else on the board is touched"
+"{library_field!r} and restores both fields from the schematic"
 msgstr ""
 "нажмите Update PCB from Schematic (F8) с настройками по умолчанию — он "
-"уберёт {library_field!r} и восстановит оба поля из схемы; больше на плате "
-"ничего не меняется"
+"уберёт {library_field!r} и восстановит оба поля из схемы"
 
 #: kicadstamp/placement/services/role_refusals.py:43
 #, python-brace-format

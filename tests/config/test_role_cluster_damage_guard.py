@@ -14,12 +14,16 @@ The control samples come from the `.history` snapshots Denis measured on
   * C2 — a part whose texts match no library field: `Role`, `Cluster` AND
     `KiLib_Generator` all present — NOT damage;
   * U1 — "Remove text items" run: NO Role, NO Cluster, and no `KiLib_Generator`
-    at all — an untagged part, NOT damage.
+    at all. U1 WAS damaged there (both fields were deleted), but the guard does
+    not see it: SOT-223 carries no `KiLib_Generator` in its library copy, so the
+    rename left no fingerprint. That is the signature's documented limit — and
+    no theft follows, because a part without `Role` is not a candidate at all.
 
 Cells:
   С9   C4 alone                       -> refusal naming C4, KiLib_Generator, F8
   С10  C2 alone                       -> silence
-  С11  U1 alone                       -> silence (never tagged != damaged)
+  С11  U1 alone                       -> silence (outside the signature's reach,
+                                         see the bullet above)
   С12  C4 + C2 + U1                   -> only C4 is named, count 1
   С13  12 damaged parts               -> 10 named + "and 2 more"
   С14  the damage hidden by OUR store -> still refused (the guard asks the
@@ -106,7 +110,8 @@ def _c2():
 
 
 def _u1():
-    """The "all boxes ticked" case: never tagged and no library field left."""
+    """The "all boxes ticked" case: both fields gone, no `KiLib_Generator` left —
+    damaged, but invisible to this signature (see the module docstring)."""
     return _fp("U1")
 
 
@@ -130,8 +135,8 @@ def test_c9_a_renamed_cluster_is_refused_and_names_f8():
 
 
 def test_c9_a_renamed_role_is_refused_too():
-    """The bug renames whichever field is first by position — `Role` is the
-    other half of the same signature."""
+    """The bug renames whichever field the pairing picks by TEXT similarity —
+    `Role` is the other half of the same signature."""
     board = _Board([_fp("R1", **{CLUSTER_FIELD_NAME: "P5V_IN", LIB: "P5V_IN"})])
 
     text = _text(board)
@@ -148,9 +153,12 @@ def test_c10_a_library_field_beside_both_our_fields_is_silent():
     check_role_cluster_fields_intact(_Board([_c2()]))  # no raise
 
 
-def test_c11_an_untagged_part_is_silent():
-    """С11 (control) — U1 has neither field AND no library field: a part that
-    was never tagged is a tagging task, not a KiCad bug."""
+def test_c11_a_part_without_the_fingerprint_is_silent():
+    """С11 (control) — U1 has neither field AND no library field at all. This
+    run DID damage it, yet the guard stays silent by design: with no
+    `KiLib_Generator` there is no rename to see, and a part without `Role` is
+    not a candidate, so no theft can follow. Refusing over it would also block
+    every freshly tagged board."""
     assert damaged_footprints(_Board([_u1()])) == []
     check_role_cluster_fields_intact(_Board([_u1()]))  # no raise
 
