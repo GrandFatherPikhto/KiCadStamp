@@ -10,7 +10,7 @@ for a part of another cluster standing on this instance's empty slot.
 Nothing is written: the profile is copied into a mktemp dir (relative schematic paths made absolute
 in the COPY), the board is only read, the copy is deleted.
 
-usage: .venv/bin/python tools/check_placement.py profiles/3ch-awg-tia-v103 [--slot-mm 0.5] [--plan dryrun.txt]
+usage: .venv/bin/python tools/check_placement.py <profile dir | profile .sexp> [--slot-mm 0.5] [--plan dryrun.txt]
 
 Every real run (not --plan) prints NEW / GONE against the previous run of the same profile and
 remembers itself in ~/.local/state/kicadstamp/placement_check_<profile>.json — run it after every
@@ -36,11 +36,22 @@ from kicadstamp.sheet_names import resolve_sheet_path_names          # noqa: E40
 from kicadstamp.utils.units import MM                                # noqa: E402
 
 
-def _load_copy(profile: Path):
+def _config_name(profile: Path) -> str:
+    """The profile's main config file: config.sexp, else <profile>.sexp, else the only *.sexp."""
+    for name in ("config.sexp", f"{profile.name}.sexp"):
+        if (profile / name).is_file():
+            return name
+    found = sorted(f.name for f in profile.glob("*.sexp"))
+    if len(found) == 1:
+        return found[0]
+    raise SystemExit(f"cannot tell the config file in {profile}: {found or 'no *.sexp'} — pass the .sexp path")
+
+
+def _load_copy(profile: Path, cfg_name: str):
     tmp = Path(tempfile.mkdtemp(prefix="kstamp_stolen_"))
     copy = tmp / "p"
     shutil.copytree(profile, copy)
-    cfg_file = copy / "config.sexp"
+    cfg_file = copy / cfg_name
     text = cfg_file.read_text(encoding="utf-8")
     text = re.sub(r'"((?:\.\./)+[^"]*)"',
                   lambda m: '"%s"' % (profile / m.group(1)).resolve(), text)
@@ -89,15 +100,25 @@ def _consensus(slots, fps):
 
 
 def main(argv):
-    profile = Path(argv[0]).resolve()
+    target = Path(argv[0]).resolve()
+    if target.is_file():                 # a path to the profile's .sexp
+        profile, cfg_name = target.parent, target.name
+    else:
+        profile, cfg_name = target, _config_name(target)
     slot_mm = float(argv[argv.index("--slot-mm") + 1]) if "--slot-mm" in argv else 0.5
-    tmp, cfg_file, cfg, ctx = _load_copy(profile)
+    tmp, cfg_file, cfg, ctx = _load_copy(profile, cfg_name)
     try:
         sheet_names = dict((ctx.sheet_names if ctx else {}) or {})
         cl_cells = _cluster_cells(cfg)
         adapter = create_board_adapter(timeout_ms=DEFAULT_TIMEOUT_MS, config_path=str(cfg_file))
         try:
             adapter.refresh_board()
+            # the open board must be THIS profile's project, or every number below is nonsense
+            board = Path(adapter.get_board_filename() or "").stem
+            sheet = Path(getattr(ctx, "root_sheet", None) or "").stem
+            if board and sheet and board != sheet:
+                print(f"REFUSED: KiCad has {board!r} open, the profile is for {sheet!r} — open that board first")
+                return 2
             fps = list(adapter.get_footprints())
             if "--plan" in argv:      # simulate: positions AFTER a dry-run plan (kicadstamp_cli apply --dry-run output)
                 import dataclasses
