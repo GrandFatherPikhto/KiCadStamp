@@ -11,7 +11,7 @@ fp-lib-table, else <lib-dir>/<lib>.pretty) and compares the number of (model …
 the point count of every fp_poly, in order. Nothing is written; KiCad is not needed. Save the
 board first — the file is what is read.
 
-usage: .venv/bin/python tools/check_footprints_vs_library.py <board.kicad_pcb>
+usage: .venv/bin/python tools/check_footprints_vs_library.py <board.kicad_pcb | profile dir | profile .sexp>
        [--lib-dir /usr/share/kicad/footprints] [--all]   (--all: print clean footprints too)
 """
 import sys
@@ -102,11 +102,45 @@ def _lib_dirs(board_path: Path, default_dir: Path) -> dict:
     return dirs
 
 
+def _board_of(target: Path):
+    """The .kicad_pcb to read: the argument itself, or — for a KiCadStamp profile (its dir or
+    its .sexp) — the board next to the profile's root_sheet. None (with a reason) otherwise."""
+    if target.is_dir():
+        sexps = [f for f in (target / "config.sexp", target / f"{target.name}.sexp") if f.is_file()] \
+            or sorted(target.glob("*.sexp"))
+        if len(sexps) != 1:
+            print(f"cannot tell the profile config in {target}: {[f.name for f in sexps]}")
+            return None
+        target = sexps[0]
+    if not target.is_file():
+        print(f"no such file: {target}")
+        return None
+    head = target.read_text(encoding="utf-8")[:4096]
+    if head.lstrip().startswith("(kicad_pcb"):
+        return target
+    if head.lstrip().startswith("(kicadstamp-config"):
+        import re
+        m = re.search(r'\(root_sheet\s+"([^"]+)"', head)
+        if not m:
+            print(f"{target}: the profile has no root_sheet — pass the .kicad_pcb")
+            return None
+        board = (target.parent / m.group(1)).resolve().with_suffix(".kicad_pcb")
+        if not board.is_file():
+            print(f"{target}: its board {board} does not exist")
+            return None
+        print(f"profile {target.name} -> board {board}")
+        return board
+    print(f"{target} is neither a .kicad_pcb nor a KiCadStamp profile")
+    return None
+
+
 def main(argv):
     if not argv:
         print(__doc__)
         return 2
-    board_path = Path(argv[0])
+    board_path = _board_of(Path(argv[0]))
+    if board_path is None:
+        return 2
     lib_dir = Path(argv[argv.index("--lib-dir") + 1]) if "--lib-dir" in argv else Path("/usr/share/kicad/footprints")
     show_all = "--all" in argv
     libs = _lib_dirs(board_path, lib_dir)
