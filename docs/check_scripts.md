@@ -94,7 +94,9 @@ instances checked: 64; clean: 49; with problems: 15; skipped: 9
 
 Every real run (not `--plan`) compares its findings with the previous run of the **same profile** and
 remembers itself in `~/.local/state/kicadstamp/placement_check_<profile>.json` (machine state, outside
-`profiles/`):
+`profiles/`). The GUI's **Checks** tab runs this same script and therefore shares that one baseline: a
+`NEW` line may name a change made from the tab (or from the terminal), because both runs remember
+themselves in the same file.
 
 ```
 === CHANGES since the last run ===
@@ -124,7 +126,11 @@ changes.
 
 ### Exit code
 
-`0` after a report (also when problems were found — read the report), `2` when refused.
+`0` clean, `1` problems found (the report says which), `2` refused (wrong board open). A `--plan` run
+reports the same way; it only skips the NEW/GONE comparison.
+
+The code says only WHETHER there is anything in the report — the report itself stays the truth. That
+is what a shell `&&` chain and the GUI's **Checks** tab colour their status line by.
 
 ---
 

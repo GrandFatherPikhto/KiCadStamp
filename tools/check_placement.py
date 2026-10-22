@@ -11,6 +11,8 @@ Nothing is written: the profile is copied into a mktemp dir (relative schematic 
 in the COPY), the board is only read, the copy is deleted.
 
 usage: .venv/bin/python tools/check_placement.py <profile dir | profile .sexp> [--slot-mm 0.5] [--plan dryrun.txt]
+exit code: 0 clean, 1 problems found, 2 refused (wrong board open) — the same three codes the other
+           two checks use, and the one the GUI's Checks tab colours its status line by
 
 Every real run (not --plan) prints NEW / GONE against the previous run of the same profile and
 remembers itself in ~/.local/state/kicadstamp/placement_check_<profile>.json — run it after every
@@ -271,7 +273,11 @@ def main(argv):
             print(f"   [{inst[0]} @ {inst[1]}]: {why}")
     if "--plan" not in argv:
         _compare_with_last(profile.name, issues)
-    return 0
+    # The report stays the truth; the CODE only says whether there is anything in it, so a
+    # caller (a shell `&&` chain, the GUI's Checks tab) can colour/act on it without parsing
+    # text. Same 0/1/2 vocabulary as check_config_records.py and check_footprints_vs_library.py;
+    # a --plan run reports problems the same way (it only skips the NEW/GONE comparison).
+    return 1 if issues else 0
 
 
 def _compare_with_last(name, issues):
