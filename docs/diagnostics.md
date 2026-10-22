@@ -10,6 +10,9 @@ config) and do not depend on legacy modules.
 All scripts require a **running KiCad instance** with an active board and are run from the project root
 via `python -m`.
 
+> The user-facing board and config checks (`tools/check_placement.py`, `tools/check_config_records.py`,
+> `tools/check_footprints_vs_library.py`) are described in [docs/check_scripts.md](check_scripts.md).
+
 ---
 
 ## Structure

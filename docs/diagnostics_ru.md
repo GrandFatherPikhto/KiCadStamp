@@ -6,6 +6,9 @@
 
 Все скрипты требуют **открытого экземпляра KiCad** с активной платой и выполняются из корня проекта через `python -m`.
 
+> Проверки платы и конфига для пользователя (`tools/check_placement.py`, `tools/check_config_records.py`,
+> `tools/check_footprints_vs_library.py`) описаны в [docs/check_scripts_ru.md](check_scripts_ru.md).
+
 ---
 
 ## Структура
