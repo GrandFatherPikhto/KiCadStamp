@@ -459,3 +459,73 @@ def test_without_a_root_config_nothing_is_written():
     come back as `not_found` and no write is attempted."""
     assert remove_net_trace_records(None, ["x"]) == ([], ["x"])
     assert remove_net_trace_records(None, []) == ([], [])
+
+
+# ── Д-1.1: the "no copper" mark of a deleted record ────────────────────────
+
+def test_the_record_of_a_deleted_node_loses_its_no_copper_mark(main_window,
+                                                               tmp_path):
+    """Д-1.1 (acceptance of `18ade8f5`, Claude): `_stale_net_traces` is a mark about
+    the RECORD a node names — "the last re-read did not find its copper on the
+    board". The deletion takes the node AND (when orphaned) the record, so a mark
+    naming that record must not survive it: a mark for a record nobody can see is
+    a lie the next redraw would repeat."""
+    nodes = _copper_nodes(COPPER[0]) + [{"ref": "EXT", "kind": "external",
+                                         "xy": [0.0, 0.0]}]
+    dock, _root = _dock_with(main_window, tmp_path, nodes)
+    tree = dock._current_tree()
+    node = tree.nodes[0]
+    dock._stale_net_traces.add(COPPER[0])
+    assert dock._is_stale_net_trace(node) is True, \
+        "the cell must start from a MARKED record"
+    _select(dock, COPPER[0])
+
+    dock._delete_node_flow(tree, node)
+
+    assert COPPER[0] not in dock._stale_net_traces, \
+        "the mark goes with the record it names"
+
+
+# ── Д-1.2: which modifiers mean "delete" ───────────────────────────────────
+
+@pytest.mark.parametrize("modifier", [
+    Qt.KeyboardModifier.ControlModifier,
+    Qt.KeyboardModifier.ShiftModifier,
+    Qt.KeyboardModifier.AltModifier,
+])
+def test_a_modified_delete_does_not_delete_the_selection(main_window, tmp_path,
+                                                         modifier):
+    """Д-1.2: `DeleteKeyFilter`'s own promise — plain Delete (and the keypad's) is
+    the deletion, Ctrl/Shift/Alt+Delete stay free for anything later. A filter that
+    fired on ANY modifier would eat a future Ctrl+Delete binding before it could
+    exist, and would contradict the docstring that describes it."""
+    nodes = _copper_nodes(COPPER[0]) + [{"ref": "EXT", "kind": "external",
+                                         "xy": [0.0, 0.0]}]
+    dock, root = _dock_with(main_window, tmp_path, nodes)
+    tree = dock._current_tree()
+    _select(dock, COPPER[0])
+    tree_widget = dock._current_tree_widget()
+    tree_widget.setFocus()
+
+    QTest.keyClick(tree_widget, Qt.Key.Key_Delete, modifier)
+
+    assert [node.ref for node in tree.nodes] == [COPPER[0], "EXT"], \
+        "a modified Delete must leave every row alone"
+    assert _records_in(root) == [COPPER[0]]
+
+
+def test_keypad_delete_deletes_the_selection(main_window, tmp_path):
+    """Д-1.2 (other half): the keypad's own Delete is the SAME deletion — the filter
+    allows `KeypadModifier` explicitly, and this cell is what says so."""
+    nodes = _copper_nodes(COPPER[0]) + [{"ref": "EXT", "kind": "external",
+                                         "xy": [0.0, 0.0]}]
+    dock, root = _dock_with(main_window, tmp_path, nodes)
+    tree = dock._current_tree()
+    _select(dock, COPPER[0])
+    tree_widget = dock._current_tree_widget()
+
+    QTest.keyClick(tree_widget, Qt.Key.Key_Delete,
+                   Qt.KeyboardModifier.KeypadModifier)
+
+    assert [node.ref for node in tree.nodes] == ["EXT"]
+    assert _records_in(root) == []

@@ -15,6 +15,8 @@ MUST survive. Every row maps to a line of the plan's own mutation list.
   * M5  a generated instance is deletable                       -> the instance cell red
   * M6  the record is looked for in the ROOT only               -> the include cell red
   * M7  the menu label always says "Delete node"                -> the count cell red
+  * M8  the "no copper" mark of a deleted record is not lifted   -> Д-1.1 cell red
+  * M9  Delete fires with ANY modifier                           -> Д-1.2 cells red
   * K1  a cosmetic comment                                      -> MUST survive
 
 NOT text-expressible as a row, named here so the list is honest: «the handler is
@@ -62,6 +64,15 @@ MUTATIONS = [
     ("M7 the label always says one node", DELETE,
      "    count = len(selection) if selection else 1",
      "    count = 1  # MUTATION",
+     "die", GUARDS, ()),
+    ("M8 the no-copper mark is not lifted", DELETE,
+     "        stale.difference_update(identities)",
+     "        stale.update(())  # MUTATION",
+     "die", GUARDS, ()),
+    ("M9 Delete fires with any modifier", DELETE,
+     "                and event.modifiers() in (Qt.KeyboardModifier.NoModifier,\n"
+     "                                          Qt.KeyboardModifier.KeypadModifier)):",
+     "                and True):  # MUTATION",
      "die", GUARDS, ()),
     ("K1 cosmetic comment (control)", DELETE,
      '                      n=len(roots), refs=", ".join(node.ref for node in roots),',
