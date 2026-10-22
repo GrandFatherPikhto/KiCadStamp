@@ -106,7 +106,7 @@ The clone counterpart of the cell-to-board transformation (`clone_geometry.py`),
 - `origin` can be absolute `(origin_x_mm, origin_y_mm)` or a shift from an anchor (if `anchor_ref` or `anchor_role` is set).
 - `net` of each via and track is resolved via `net_resolution.resolve_net()` using `params` and `net_overrides` – there is no default `rule_net`. If `net` is missing, a fatal error is raised.
 - Supports binding to an anchor component/pad via `anchor_ref`/`anchor_role` and `anchor_pad`.
-- Supports **mirroring** (`mirror=True`) – the whole construction is reflected along the X axis and component angles are recalculated as `180°−φ`; only the outer pair of copper layers swaps (`F.Cu` ↔ `B.Cu`), while copper on an **inner** layer keeps its own layer (`utils/layers.mirror_layer` — an inner layer is a plane of the BOARD, not a side of the construction).
+- Supports **mirroring** (`mirror=True`) – the whole construction is reflected along the X axis and component angles are recalculated as `180°−φ`; only the outer pair of copper layers swaps (`F.Cu` ↔ `B.Cu`), while copper on an **inner** layer keeps its own layer (`utils/layers.mirror_layer` — an inner layer is a plane of the BOARD, not a side of the construction). When a LIVE instance is read back, its side is taken from the reference SLOT's own layer (`cell_frame.instance_mirror`): a cell may keep a part on `B.Cu` inside an `F.Cu` cell, and such an unmirrored instance is not mirrored.
 - **Supports tracks** – they are transformed in the same way as vias and components, inheriting the layer from the template (if not explicitly set).
 
 **Key Classes and Functions:**

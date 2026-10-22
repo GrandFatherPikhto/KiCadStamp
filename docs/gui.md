@@ -2470,6 +2470,18 @@ live case — still re-reads: every OTHER slot keeps its stored offset and the L
 anyway", plus "the instance is rotated N° — the geometry was expressed in the cell's own frame,
 anchor_xy is left unchanged" for a turned one.
 
+2026-10-21/22 (plan `cell_refresh_origin_role_renamed`) — the origin role no longer has to exist on the
+board. The cell's OWN origin role anchors the translation when it is in the selection (byte for byte as
+before); otherwise the FIRST matched role in the cell's order does, and the mount still comes from the
+CONFIG. What must never be written is a cell that cannot be read back, so the plan refuses in words
+when a LEGACY cell would keep no single component at its local (0,0), and when a v2 cell would lose
+the mount its `anchor_role` names. In the v2 case the anchor ROLE passes to the role standing EXACTLY
+on the saved mount point (the mount role's part renamed on the board), the Log says so, and the cell
+editor writes the new name at once; with `anchor_pad` set the transfer also needs that pad to exist on
+the new part (`stand on the same point` is not `the same footprint`). The instance's SIDE is read off
+the reference slot's own side — a cell may keep a part on B.Cu inside an F.Cu cell — and never off the
+cell's layer alone.
+
 A clean run APPLIES the plan directly — since 2026-09-06 there is NO preview dialog, and since
 2026-09-10 **"Update from selection..." does not open the Cell dialog either** (Denis: clicking refresh
 in the flat Config list popped an Edit Cell window nobody asked for; the result is reported in the Log

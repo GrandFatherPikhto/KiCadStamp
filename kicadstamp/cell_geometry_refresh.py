@@ -62,10 +62,10 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from .cell_frame import (CellFrame, fit_cell_frame, frame_for_live_selection,
-                         frame_warnings, mirror_for_layer,
+                         frame_warnings, instance_mirror,
                          reference_relative_pairs)
-from .cell_origin import (cell_zero_slot_role, plan_components, refresh_origin,
-                          require_one_zero_origin)
+from .cell_origin import (cell_zero_slot_role, mount_of, plan_components,
+                          refresh_origin, require_measurable_origin)
 from .frame_node_pose import FrameReadContext, follow_the_tree_node
 from .cluster_matching import cluster_prefix_match
 from .config import Cell, load_cell_placement
@@ -91,7 +91,6 @@ __all__ = [
     "build_refresh_plan",
     "cell_content_bbox",
     "cell_frame_from_live",
-    "cell_slot_dicts",
     "cell_zero_slot_role",
     "match_components",
     "net_template_regex",
@@ -540,6 +539,10 @@ class RefreshPlan:
     # `net_from_role` copper is already listed in removed_via_records /
     # removed_track_records. Empty unless requested.
     removed_component_records: list[dict] = field(default_factory=list)
+    # Д-2 (2026-10-22): the role that TAKES THE v2 ANCHOR OVER when this plan removes
+    # the cell's anchor role (its part was renamed on the board) — the CellDock must
+    # WRITE it, or the very next read of the same cell refuses.
+    new_anchor_role: str | None = None
 
 
 def plan_has_work(plan) -> bool:
@@ -630,19 +633,12 @@ def _cell_selection_context(components: list[dict], footprints: list[Footprint],
                               "cell — {action} cannot add components")
                             .format(role=role, action=action_label))
 
-    # The cell's own MOUNT A — from the CONFIG, never from the selection: v2 cells
-    # store it as the anchor role's offset, a legacy cell's mount IS its stored
-    # (0,0). It is what the cell frame subtracts, so it must survive the anchor
-    # role leaving the selection.
-    if origin_role is not None:
-        comp = next((c for c in components if c.get("role") == origin_role), None)
-        if comp is None:
-            problems.append(_("role {role!r} (the cell's anchor origin) is not a "
-                              "component of this cell").format(role=origin_role))
-        mount = ((float(comp.get("offset_along_mm", 0.0)),
-                  float(comp.get("offset_across_mm", 0.0))) if comp else (0.0, 0.0))
-    else:
-        mount = (0.0, 0.0)
+    # The cell's own MOUNT A — from the CONFIG, never from the selection (it is what
+    # the cell frame subtracts, so it must survive the anchor role leaving the
+    # selection). ONE host with the anchor-transfer rule below: cell_origin.mount_of.
+    mount, mount_problem = mount_of(components, origin_role)
+    if mount_problem is not None:
+        problems.append(mount_problem)
     # WHO anchors the translation — ONE host (kicadstamp/cell_origin): the cell's
     # own origin role when it is in the selection (then the frame is today's, to
     # the nanometre), else the FIRST matched role in the cell's order. 2026-10-21:
@@ -698,7 +694,8 @@ def cell_frame_from_live(components, footprints, adapter, origin_role=None):
     and mount) plus the fit, never a second implementation.
 
     ``components`` — the cell's slots as dicts (role + the two stored offsets;
-    :func:`cell_slot_dicts` turns a loaded Cell into that shape), ``footprints``
+    :func:`cell_origin.cell_slot_dicts` turns a loaded Cell into that shape),
+    ``footprints``
     — the instance's live footprints, ``origin_role`` — the cell's ``anchor_role``
     (None keeps the legacy zero-offset-slot origin). 2026-10-21: the frame no
     longer needs the origin ROLE to be among `footprints` — cell_origin picks any
@@ -707,20 +704,6 @@ def cell_frame_from_live(components, footprints, adapter, origin_role=None):
     instead of guessing."""
     return _frame_and_context(components, footprints, adapter, _("refresh"),
                               origin_role)[0]
-
-
-def cell_slot_dicts(cell) -> list[dict]:
-    """A loaded ``Cell``'s slots in the list-of-dicts shape the frame and the
-    cell readers take (role + the two STORED offsets + the slot's own
-    ``angle_deg``) — the frame needs the angle to recover a SINGLE-slot
-    instance's rotation (2026-10-13, plan_2026_10_13_single_slot_rotation:
-    cell_frame.single_slot_rotation), and a caller that carries no angle gets
-    0.0 from the reader, which is exactly today's behaviour."""
-    return [{"role": getattr(slot, "role", None),
-             "offset_along_mm": float(getattr(slot, "offset_along_mm", 0.0)),
-             "offset_across_mm": float(getattr(slot, "offset_across_mm", 0.0)),
-             "angle_deg": float(getattr(slot, "angle_deg", 0.0))}
-            for slot in (getattr(cell, "components", None) or ())]
 
 
 def _read_nested_live(adapter, placement, cell, parent_frame: CellFrame,
@@ -788,11 +771,15 @@ def _read_nested_live(adapter, placement, cell, parent_frame: CellFrame,
     ref_slot = slot_by_role[picked[0]]
     ref_fp = ref_to_fp[role_to_ref[ref_slot.role]]
     # Mirror — the ONE "which side of the board" rule of the project
-    # (cell_frame.mirror_for_layer), read off the reference footprint against the
-    # NESTED cell's layer (the parent's own mirror is refused above, so this IS
-    # the relative mirror). Never spelled out here: the copy of this comparison
-    # is what the re-read defect of 2026-10-12 cost.
-    mirror = mirror_for_layer(ref_fp.layer, cell.layer)
+    # (cell_frame.instance_mirror), read off the reference footprint against the
+    # REFERENCE SLOT's own side: a nested cell may keep its reference slot on the
+    # other side of the same board (2026-10-22, Д-1), and comparing with the cell's
+    # layer alone read such an unmirrored instance as mirrored. The parent's own
+    # mirror is refused above, so this IS the relative mirror. Never spelled out
+    # here: the copy of this comparison is what the re-read defect of 2026-10-12
+    # cost.
+    mirror = instance_mirror(ref_fp.layer, getattr(ref_slot, "layer", None),
+                             cell.layer, fallback=False)
     ax_mm, ay_mm = cell_mount_offset(cell)
     reference = (float(ref_slot.offset_along_mm), float(ref_slot.offset_across_mm),
                  ref_fp.position.x / MM, ref_fp.position.y / MM)
@@ -891,6 +878,7 @@ def build_refresh_plan(components: list[dict], vias: list[dict], tracks: list[di
                        raw_track_items: list[Track], adapter: Any,
                        net_template_map: dict[str, str] | None = None,
                        origin_role: str | None = None,
+                       anchor_pad: str | None = None,
                        add_new_copper: bool = False,
                        remove_missing: bool = False,
                        reconcile_components: bool = False,
@@ -944,6 +932,11 @@ def build_refresh_plan(components: list[dict], vias: list[dict], tracks: list[di
     tracks by effective layer (H.1.1: a record and a live track of one net never
     pair across layers) and, when KNOWN, pins the frame's mirror to the instance's
     physical side. `None` keeps every historical behaviour.
+
+    anchor_pad (Д-2, 2026-10-22) — the cell's own `anchor_pad`, and the reason the
+    anchor transfer is not a geometric guess: when the anchor role leaves with its
+    part, the role standing on the saved mount point inherits the anchor ONLY if
+    its live footprint really carries that pad ("same point" is not "same part").
 
     Raises ValidationError (format_fatal_error, EVERY problem collected into
     one message — missing/extra roles AND every per-net/template/net:null
@@ -1113,13 +1106,15 @@ def build_refresh_plan(components: list[dict], vias: list[dict], tracks: list[di
     planned_components = plan_components(components, component_updates,
                                          new_component_records,
                                          removed_component_records)
-    # 2026-10-21: a LEGACY cell (no anchor_xy) is read back by cell_zero_slot_role,
-    # so the plan must leave EXACTLY one slot at the cell's local (0,0) — checked
-    # with the read's own predicate on the values this plan already rounded (a
-    # tolerance of its own would let a write through whose next read refuses).
-    # v2 cells are exempt: their origin is the stored anchor_xy, untouched here.
-    if frame is not None and origin_role is None:
-        require_one_zero_origin(planned_components)
+    # The cell must stay MEASURABLE after this write (2026-10-21/22, ONE host): a
+    # LEGACY cell needs EXACTLY one slot at (0,0), checked with the read's own
+    # predicate on the values this plan already rounded (a tolerance of its own
+    # would let a write through whose next read refuses); a v2 cell keeps its mount,
+    # but when the plan removes the anchor role with its part, the role standing
+    # exactly on the saved mount point takes the anchor over — or it is a refusal.
+    transfer = require_measurable_origin(
+        planned_components, components, origin_role, anchor_pad, adapter,
+        role_to_ref, footprints)
 
     # Additive mode: turn the tier-4 leftover live copper into NEW records.
     # Exactly the Import path (build_import_plan) — _selection_role_nets once
@@ -1162,9 +1157,10 @@ def build_refresh_plan(components: list[dict], vias: list[dict], tracks: list[di
         new_track_records=new_track_records,
         removed_via_records=via_removed,
         removed_track_records=track_removed,
-        warnings=warnings,
+        warnings=warnings + ([transfer[1]] if transfer else []),
         new_component_records=new_component_records,
         removed_component_records=removed_component_records,
+        new_anchor_role=transfer[0] if transfer else None,
     )
 
 

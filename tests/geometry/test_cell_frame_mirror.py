@@ -14,8 +14,9 @@ the rule's PLACE, not in any board read.
 """
 import pytest
 
-from kicadstamp.cell_frame import mirror_for_layer
-from kicadstamp.domain.geometry import BoardLayer
+from kicadstamp.cell_frame import frame_for_live_selection, mirror_for_layer
+from kicadstamp.domain.board import Footprint
+from kicadstamp.domain.geometry import BoardLayer, Vector2
 
 FRONT = BoardLayer.BL_F_Cu
 BACK = BoardLayer.BL_B_Cu
@@ -122,3 +123,51 @@ def test_the_relative_mirror_wrapper_delegates_instead_of_comparing(
     assert tree_position._footprint_relative_mirror(
         _Fp(), _Cell(), fallback=False) is True
     assert seen == [(FRONT, "F.Cu", False)]
+
+
+# ── Д-1 (2026-10-22, plan_2026_10_21_cell_refresh_origin_role_renamed): WHOSE
+#    layer is the reference ────────────────────────────────────────────────────
+# Since the refresh anchors its translation on ANY matched role, the reference
+# slot may keep its OWN side inside the cell (`layer "B.Cu"` in an F.Cu cell).
+# Comparing that footprint's layer with the CELL's layer read an unmirrored
+# instance as mirrored; `instance_mirror` compares with the SLOT's own side. The
+# frame's `side_layer` names the side of the INSTANCE, never the part's.
+
+def _slot_fp(ref, x_mm, y_mm, layer):
+    return Footprint(ref=ref, uuid=f"u-{ref}",
+                     position=Vector2.from_xy_mm(x_mm, y_mm),
+                     angle_deg=0.0, layer=layer)
+
+
+_MIXED_SLOTS = [{"role": "CBOT", "offset_along_mm": 3.0, "offset_across_mm": 1.0,
+                 "layer": "B.Cu"},
+                {"role": "R1", "offset_along_mm": 5.0, "offset_across_mm": 2.0}]
+
+
+def test_the_instance_side_is_read_off_the_reference_slots_own_side():
+    """Д-1г: the reference slot stands on B.Cu and the instance does NOT — the
+    frame stays unmirrored, and `side_layer` names the side of the INSTANCE (F.Cu),
+    which is what the mirror line compares against the cell's layer."""
+    frame = frame_for_live_selection(
+        _MIXED_SLOTS,
+        [_slot_fp("CB", 103.0, 101.0, BACK), _slot_fp("R1", 105.0, 102.0, FRONT)],
+        {"CBOT": "CB", "R1": "R1"}, ("CBOT", 3.0, 1.0, 103.0, 101.0),
+        (0.0, 0.0), "F.Cu")
+
+    assert frame.mirror is False
+    assert frame.side_layer == "F.Cu"
+    assert frame.cell_layer == "F.Cu"
+
+
+def test_a_mirrored_instance_still_names_the_other_side():
+    """Д-1д (control): with the whole instance on the other side the mirror rule
+    itself must survive the repair — mirrored, and `side_layer` is the instance's
+    side (B.Cu), not the reference part's."""
+    frame = frame_for_live_selection(
+        _MIXED_SLOTS,
+        [_slot_fp("CB", 97.0, 101.0, FRONT), _slot_fp("R1", 95.0, 102.0, BACK)],
+        {"CBOT": "CB", "R1": "R1"}, ("CBOT", 3.0, 1.0, 97.0, 101.0),
+        (0.0, 0.0), "F.Cu")
+
+    assert frame.mirror is True
+    assert frame.side_layer == "B.Cu"

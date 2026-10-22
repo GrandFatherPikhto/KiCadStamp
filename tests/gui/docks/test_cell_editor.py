@@ -16,7 +16,7 @@ import pytest
 import gui.docks.cell_editor as cell_editor_mod
 from gui.board_layers import ALL_COPPER_LAYERS, remember_read_layers
 from gui.docks.cell_editor import CellDock
-from kicadstamp.cell_geometry_refresh import build_refresh_plan
+from kicadstamp.cell_geometry_refresh import RefreshPlan, build_refresh_plan
 from kicadstamp.config import load_template_via
 from kicadstamp.config.sexp_format import dict_to_sexp, sexp_to_dict
 from kicadstamp.domain.board import Footprint, Track, Via
@@ -455,12 +455,13 @@ def test_anchor_mode_toggles_role_row_visibility(main_window, tmp_path):
     assert dock._anchor_role_row.isVisibleTo(dock)
 
 
-def test_refresh_origin_role_returns_role_after_xy_item_removed(main_window, tmp_path):
-    """THE Фаза B regression: _refresh_origin_role is keyed on currentData().
+def test_refresh_anchor_returns_role_after_xy_item_removed(main_window, tmp_path):
+    """THE Фаза B regression: `_refresh_anchor` is keyed on currentData().
     Removing the old "XY" item shifted "Role" from index 2 to 1, and the old
     index-based check would then ALWAYS have returned None — build_refresh_plan
     would fall back to the legacy zero-slot origin and every Role-anchored
-    cell's re-read would start failing, silently."""
+    cell's re-read would start failing, silently. Since Д-2 the pair also carries
+    `anchor_pad` — the same form value `_build_cell_dict` writes."""
     dock, _ = _make_dock(main_window, tmp_path, {"cells": {"t": {
         "components": [{"role": "A", "offset_along_mm": -5.05,
                         "offset_across_mm": -0.295, "angle_deg": 0.0}],
@@ -469,10 +470,35 @@ def test_refresh_origin_role_returns_role_after_xy_item_removed(main_window, tmp
     dock.load_entry("t")
 
     assert dock.anchor_mode_combo.currentData() == "role"
-    assert dock._refresh_origin_role() == "A"
+    assert dock._refresh_anchor() == ("A", "1")
 
     dock.anchor_mode_combo.setCurrentIndex(dock.anchor_mode_combo.findData("none"))
-    assert dock._refresh_origin_role() is None
+    assert dock._refresh_anchor() == (None, None)
+
+
+def test_refresh_writes_the_transferred_anchor_role(main_window, tmp_path):
+    """Д-2е (2026-10-22) — the ONLY cell on the dock side of the anchor transfer.
+    The plan hands the anchor to `M2`; `_apply_refresh_plan` autostages at once, and
+    an UNTOUCHED anchor_role is taken from `_loaded_anchor_role` — so without this
+    write the dock puts the dead name back on disk and the next refresh of the same
+    selection refuses. The probe's П2 step would stay green even then (it models the
+    fixed dock), which is exactly why this cell exists."""
+    dock, _ = _make_dock(main_window, tmp_path, {"cells": {"t": {
+        "components": [{"role": "A", "offset_along_mm": -5.05,
+                        "offset_across_mm": -0.295, "angle_deg": 0.0},
+                       {"role": "M2", "offset_along_mm": 1.0,
+                        "offset_across_mm": 2.0, "angle_deg": 0.0}],
+        "anchor_role": "A"}}})
+    dock.load_entry("t")
+
+    dock._apply_refresh_plan(RefreshPlan(
+        component_updates=[], via_updates=[], track_updates=[],
+        new_anchor_role="M2"))
+
+    assert dock._loaded_anchor_role == "M2"
+    assert dock._anchor_role_touched is False
+    assert dock.anchor_role_combo.currentText() == "M2"
+    assert dock._build_cell_dict()[1]["anchor_role"] == "M2"
 
 
 

@@ -1804,3 +1804,72 @@ def test_layer_filter_keeps_the_fatal_for_a_layer_that_was_read():
         build_refresh_plan(components, [], [], footprints, [],
                            filter_tracks_by_layers([live_b_cu], {"B.Cu"}),
                            adapter, cell_layer="F.Cu")
+
+
+# ── Д-1 (Ч2 of plan_2026_10_21_cell_refresh_origin_role_renamed, 2026-10-22):
+# a NESTED cell whose reference slot keeps its own side on the same board ────
+
+def test_a_nested_mixed_side_cell_reads_the_side_of_its_reference_slot():
+    """Д-1е: the nested cell keeps its reference slot (`NORIG`) on B.Cu inside an
+    F.Cu cell, and the instance on the board is NOT mirrored — a mixed-side cell's
+    unmirrored instance really does put that part on the board's B.Cu. Comparing
+    the reference FOOTPRINT's layer with the CELL's layer called it mirrored, and
+    the whole nested read came back mirrored (a rotation and an xy that the board
+    does not have). The slot's own side is the answer, and the stored geometry is
+    then reproduced unchanged."""
+    selection, _board, adapter = _rigid_board(nested_xy=(3.0, 2.0))
+    next(fp for fp in adapter.get_footprints()
+         if fp.ref == "N0").layer = BoardLayer.BL_B_Cu
+    cell = Cell(name="nested_cell", layer="F.Cu", components=[
+        TemplateComponentSlot(role="NORIG", offset_along_mm=0.0,
+                              offset_across_mm=0.0, angle_deg=0.0,
+                              layer="B.Cu"),
+        TemplateComponentSlot(role="NCAP", offset_along_mm=10.0,
+                              offset_across_mm=-4.0, angle_deg=0.0)])
+    record = {"name": "n1", "cell": "nested_cell", "xy": [3.0, 2.0]}
+
+    plan = _refresh([record], {"nested_cell": cell}, selection, adapter)
+
+    assert plan.nested_updates == []
+    assert plan.nested_reports == []
+
+
+# ── Д-4 (Ч2 of the same plan): a nested LEGACY cell that keeps no slot on its own
+# (0,0) is still READ ────────────────────────────────────────────────────────
+
+def test_a_nested_legacy_cell_without_a_zero_slot_is_still_read():
+    """Д-4а: the nested cell is legacy (no `anchor_role`) and keeps NO slot on its
+    own (0,0) — the refresh's `cell_zero_slot_role` would RAISE. A READ of a nested
+    cell must answer instead (`require_canonical=False`): its refusal would be a Log
+    line, but a raise stops the whole refresh."""
+    selection, _board, adapter = _rigid_board(nested_xy=(3.0, 2.0))
+    # The cell's slots sit +1 mm along from its mount: the very same instance,
+    # measured from the first matched role instead of a (0,0) slot.
+    for fp in adapter.get_footprints():
+        if fp.ref in ("N0", "N1"):
+            fp.position = Vector2.from_xy_mm(fp.position.x / 1_000_000 + 1.0,
+                                             fp.position.y / 1_000_000)
+    cell = Cell(name="nested_cell", layer="F.Cu", components=[
+        TemplateComponentSlot(role="NORIG", offset_along_mm=1.0,
+                              offset_across_mm=0.0, angle_deg=0.0),
+        TemplateComponentSlot(role="NCAP", offset_along_mm=11.0,
+                              offset_across_mm=-4.0, angle_deg=0.0)])
+    record = {"name": "n1", "cell": "nested_cell", "xy": [3.0, 2.0]}
+
+    plan = _refresh([record], {"nested_cell": cell}, selection, adapter)
+
+    assert plan.nested_updates == []
+    assert plan.nested_reports == []
+
+
+def test_a_nested_canonical_cell_is_read_from_its_zero_slot_as_before():
+    """Д-4б (control): the same read of a CANONICAL legacy nested cell is unchanged —
+    the stored xy is recomputed to exactly the board's, and the read reports the one
+    changed placement, byte for byte as before Д-4."""
+    selection, _board, adapter = _rigid_board(nested_xy=(3.0, 2.0))
+    record = {"name": "n1", "cell": "nested_cell", "xy": [0.0, 0.0]}
+
+    plan = _refresh([record], {"nested_cell": _nested_cell()}, selection, adapter)
+
+    assert len(plan.nested_updates) == 1
+    assert plan.nested_updates[0][1]["xy"] == pytest.approx([3.0, 2.0], abs=1e-3)

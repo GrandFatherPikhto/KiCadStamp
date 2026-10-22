@@ -19,6 +19,7 @@ import pytest
 
 from kicadstamp.cell_frame import frame_for_live_selection, rotate_ydown_mm
 from kicadstamp.cell_geometry_refresh import build_refresh_plan
+from kicadstamp.cell_origin import plan_components
 from kicadstamp.constants import ROLE_FIELD_NAME
 from kicadstamp.domain.board import Footprint, Track
 from kicadstamp.domain.geometry import BoardLayer, Vector2
@@ -29,10 +30,10 @@ _LAYER = "F.Cu"
 
 # ── the module's own shapes (same stubs as the refresh cells) ───────────────
 
-def _fp(ref, x_mm, y_mm, angle=0.0):
+def _fp(ref, x_mm, y_mm, angle=0.0, layer=BoardLayer.BL_F_Cu):
     return Footprint(ref=ref, uuid=f"uuid-{ref}",
                      position=Vector2.from_xy_mm(x_mm, y_mm),
-                     angle_deg=angle, layer=BoardLayer.BL_F_Cu)
+                     angle_deg=angle, layer=layer)
 
 
 def _track(net, x1, y1, x2, y2, width=0.2):
@@ -291,19 +292,26 @@ def test_a_v2_cell_is_exempt_from_the_zero_slot_rule():
     assert [rec["role"] for rec in plan.removed_component_records] == ["A"]
 
 
-def test_a_v2_cell_survives_its_mount_role_leaving_the_selection():
-    """The anchor role gone from the selection: the mount STILL comes from the
-    config (it is what the frame subtracts), and the translation is measured from
-    another matched role — the same plan, anchored the same way."""
+def test_a_v2_cell_whose_mount_role_is_missing_from_the_plan_is_refused():
+    """Д-2в (2026-10-22) — the subject CHANGED here, deliberately. This cell used
+    to pin "the plan is built when the mount role is not selected"; with
+    `reconcile_components` that role is DELETED from the cell, and the mount lives
+    in the config AS THAT ROLE'S OFFSET — so the plan wrote a cell whose very next
+    read refuses "role 'M' is not a component of this cell". That is exactly the
+    write the legacy (0,0) precondition exists to prevent, on the path it exempts
+    (Claude's probe П2). Following the role's PART is the honest path
+    (test_a_v2_cells_anchor_role_passes_to_the_part_that_stands_on_it), and a part
+    that is simply gone is a refusal in words, not a silently unmeasurable cell."""
     footprints = [_fp("A", 102.0, 97.0), _fp("B", 103.0, 97.0)]
     adapter = _FakeAdapter({"A": "A", "B": "B"})
 
-    plan = _plan(_V2_COMPONENTS, footprints, adapter, origin_role="M")
+    with pytest.raises(ValidationError) as exc:
+        _plan(_V2_COMPONENTS, footprints, adapter, origin_role="M")
 
-    kept = {rec["role"]: geo for rec, geo in plan.component_updates}
-    assert kept["A"]["offset_along_mm"] == 0.0
-    assert kept["A"]["offset_across_mm"] == 0.0
-    assert kept["B"]["offset_along_mm"] == 1.0
+    text = str(exc.value)
+    assert "no component would stand on the cell's saved mount point" in text
+    assert "include that role in the selection" in text
+    assert "Nothing was placed or modified on the board" in text
 
 
 # ── 7: the verdict of a READ ────────────────────────────────────────────────
@@ -322,3 +330,206 @@ def test_a_role_problem_carries_the_read_only_verdict():
     assert "role 'A' is in the cell but not in the selection" in text
     assert "Nothing was placed or modified on the board" in text
     assert "Fix the config" not in text
+
+
+# ── 8: the SIDE of the instance is read off the REFERENCE SLOT's own side ───
+
+# Д-1 (Ч2 of this plan, 2026-10-22; Claude's probe П1). The origin role is gone,
+# so the reference role is the FIRST matched one in the CELL's order — and that
+# slot may keep its OWN side inside the cell (`layer "B.Cu"` in an F.Cu cell).
+# Comparing the reference FOOTPRINT's layer with the CELL's layer then called a
+# perfectly unmirrored instance mirrored: a legacy cell was refused and a v2 cell
+# was WRITTEN with wrong offsets plus a false "other side" line.
+
+_MIXED_BOTTOM = {"role": "CBOT", "offset_along_mm": 3.0, "offset_across_mm": 1.0,
+                 "layer": "B.Cu"}
+_MIXED_TOP = {"role": "R1", "offset_along_mm": 5.0, "offset_across_mm": 2.0}
+
+
+def _mixed(bottom_first, origin=None):
+    return ([_MIXED_BOTTOM, _MIXED_TOP, origin] if bottom_first
+            else [_MIXED_TOP, _MIXED_BOTTOM, origin])
+
+
+def _mixed_instance(origin_x=100.0, origin_y=100.0, mount=(0.0, 0.0)):
+    """The UNMIRRORED instance: the cell's MOUNT A lands on (origin_x, origin_y),
+    so every part stands at origin + its stored offset - A — the composition
+    apply_clone_geometry performs. R1 keeps its stored (5, 2), and the bottom
+    slot's part really stands on B.Cu, as an unmirrored mixed-side cell must."""
+    def at(along, across):
+        return (origin_x + along - mount[0], origin_y + across - mount[1])
+
+    return [_fp("U", origin_x, origin_y), _fp("R1", *at(5.0, 2.0)),
+            _fp("CB", *at(3.0, 1.0), layer=BoardLayer.BL_B_Cu)]
+
+
+def _mixed_adapter():
+    return _FakeAdapter({"U": "XTAL", "R1": "R1", "CB": "CBOT"})
+
+
+@pytest.mark.parametrize("bottom_first", [True, False])
+def test_a_whole_cluster_with_a_slot_on_its_own_side_is_updated(bottom_first):
+    """Д-1а: a legacy cell (`OSC` at its own (0,0) is now `XTAL` on the board) with
+    one slot on B.Cu. `bottom_first=True` puts that slot FIRST — the reference — and
+    the update must still go through, with every stored offset intact and `XTAL`
+    landing on the cell's (0,0). `bottom_first=False` is the CONTROL: with a
+    top-side reference the old comparison agreed by accident, so an update there
+    says nothing about the rule (mutation M5 must leave it green)."""
+    plan = _plan(_mixed(bottom_first, {"role": "OSC"}), _mixed_instance(),
+                 _mixed_adapter())
+
+    kept = {rec["role"]: geo for rec, geo in plan.component_updates}
+    assert kept["R1"] == {"offset_along_mm": 5.0, "offset_across_mm": 2.0,
+                          "angle_deg": 0.0}
+    assert kept["CBOT"]["offset_along_mm"] == 3.0
+    added = {rec["role"]: rec for rec in plan.new_component_records}
+    assert (added["XTAL"]["offset_along_mm"],
+            added["XTAL"]["offset_across_mm"]) == (0.0, 0.0)
+
+
+@pytest.mark.parametrize("bottom_first", [True, False])
+def test_a_v2_cell_keeps_its_offsets_by_a_slot_on_its_own_side(bottom_first):
+    """Д-1б: the same shape as a v2 cell (`anchor_role "OSC"`). Here the false
+    mirror refused NOTHING — it wrote different offsets (Claude measured R1 5,2 ->
+    4,3 and every angle -90) and a false "stands on the other side" line."""
+    anchor = {"role": "OSC", "offset_along_mm": 1.0, "offset_across_mm": 1.0}
+    plan = _plan(_mixed(bottom_first, anchor),
+                 _mixed_instance(101.0, 101.0, mount=(1.0, 1.0)),
+                 _mixed_adapter(), origin_role="OSC")
+
+    kept = {rec["role"]: geo for rec, geo in plan.component_updates}
+    assert kept["R1"]["offset_along_mm"] == 5.0
+    assert kept["R1"]["offset_across_mm"] == 2.0
+    assert not any("other side" in warning for warning in plan.warnings)
+
+
+# ── 9: Д-2 — the v2 anchor role moves WITH its part ─────────────────────────
+
+# (2026-10-22, Д-2.) Rename the mount role on the board and refresh once: the plan
+# legitimately deletes the old role, while the cell editor keeps the LOADED
+# `anchor_role` — so refresh #2 of the same selection refused "role 'M' is not a
+# component of this cell". The role standing EXACTLY on the saved mount point takes
+# the anchor over (the same exactness as `zero_slots`), and must really carry the
+# cell's `anchor_pad` when it has one.
+
+def _renamed_mount_plan(anchor_pad=None, pads=None):
+    """The probe's П2 shape: `M` (the cell's mount, stored (-2, 3)) is `M2` on the
+    board; A and B are where the cell says they are."""
+    footprints = [_fp("M", 100.0, 103.0), _fp("A", 102.0, 100.0),
+                  _fp("B", 103.0, 100.0)]
+    adapter = _FakeAdapter({"M": "M2", "A": "A", "B": "B"}, pads=pads)
+    return _plan(_V2_COMPONENTS, footprints, adapter, origin_role="M",
+                 anchor_pad=anchor_pad)
+
+
+def test_a_v2_cells_anchor_role_passes_to_the_part_that_stands_on_it():
+    """Д-2а: the plan says WHICH role inherits the anchor and says it out loud in
+    the Log — the dock needs the first half to write it, the user the second."""
+    plan = _renamed_mount_plan()
+
+    assert plan.new_anchor_role == "M2"
+    added = {rec["role"]: rec for rec in plan.new_component_records}
+    assert (added["M2"]["offset_along_mm"],
+            added["M2"]["offset_across_mm"]) == (-2.0, 3.0)
+    assert any("anchor passes to 'M2'" in line for line in plan.warnings)
+
+
+def test_the_second_refresh_of_the_same_selection_goes_through():
+    """Д-2б: the whole point — refresh TWICE. #1 leaves the cell with `M2` as its
+    anchor role (the dock writes it, Д-2е), so #2 starts from that cell and must
+    simply go through."""
+    first = _renamed_mount_plan()
+    after = plan_components(_V2_COMPONENTS, first.component_updates,
+                            first.new_component_records,
+                            first.removed_component_records)
+
+    plan = _plan(after, [_fp("M", 100.0, 103.0), _fp("A", 102.0, 100.0),
+                         _fp("B", 103.0, 100.0)],
+                 _FakeAdapter({"M": "M2", "A": "A", "B": "B"}),
+                 origin_role=first.new_anchor_role)
+
+    kept = {rec["role"]: geo for rec, geo in plan.component_updates}
+    assert kept["A"]["offset_along_mm"] == 0.0
+    assert kept["A"]["offset_across_mm"] == 0.0
+    assert plan.new_anchor_role is None      # nothing left to transfer
+
+
+def test_two_roles_on_the_mount_point_are_refused():
+    """Д-2г: a cell that stores ANOTHER slot exactly on the mount point cannot say
+    which one inherits the anchor — refused in words, never resolved by picking."""
+    components = [{"role": "M", "offset_along_mm": -2.0, "offset_across_mm": 3.0},
+                  {"role": "A", "offset_along_mm": -2.0, "offset_across_mm": 3.0},
+                  {"role": "B", "offset_along_mm": 4.0}]
+    footprints = [_fp("M", 100.0, 103.0), _fp("A", 100.0, 103.0),
+                  _fp("B", 106.0, 100.0)]
+
+    with pytest.raises(ValidationError) as exc:
+        _plan(components, footprints,
+              _FakeAdapter({"M": "M2", "A": "A", "B": "B"}), origin_role="M")
+
+    text = str(exc.value)
+    assert "2 components would stand on the cell's saved mount point" in text
+    assert "the new anchor is ambiguous" in text
+
+
+def test_a_pad_anchor_transfers_only_when_the_new_part_carries_that_pad():
+    """Д-2ж: with the cell's `anchor_pad` set, the transfer is allowed when the new
+    role's live footprint really has that pad — the renamed mounting hole."""
+    plan = _renamed_mount_plan(anchor_pad="1", pads={"M": {"1": "N"}})
+
+    assert plan.new_anchor_role == "M2"
+
+
+def test_a_pad_anchor_of_a_replacement_part_is_refused():
+    """Д-2з: standing on the same POINT is not the same FOOTPRINT (Denis, 22.10) —
+    `OSC` -> `XTAL` may have been a package swap, so a missing pad is a refusal in
+    words, not a transfer with a pad number that no longer means anything."""
+    with pytest.raises(ValidationError) as exc:
+        _renamed_mount_plan(anchor_pad="1", pads={"M": {"7": "N"}})
+
+    text = str(exc.value)
+    assert "has no pad '1'" in text
+    assert "replacement, not a rename" in text
+    assert "Nothing was placed or modified on the board" in text
+
+
+# ── 10: Д-3 — the cell's OWN origin anchors the translation ─────────────────
+
+# (2026-10-22, Д-3.) The promise "the origin role in the selection → today's frame,
+# byte for byte" is INVISIBLE on a rigid instance: any surrogate gives the same
+# plan, which is why mutation A of the acceptance survived. On a NON-rigid one — one
+# part moved by hand — it decides whose stored offset is preserved: anchoring on the
+# cell's own origin keeps the ORIGIN where it is and puts the shift on the moved
+# part; anchoring on a moved first slot would shift the origin instead.
+
+def test_the_cells_own_origin_anchors_a_non_rigid_legacy_instance():
+    """Д-3а: `B` sits FIRST in the cell's order (an unpinned choice would take it)
+    and has moved +2 mm on the board. The origin `A` keeps its stored (0, 0) and the
+    shift lands on `B` — the frame stays where the CELL says, not where the first
+    slot happens to stand."""
+    components = [{"role": "B", "offset_along_mm": 1.0}, {"role": "A"}]
+    footprints = [_fp("B", 103.0, 100.0), _fp("A", 100.0, 100.0)]
+
+    plan = _plan(components, footprints, _FakeAdapter({"A": "A", "B": "B"}))
+
+    kept = {rec["role"]: geo for rec, geo in plan.component_updates}
+    assert (kept["A"]["offset_along_mm"],
+            kept["A"]["offset_across_mm"]) == (0.0, 0.0)
+    assert kept["B"]["offset_along_mm"] == 3.0
+
+
+def test_the_v2_mount_role_anchors_a_non_rigid_instance():
+    """Д-3б: the same property on the v2 path, where the mount comes from the
+    CONFIG — the mount role keeps standing on A (its stored (-2, 3)) and the moved
+    part carries the shift."""
+    components = [{"role": "B", "offset_along_mm": 1.0},
+                  {"role": "M", "offset_along_mm": -2.0, "offset_across_mm": 3.0}]
+    footprints = [_fp("B", 105.0, 100.0), _fp("M", 100.0, 103.0)]
+
+    plan = _plan(components, footprints, _FakeAdapter({"M": "M", "B": "B"}),
+                 origin_role="M")
+
+    kept = {rec["role"]: geo for rec, geo in plan.component_updates}
+    assert (kept["M"]["offset_along_mm"],
+            kept["M"]["offset_across_mm"]) == (-2.0, 3.0)
+    assert kept["B"]["offset_along_mm"] == 3.0

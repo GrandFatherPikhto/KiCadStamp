@@ -17471,3 +17471,35 @@ msgstr ""
 #, python-brace-format
 msgid "{label}: anchor_role {role!r} is not in cluster {cluster!r}"
 msgstr ""
+
+#: kicadstamp/cell_origin.py:271
+#, python-brace-format
+msgid ""
+"the cell's anchor role {old!r} is gone — the anchor passes to {new!r}, which "
+"stands exactly on the saved mount point; the cell keeps its origin"
+msgstr ""
+
+#: kicadstamp/cell_origin.py:254
+#, python-brace-format
+msgid ""
+"{n} components would stand on the cell's saved mount point after this update "
+"({roles}) — the anchor role {old!r} left with its part and the new anchor is "
+"ambiguous; nothing was written — set the cell's anchor in Cell anchor"
+msgstr ""
+
+#: kicadstamp/cell_origin.py:260
+#, python-brace-format
+msgid ""
+"no component would stand on the cell's saved mount point after this update — "
+"the anchor role {old!r} is not in the plan, so the cell would not be "
+"measurable; nothing was written — include that role in the selection, or set "
+"the cell's anchor in Cell anchor"
+msgstr ""
+
+#: kicadstamp/cell_origin.py:275
+#, python-brace-format
+msgid ""
+"the anchor role {old!r} is gone and {new!r} stands on its mount point, but "
+"that part has no pad {pad!r} — it is a replacement, not a rename; nothing was "
+"written — set the cell's anchor in Cell anchor"
+msgstr ""

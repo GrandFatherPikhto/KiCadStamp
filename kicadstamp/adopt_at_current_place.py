@@ -177,7 +177,8 @@ def adopt_cell_copper_at_current_place(adapter, cfg, items, via_reg, track_reg,
         record_points,
     )
     from .cell_frame import RIGID_TOLERANCE_MM
-    from .cell_geometry_refresh import cell_frame_from_live, cell_slot_dicts
+    from .cell_geometry_refresh import cell_frame_from_live
+    from .cell_origin import cell_slot_dicts
     from .config import clone_placement_effective_name
     from .constants import CELL_LEVEL_ROLE_PLACEHOLDER
     from .exceptions import ValidationError

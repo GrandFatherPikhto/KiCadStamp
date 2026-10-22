@@ -42,6 +42,13 @@ against the cell's own `layer`, and a fit is merely CONSTRAINED by it. Every
 reader of a live cluster must ask this one function instead of spelling the
 comparison out (three copies drifted into the re-read defect of 2026-10-12).
 
+2026-10-22 (Д-1 of plan_2026_10_21_cell_refresh_origin_role_renamed): the other
+half of that rule is WHOSE layer is compared — the REFERENCE SLOT's own side when
+it has one (`slot.layer`, a mixed-side cell), not the cell's layer. Since the
+reference role is no longer always the mount role, comparing with the cell's layer
+alone called a perfectly unmirrored instance mirrored (Claude's probe П1). That
+choice lives in `instance_mirror`, the host every frame reader asks.
+
 The THIRD rule (2026-10-13, plan_2026_10_13_single_slot_rotation):
 `fit_cell_frame` is for a cell with at least TWO usable slots. With fewer, nothing
 can be fitted, and `single_slot_rotation` recovers the placement's own rotation
@@ -63,7 +70,7 @@ from typing import Iterable
 from .domain.geometry import BoardLayer, Vector2
 from .geometry.clone_geometry import clone_rotation_from_component
 from .i18n import _
-from .utils.layers import layer_to_str
+from .utils.layers import mirror_layer
 from .utils.units import MM
 
 logger = logging.getLogger(__name__)
@@ -114,6 +121,30 @@ def mirror_for_layer(fp_layer, cell_layer,
     if not isinstance(fp_layer, BoardLayer) or not isinstance(cell_layer, str):
         return fallback
     return (fp_layer == BoardLayer.BL_B_Cu) != (cell_layer == "B.Cu")
+
+
+def instance_mirror(fp_layer, slot_layer, cell_layer,
+                    fallback: bool | None = None) -> bool | None:
+    """Is the live INSTANCE mirrored, read off ONE reference slot? (2026-10-22,
+    Д-1 of plan_2026_10_21_cell_refresh_origin_role_renamed.)
+
+    A cell may keep a slot on its OWN side (`slot.layer` — a part on "B.Cu" inside
+    an "F.Cu" cell). Since 2026-10-21 the reference slot of a refresh is no longer
+    always the mount role: ANY matched role may anchor the translation, so
+    comparing the reference FOOTPRINT's layer with the CELL's layer declared an
+    unmirrored instance mirrored — a refused legacy cell and a written-with-wrong-
+    offsets v2 cell (Claude's probe П1). The comparison is against the SLOT's own
+    side when it has one: `slot_layer or cell_layer`.
+
+    THE one host of "which side the instance stands on" for a frame: the refresh
+    (`frame_for_live_selection`), the nested-cell reader (`_read_nested_live`) and
+    the "Read current position" overlay (`live_position._live_cluster_frame`) all
+    ask THIS function. The rule about a PAIR of layers stays in `mirror_for_layer`;
+    only "whose layer is the reference" is decided here. `fallback` is that
+    function's — returned when a side is unknown, so a duck-typed caller keeps its
+    historical answer instead of inventing a side."""
+    return mirror_for_layer(fp_layer, slot_layer or cell_layer,
+                            fallback=fallback)
 
 
 def single_slot_rotation(live_angle_deg: float, slot_angle_deg: float,
@@ -254,8 +285,11 @@ class CellFrame:
     mirror: bool = False
     mount: tuple[float, float] = (0.0, 0.0)
     residual_mm: float = 0.0
-    # The PHYSICAL side of the instance and the cell's own layer, when the caller
-    # knew them (frame_for_live_selection): the mirror line names both. None =
+    # The PHYSICAL side of the INSTANCE (the cell's layer, or that layer mirrored
+    # when the instance is) and the cell's own layer, when the caller knew them
+    # (frame_for_live_selection): the mirror line names both. Never the reference
+    # PART's layer — a mixed-side cell's reference may legitimately stand on the
+    # other side while the instance is not mirrored (2026-10-22, Д-1). None =
     # unknown — an engine caller that never had a layer.
     side_layer: str | None = None
     cell_layer: str | None = None
@@ -344,15 +378,19 @@ def frame_for_live_selection(matched, footprints, role_to_ref, surrogate, mount,
     ref_to_fp = {fp.ref: fp for fp in footprints}
     role, stored_along, stored_across, live_x, live_y = surrogate
     # The side of the INSTANCE: the surrogate IS the footprint the translation
-    # comes from, so no second lookup rule is invented here. No known side ->
-    # None -> the fit stays free.
+    # comes from, and its SLOT may live on its own side inside the cell — so the
+    # comparison is `instance_mirror`'s, never a second rule here. No known side
+    # -> None -> the fit stays free. `side_layer` names the side of the instance AS
+    # A WHOLE (the cell's layer, mirrored with it), which is what the Log line
+    # compares against the cell's layer.
     ref_fp = ref_to_fp.get(role_to_ref.get(role))
+    ref_slot = next((rec for rec in matched if rec.get("role") == role), {})
     mirror: bool | None = None
     side_layer: str | None = None
     if cell_layer is not None and ref_fp is not None:
-        mirror = mirror_for_layer(ref_fp.layer, cell_layer, fallback=None)
-        if isinstance(ref_fp.layer, BoardLayer):
-            side_layer = layer_to_str(ref_fp.layer)
+        mirror = instance_mirror(ref_fp.layer, ref_slot.get("layer"), cell_layer)
+        if mirror is not None:
+            side_layer = mirror_layer(cell_layer) if mirror else cell_layer
     pairs: list[tuple[float, float, float, float]] = []
     for rec in matched:
         fp = ref_to_fp.get(role_to_ref.get(rec.get("role")))

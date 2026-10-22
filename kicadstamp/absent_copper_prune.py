@@ -491,7 +491,8 @@ def registry_record_copper_map(adapter, config_path: str, cfg, cell_name: str,
     READ-ONLY: reads the two registry files and the board, writes nothing. The
     drift guard, the redraw plan and the config are not touched."""
     from .cell_frame import RIGID_TOLERANCE_MM
-    from .cell_geometry_refresh import cell_frame_from_live, cell_slot_dicts
+    from .cell_geometry_refresh import cell_frame_from_live
+    from .cell_origin import cell_slot_dicts
 
     cell = (getattr(cfg, "cells", {}) or {}).get(cell_name)
     footprints, cell_identity, own_addresses, chosen_address, refs = \

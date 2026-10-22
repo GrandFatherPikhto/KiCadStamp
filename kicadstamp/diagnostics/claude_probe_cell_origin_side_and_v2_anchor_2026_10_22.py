@@ -23,6 +23,13 @@ the same stubs as tests/selection/test_cell_refresh_origin_renamed.py.
 Before c9cf6291 both cases refused at refresh #1 (the origin role was required
 in the selection). Run: .venv/bin/python -m pytest -q -s <this file>
 Expected TODAY: П1 legacy/v2 with bottom_first=True and П2 FAIL; controls pass.
+
+AFTER the Д-1…Д-4 rework (2026-10-22) this file must be GREEN, and Д-2 changed
+the П2 step honestly: the plan now TRANSFERS the anchor role, and the fixed dock
+writes it, so refresh #2 starts from the role the plan named — the step asserts
+that transfer instead of modelling the old dock. The dock itself is pinned by
+tests/gui/docks/test_cell_editor.py (Д-2е); without that cell a green probe would
+hide a dock that still writes the old name back.
 """
 import pytest
 
@@ -30,6 +37,7 @@ from kicadstamp.cell_geometry_refresh import build_refresh_plan
 from kicadstamp.cell_origin import plan_components
 from kicadstamp.domain.board import Footprint
 from kicadstamp.domain.geometry import BoardLayer, Vector2
+from kicadstamp.exceptions import ValidationError
 
 
 def _fp(ref, x, y, layer=BoardLayer.BL_F_Cu):
@@ -107,5 +115,23 @@ def test_p2_v2_cell_survives_a_second_refresh_of_the_same_selection():
     after = plan_components(components, first.component_updates,
                             first.new_component_records,
                             first.removed_component_records)
-    # the cell editor writes the components and keeps the loaded anchor_role "M"
-    _plan(after, footprints, roles, origin_role="M")
+    # Д-2: the plan NAMES the role that inherits the anchor, and the cell editor
+    # writes it (Д-2е) — so refresh #2 starts from that role, not from the dead "M".
+    assert first.new_anchor_role == "M2"
+    _plan(after, footprints, roles, origin_role=first.new_anchor_role)
+
+
+def test_p2_a_stale_anchor_role_on_disk_is_refused_in_words():
+    """Д-2д (control): a cell whose `anchor_role` names no component of it (written
+    by an older version, or a transfer the dock never saved) cannot be measured at
+    all — the refusal says so and nothing is written, instead of a plan that would
+    leave a cell refusing on its very next read."""
+    components = [{"role": "A"}, {"role": "B", "offset_along_mm": 1.0}]
+    footprints = [_fp("A", 102.0, 100.0), _fp("B", 103.0, 100.0)]
+
+    with pytest.raises(ValidationError) as exc:
+        _plan(components, footprints, {"A": "A", "B": "B"}, origin_role="M")
+
+    text = str(exc.value)
+    assert "is not a component of this cell" in text
+    assert "Nothing was placed or modified on the board" in text

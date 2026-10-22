@@ -30,13 +30,26 @@ it on every board.
 Cells of the new shape (`anchor_role`/`anchor_xy`, v2) are exempt: their origin
 is the stored `anchor_xy`, the refresh never touches it, and `cell_zero_slot_role`
 is not what reads them.
+
+The THIRD rule (2026-10-22, Д-2 of the same plan): a v2 cell's `anchor_role` may
+outlive its part. Rename the mount role on the board, refresh once — the plan
+legitimately deletes the old role from the cell, the cell editor keeps the LOADED
+`anchor_role`, and the next refresh of the same selection refuses "role 'M' is not
+a component of this cell". That is the very write the legacy precondition exists
+to prevent, on the path it exempts. So the plan must say WHICH role takes the
+anchor over: the one standing EXACTLY on the saved mount point (`mount_slots` —
+the same exactness as `zero_slots`, because the next read compares with 0.0), and
+only if that part really carries the cell's `anchor_pad` when it has one (standing
+on the same POINT is not the same FOOTPRINT). Zero candidates, several, or a
+missing pad — a refusal in words, never a guess.
 """
 from __future__ import annotations
 
 from .exceptions import ValidationError, format_read_fatal
 from .i18n import _
 
-__all__ = ["cell_zero_slot_role", "plan_components", "refresh_origin",
+__all__ = ["cell_slot_dicts", "cell_zero_slot_role", "mount_of", "mount_slots",
+           "plan_components", "refresh_origin", "require_measurable_origin",
            "require_one_zero_origin", "zero_slots"]
 
 
@@ -143,6 +156,128 @@ def plan_components(current: list[dict],
         out.append(dict(component, **geo) if geo is not None else component)
     out.extend(new_records)
     return out
+
+
+def cell_slot_dicts(cell) -> list[dict]:
+    """A loaded ``Cell``'s slots in the list-of-dicts shape the frame and the cell
+    readers take (role + the two STORED offsets + the slot's own ``angle_deg``) —
+    the INPUT twin of `plan_components`, and the shape `mount_of`/`zero_slots`
+    read. The frame needs the angle to recover a SINGLE-slot instance's rotation
+    (2026-10-13, plan_2026_10_13_single_slot_rotation: cell_frame.
+    single_slot_rotation), and a caller that carries no angle gets 0.0, exactly as
+    before.
+
+    Moved here from cell_geometry_refresh (2026-10-22, Д-2): the giant only
+    shrinks, and the dict-shape face of a cell now lives in one module."""
+    return [{"role": getattr(slot, "role", None),
+             "offset_along_mm": float(getattr(slot, "offset_along_mm", 0.0)),
+             "offset_across_mm": float(getattr(slot, "offset_across_mm", 0.0)),
+             "angle_deg": float(getattr(slot, "angle_deg", 0.0))}
+            for slot in (getattr(cell, "components", None) or ())]
+
+
+def mount_of(components: list[dict],
+             origin_role: str | None = None) -> tuple[tuple[float, float],
+                                                      str | None]:
+    """((along_mm, across_mm), problem_or_None) — the cell's MOUNT A in its own
+    stored frame, for the paths that work with the cell's component DICTS (the
+    loaded-Cell twin is `geometry.cell_anchor.cell_mount_offset`).
+
+    Read from the CONFIG, never from the selection: a v2 cell stores A as its
+    `anchor_role`'s offset, a legacy cell's mount IS its stored (0, 0). The one
+    problem it can report is the anchor role naming no component of the cell —
+    a record written by an older version, or a role renamed on the board. The
+    caller merges it with its other problems; the mount answer is still (0, 0),
+    exactly as before (nothing may be measured from a role that is not there)."""
+    if origin_role is None:
+        return (0.0, 0.0), None
+    comp = next((c for c in components if c.get("role") == origin_role), None)
+    if comp is None:
+        return (0.0, 0.0), _("role {role!r} (the cell's anchor origin) is not a "
+                             "component of this cell").format(role=origin_role)
+    return ((float(comp.get("offset_along_mm", 0.0)),
+             float(comp.get("offset_across_mm", 0.0))), None)
+
+
+def mount_slots(components: list[dict], mount: tuple[float, float]) -> list[dict]:
+    """Every slot sitting EXACTLY on the cell's mount point — the exactness twin of
+    `zero_slots`, and exact for the same reason: the refresh rounds every offset to
+    four decimals, and the next read compares with 0.0. Used by the v2 anchor
+    transfer (`require_measurable_origin`), where the mount point is the only place
+    the new anchor role can come from."""
+    along, across = mount
+    return [c for c in components
+            if c.get("offset_along_mm", 0.0) - along == 0.0
+            and c.get("offset_across_mm", 0.0) - across == 0.0]
+
+
+def _the_pad_is_there(adapter, footprints, role_to_ref, role: str,
+                      pad: str) -> bool:
+    """Does the live footprint of `role` carry `pad`? — asked of the live board,
+    because a role standing on the same POINT may be a replacement part with
+    another footprint (Denis, 2026-10-22)."""
+    ref = role_to_ref.get(role)
+    fp = next((candidate for candidate in footprints if candidate.ref == ref), None)
+    return fp is not None and adapter.get_pad_by_number(fp, pad) is not None
+
+
+def require_measurable_origin(planned: list[dict], current: list[dict],
+                              origin_role: str | None = None,
+                              anchor_pad: str | None = None,
+                              adapter=None, role_to_ref: dict | None = None,
+                              footprints: list | None = None,
+                              ) -> tuple[str, str] | None:
+    """The role that takes the cell's origin over after this plan — `(role,
+    log_line)` for a TRANSFER, None when nothing moves — or a READ-ONLY refusal.
+
+    Legacy cell (`origin_role is None`): the (0, 0) precondition, unchanged
+    (`require_one_zero_origin`). v2 cell: nothing to do while the anchor role is
+    still a component of the PLAN; when the plan removed it, exactly ONE component
+    must stand on the saved mount point (`mount_slots`, read off `current` — the
+    mount is a CONFIG fact and the anchor role may be gone from `planned`), and
+    that role takes the anchor over. `anchor_pad`, when the cell has one, must
+    still exist on the new role's footprint: "stands on the same point" is not
+    "the same part" (`OSC` -> `XTAL` may have been a package swap, Denis).
+
+    Zero candidates, several, or a missing pad — a refusal in words with the
+    read-only verdict, no write: a silently re-rooted v2 cell would be
+    unmeasurable on its very next read."""
+    if origin_role is None:
+        require_one_zero_origin(planned)
+        return None
+    if any(c.get("role") == origin_role for c in planned):
+        return None
+    mount, _problem = mount_of(current, origin_role)
+    slots = mount_slots(planned, mount)
+    roles = ", ".join(repr(c.get("role")) for c in slots)
+    if len(slots) > 1:
+        problem = _("{n} components would stand on the cell's saved mount point "
+                    "after this update ({roles}) — the anchor role {old!r} left "
+                    "with its part and the new anchor is ambiguous; nothing was "
+                    "written — set the cell's anchor in Cell anchor"
+                    ).format(n=len(slots), roles=roles, old=origin_role)
+    elif not slots:
+        problem = _("no component would stand on the cell's saved mount point "
+                    "after this update — the anchor role {old!r} is not in the "
+                    "plan, so the cell would not be measurable; nothing was "
+                    "written — include that role in the selection, or set the "
+                    "cell's anchor in Cell anchor").format(old=origin_role)
+    else:
+        new_role = slots[0]["role"]
+        if anchor_pad is None or _the_pad_is_there(adapter, footprints or [],
+                                                   role_to_ref or {}, new_role,
+                                                   anchor_pad):
+            return new_role, _(
+                "the cell's anchor role {old!r} is gone — the anchor passes to "
+                "{new!r}, which stands exactly on the saved mount point; the cell "
+                "keeps its origin").format(old=origin_role, new=new_role)
+        problem = _("the anchor role {old!r} is gone and {new!r} stands on its "
+                    "mount point, but that part has no pad {pad!r} — it is a "
+                    "replacement, not a rename; nothing was written — set the "
+                    "cell's anchor in Cell anchor").format(
+                        old=origin_role, new=new_role, pad=anchor_pad)
+    raise ValidationError(format_read_fatal(
+        _("cannot refresh cell geometry from the current selection"), [problem]))
 
 
 def require_one_zero_origin(components: list[dict]) -> str:

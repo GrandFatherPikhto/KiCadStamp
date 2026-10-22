@@ -40,7 +40,7 @@ save time — were removed (Фаза B): §0.1 of that plan established that a
 Role+Pad anchor is a REFERENCE resolved at apply time (resolve_pad_mount),
 never a number stored at save time. The anchor combo is keyed by
 currentData() strings ("none"/"role"), so the item ORDER can never silently
-break a reader again (see _refresh_origin_role).
+break a reader again (see _refresh_anchor).
 
 Net from role (added 2026-08-11) — Vias/Tracks each get a Net source
 choice: Literal (the existing free-typed net:, unchanged) or From role
@@ -396,7 +396,7 @@ class CellDock(QWidget):
         anchor_form = QFormLayout()
         # String keys via currentData(), NOT index (Фаза B): dropping the old
         # "XY" item shifts "Role" from index 2 to 1, and index-based readers
-        # (_refresh_origin_role) then silently return None for every
+        # (_refresh_anchor) then silently return None for every
         # Role-anchored cell — build_refresh_plan loses origin_role and falls
         # back to the legacy zero-slot origin. Data keys make the item ORDER
         # irrelevant forever.
@@ -1565,20 +1565,19 @@ class CellDock(QWidget):
         """The Sheet a read targets (subtract_copper asks by THIS name)."""
         return self._read_instance().sheet
 
-    def _refresh_origin_role(self) -> str | None:
-        """The cell's anchor_role to refresh/import geometry against (the
-        MOUNT role, frame-preserving). Only in the form's "Role" mode; None
-        keeps the legacy zero-slot origin for un-anchored cells.
+    def _refresh_anchor(self):
+        """(anchor_role, anchor_pad) to refresh/import geometry against — the MOUNT
+        role and the pad narrowing it; (None, None) keeps the legacy zero-slot origin.
 
-        Reads currentData() — an index-based check silently broke the moment
-        the "XY" item was removed (Фаза B): "Role" moved from index 2 to 1 and
-        every Role-anchored cell lost its origin_role, so build_refresh_plan
-        fell back to the legacy (0,0) origin and re-reads started failing."""
-        if self.anchor_mode_combo.currentData() == "role":
-            return effective_anchor_role(
-                "role", self.anchor_role_combo.currentText(),
-                self._loaded_anchor_role, self._anchor_role_touched)
-        return None
+        Reads currentData(): an index-based check broke when the "XY" item was removed
+        (Фаза B). The pad is the same form value `_build_cell_dict` writes — Д-2
+        (2026-10-22) transfers the anchor role only to a part that really carries it."""
+        if self.anchor_mode_combo.currentData() != "role":
+            return None, None
+        return (effective_anchor_role(
+            "role", self.anchor_role_combo.currentText(),
+            self._loaded_anchor_role, self._anchor_role_touched),
+            self.anchor_pad_edit.text().strip() or None)
 
     def _on_refresh_geometry(self) -> None:
         """Button/context action — the FAST path (Э4): the same read, with the
@@ -1635,6 +1634,7 @@ class CellDock(QWidget):
         # keep ticking; build_refresh_plan never mutates them, and the records
         # it returns are the SAME dict objects, so Apply lands on the loaded
         # lists regardless of list identity.
+        anchor_role, anchor_pad = self._refresh_anchor()
         payload = {
             # The worker resolves the adapter off THIS connection itself (§2).
             "connection": connection,
@@ -1649,7 +1649,8 @@ class CellDock(QWidget):
             # the root config (they name OTHER cells).
             "clone_placements": list(self._nested),
             "root_path": str(self._root_path) if self._root_path else None,
-            "origin_role": self._refresh_origin_role(),
+            "origin_role": anchor_role,
+            "anchor_pad": anchor_pad,
             # The mixed-selection prelude needs the cell's own name (the config
             # cell whose uuid is the registry template part) and the remembered
             # Cluster fallback for when the config names no cluster.
@@ -1831,6 +1832,7 @@ class CellDock(QWidget):
                 payload["components"], payload["vias"], payload["tracks"],
                 plan_footprints, plan_vias, plan_tracks, adapter,
                 origin_role=payload.get("origin_role"),
+                anchor_pad=payload.get("anchor_pad"),
                 add_new_copper=True,
                 # С-1 (plan_2026_10_06_prune_absent_cell_copper; Denis 2026-10-06):
                 # "Update from selection" is STRICT on EVERY path — a cell record
@@ -1892,12 +1894,9 @@ class CellDock(QWidget):
                 "transfers": tuple(prelude.transfers) if prelude is not None else ()}
 
     def _finish_refresh_geometry(self, result: Dict[str, Any]) -> None:
-        """UI thread (worker finished): a plan error is shown as a warning with
-        the FULL collected text; a clean plan is applied DIRECTLY to the loaded
-        cell — no intermediate preview dialog (2026-09-06, Denis: the line-by-
-        line Item/Field/Old/New/Δ review is gone; click = apply immediately,
-        the report is a text line in the Log dock, exactly like Copy placement
-        from cell). Mutation/autostage run through the dock's normal path."""
+        """UI thread (worker finished): a plan error is shown with the FULL collected
+        text; a clean plan is applied DIRECTLY to the loaded cell — no preview dialog
+        (2026-09-06, Denis: click = apply immediately; the report is a Log line)."""
         self._active_op = None
         for text, level in result.get("selection_lines") or []:
             self._show_message(text, style_for_level(level))
@@ -1993,16 +1992,10 @@ class CellDock(QWidget):
             _("Refresh failed: {error}").format(error=message), _ERROR_STYLE)
 
     def _apply_refresh_plan(self, plan) -> tuple:
-        """Apply a RefreshPlan to the loaded cell: mutate ONLY the geometric
-        keys on the SAME dict objects already in self._components/_vias/
-        _tracks (plan records ARE those dicts), then APPEND the plan's
-        brand-new via/track records (add_new_copper mode, 2026-09-05) to
-        self._vias/_tracks (extend, never replace), then DROP the records the
-        plan found no live counterpart for (H.2.3), then refresh tables +
-        autostage exactly like a manual row Update/Add. Returns
-        (updated_count, added_count, removed_count). Nothing is written to disk
-        here — Save remains a separate explicit action, as everywhere in this
-        dock."""
+        """Apply a RefreshPlan to the loaded cell: mutate the geometric keys on the
+        SAME dict objects (plan records ARE those dicts), APPEND the brand-new
+        via/track records, DROP the records with no live counterpart (H.2.3), write a
+        transferred v2 anchor role (Д-2), then refresh tables + autostage."""
         updated = 0
         for record, new_geo in (plan.component_updates + plan.via_updates
                                 + plan.track_updates):
@@ -2032,6 +2025,13 @@ class CellDock(QWidget):
             getattr(plan, "removed_component_records", None) or [],
             self._components)
         self._refresh_all_tables()
+        # Д-2: the plan handed the v2 anchor to the role on the mount point — write it
+        # BEFORE _autostage (the save reads an UNTOUCHED anchor_role, not the picker).
+        if plan.new_anchor_role:
+            self._loaded_anchor_role = plan.new_anchor_role
+            self.anchor_role_combo.blockSignals(True)
+            self.anchor_role_combo.setCurrentText(plan.new_anchor_role)
+            self.anchor_role_combo.blockSignals(False)
         self._autostage()
         return updated, added, removed
 
@@ -2162,7 +2162,7 @@ class CellDock(QWidget):
             "components": list(self._components),
             "vias": list(self._vias),
             "tracks": list(self._tracks),
-            "origin_role": self._refresh_origin_role(),
+            "origin_role": self._refresh_anchor()[0],
             # The same mixed-selection prelude as the refresh read (plan item 4):
             # one narrowing for every door, so Import needs the same context.
             "root_path": str(self._root_path) if self._root_path else None,

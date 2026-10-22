@@ -358,7 +358,11 @@ nesting other cells), or both at once.
   refresh and live reads) and, given without a pad or `anchor_xy`, A is derived as that component's
   centre; `anchor_pad` narrows `anchor_role` to a specific pad whose point is expressed by
   `anchor_xy` (a pad offset is not derivable from config). `anchor_role` must name one of this cell's
-  own `components:`; a role-only `anchor_xy` must equal that role's centre.
+  own `components:`; a role-only `anchor_xy` must equal that role's centre. **Refresh may REWRITE
+  `anchor_role`** (2026-10-22): when the mount role's part is renamed on the board, the role standing
+  EXACTLY on the saved mount point takes the anchor over — and must really carry `anchor_pad` when the
+  cell has one — because the mount lives in the config as the anchor role's offset. `anchor_xy` is
+  never touched by this.
 - `comment:` — optional free-form note shown in the GUI's Cell editor and as a marker on the config
   tree leaf. A plain schema field (survives `.sexp` round-trips), NOT a `;` comment in the file.
 - Every `components:` entry **requires** a non-empty `role:` — a missing/`null` role used to either
