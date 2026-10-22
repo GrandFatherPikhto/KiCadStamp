@@ -359,6 +359,55 @@ def test_frame_mirror_comes_from_the_live_footprint_side():
     assert mirror is True
 
 
+# ── Д-5 (Ч2 of plan_2026_10_21_cell_refresh_origin_role_renamed): the reference
+#    slot's OWN side ─────────────────────────────────────────────────────────
+# `Read current position` takes the instance's side from the reference SLOT of the
+# cell — the reference may be ANY resolved role, and a cell may keep it on B.Cu
+# inside an F.Cu cell. Comparing with the CELL's layer declared such an unmirrored
+# instance mirrored and un-mirrored its geometry; the author's mutation ("the
+# reference slot's layer -> None") survived the whole suite, which is what the two
+# cells below exist for.
+
+def _mixed_side_cell():
+    """The cell's reference slot (`anchor_role` ORIG) keeps its own side: B.Cu
+    inside an F.Cu cell. CAP sits at the stored (10, -4), as in `_cell()`."""
+    return _cell(components=[
+        SimpleNamespace(role="ORIG", offset_along_mm=0.0, offset_across_mm=0.0,
+                        angle_deg=0.0, layer="B.Cu"),
+        SimpleNamespace(role="CAP", offset_along_mm=10.0, offset_across_mm=-4.0,
+                        angle_deg=0.0)])
+
+
+def test_frame_mirror_reads_the_reference_slots_own_side():
+    """Д-5: the whole instance is UNMIRRORED — so its reference part stands on the
+    board's B.Cu exactly as its slot says, and the read must answer `mirror is
+    False` (an unmirrored mixed-side instance is not a mirrored one)."""
+    adapter = _ClusterAdapter([
+        _live_fp("IC1", "ORIG", "CL", 100.0, 200.0, layer=BoardLayer.BL_B_Cu),
+        _live_fp("IC2", "CAP", "CL", 110.0, 196.0, layer=BoardLayer.BL_F_Cu)])
+
+    origin, rotation, mirror = workers_mod._live_cluster_frame(
+        adapter, _mixed_side_cell(), "CL", "", {})
+
+    assert mirror is False
+    assert rotation == 0.0
+    assert origin.x == int(100 * MM) and origin.y == int(200 * MM)
+
+
+def test_frame_mirror_of_a_mixed_side_cell_still_reads_a_flipped_instance():
+    """Д-5 control: the SAME mixed-side cell with the whole instance flipped — the
+    reference footprint then stands on F.Cu against its slot's B.Cu — IS mirrored.
+    The rule is a comparison of two sides, not a constant taken from the slot."""
+    adapter = _ClusterAdapter([
+        _live_fp("IC1", "ORIG", "CL", 100.0, 200.0, layer=BoardLayer.BL_F_Cu),
+        _live_fp("IC2", "CAP", "CL", 90.0, 196.0, layer=BoardLayer.BL_B_Cu)])
+
+    _origin, _rotation, mirror = workers_mod._live_cluster_frame(
+        adapter, _mixed_side_cell(), "CL", "", {})
+
+    assert mirror is True
+
+
 class _OverlayBoard:
     def __init__(self):
         from kipy.board_types import BoardLayer

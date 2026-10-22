@@ -40,13 +40,15 @@ ORIGIN = "kicadstamp/cell_origin.py"
 REFRESH = "kicadstamp/cell_geometry_refresh.py"
 FRAME = "kicadstamp/cell_frame.py"
 DOCK = "gui/docks/cell_editor.py"
+LIVE = "gui/docks/live_position.py"
 PROBE = ("kicadstamp/diagnostics/"
          "claude_probe_cell_origin_side_and_v2_anchor_2026_10_22.py")
 GUARDS = ("tests/selection/test_cell_refresh_origin_renamed.py "
           "tests/trees/test_cell_geometry_refresh.py "
           "tests/geometry/test_cell_frame_single_slot.py "
           "tests/geometry/test_cell_frame_mirror.py "
-          "tests/gui/docks/test_cell_editor.py " + PROBE)
+          "tests/gui/docks/test_cell_editor.py "
+          "tests/gui/docks/test_anchor_tab.py " + PROBE)
 
 MUTATIONS = [
     ("M1 the origin role is required again (the fact's own refusal)",
@@ -153,6 +155,13 @@ MUTATIONS = [
      "    return fp is not None and adapter.get_pad_by_number(fp, pad) is not None\n",
      "    return fp is not None  # MUTATION: standing on the point is enough\n",
      ["test_a_pad_anchor_of_a_replacement_part_is_refused"]),
+
+    ("M13 the reference slot's own side is ignored (Д-5, accept's mutation)",
+     LIVE,
+     "    mirror = instance_mirror(fp.layer, getattr(slot, \"layer\", None), "
+     "cell.layer,\n",
+     "    mirror = instance_mirror(fp.layer, None, cell.layer,  # MUTATION\n",
+     ["test_frame_mirror_reads_the_reference_slots_own_side"]),
 
     ("K3 a cosmetic comment in the transfer host (CONTROL)", ORIGIN,
      "    mount, _problem = mount_of(current, origin_role)\n",
