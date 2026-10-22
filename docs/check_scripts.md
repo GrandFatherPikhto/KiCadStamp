@@ -214,9 +214,12 @@ it opens the board next to the profile's `root_sheet`.
 
 The order is KiCad's own: `--lib-dir`, else `$KICAD10_FOOTPRINT_DIR`, else the same variable inside
 `kicad_common.json`, else the platform default of a stock install (`/usr/share/kicad/footprints`, the
-macOS app bundle, or `%PROGRAMFILES%\KiCad\<version>\share\kicad\footprints`). When none of them is a
-directory the check **refuses** (exit 2) and prints every place it looked — a run that cannot reach any
-library says so, instead of reporting every footprint as "not checked".
+macOS app bundle, or `%PROGRAMFILES%\KiCad\<version>\share\kicad\footprints`). `kicad_common.json` and
+the user's `fp-lib-table` are read from KiCad's settings directory **for the platform** —
+`~/.config/kicad/10.0` on Linux, `%APPDATA%\kicad\10.0` on Windows, `~/Library/Preferences/kicad/10.0`
+on macOS. When none of them is a directory the check **refuses** (exit 2) and prints every place it
+looked — a run that cannot reach any library says so, instead of reporting every footprint as "not
+checked".
 
 ### What is checked
 

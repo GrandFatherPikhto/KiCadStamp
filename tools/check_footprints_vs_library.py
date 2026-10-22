@@ -15,8 +15,9 @@ usage: .venv/bin/python tools/check_footprints_vs_library.py <board.kicad_pcb | 
        [--lib-dir <footprints dir>] [--all]   (--all: print clean footprints too)
 
 Which library directory (the order KiCad itself follows): --lib-dir, else $KICAD10_FOOTPRINT_DIR,
-else that same variable in kicad_common.json, else the platform default of a stock KiCad install.
-None found -> exit 2 and one line naming every place looked at — never "not checked" per footprint.
+else that same variable in kicad_common.json (from KiCad's settings directory FOR THIS PLATFORM),
+else the platform default of a stock KiCad install. None found -> exit 2 and one line naming every
+place looked at — never "not checked" per footprint.
 """
 import os
 import sys
@@ -91,10 +92,30 @@ def _expand(uri: str, env: dict) -> str:
     return uri
 
 
+def _kicad_settings_dir() -> Path:
+    """Where KiCad 10 keeps the USER's settings on this platform — the ONE home of that path,
+    used by both the `kicad_common.json` read and the user's `fp-lib-table` read, so the two can
+    never disagree about which directory is KiCad's.
+
+    Linux `~/.config/kicad/10.0`, Windows `%APPDATA%\\kicad\\10.0`, macOS
+    `~/Library/Preferences/kicad/10.0`. Before 22.10.2026 this was spelled `~/.config/...`
+    everywhere: right on Linux, a directory KiCad never writes on the other two — so the
+    KICAD10_FOOTPRINT_DIR lookup and the user's library table were both lost there, which is
+    exactly the platform the search order was fixed FOR (acceptance finding Д-2).
+    """
+    if sys.platform.startswith("win"):
+        # KiCad itself only ever uses %APPDATA%; a bare HOME is the fallback for a headless run.
+        base = os.environ.get("APPDATA") or str(Path.home())
+        return Path(base) / "kicad" / "10.0"
+    if sys.platform == "darwin":
+        return Path.home() / "Library" / "Preferences" / "kicad" / "10.0"
+    return Path.home() / ".config" / "kicad" / "10.0"
+
+
 def _kicad_common_json() -> Path:
-    """The user's KiCad 10 settings file — the ONE home of that path, read both for the
-    path variables of fp-lib-table and for KICAD10_FOOTPRINT_DIR."""
-    return Path.home() / ".config" / "kicad" / "10.0" / "kicad_common.json"
+    """The user's KiCad 10 settings file, inside `_kicad_settings_dir()` — the ONE home of
+    that path, read both for the path variables of fp-lib-table and for KICAD10_FOOTPRINT_DIR."""
+    return _kicad_settings_dir() / "kicad_common.json"
 
 
 def _common_vars() -> dict:
@@ -173,7 +194,7 @@ def _lib_dirs(board_path: Path, default_dir: Path) -> dict:
     """{library nickname: .pretty dir} from the project's and the user's fp-lib-table,
     with ${KIPRJMOD} and the user's path variables (kicad_common.json) expanded;
     a nickname not in any table falls back to <default_dir>/<nick>.pretty."""
-    cfg = _kicad_common_json().parent
+    cfg = _kicad_settings_dir()
     env = {"KIPRJMOD": str(board_path.parent.resolve()),
            "KICAD10_FOOTPRINT_DIR": str(default_dir)}
     env.update(_common_vars())
