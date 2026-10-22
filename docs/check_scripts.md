@@ -41,6 +41,13 @@ nothing is deleted) and `Connected KiCad version … is newer than the API versi
 * DRC says `lib_footprint_mismatch`, or after **Tools → Update Footprints from Library** →
   `check_footprints_vs_library.py`, then F8 if it reports lost fields.
 
+**The same three checks from the GUI.** The **Checks** tab next to the Log (View → Checks — see
+[docs/gui.md](gui.md), section Checks) runs these very scripts in their own process and shows their
+output: the buttons, the exit codes and the reports are the ones described here, with the status
+line coloured by the code (0 green, 1 yellow, 2 red). The scripts read the profile **from disk** —
+save the profile (Ctrl+S) before a run while the GUI has unsaved edits, and for
+`check_footprints_vs_library.py` save the board in KiCad.
+
 ---
 
 ## `check_placement.py`

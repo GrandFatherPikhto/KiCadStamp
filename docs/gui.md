@@ -2832,6 +2832,35 @@ drill/diameter differs (a mismatch does NOT split the group).
 Why duplicates exist at all, and what to collect when they reappear:
 [docs/commands.md](commands.md), section `dedupe`.
 
+## Checks (2026-10-22)
+
+A third bottom tab, **tabified with the Log** (View → Checks), that LAUNCHES the three read-only
+CLI checks and shows their output: **Placement**, **Config records**, **Footprints vs library**.
+The checks themselves stay CLI scripts in `tools/` ([docs/check_scripts.md](check_scripts.md)) —
+the tab adds no logic of its own, so what it prints is byte for byte what the terminal prints.
+
+- every button runs the SAME script in a **separate process** (`QProcess`, `sys.executable`, `-u`),
+  with stdout and stderr merged in arrival order; the child gets `PYTHONIOENCODING=utf-8`. `-u` is
+  what makes the report arrive line by line — a piped Python block-buffers by default;
+- the argument is the OPEN project's config FILE (the same path the root dock holds), so switching
+  the project switches what the buttons check; with no project open they are disabled;
+- the status line speaks the exit code: `0` clean (green), `1` problems found (yellow), `2` refused
+  (red); a crash, "could not start" or a run the user stopped is red with the reason. One Log line
+  per run: `Check <script>: exit <code> (<seconds> s)`;
+- **Copy** puts the script's own output on the clipboard (the warning line below is not in it);
+  **Stop** kills the run;
+- one run at a time, and a start never lands in the middle of the GUI's own IPC transaction
+  (`socket_busy` + exactly one deferred retry, then "KiCad is busy");
+- the scripts read the profile FROM DISK: unsaved config edits are invisible to them, which the pane
+  says in one line while the working set is dirty. **Footprints vs library** reads the SAVED
+  `.kicad_pcb` — save the board in KiCad first;
+- the three buttons share the Log's baseline file for `Placement` (`NEW`/`GONE`), exactly like a
+  terminal run — see [docs/check_scripts.md](check_scripts.md).
+
+Which checks are offered, where the scripts are found (a repository working copy, walked up to from
+the package — an installed build says so instead of guessing) and the command line itself live in
+`gui/checks_registry.py`; the tab's Qt half is `gui/docks/checks.py`.
+
 ## Tray icon
 
 The **Tray icon** status-bar checkbox creates an OS tray icon with the app's real icon

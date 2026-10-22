@@ -71,8 +71,10 @@ from .explode_wiring import ExplodeWiring
 from .docks.configurator import ConfiguratorDock
 from .docks.net_trace import NetTraceDock
 from .docks.trees_dock import TreesDock
+from .docks.checks import ChecksDock
 from .docks.dedupe import DedupeDock
 from .docks.fieldstool_dock import FieldsToolDock
+from .docks.sheet_narrowing_warning import warn_once
 from .docks.log_panel import LogDock
 from .docks.pending import PendingChangesDock
 from .docks.project_dialog import ProjectDialog
@@ -376,6 +378,14 @@ class DockHub:
         main_window.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea,
                                   self.dedupe_dock)
         main_window.tabifyDockWidget(self.log_dock, self.dedupe_dock)
+        # Checks (plan_2026_10_22_checks_tab): a THIRD tab of the same bottom area, built the
+        # same way, so its View-menu entry is Qt's own toggleViewAction too. It only LAUNCHES
+        # tools/check_*.py in their own process (what each one is lives in
+        # gui/checks_registry.py): no board read, no worker, no check logic in the GUI.
+        self.checks_dock = ChecksDock(main_window, connection=connection)
+        main_window.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea,
+                                  self.checks_dock)
+        main_window.tabifyDockWidget(self.log_dock, self.checks_dock)
         # Keep the LOG as the visible bottom tab. Measured: without this the
         # tabified area came up with the dedupe tab current, and S.1/S.2's
         # acceptance (`resizeDocks([log], [200], Vertical)` honoured exactly —
@@ -398,7 +408,7 @@ class DockHub:
         # be floated or closed, so they have no toggleViewAction and no View-menu
         # entry. Only the Log and the copper-duplicates panel remain real
         # top-level docks.
-        self.docks = [self.log_dock, self.dedupe_dock]
+        self.docks = [self.log_dock, self.dedupe_dock, self.checks_dock]
 
         self._wire()
 
@@ -796,6 +806,12 @@ class DockHub:
         self.root_metadata_dock.root_changed.connect(
             partial(self._safe_call, "dedupe_dock.set_root_path",
                     self.dedupe_dock.set_root_path))
+        # Checks (plan_2026_10_22_checks_tab): every button runs a script against the profile's
+        # config FILE, so the tab follows the same root_changed signal as every dock above — a
+        # root switch enables/disables its buttons with no extra wiring.
+        self.root_metadata_dock.root_changed.connect(
+            partial(self._safe_call, "checks_dock.set_root_path",
+                    self.checks_dock.set_root_path))
         # Cell anchor (Phase C, 2026-09-09): the marker/bbox live frame and the
         # Sheet combo need the project root — same root_changed source as every
         # other dock.
@@ -2775,6 +2791,7 @@ class DockHub:
                         self.thermal_via_dock.set_root_path, path)
         self._safe_call("cells_dock.set_root_path", self.cells_dock.set_root_path, path)
         self._safe_call("dedupe_dock.set_root_path", self.dedupe_dock.set_root_path, path)
+        self._safe_call("checks_dock.set_root_path", self.checks_dock.set_root_path, path)
         self._safe_call("tools_dock.set_root_path", self.tools_dock.set_root_path, path)
         self._safe_call("entity_dock.set_root_path", self.entity_dock.set_root_path, path)
         self._safe_call("points_dock.set_root_path", self.points_dock.set_root_path, path)
@@ -2850,41 +2867,16 @@ class DockHub:
             fn()
 
     def _warn_if_sheet_narrowing_disabled(self, path) -> None:
-        """V.3 (plan_2026_09_11_extract_selection_diagnostics): an EMPTY
-        sheet-name map means no name can be resolved, so sheet-based narrowing
-        silently does nothing — one informational Log line (never a modal, never
-        repeated for the same root) the first time such a config is loaded WITH a
-        live board. The map is empty for TWO reasons (nothing configured, or a
-        single-page schematic — the live Test04) and the cause comes from
-        sheet_names.sheet_narrowing_disabled_line, the ONE wording host both this
-        line and the config check use; the root sheet "/" needs no map at all."""
-        if path is None:
-            return
-        key = str(path)
-        if key in self._sheet_dir_checked:
-            return
-        connection = getattr(self.main_window, "connection", None)
-        # "Is there a board?" is `is_connected`, not a read of the board itself
-        # (plan_2026_09_21_board_door_enforcement Т5-2: this was one of the two
-        # LEGAL presence checks the armed run named — cheap, synchronous, and no
-        # socket touched, but still a door read).
-        if not getattr(connection, "is_connected", False):
-            return
-        self._sheet_dir_checked.add(key)
-        try:
-            from kicadstamp.config import load_config
-            _cfg, ctx = load_config(key)
-            # len() materialises the lazy RuntimeContext map (its own __bool__
-            # is deliberately always True — see sheet_names.LazySheetNameMap).
-            has_sheets = len(ctx.sheet_names) > 0
-        except Exception:  # noqa: BLE001 — a broken config is reported by the docks
-            return
-        if has_sheets:
-            return
-        from kicadstamp.sheet_names import sheet_narrowing_disabled_line
-        logging.info(sheet_narrowing_disabled_line(
-            getattr(_cfg, "schematic_dir", None),
-            getattr(_cfg, "schematic_files", None)))
+        """V.3 (plan_2026_09_11_extract_selection_diagnostics): one informational Log line
+        the first time a config with an EMPTY sheet-name map is loaded WITH a live board —
+        never a modal, never repeated for the same root.
+
+        The body moved to `gui/docks/sheet_narrowing_warning.warn_once` on 22.10.2026
+        (plan_2026_10_22_checks_tab, Ч1-Т3): the hub only shrinks. The method stays because
+        `_sync_root_to_docks` and the selection tick call it BY NAME — and so does
+        `_safe_call`'s label."""
+        warn_once(path, getattr(self.main_window, "connection", None),
+                  self._sheet_dir_checked)
 
     def _on_root_file_changed_for_logging(self, path) -> None:
         """Attaches a FileHandler using the CURRENT root config's own
