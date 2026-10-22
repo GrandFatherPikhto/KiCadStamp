@@ -197,11 +197,19 @@ result: 7 problem(s)
 **Question:** are the footprints of the **saved** board still what the library has?
 
 ```bash
-.venv/bin/python tools/check_footprints_vs_library.py <board.kicad_pcb | profile dir | profile .sexp> [--lib-dir /usr/share/kicad/footprints] [--all]
+.venv/bin/python tools/check_footprints_vs_library.py <board.kicad_pcb | profile dir | profile .sexp> [--lib-dir <footprints dir>] [--all]
 ```
 
 It reads the **saved file**, not KiCad: save the board first. KiCad does not need to run. Given a profile,
 it opens the board next to the profile's `root_sheet`.
+
+### Which library directory
+
+The order is KiCad's own: `--lib-dir`, else `$KICAD10_FOOTPRINT_DIR`, else the same variable inside
+`kicad_common.json`, else the platform default of a stock install (`/usr/share/kicad/footprints`, the
+macOS app bundle, or `%PROGRAMFILES%\KiCad\<version>\share\kicad\footprints`). When none of them is a
+directory the check **refuses** (exit 2) and prints every place it looked — a run that cannot reach any
+library says so, instead of reporting every footprint as "not checked".
 
 ### What is checked
 
@@ -244,7 +252,8 @@ models), leave the text options off, press F8 right after, and run this check.
 
 ### Exit code
 
-`0` clean, `1` damage found, `2` bad argument (no such file, not a board or profile).
+`0` clean, `1` damage found, `2` refused (no such file, not a board or profile, or no reachable
+footprint library directory).
 
 ---
 

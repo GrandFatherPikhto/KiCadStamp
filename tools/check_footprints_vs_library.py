@@ -12,8 +12,13 @@ the point count of every fp_poly, in order. Nothing is written; KiCad is not nee
 board first — the file is what is read.
 
 usage: .venv/bin/python tools/check_footprints_vs_library.py <board.kicad_pcb | profile dir | profile .sexp>
-       [--lib-dir /usr/share/kicad/footprints] [--all]   (--all: print clean footprints too)
+       [--lib-dir <footprints dir>] [--all]   (--all: print clean footprints too)
+
+Which library directory (the order KiCad itself follows): --lib-dir, else $KICAD10_FOOTPRINT_DIR,
+else that same variable in kicad_common.json, else the platform default of a stock KiCad install.
+None found -> exit 2 and one line naming every place looked at — never "not checked" per footprint.
 """
+import os
 import sys
 from pathlib import Path
 
@@ -86,19 +91,92 @@ def _expand(uri: str, env: dict) -> str:
     return uri
 
 
+def _kicad_common_json() -> Path:
+    """The user's KiCad 10 settings file — the ONE home of that path, read both for the
+    path variables of fp-lib-table and for KICAD10_FOOTPRINT_DIR."""
+    return Path.home() / ".config" / "kicad" / "10.0" / "kicad_common.json"
+
+
+def _common_vars() -> dict:
+    """The `environment.vars` block of kicad_common.json ({} when unreadable)."""
+    import json
+    try:
+        data = json.loads(_kicad_common_json().read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return (data.get("environment") or {}).get("vars", {}) or {}
+
+
+def _platform_lib_dirs():
+    """Where a STOCK KiCad install keeps its footprints — the last resort, used only when
+    neither --lib-dir nor KICAD10_FOOTPRINT_DIR says where they are."""
+    if sys.platform.startswith("win"):
+        found = []
+        for root in (os.environ.get("PROGRAMFILES"), os.environ.get("PROGRAMFILES(X86)")):
+            if root:
+                # KiCad installs under a VERSIONED directory; newest first, so a machine
+                # carrying 9.0 and 10.0 side by side is checked against the newer library set.
+                found += sorted(Path(root).glob("KiCad/*/share/kicad/footprints"), reverse=True)
+        return found
+    if sys.platform == "darwin":
+        return [Path("/Applications/KiCad/KiCad.app/Contents/SharedSupport/footprints")]
+    return [Path("/usr/share/kicad/footprints"), Path("/usr/local/share/kicad/footprints")]
+
+
+def _resolve_lib_dir(argv, candidates=None):
+    """(library directory, "") or (None, the sentence naming WHERE we looked).
+
+    The order is the one KiCad itself follows:
+      1. `--lib-dir`, when given — and it must exist, so a typo is refused instead of quietly
+         checking against nothing;
+      2. `KICAD10_FOOTPRINT_DIR` — the environment first, then the same variable inside
+         kicad_common.json (where KiCad keeps it);
+      3. the platform default of a stock KiCad install.
+
+    Nothing found is a REFUSAL, not a report full of "not checked": on a machine with no
+    reachable library the check can say nothing about the board at all (Денис, 22.10).
+    """
+    looked = []
+    if "--lib-dir" in argv:
+        given = Path(argv[argv.index("--lib-dir") + 1])
+        if given.is_dir():
+            return given, ""
+        return None, (f"REFUSED: --lib-dir {given} is not a directory — the check needs KiCad's "
+                      f"footprint libraries to compare against")
+    looked.append("--lib-dir (not given)")
+    env_value = os.environ.get("KICAD10_FOOTPRINT_DIR")
+    if env_value:
+        path = Path(env_value)
+        if path.is_dir():
+            return path, ""
+        looked.append(f"$KICAD10_FOOTPRINT_DIR = {path} (no such directory)")
+    else:
+        looked.append("$KICAD10_FOOTPRINT_DIR (not set)")
+    common = _kicad_common_json()
+    config_value = _common_vars().get("KICAD10_FOOTPRINT_DIR")
+    if config_value:
+        path = Path(config_value)
+        if path.is_dir():
+            return path, ""
+        looked.append(f"KICAD10_FOOTPRINT_DIR in {common} = {path} (no such directory)")
+    else:
+        looked.append(f"KICAD10_FOOTPRINT_DIR in {common} (not set)")
+    for path in (candidates if candidates is not None else _platform_lib_dirs()):
+        if path.is_dir():
+            return path, ""
+        looked.append(str(path))
+    return None, ("REFUSED: no KiCad footprint library directory found — looked at: "
+                  + "; ".join(looked) + ". Pass --lib-dir")
+
+
 def _lib_dirs(board_path: Path, default_dir: Path) -> dict:
     """{library nickname: .pretty dir} from the project's and the user's fp-lib-table,
     with ${KIPRJMOD} and the user's path variables (kicad_common.json) expanded;
     a nickname not in any table falls back to <default_dir>/<nick>.pretty."""
-    import json
-    cfg = Path.home() / ".config" / "kicad" / "10.0"
+    cfg = _kicad_common_json().parent
     env = {"KIPRJMOD": str(board_path.parent.resolve()),
            "KICAD10_FOOTPRINT_DIR": str(default_dir)}
-    try:
-        env.update(json.loads((cfg / "kicad_common.json").read_text(encoding="utf-8"))
-                   .get("environment", {}).get("vars", {}) or {})
-    except (OSError, ValueError):
-        pass
+    env.update(_common_vars())
     dirs = {}
     for table in (cfg / "fp-lib-table", board_path.parent / "fp-lib-table"):   # project wins
         if not table.is_file():
@@ -149,7 +227,10 @@ def main(argv):
     board_path = _board_of(Path(argv[0]))
     if board_path is None:
         return 2
-    lib_dir = Path(argv[argv.index("--lib-dir") + 1]) if "--lib-dir" in argv else Path("/usr/share/kicad/footprints")
+    lib_dir, refusal = _resolve_lib_dir(argv)
+    if lib_dir is None:
+        print(refusal)
+        return 2
     show_all = "--all" in argv
     libs = _lib_dirs(board_path, lib_dir)
     board = _parse(board_path.read_text(encoding="utf-8"))
