@@ -10,7 +10,8 @@ those decisions and must turn a named cell red:
   M2  stderr is no longer merged into the pane          (gui/docks/checks.py `_launch`)
   M3  a run the user STOPPED is reported as a crash     (gui/docks/checks.py `_on_finished`)
   M4  a check may be built with no project at all       (gui/checks_registry.py `command_for`)
-  M5  cosmetic control (a comment must change nothing)
+  M5  every pipe chunk is decoded on its own (Д-1)     (gui/docks/checks.py `_on_output`)
+  M6  cosmetic control (a comment must change nothing)
 
 Safeguards, the same as every harness in this package: a template that matches more than once
 is refused (a silent miss is indistinguishable from a healthy guard — rule 38); a row that
@@ -64,7 +65,14 @@ MUTATIONS = [
      '_("Open a project first — the checks run against the profile\'s config file.")\n',
      ["test_no_project_is_refused_before_anything_is_built"]),
 
-    ("M5 cosmetic control (a comment must change nothing)", CHECKS,
+    # Д-1 (acceptance 22.10.2026): a chunk that ends mid-character must still decode whole.
+    ("M5 every pipe chunk is decoded on its own", CHECKS,
+     "        chunk = self._decoder.decode(bytes(process.readAllStandardOutput()))\n",
+     '        chunk = bytes(process.readAllStandardOutput()).decode("utf-8", "replace")'
+     "  # MUTATION\n",
+     ["test_a_character_split_across_two_pipe_reads_survives"]),
+
+    ("M6 cosmetic control (a comment must change nothing)", CHECKS,
      "        running = self.is_running()\n",
      "        running = self.is_running()  # MUTATION: cosmetic\n",
      "survive"),

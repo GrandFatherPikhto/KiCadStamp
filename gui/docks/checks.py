@@ -30,6 +30,7 @@ the board door does not grow and the window cannot freeze on IPC.
 The dock is a bottom QDockWidget TABIFIED WITH THE LOG (`gui/dock_hub.py`), the same shape as
 the copper-duplicates panel, so its View-menu entry is Qt's own toggleViewAction.
 """
+import codecs
 import logging
 from time import perf_counter
 
@@ -76,6 +77,11 @@ class ChecksDock(QDockWidget):
         self._stopping = False
         #: The SCRIPT's own bytes (what "Copy" copies) — the warning line below is not in it.
         self._output = ""
+        #: ONE incremental UTF-8 decoder per run. A pipe may deliver a chunk that ends in the
+        #: middle of a multi-byte character ("—", "→", or any Cyrillic in a ru report), and
+        #: decoding each chunk on its own turned the halves into U+FFFD — the pane and "Copy"
+        #: then carried a broken character (acceptance finding Д-1, 22.10.2026).
+        self._decoder = None
 
         container = QWidget()
         layout = QVBoxLayout(container)
@@ -201,6 +207,7 @@ class ChecksDock(QDockWidget):
         self._check = check
         self._stopping = False
         self._output = ""
+        self._decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
         self.output.clear()
         if WORKING_SET.is_dirty():
             # The scripts read the profile FROM DISK; the GUI's unsaved edits are not there.
@@ -227,14 +234,28 @@ class ChecksDock(QDockWidget):
 
     def _on_output(self) -> None:
         process = self._process
-        if process is None:
+        if process is None or self._decoder is None:
             return
-        chunk = bytes(process.readAllStandardOutput()).decode("utf-8", "replace")
+        chunk = self._decoder.decode(bytes(process.readAllStandardOutput()))
+        self._append_output(chunk)
+
+    def _append_output(self, chunk: str) -> None:
+        """Append one already-decoded piece to the report (kept bytes: `_output`) and to the
+        pane. ONE place, so the text "Copy" hands over can never drift from what is shown."""
         if not chunk:
             return
         self._output += chunk
         self.output.moveCursor(QTextCursor.MoveOperation.End)
         self.output.insertPlainText(chunk)
+
+    def _flush_decoder(self) -> None:
+        """Hand the decoder's tail (`final=True`) to the report and forget it: whatever was
+        still buffered mid-character belongs to THIS run. Without the flush a character split
+        across the LAST two reads would be lost, and a late signal could reuse a finished run's
+        decoder."""
+        decoder, self._decoder = self._decoder, None
+        if decoder is not None:
+            self._append_output(decoder.decode(b"", True))
 
     def _on_finished(self, code, status) -> None:
         process = self._process
@@ -242,6 +263,7 @@ class ChecksDock(QDockWidget):
             return
         self._process = None
         process.deleteLater()
+        self._flush_decoder()
         seconds = perf_counter() - self._started_at
         check = self._check
         stopped, self._stopping = self._stopping, False

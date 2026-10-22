@@ -48,6 +48,22 @@ if code == 99:
 raise SystemExit(code)
 '''
 
+#: Д-1 probe (acceptance 22.10.2026): "a", then the FIRST byte of "—", a flush and a pause,
+#: then the rest of the character and "b". A pipe delivers that as two reads.
+SPLIT_SCRIPT = '''\
+"""A multi-byte character split across two pipe reads — the Д-1 probe."""
+import sys
+import time
+
+out = sys.stdout.buffer
+dash = "—".encode("utf-8")
+out.write(b"a" + dash[:1])
+out.flush()
+time.sleep(0.5)
+out.write(dash[1:] + b"b\\n")
+out.flush()
+'''
+
 SCRIPT = "check_placement.py"
 OUTPUT_0 = "first line for profile_exit_0\nwarning from stderr\n"
 OUTPUT_1 = "first line for profile_exit_1\nwarning from stderr\n"
@@ -62,11 +78,12 @@ def _clean_working_set():
     WORKING_SET.clear()
 
 
-def _make_dock(main_window, tmp_path, *, with_script=True) -> ChecksDock:
+def _make_dock(main_window, tmp_path, *, with_script=True,
+               script_source=FAKE_SCRIPT) -> ChecksDock:
     tools = tmp_path / "tools"
     tools.mkdir(exist_ok=True)
     if with_script:
-        (tools / SCRIPT).write_text(FAKE_SCRIPT, encoding="utf-8")
+        (tools / SCRIPT).write_text(script_source, encoding="utf-8")
     return ChecksDock(main_window, connection=main_window.connection,
                       scripts_root=tmp_path, python=sys.executable)
 
@@ -143,6 +160,25 @@ def test_exit_zero_is_green_and_exit_two_is_red(main_window, qtbot, tmp_path):
     _run(refused, qtbot, _profile(tmp_path, 2))
     assert "refused" in refused.status_label.text()
     assert refused.status_label.styleSheet() == style_for_level("error")
+
+
+def test_a_character_split_across_two_pipe_reads_survives(main_window, qtbot, tmp_path):
+    """Д-1 (acceptance 22.10.2026) — the byte-for-byte promise at its sharpest.
+
+    The probe writes `a` + the FIRST byte of "—", flushes, waits 0.5 s, then the rest + `b`.
+    QProcess hands that over as two reads, and decoding each chunk on its own turned the two
+    halves into U+FFFD: the pane and "Copy" carried "a���b" instead of "a—b". ONE incremental
+    decoder per run is what keeps the character whole — the scripts print "—", "→" and, on a
+    Russian profile, Cyrillic.
+    """
+    dock = _make_dock(main_window, tmp_path, script_source=SPLIT_SCRIPT)
+
+    _run(dock, qtbot, _profile(tmp_path, 0))
+
+    assert dock._output == "a—b\n"
+    assert dock.output.toPlainText() == "a—b\n"
+    dock.copy_button.click()
+    assert QApplication.clipboard().text() == "a—b\n"
 
 
 def test_copy_hands_over_the_script_bytes(main_window, qtbot, tmp_path):
