@@ -6285,6 +6285,40 @@ msgstr "Выделить медь на плате"
 msgid "Delete node"
 msgstr "Удалить узел"
 
+#: gui/docks/trees_delete.py:111
+#, python-brace-format
+msgid "Delete {n} nodes"
+msgstr "Удалить узлов: {n}"
+
+#: gui/docks/trees_delete.py:174
+msgid "A generated instance tree is read-only — nothing was deleted."
+msgstr "Сгенерированное дерево-экземпляр доступно только для чтения — ничего не удалено."
+
+#: gui/docks/trees_delete.py:182
+msgid "Nothing to delete: the selected row is not a tree node."
+msgstr "Удалять нечего: выделенная строка — не узел дерева."
+
+#: gui/docks/trees_delete.py:213
+#, python-brace-format
+msgid "Deleted {n} nodes: {refs}; net_traces records removed: {records}"
+msgstr ""
+"Удалено узлов: {n} ({refs}); удалено записей net_traces: {records}"
+
+#: gui/docks/trees_delete.py:218
+#, python-brace-format
+msgid ""
+"net_traces records kept (still referenced by another node): {records}"
+msgstr ""
+"записи net_traces оставлены (на них ещё ссылается другой узел): {records}"
+
+#: gui/docks/trees_delete.py:221
+#, python-brace-format
+msgid ""
+"net_traces records not found in the config files (left in place): {records}"
+msgstr ""
+"записи net_traces не найдены в файлах конфига (оставлены на месте): "
+"{records}"
+
 #: gui/docks/trees_dock.py:2558 gui/docks/trees_dock.py:2950
 msgid "Add child"
 msgstr "Добавить дочерний узел"

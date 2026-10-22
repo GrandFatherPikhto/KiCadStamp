@@ -5877,6 +5877,38 @@ msgstr "Select copper on board"
 msgid "Delete node"
 msgstr "Delete node"
 
+#: gui/docks/trees_delete.py:111
+#, python-brace-format
+msgid "Delete {n} nodes"
+msgstr "Delete {n} nodes"
+
+#: gui/docks/trees_delete.py:174
+msgid "A generated instance tree is read-only — nothing was deleted."
+msgstr "A generated instance tree is read-only — nothing was deleted."
+
+#: gui/docks/trees_delete.py:182
+msgid "Nothing to delete: the selected row is not a tree node."
+msgstr "Nothing to delete: the selected row is not a tree node."
+
+#: gui/docks/trees_delete.py:213
+#, python-brace-format
+msgid "Deleted {n} nodes: {refs}; net_traces records removed: {records}"
+msgstr "Deleted {n} nodes: {refs}; net_traces records removed: {records}"
+
+#: gui/docks/trees_delete.py:218
+#, python-brace-format
+msgid ""
+"net_traces records kept (still referenced by another node): {records}"
+msgstr ""
+"net_traces records kept (still referenced by another node): {records}"
+
+#: gui/docks/trees_delete.py:221
+#, python-brace-format
+msgid ""
+"net_traces records not found in the config files (left in place): {records}"
+msgstr ""
+"net_traces records not found in the config files (left in place): {records}"
+
 #: gui/docks/trees_dock.py:2558 gui/docks/trees_dock.py:2950
 msgid "Add child"
 msgstr "Add child"

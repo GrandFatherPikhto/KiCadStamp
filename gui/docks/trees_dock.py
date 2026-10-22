@@ -90,6 +90,7 @@ from .trees_move_flow import (RehangPlan, _MOVE_OFFSET_REFUSED,
                               _REHANG_SIGN, local_polar_from_xy, plan_rehang,
                               reexpress_offset, run_group_move, run_single_move)
 from .trees_dnd import make_node_tree_widget
+from .trees_delete import delete_action_text, run_delete_nodes
 # The overlay NAMES (the tree's anchor/base circles and a mount node's point/base
 # pair) and the tree-marker WORKER live in trees_markers.py — the "giants only
 # shrink" rule of the Ч1-А доделка moved them out of this file. Re-exported
@@ -2542,7 +2543,8 @@ class TreesDock(QWidget):
             # second code path.
             menu.addAction(_("Redraw")).triggered.connect(
                 lambda: self._redraw_edited_node(node))
-            menu.addAction(_("Delete node")).triggered.connect(
+            # The label counts the WHOLE selection — the flow deletes all of it.
+            menu.addAction(delete_action_text(self, tree, node)).triggered.connect(
                 lambda: self._delete_node_flow(tree, node))
             menu.exec(tree_widget.viewport().mapToGlobal(pos))
             return
@@ -2560,7 +2562,7 @@ class TreesDock(QWidget):
             # tab (a right-click does not select by default).
             menu.addAction(_("Edit node…")).triggered.connect(
                 lambda: self._edit_in_panel(tree, node))
-            menu.addAction(_("Delete node")).triggered.connect(
+            menu.addAction(delete_action_text(self, tree, node)).triggered.connect(
                 lambda: self._delete_node_flow(tree, node))
             menu.addAction(_("Rename…")).triggered.connect(
                 lambda: self._rename_node_flow(tree, node))
@@ -2995,13 +2997,9 @@ class TreesDock(QWidget):
         return None
 
     def _delete_node_flow(self, tree: Tree, node: TreeNode) -> None:
-        parent = self._find_parent(tree, node)
-        if parent is None:
-            tree.nodes.remove(node)
-        else:
-            parent.children.remove(node)
-        self._mark_dirty()
-        self._rebuild_tabs()
+        """Thin seam (rule 45): the body (whole selection + its net_traces
+        records) lives in trees_delete.run_delete_nodes."""
+        return run_delete_nodes(self, tree, node)
 
     def _rename_node_flow(self, tree: Tree, node: TreeNode) -> None:
         new_name, ok = QInputDialog.getText(

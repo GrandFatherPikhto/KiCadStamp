@@ -745,8 +745,11 @@ plan_2026_10_13_trees_menus_cleanup: **Extract cluster…** moved to Tools → C
 position**, **Full redraw (all trees and modules)…** and **Instantiate from Cell…** were removed). The
 dock keeps the tabs, the checkbox subtree selection and the read-only status row (unsaved-changes ●).
 Structural editing happens through each node's
-context menu (Add child / Add sibling / Reread current position / Edit node… / Delete node / Rename…
-/ Move to…); **Reread current position** re-resolves the node against the LIVE board and rewrites its
+context menu (Add child / Add sibling / Reread current position / Edit node… / **Delete node** /
+Rename… / Move to…); **Delete node** acts on the WHOLE selection — the item reads **Delete N nodes**
+when several rows are selected, and the **Delete** key does the same from the tree (see "Deleting
+several nodes" below); **Reread current position** re-resolves the node against the LIVE board and
+rewrites its
 `xy`/rotation in place, with no confirmation (not saving is the undo) — since 2026-09-12 that read runs
 on a worker (the status bar names it, the window stays responsive) and it is refused rather than
 interleaved while another owner holds the one shared kipy socket. Its REFUSAL is a Log line, not a modal
@@ -964,6 +967,20 @@ tree root. A copper node's own context menu is down to the three things it can a
 on board** / **Redraw** / **Delete node**: it has no coordinates (its geometry lives in the record), no
 own name and no children, and its place IN THE FILE is no longer visible, so the structural actions would
 act on something the user cannot see.
+
+**Deleting several nodes** (2026-10-22, plan `plan_2026_10_22_trees_group_delete_and_no_apply`): the
+node menu's **Delete node** item and the **Delete** key both delete the WHOLE selection — with several
+rows selected the item reads **Delete N nodes**. Only the subtree ROOTS of the selection are removed: a
+selected child of a selected parent rides with its ancestor instead of being "deleted twice". A copper
+node (`kind net_trace`) leaves together with its `net_traces:` record — but only when no node of any
+tree in the dock still references that record: a record somebody else still uses is KEPT and named in
+the Log. The record is removed from the file that OWNS it (an included file included). Deleting a
+legacy `kind "copper"` container takes its copper children AND their records with it. The BOARD is
+never touched — removing copper from the board is a separate command. There is no confirmation
+dialog (not saving is the undo): one Log line names the deleted nodes and the records that went with
+them, and a refusal (a generated instance, the "Copper" pseudo-row alone) is a Log/status line, never
+a modal. A generated `tree_instances` tree stays read-only. The Delete key is a FILTER on the tree
+widget, so pressing it inside a node form's field still deletes a character.
 
 Since 2026-09-03 the node editor is a TWO-TAB form — shown in the
 master-detail panel for a selected node, and inside the modal Add dialog while no node exists

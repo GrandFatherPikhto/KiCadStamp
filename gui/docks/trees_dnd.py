@@ -41,6 +41,7 @@ from PyQt6.QtWidgets import QAbstractItemView, QTreeWidget
 
 from kicadstamp.trees import Tree, TreeNode
 
+from .trees_delete import DeleteKeyFilter
 from .trees_move_flow import drop_refusal, movable_roots, run_drop_move
 
 #: Ч3 п.4: the drop positions that mean something in THIS tree. `OnItem` is the
@@ -81,6 +82,11 @@ class NodeTreeWidget(QTreeWidget):
         super().__init__()
         self._dock = dock
         self._tree = tree
+        # Delete (plan_2026_10_22_trees_group_delete_and_no_apply, Ч1): a FILTER
+        # on this widget, so a Delete typed into a node form's field stays a
+        # character — a dock-wide shortcut would eat it.
+        self._delete_filter = DeleteKeyFilter(dock, tree, parent=self)
+        self.installEventFilter(self._delete_filter)
         self.setDragEnabled(True)
         self.setAcceptDrops(True)
         self.setDropIndicatorShown(True)
