@@ -64,6 +64,18 @@ out.write(dash[1:] + b"b\\n")
 out.flush()
 '''
 
+#: Д-3 probe (acceptance 23.10.2026): "a", then the first TWO bytes of "—" — and the process
+#: exits. The rest of the character never comes, so the decoder still holds `e2 80` when the run
+#: finishes: a crashed check, a Stop or a truncated report look exactly like this.
+TRUNCATED_SCRIPT = '''\
+"""A run that ends in the MIDDLE of a multi-byte character — the Д-3 probe."""
+import sys
+
+out = sys.stdout.buffer
+out.write(b"a" + "—".encode("utf-8")[:2])
+out.flush()
+'''
+
 SCRIPT = "check_placement.py"
 OUTPUT_0 = "first line for profile_exit_0\nwarning from stderr\n"
 OUTPUT_1 = "first line for profile_exit_1\nwarning from stderr\n"
@@ -179,6 +191,26 @@ def test_a_character_split_across_two_pipe_reads_survives(main_window, qtbot, tm
     assert dock.output.toPlainText() == "a—b\n"
     dock.copy_button.click()
     assert QApplication.clipboard().text() == "a—b\n"
+
+
+def test_a_character_cut_off_by_the_run_end_is_shown_as_a_replacement_char(
+        main_window, qtbot, tmp_path):
+    """Д-3 (acceptance 23.10.2026) — the decoder's tail is FLUSHED, not dropped.
+
+    The probe writes `a` + the first two bytes of "—" and exits; the rest of the character never
+    arrives. That is the real shape of a check that crashed, was stopped, or whose output was cut
+    off mid-character: `final=True` in `_flush_decoder` is the only thing that turns the buffered
+    `e2 80` into U+FFFD in `_output`, the pane and "Copy". Dropped instead, the report ends `a`
+    and looks like a clean run that simply had nothing more to say.
+    """
+    dock = _make_dock(main_window, tmp_path, script_source=TRUNCATED_SCRIPT)
+
+    _run(dock, qtbot, _profile(tmp_path, 0))
+
+    assert dock._output == "a\ufffd"
+    assert dock.output.toPlainText() == "a\ufffd"
+    dock.copy_button.click()
+    assert QApplication.clipboard().text() == "a\ufffd"
 
 
 def test_copy_hands_over_the_script_bytes(main_window, qtbot, tmp_path):

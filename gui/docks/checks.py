@@ -249,10 +249,20 @@ class ChecksDock(QDockWidget):
         self.output.insertPlainText(chunk)
 
     def _flush_decoder(self) -> None:
-        """Hand the decoder's tail (`final=True`) to the report and forget it: whatever was
-        still buffered mid-character belongs to THIS run. Without the flush a character split
-        across the LAST two reads would be lost, and a late signal could reuse a finished run's
-        decoder."""
+        """Hand the decoder's tail (`final=True`) to the report and forget it: the tail belongs
+        to THIS run, and this run is over.
+
+        A character split across two reads is NOT the reason — the next read completes it
+        (Д-1). The tail survives only when the process ENDED in the middle of a character:
+        crashed, stopped, or its output cut off by an abrupt exit. The next read never comes,
+        so without the flush those bytes vanish in silence and the report ends as if the script
+        had stopped at a clean boundary. Flushed with `errors="replace"` they become U+FFFD —
+        "the output was cut off here", which is true, instead of a silence that looks like
+        health.
+
+        The reference is dropped so a run's decoder cannot outlive it; a late read is refused
+        on `_process is None` anyway, so that line is hygiene, not the guard.
+        """
         decoder, self._decoder = self._decoder, None
         if decoder is not None:
             self._append_output(decoder.decode(b"", True))

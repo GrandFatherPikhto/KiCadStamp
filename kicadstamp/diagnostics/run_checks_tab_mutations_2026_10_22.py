@@ -11,7 +11,14 @@ those decisions and must turn a named cell red:
   M3  a run the user STOPPED is reported as a crash     (gui/docks/checks.py `_on_finished`)
   M4  a check may be built with no project at all       (gui/checks_registry.py `command_for`)
   M5  every pipe chunk is decoded on its own (Д-1)     (gui/docks/checks.py `_on_output`)
-  M6  cosmetic control (a comment must change nothing)
+  M6  the tail of a run that ended mid-character is
+      never flushed (Д-3)                               (gui/docks/checks.py `_on_finished`)
+  M7  the flush is not final — `decode(b"", False)`     (gui/docks/checks.py `_flush_decoder`)
+  M8  cosmetic control (a comment must change nothing)
+
+M6 and M7 arrived with acceptance Д-3 (23.10.2026); the control row that used to be M6 is M8 now.
+Both redden exactly ONE cell — the Д-1 cell staying green is what says the row hit the flush and
+not the incremental decoder as such.
 
 Safeguards, the same as every harness in this package: a template that matches more than once
 is refused (a silent miss is indistinguishable from a healthy guard — rule 38); a row that
@@ -72,7 +79,19 @@ MUTATIONS = [
      "  # MUTATION\n",
      ["test_a_character_split_across_two_pipe_reads_survives"]),
 
-    ("M6 cosmetic control (a comment must change nothing)", CHECKS,
+    # Д-3 (acceptance 23.10.2026): a run that ENDED mid-character keeps its tail in the decoder;
+    # `final=True` is the only thing that turns those bytes into the honest U+FFFD.
+    ("M6 the decoder tail is never flushed", CHECKS,
+     "        process.deleteLater()\n        self._flush_decoder()\n",
+     "        process.deleteLater()  # MUTATION: the tail goes down with the process\n",
+     ["test_a_character_cut_off_by_the_run_end_is_shown_as_a_replacement_char"]),
+
+    ("M7 the flush is not final (decode(b\"\", False))", CHECKS,
+     '            self._append_output(decoder.decode(b"", True))\n',
+     '            self._append_output(decoder.decode(b"", False))  # MUTATION\n',
+     ["test_a_character_cut_off_by_the_run_end_is_shown_as_a_replacement_char"]),
+
+    ("M8 cosmetic control (a comment must change nothing)", CHECKS,
      "        running = self.is_running()\n",
      "        running = self.is_running()  # MUTATION: cosmetic\n",
      "survive"),
