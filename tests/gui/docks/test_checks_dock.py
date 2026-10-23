@@ -113,16 +113,19 @@ def _clean_working_set():
 
 
 def _make_page(main_window, tmp_path, *, with_script=True,
-               script_source=FAKE_SCRIPT) -> ChecksPage:
+               script_source=FAKE_SCRIPT, python=None) -> ChecksPage:
     """A page over a temp `tools/` tree. EVERY registry script is written with the same source,
-    so "Run all" and the menu can start any of them without a second fixture."""
+    so "Run all" and the menu can start any of them without a second fixture.
+
+    `python` is the interpreter seam: the "failed to start" cell points it at a path that does
+    not exist, which is what `QProcess` reports as `FailedToStart`."""
     tools = tmp_path / "tools"
     tools.mkdir(exist_ok=True)
     if with_script:
         for check in CHECKS:
             (tools / check.script).write_text(script_source, encoding="utf-8")
     return ChecksPage(main_window, connection=main_window.connection,
-                      scripts_root=tmp_path, python=sys.executable)
+                      scripts_root=tmp_path, python=python or sys.executable)
 
 
 def _profile(tmp_path, code) -> "object":
@@ -286,6 +289,66 @@ def test_stop_mid_queue_stops_the_current_and_drops_the_rest(main_window, qtbot,
         assert not page.state_of(later.script).started
         assert page._items[later.script].text(0).startswith("· ")
     assert len(page.findChildren(QProcess)) == 1
+
+
+# ── a refused start ends the whole "Run all" ────────────────────────────────
+
+def test_a_busy_socket_twice_cancels_the_rest_of_the_run(main_window, qtbot, tmp_path):
+    """Д-1 (acceptance 23.10): the FIRST check of "Run all" meeting a busy socket twice ends the
+    WHOLE run — the rest never starts, the status line says the remainder was cancelled, and a
+    later single Run does NOT resume the dropped queue."""
+    page = _make_page(main_window, tmp_path)
+    page.set_root_path(_profile(tmp_path, 0))
+    main_window.connection.long_op_active = True
+    try:
+        page.run_all()
+        qtbot.waitUntil(lambda: "busy" in page.status_label.text(), timeout=5000)
+        assert "cancelled" in page.status_label.text()
+        assert not page.is_running()
+        for later in CHECKS[1:]:
+            assert not page.state_of(later.script).started
+    finally:
+        main_window.connection.long_op_active = False
+
+    seen = []
+    page.finished.connect(lambda script, _code, _s: seen.append(script))
+    with qtbot.waitSignal(page.finished, timeout=20000):
+        page.run(SECOND)
+    qtbot.waitUntil(lambda: not page.is_running(), timeout=5000)
+    assert seen == [SECOND]                      # exactly the one asked for — no old queue
+    assert not page.state_of(CHECKS[2].script).started
+
+
+def test_a_missing_script_cancels_the_rest_of_the_run(main_window, tmp_path):
+    """Д-1: no `tools/` — the first check refuses, so "Run all" is over before it began; the
+    status line names the reason AND the cancelled remainder, and no process was ever made."""
+    page = _make_page(main_window, tmp_path, with_script=False)
+    page.set_root_path(_profile(tmp_path, 0))
+
+    page.run_all()
+
+    assert not page.is_running()
+    assert "was not found" in page.status_label.text()
+    assert "cancelled" in page.status_label.text()
+    for later in CHECKS[1:]:
+        assert not page.state_of(later.script).started
+    assert page.findChildren(QProcess) == []
+
+
+def test_a_start_that_fails_cancels_the_rest_of_the_run(main_window, qtbot, tmp_path):
+    """Д-1: `FailedToStart` (an interpreter that does not exist) on the first check of "Run all"
+    — same ending as a manifest refusal: nothing else starts, and it is said out loud."""
+    page = _make_page(main_window, tmp_path, python=str(tmp_path / "no-such-python"))
+    page.set_root_path(_profile(tmp_path, 0))
+
+    with qtbot.waitSignal(page.finished, timeout=20000):
+        page.run_all()
+    qtbot.waitUntil(lambda: not page.is_running(), timeout=5000)
+
+    assert "could not start" in page.status_label.text()
+    assert "cancelled" in page.status_label.text()
+    for later in CHECKS[1:]:
+        assert not page.state_of(later.script).started
 
 
 # ── the fourth check and the menu ───────────────────────────────────────────

@@ -97,6 +97,7 @@ from kicadstamp.i18n import _
 
 from . import exit_guard, settings, slow_poll, tray
 from .checks_menu import build_checks_menu
+from .view_menu import build_view_menu
 from .connection import BoardConnection, LATENCY_KIND_FAST
 from .dock_hub import DockHub
 from .app_icon import build_app_icon
@@ -471,23 +472,8 @@ class MainWindow(QMainWindow):
             lambda: self._dock_hub.open_settings_dialog())
         tools_menu.addAction(self.settings_action)
 
-        # The "Checks" menu (plan_2026_10_23_checks_tab_top_level §8): between Tools and View,
-        # one item per check plus "Run all". The list is built from the SAME registry the page
-        # reads, in a module of its own — this window only makes the one call.
         self.checks_menu = build_checks_menu(self, self._dock_hub.checks_page)
-
-        # View menu (2026-08-27, handoff sync_skip_message_and_view_menu): the
-        # app had no menu bar at all, so a closed dock had no way back short of
-        # restarting. Every QDockWidget ships a ready-made toggleViewAction()
-        # (checkable, self-tracks shown/hidden) — wire one per real top-level
-        # dock (DockHub.docks), see gui/dock_hub.py for why DetailDock's
-        # internal panels are excluded. Since task T (2026-09-10) the
-        # Components/Config/Trees widgets are pages of the central QTabWidget,
-        # not docks: they cannot be floated or closed, so they correctly have no
-        # entry here — DockHub.docks holds only the Log now.
-        view_menu = self.menuBar().addMenu(_("View"))
-        for dock in self._dock_hub.docks:
-            view_menu.addAction(dock.toggleViewAction())
+        self.view_menu = build_view_menu(self, self._dock_hub.docks)
 
         # One persistent worker thread for both poll ticks (see
         # PollWorkerHandle's docstring for why this must NOT be a fresh

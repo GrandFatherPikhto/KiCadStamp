@@ -17541,6 +17541,10 @@ msgid ""
 msgstr ""
 
 
+#: gui/docks/checks.py:353
+msgid "The rest of the run is cancelled."
+msgstr ""
+
 #~ msgid ""
 #~ "role {role!r} occurs {count} times in"
 #~ " cluster {cluster!r} — this is a "

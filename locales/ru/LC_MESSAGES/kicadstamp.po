@@ -18494,6 +18494,10 @@ msgid ""
 msgstr "Есть ли в каком-то дереве два узла mount на одном якоре? Читает конфиг профиля и НИЧЕГО не пишет — сухой прогон."
 
 
+#: gui/docks/checks.py:353
+msgid "The rest of the run is cancelled."
+msgstr "Остаток очереди отменён."
+
 #~ msgid ""
 #~ "role {role!r} occurs {count} times in"
 #~ " cluster {cluster!r} — this is a "

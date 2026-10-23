@@ -341,12 +341,25 @@ class ChecksPage(QWidget):
         defer_while_socket_busy(self._connection, (), lambda: self._launch(check),
                                 lambda: self._warn_busy(script), owner=self)
 
+    def _end_queue(self, text: str) -> str:
+        """End the whole "Run all" because this check could not start, and say so.
+
+        THE one place the rest of the queue is dropped on a refusal: a busy socket, a missing
+        script and a process that failed to start all mean "nothing after this will run", so a
+        later single Run must NOT resume the dropped queue. The wording is the one Stop uses —
+        a dropped queue that looked like "all clean" is exactly the report this page refuses
+        to print."""
+        queued = len(self._queue)
+        self._queue.clear()
+        if not queued:
+            return text
+        return text + " " + _("The rest of the run is cancelled.")
+
     def _warn_busy(self, script: str) -> None:
         """The deferred attempt met a busy socket again — say so, do not run half-blind."""
-        text = _("KiCad is busy — try again in a moment.")
+        text = self._end_queue(_("KiCad is busy — try again in a moment."))
         self._set_message(script, text, "error")
         logger.info("Check %s: not started — %s", script, text)
-        self._queue.clear()
         self._update_buttons()
         self.state_changed.emit()
 
@@ -363,10 +376,10 @@ class ChecksPage(QWidget):
             state.seconds = None
             state.started = False
             state.running = False
+            reason = self._end_queue(reason)
             self._set_message(script, reason, "error")
             self._render_pane(state)
             logger.warning("Check %s: %s", script, reason)
-            self._queue.clear()
             self._update_buttons()
             self.state_changed.emit()
             return
@@ -522,10 +535,10 @@ class ChecksPage(QWidget):
         state = self._states[script]
         state.running = False
         state.started = False
-        self._set_message(script, _("{name}: could not start — {reason}").format(
-            name=self.check_for(script).title, reason=reason), "error")
+        text = self._end_queue(_("{name}: could not start — {reason}").format(
+            name=self.check_for(script).title, reason=reason))
+        self._set_message(script, text, "error")
         logger.error("Check %s: could not start — %s", script, reason)
-        self._queue.clear()
         self._update_buttons()
         self.state_changed.emit()
         self.finished.emit(script, None, 0.0)

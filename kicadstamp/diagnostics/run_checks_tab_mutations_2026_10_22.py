@@ -23,7 +23,10 @@ those decisions and must turn a named cell red:
   M14 "Run all" launches every check at once            (gui/docks/checks.py `run_all`)
   M15 Stop keeps the queue                              (gui/docks/checks.py `stop`)
   M16 a menu item runs the FIRST check                  (gui/checks_menu.py `build_checks_menu`)
-  M17 cosmetic control (a comment must change nothing)
+  M17 a busy socket leaves the queue alone              (gui/docks/checks.py `_warn_busy`)
+  M18 a missing script leaves the queue alone           (gui/docks/checks.py `_launch`)
+  M19 a failed start leaves the queue alone             (gui/docks/checks.py `_on_error`)
+  M20 cosmetic control (a comment must change nothing)
 
 M6 and M7 arrived with acceptance Д-3 (23.10.2026); M8–M16 with the page move (Ч1 of
 plan_2026_10_23_checks_tab_top_level, 23.10). The control row has been renumbered twice and is
@@ -159,7 +162,28 @@ MUTATIONS = [
      "# MUTATION\n",
      ["test_the_checks_menu_sits_between_tools_and_view_and_runs_its_own_check"]),
 
-    ("M17 cosmetic control (a comment must change nothing)", CHECKS,
+    # Д-1 of the Ч1 acceptance (23.10): a refused start ends the WHOLE "Run all". Each row kills
+    # the queue on ONE path only, so a path left undone names itself in the failure.
+    ("M17 a busy socket leaves the queue alone", CHECKS,
+     "        text = self._end_queue(_(\"KiCad is busy — try again in a moment.\"))\n",
+     "        text = _(\"KiCad is busy — try again in a moment.\")  "
+     "# MUTATION: the queue survives\n",
+     ["test_a_busy_socket_twice_cancels_the_rest_of_the_run"]),
+
+    ("M18 a missing script leaves the queue alone", CHECKS,
+     "            reason = self._end_queue(reason)\n",
+     "            reason = reason  # MUTATION: the queue survives\n",
+     ["test_a_missing_script_cancels_the_rest_of_the_run"]),
+
+    ("M19 a failed start leaves the queue alone", CHECKS,
+     "        text = self._end_queue(_(\"{name}: could not start — {reason}\").format(\n"
+     "            name=self.check_for(script).title, reason=reason))\n",
+     "        text = _(\"{name}: could not start — {reason}\").format(  "
+     "# MUTATION: the queue survives\n"
+     "            name=self.check_for(script).title, reason=reason)\n",
+     ["test_a_start_that_fails_cancels_the_rest_of_the_run"]),
+
+    ("M20 cosmetic control (a comment must change nothing)", CHECKS,
      "        runnable = self.can_run()\n",
      "        runnable = self.can_run()  # MUTATION: cosmetic\n",
      "survive"),
