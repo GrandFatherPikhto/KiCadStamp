@@ -38,6 +38,12 @@ def on_selection_changed(dock) -> None:
     body, so the connection in `_rebuild_tabs` never changes. `dock` supplies
     the widget lookup, the rebuild guard, the panel refresh and the status row;
     everything that reads the SELECTION itself lives here."""
+    # The selection a REFUSED switch puts back emits this signal synchronously
+    # (trees_accept.restore_selection) — that one must not re-fill the panel,
+    # or the draft it is trying to keep would be dropped by the very call that
+    # saved it.
+    if getattr(dock, "_restoring_selection", False):
+        return
     tree_widget = dock._current_tree_widget()
     if tree_widget is None:
         return
@@ -46,16 +52,16 @@ def on_selection_changed(dock) -> None:
     # empty selection shows the tree anchor form. Skipped while
     # _rebuild_tabs is repopulating — its own final
     # _rebuild_active_form_panel() already covers the restored page.
-    discarded = False
     if not dock._rebuilding_tabs:
-        discarded = dock._refresh_form_panel()
-    # design §9.4: when switching away from a node whose editor held
-    # UNAPPLIED edits, the notice wins over the new node's static preview —
-    # it is the one thing the user must see (the preview returns on the
-    # next click).
-    if discarded:
-        dock._show_status(_("Unapplied changes were discarded."))
-        return
+        # Ч1 of plan_2026_10_23_node_form_without_apply.md: a switch AWAY from
+        # a touched form ACCEPTS it first. When the edit does not validate the
+        # switch is REFUSED: the selection has been put back and the red line
+        # names the node — so the preview of the clicked row must not be
+        # written over it.
+        dock._switch_refused = False
+        dock._refresh_form_panel()
+        if getattr(dock, "_switch_refused", False):
+            return
     items = tree_widget.selectedItems()
     if not items:
         dock._show_status("")

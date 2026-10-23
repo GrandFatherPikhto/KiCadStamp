@@ -25,6 +25,7 @@ from __future__ import annotations
 from PyQt6.QtWidgets import QApplication
 
 from . import settings
+from .save_and_discard import settle_forms
 
 __all__ = [
     "confirm_unsaved_before_exit",
@@ -83,6 +84,13 @@ def confirm_unsaved_before_exit(window) -> bool:
     cancelled at the clusters question must ask about the edits again)."""
     if getattr(window, "_explode_exit_ok", False):
         return True
+    # Ч1 of plan_2026_10_23_node_form_without_apply.md: an edit still sitting in
+    # the Trees node form is accepted BEFORE this question. After it, the guard
+    # would have answered "nothing to save" over an edit that then turns the
+    # working set dirty — and the exit would lose it without a word. The answer
+    # here is PROCEED: a form that does not validate is reported in the Log, but
+    # it never becomes a silent refusal to leave the program.
+    settle_forms(window, refuse=False)
     dock = getattr(window, "root_metadata_dock", None)
     if dock is None:      # a plain QMainWindow in tests: nothing to lose
         return True

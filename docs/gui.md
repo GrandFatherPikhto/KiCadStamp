@@ -1078,12 +1078,23 @@ stored values are restored, so a Save can never write board-frame numbers as a d
 Since 2026-09-04 a SINGLE click on a non-module tree node already loads its editor onto the
 master-detail panel, so double-clicking such a node no longer opens a modal — it just makes sure the
 node is selected (the panel then shows its editor); a module node / a "⇐ embedded in" /
-"→ instance:" pseudo item still jumps to the referenced tree's tab. The node editor's **Apply**
-writes the form onto the node in place (marks the dock dirty, stays open — nothing reaches disk until
-Save); **Redraw** applies first, then places that node's REAL component on the live board at its
-(edited) config position — one background ApplyPipeline `--only` run, never blocking the UI. Un-applied
-edits are discarded — with a non-blocking "Unapplied changes were discarded." notice in the status row
-(2026-09-04, design §9.4) — when you select ANOTHER node, or when a structural edit rebuilds the tree.
+"→ instance:" pseudo item still jumps to the referenced tree's tab.
+
+Since 2026-10-23 (`plan_2026_10_23_node_form_without_apply`) the editor carries **ONE Apply button**
+(the old Apply/Redraw pair is gone, and the button is never disabled by node kind): it writes the form
+onto the node in place (marks the dock dirty, stays open — nothing reaches disk until Save) AND, when
+the node has something to place, redraws it — a `placement`/`net_trace`/`component` by one background
+`--only` run, a `module` by its forest-content activation, and a `mount`/`copper`/`point`/`external` by
+the curated redraw of its own SUBTREE (such a node names no record of its own, so its edit shows on its
+children). A node with neither a record nor children just accepts and says so. Both forms and the modal
+Edit dialog behave this way; the dialog's **Close** accepts an unapplied edit too.
+
+Edits are also **accepted on every way out of the form**: selecting another node, a structural rebuild,
+a config reload, a project switch, Save, closing the dock and leaving the program all accept what the
+form holds first. A form that does not validate REFUSES the leaving action where the action can still be
+cancelled (a node switch keeps the selection on the node, Save writes nothing) and only reports a red
+Log line naming the node where it cannot (a rebuild, the exit). **Discard unsaved changes…** is the one
+door that does NOT accept: the draft goes with the working set, named in one info line.
 The generic cascade "Redraw dependents" for an arbitrary node is intentionally NOT restored (design
 §9.2): tree redraws stay selected / whole-tree / forest only. The ADD dialogs (Add / Add child / Add
 sibling / Add node) keep their modal OK/Cancel — there is no node to apply/redraw before it exists,

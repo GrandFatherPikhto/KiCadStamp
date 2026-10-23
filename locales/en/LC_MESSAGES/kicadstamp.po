@@ -17735,3 +17735,22 @@ msgstr ""
 #~ msgid "footprint {ref!r} ({label}) not found in the selection"
 #~ msgstr ""
 
+# Ч1 of plan_2026_10_23_node_form_without_apply — one Apply button, form accepted on the way out
+
+msgid "Applied — nothing to redraw on this node."
+msgstr "Applied — nothing to redraw on this node."
+
+msgid "Node {ref}: the edit was not applied ({reason}) — nothing was written and the form is unchanged."
+msgstr "Node {ref}: the edit was not applied ({reason}) — nothing was written and the form is unchanged."
+
+msgid "Save refused — the node form was not applied: {names}"
+msgstr "Save refused — the node form was not applied: {names}"
+
+msgid "Unapplied node edit {ref} was discarded with the working set."
+msgstr "Unapplied node edit {ref} was discarded with the working set."
+
+msgid "the open form"
+msgstr "the open form"
+
+msgid "the form did not validate"
+msgstr "the form did not validate"

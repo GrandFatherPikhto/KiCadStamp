@@ -147,6 +147,7 @@ from ._common import (ERROR_STYLE as _ERROR_STYLE,
 from .cascade import (run_curated_forest_redraw_worker, run_curated_tree_redraw_worker,
                       run_single_node_redraw_worker)
 from .entity_delete import backup_file
+from . import trees_accept
 
 logger = logging.getLogger(__name__)
 
@@ -190,34 +191,15 @@ _REHANG_BUSY_TEXT = _(
 # combo offers now come from the same row of that table ("module" reads as
 # "Tree" for the user; the data value stays "module" everywhere).
 
-# Node kinds the per-node Redraw button can actually act on. Most of these
-# are a record kind ApplyPipeline's --only can resolve by name directly
-# (_redraw_edited_node -> run_single_node_redraw_worker). "module" is the one
-# exception: its ref names an EMBEDDED TREE, not a config record, so --only
-# can never resolve it directly — but Denis pointed out (2026-09-07, live)
-# that Redraw on a module node should still DO something: activate that
-# module's own content, exactly like checking its marker does in the
-# forest-wide "Full redraw" (curated_redraw_plan_forest/design P3 D2).
-# _redraw_edited_node special-cases "module" to run_curated_forest_redraw_
-# worker with selected_refs={node.ref} instead — scoping the SAME mechanism
-# to just this one marker, so only ITS content moves (nothing else in the
-# owning tree is touched). external/point nodes stay excluded: they are
-# live-board-only bases with no content of their own to activate. "copper" (a
-# CONTAINER) is excluded for the same reason: it owns no record, so --only has
-# nothing to resolve — its net_trace CHILDREN carry the redraw buttons.
-# Shared by _NodeDialog._update_redraw_state (modal Edit) and
-# TreesDock._form_action_row (master-detail Node tab) so the two Redraw
-# buttons can never drift out of sync (found live 2026-09-07: the
-# master-detail button had no guard at all — clicking Redraw on a module node
-# crashed run_single_node_redraw_worker with "--only: names not found").
-# "component" (2026-09-17, plan Э3/Т3.7) IS redrawable, and through the plain
-# --only path: the node materializes a transient CoordinatePlacement whose
-# effective name IS the node's ref, so `--only <node name>` resolves it — no
-# special case needed here at all.
-# (the legacy "clone" entry went 2026-10-13 with the retired kind itself — see
-# kicadstamp/trees.RETIRED_NODE_KINDS; nothing can produce such a node any more.)
-_REDRAWABLE_NODE_KINDS = frozenset(
-    {"placement", "coordinate", "net_trace", "module", "component"})
+# WHICH kinds the ONE Apply button can place, and HOW, lives in
+# gui/docks/trees_accept.py since Ч1 of plan_2026_10_23_node_form_without_apply
+# .md: the button is never disabled by kind any more (accepting must always be
+# possible), so the dispatch itself is the only place the difference matters —
+# `_redraw_edited_node` keeps --only for the record kinds, the forest-content
+# activation for "module", and `trees_accept.SUBTREE_KINDS` (mount/copper/
+# point/external) routes to the curated redraw of the node's own subtree. The
+# old `_REDRAWABLE_NODE_KINDS` set existed ONLY to enable/disable the two
+# Redraw buttons and went with them.
 
 # Node kinds that carry NO coordinates, so the node form neither collects nor
 # asks for any (2026-09-16, plan_2026_09_16_copper_node_order_and_container
@@ -785,6 +767,16 @@ class TreesDock(QWidget):
         # state — the rebuild persists its final state itself).
         self._pending_active_name: Optional[str] = None
         self._rebuilding_tabs = False
+        # Ч1 of plan_2026_10_23_node_form_without_apply.md: the three flags of
+        # "settle the open form before leaving it" (trees_accept owns the
+        # bodies). _restoring_selection suppresses the handler of the selection
+        # the refusal puts BACK; _switch_refused tells the handler that the
+        # refresh it asked for was cancelled, so it must not overwrite the red
+        # line with the new row's preview; _discarding_working_set makes the
+        # Discard flow the ONE place that does NOT accept.
+        self._restoring_selection = False
+        self._switch_refused = False
+        self._discarding_working_set = False
         # S.3 (techdocs/me/scroll.md): one SplitterSizeKeeper per page splitter,
         # keyed by tree name. Every non-active tab page is hidden ALWAYS, so a
         # naive sizes() read at quit wrote [0, 0] for each of them.
@@ -1013,7 +1005,12 @@ class TreesDock(QWidget):
         return True  # Discard
 
     def closeEvent(self, event) -> None:
-        """Close guard: with unsaved changes, ask before discarding them."""
+        """Close guard: with unsaved changes, ask before discarding them.
+
+        Ч1 of plan_2026_10_23_node_form_without_apply.md: an edit sitting in the
+        form is accepted FIRST (PROCEED — the dock is going away regardless), so
+        the question below is asked about a set that already holds it."""
+        trees_accept.accept_forms(self, policy=trees_accept.PROCEED)
         if self._confirm_discard_changes():
             super().closeEvent(event)
         else:
@@ -1025,9 +1022,9 @@ class TreesDock(QWidget):
         """One tab per Tree in self._trees; a single placeholder tab when the
         list is empty (Tools → Trees → Create tree… fills it)."""
         # §7.1.2/design §9.4: EVERY rebuild clears every page, including the
-        # active one's Node/Anchor forms — warn when one of them holds unapplied
-        # edits (non-blocking; the rebuild proceeds and the draft is lost).
-        self._warn_rebuild_discard()
+        # active one's Node/Anchor forms — their unapplied edits are ACCEPTED
+        # first (Ч1 of plan_2026_10_23_node_form_without_apply.md), inside
+        # _release_page_forms below.
         # Э3/Т3.2: the rebuild is about to drop every page widget — each form's
         # own board figures go down with it (a `deleteLater` page runs no
         # closeEvent, so this is the only chance).
@@ -1860,41 +1857,30 @@ class TreesDock(QWidget):
         self._set_panel_content(panel, widget)
 
     def _form_action_row(self, form) -> QWidget:
-        """Wrap a modal-agnostic form (NodeFormWidget/AnchorFormWidget) with
-        the Apply/Redraw button row the master-detail panel needs — the forms
-        own apply()/redraw() (plan §1.3/§2.3), the buttons belong to the
-        embedding context (this panel). No Close: a permanent tab has nothing
-        to close."""
+        """Wrap a modal-agnostic form (NodeFormWidget/AnchorFormWidget) with the
+        ONE Apply button the master-detail panel needs — the forms own apply(),
+        the button belongs to the embedding context (this panel). No Close: a
+        permanent tab has nothing to close.
+
+        ONE button since Ч1 of plan_2026_10_23_node_form_without_apply.md: the
+        old Apply/Redraw pair made the user know which of the two accepts and
+        which also places, and it could be DISABLED for a kind — so a `mount`
+        edit could not be seen at all. Apply accepts and, when the node has
+        something to place, redraws it (trees_accept.apply_and_redraw); it is
+        NEVER disabled, because accepting is always allowed. The form stays
+        itemAt(0) of this page — `_embedded_form_of` and the guards read it
+        there."""
         page = QWidget()
         lay = QVBoxLayout(page)
         lay.setContentsMargins(0, 0, 0, 0)
         lay.addWidget(form, 1)
         row = QHBoxLayout()
         apply_btn = QPushButton(_("Apply"))
-        apply_btn.clicked.connect(form.apply)
-        redraw_btn = QPushButton(_("Redraw"))
-        redraw_btn.clicked.connect(form.redraw)
+        apply_btn.clicked.connect(
+            lambda: trees_accept.apply_and_redraw(self, form))
         row.addWidget(apply_btn)
-        row.addWidget(redraw_btn)
         row.addStretch(1)
         lay.addLayout(row)
-        # A NodeFormWidget's Redraw only makes sense for a kind
-        # _redraw_edited_node actually knows how to place — direct --only for
-        # most kinds, forest-content-activation for "module"
-        # (_REDRAWABLE_NODE_KINDS) — same guard _NodeDialog's modal Redraw
-        # button has (_update_redraw_state). This embedded row lacked it
-        # entirely until 2026-09-07 (found live: clicking Redraw on a module
-        # node crashed run_single_node_redraw_worker with "--only: names not
-        # found" before the forest-content routing existed). AnchorFormWidget
-        # has no kind_combo — its own Redraw is a different mechanism,
-        # untouched here.
-        if isinstance(form, NodeFormWidget):
-            def _sync_redraw_enabled() -> None:
-                kind = form.kind_combo.currentData()
-                redraw_btn.setEnabled(form._dock is not None
-                                      and kind in _REDRAWABLE_NODE_KINDS)
-            form.kind_combo.currentIndexChanged.connect(_sync_redraw_enabled)
-            _sync_redraw_enabled()
         return page
 
     def _build_anchor_form(self, tree: Tree) -> "AnchorFormWidget":
@@ -2011,31 +1997,27 @@ class TreesDock(QWidget):
     def _release_page_forms(self) -> None:
         """Every page's form learns about its own closure BEFORE
         tree_tabs.clear() drops them (Э3/Т3.2): a rebuild replaces ALL pages at
-        once, and the active one is only a slice of them."""
+        once, and the active one is only a slice of them.
+
+        Ч1 of plan_2026_10_23_node_form_without_apply.md: a rebuild (a tree
+        switch, a config reload, a project change, the dock closing) ACCEPTS
+        every touched form first — a PROCEED accept, because the rebuild the
+        user asked for must happen; a refusal is a red Log line, not a silent
+        loss."""
+        trees_accept.accept_forms(self, policy=trees_accept.PROCEED)
         for index in range(self.tree_tabs.count()):
             panel = self._form_panel_of_page(self.tree_tabs.widget(index))
             if panel is not None:
                 self._release_page_form(self._panel_page(panel))
-
-    def _warn_rebuild_discard(self) -> None:
-        """design §9.4/§7.1.2: _rebuild_tabs() is about to clear every page, so
-        a touched form on the ACTIVE page is discarded — surface a non-blocking
-        notice BEFORE clear() takes it away (the lazy panel only ever hosts ONE
-        form for the active page, so this is one cheap read)."""
-        panel = self._active_form_panel()
-        if panel is None:
-            return
-        if self._discard_if_touched(
-                self._embedded_form_of(self._panel_page(panel))):
-            self._show_status(_("Unapplied changes were discarded."))
 
     def _rebuild_active_form_panel(self) -> None:
         """(Re)build the right-hand FORM PANEL of the CURRENT page. Lazy: only
         ever touches the active page, and a page that was ALREADY built is NOT
         rebuilt on re-activation — its form lives inside the page and survives a
         tree switch, so an unapplied draft is never lost by merely tabbing away
-        (a structural edit that calls _rebuild_tabs() is what actually discards
-        it, and _warn_rebuild_discard() reports that at the point of loss).
+        (a structural edit that calls _rebuild_tabs() ACCEPTS it there —
+        trees_accept.accept_forms — since Ч1 of plan_2026_10_23_node_form_
+        without_apply.md).
 
         The panel shows ONE form, chosen by the SELECTION (Z.3.2): a real node ->
         that node's editor; the root row / nothing selected -> the tree anchor
@@ -2146,11 +2128,15 @@ class TreesDock(QWidget):
             new_ref = nodes[0].ref if nodes else None
         if new_ref == self._current_node_ref:
             return False  # same selection — keep the form (or the empty panel)
-        discarded = self._discard_if_touched(
-            self._embedded_form_of(self._panel_page(panel)))
+        # Ч1 of plan_2026_10_23_node_form_without_apply.md: the draft is
+        # ACCEPTED before the panel is swapped; a form that does not validate
+        # REFUSES the switch (selection goes back, the panel keeps the draft).
+        if not trees_accept.accept_before_switch(
+                self, self._embedded_form_of(self._panel_page(panel))):
+            return False
         self._current_node_ref = self._fill_form_panel(panel)
         panel.setProperty("_panel_built", True)
-        return discarded
+        return False
 
     def _reload_node_form(self) -> None:
         """Force the right-hand panel to re-fill for the CURRENT tree and
@@ -2161,8 +2147,9 @@ class TreesDock(QWidget):
         panel = self._active_form_panel()
         if panel is None:
             return
-        self._discard_if_touched(
-            self._embedded_form_of(self._panel_page(panel)))
+        trees_accept.accept_form(
+            self, self._embedded_form_of(self._panel_page(panel)),
+            policy=trees_accept.PROCEED)
         self._current_node_ref = self._fill_form_panel(panel)
         panel.setProperty("_panel_built", True)
 
@@ -3435,6 +3422,12 @@ class TreesDock(QWidget):
         NodeFormWidget.redraw() — the form owns no button of its own (the
         master-detail panel's _form_action_row and _NodeDialog both build the
         button they connect), so from here there is nothing stable to disable."""
+        # Ч1 of plan_2026_10_23_node_form_without_apply.md: a mount/copper/
+        # point/external node names no record of its own, so its edit shows on
+        # its CHILDREN — that redraw is the curated redraw of its own subtree,
+        # handled (and started) in trees_accept; nothing below may run for it.
+        if trees_accept.redraw_subtree(self, node):
+            return
         if node is None or not node.ref or self._cfg is None or self._ctx is None:
             return
         if node.kind == "module":
@@ -4523,7 +4516,12 @@ class NodeFormWidget(QWidget):
         self.ref_combo.currentTextChanged.connect(self._mark_touched)
         for _edit in (self.rotation_edit, self.name_edit, self.group_edit):
             _edit.textChanged.connect(self._mark_touched)
-        for _origin in (self.offset_widget, self.mount_anchor_widget):
+        for _origin in (self.offset_widget, self.mount_anchor_widget,
+                        self.component_address_widget):
+            # Ч1 of plan_2026_10_23_node_form_without_apply.md: the COMPONENT
+            # node's address picker was missing here — a typed/rol-picked
+            # address stayed `_touched is False`, so leaving the form dropped it
+            # silently. Every AnchorOriginWidget of this form feeds the flag now.
             _origin.fieldChanged.connect(self._mark_touched)
         # Э1 (plan_2026_09_12_node_dialog_usability): the Parent combo is a
         # FRAME change exactly like the mount anchor — a discrete action, so it
@@ -4703,17 +4701,11 @@ class NodeFormWidget(QWidget):
         return apply_node_form(self)
 
     def redraw(self) -> None:
-        """Phase B Redraw (plan §1.3): apply() first, then place the node's
-        REAL record on the live board at its (edited) config position — a
-        background worker via the dock, never blocking the UI."""
-        if not self.apply():
-            return
-        if self._dock is not None:
-            self._dock._redraw_edited_node(self._existing)
-            self.apply_status_label.setText(_("Applied — Redraw started."))
-        else:
-            self.apply_status_label.setText(
-                _("Applied — no live board Redraw available."))
+        """Accept, then place the edit (plan §1.3) — the behaviour behind the
+        ONE Apply button (trees_accept.apply_and_redraw), kept as a form seam
+        for callers that drive a form directly."""
+        if self.apply():
+            trees_accept.redraw_form(self._dock, self)
 
     # ── Board frame <-> config frame (plan_2026_09_11 §3) ─────────────────
 
@@ -5641,8 +5633,9 @@ class _NodeDialog(QDialog):
     plan_2026_09_04_trees_dock_master_detail.md §1.4): the form is
     modal-agnostic (a plain QWidget); THIS class adds the button row on top —
     OK/Cancel in Add mode (existing=None, the _prompt_node master flow) or
-    Apply/Redraw/Close in Edit mode (existing=node, Phase B), mirroring the
-    pre-refactor dialog exactly. build_node()/own_anchor() and every form
+    Apply/Close in Edit mode (existing=node, Phase B; ONE Apply since Ч1 of
+    plan_2026_10_23_node_form_without_apply.md, and Close ACCEPTS an unapplied
+    edit). build_node()/own_anchor() and every form
     field are reachable on the dialog (via the embedded form) so the existing
     callers/tests keep working until §6 ports them onto NodeFormWidget."""
     _form: Optional[NodeFormWidget] = None
@@ -5679,14 +5672,15 @@ class _NodeDialog(QDialog):
         layout.addWidget(self._form)
         buttons = QHBoxLayout()
         if existing is not None:
+            # Ч1 of plan_2026_10_23_node_form_without_apply.md: ONE Apply button
+            # (accept + place), never disabled by kind; Close is the way out and
+            # ACCEPTS an unapplied edit too — a refused one keeps the dialog
+            # open, which is the whole point (Close used to drop it silently).
             self.apply_button = QPushButton(_("Apply"))
-            self.apply_button.clicked.connect(self._on_apply)
-            self.redraw_button = QPushButton(_("Redraw"))
-            self.redraw_button.clicked.connect(self._on_redraw)
+            self.apply_button.clicked.connect(self._on_apply_and_redraw)
             self.close_button = QPushButton(_("Close"))
-            self.close_button.clicked.connect(self.reject)
+            self.close_button.clicked.connect(self._on_close)
             buttons.addWidget(self.apply_button)
-            buttons.addWidget(self.redraw_button)
             buttons.addWidget(self.close_button)
         else:
             # Э2 (plan_2026_09_12_node_dialog_usability): OK validates FIRST and
@@ -5703,10 +5697,6 @@ class _NodeDialog(QDialog):
             buttons.addWidget(self.ok_button)
             buttons.addWidget(cancel_button)
         layout.addLayout(buttons)
-        # Redraw-enabled state tracks the form's kind combo (the form no longer
-        # owns a redraw button — the wrapper does, so the wiring lives here).
-        self._form.kind_combo.currentIndexChanged.connect(self._update_redraw_state)
-        self._update_redraw_state()
         # Э3 (plan_2026_09_12_node_dialog_usability): the node dialog's size is
         # remembered between launches, keyed by the class name. No default
         # constant here — Qt's own size until the user resizes it once.
@@ -5732,29 +5722,32 @@ class _NodeDialog(QDialog):
             return getattr(form, name)
         raise AttributeError(name)
 
-    def _update_redraw_state(self) -> None:
-        """Phase B: Redraw only makes sense in EDIT mode with a dock (live board
-        + config) and a kind _redraw_edited_node knows how to place — most
-        kinds directly by name, "module" via forest-content-activation; an
-        external live refdes or a point base cannot
-        (_REDRAWABLE_NODE_KINDS, shared with the master-detail Node tab's own
-        Redraw button — see _form_action_row)."""
-        redraw = getattr(self, "redraw_button", None)
-        if redraw is None:
-            return
-        kind = self._form.kind_combo.currentData()
-        redraw.setEnabled(self._form._dock is not None
-                          and kind in _REDRAWABLE_NODE_KINDS)
-
     def _on_apply(self) -> bool:
-        """Edit-mode Apply: delegate to the form's apply() (Phase B — mutates
-        the node in place, marks the dock dirty, stays open)."""
+        """Edit-mode accept WITHOUT placing — the seam the dialog's own guards
+        and callers drive directly (the Apply button goes through
+        _on_apply_and_redraw instead)."""
         return self._form.apply()
 
     def _on_redraw(self) -> None:
-        """Edit-mode Redraw: delegate to the form's redraw() (apply first, then
-        place the real record on the live board via the dock)."""
+        """Accept, then place — the ONE Apply button's behaviour, kept as a
+        dialog-level seam for the same callers."""
         self._form.redraw()
+
+    def _on_apply_and_redraw(self) -> bool:
+        """Edit-mode Apply: the ONE button — accept the form and, when the node
+        has something to place, redraw it (trees_accept.apply_and_redraw). The
+        dialog stays open either way; a refused accept leaves the typed values
+        in place with the form's own message under them."""
+        return trees_accept.apply_and_redraw(self._form._dock, self._form)
+
+    def _on_close(self) -> None:
+        """Edit-mode Close: an unapplied edit is ACCEPTED first; a refused one
+        keeps the dialog OPEN (red Log line + the form's own message), because
+        closing would be exactly the silent loss this change removes."""
+        if not trees_accept.accept_form(self._form._dock, self._form,
+                                        policy=trees_accept.REFUSE):
+            return
+        self.reject()
 
     def _on_ok(self) -> None:
         """Add-mode OK: validate the form and accept ONLY when it built a node.
@@ -6123,6 +6116,12 @@ class AnchorFormWidget(QWidget):
         self.cluster_edit.currentTextChanged.connect(self._mark_touched)
         self.point_edit.currentTextChanged.connect(self._mark_touched)
         self.pad_edit.textChanged.connect(self._mark_touched)
+        # Ч1 of plan_2026_10_23_node_form_without_apply.md: the "self" mode's
+        # own rows (a component this tree places) were NOT wired — the mode is
+        # one of _TREE_ANCHOR_MODES, so its edits are reachable and were lost
+        # silently on the way out.
+        self.self_combo.currentTextChanged.connect(self._mark_touched)
+        self.self_pad_edit.textChanged.connect(self._mark_touched)
         self.shift_x_edit.textChanged.connect(self._on_shift_edited)
         self.shift_y_edit.textChanged.connect(self._on_shift_edited)
         self.shift_x_edit.textChanged.connect(self._mark_touched)
@@ -7050,14 +7049,11 @@ class AnchorFormWidget(QWidget):
             _show_tree_markers_worker(self._marker_payload(adapter)))
 
     def redraw(self) -> None:
-        """Anchor-tab Phase B Redraw (plan §2.3): apply() first, then the
-        existing whole-tree redraw — an anchor moves the WHOLE tree, a
-        point-redraw for it has no meaning (design §9.3)."""
-        if not self.apply():
-            return
-        if self._dock is not None:
-            self._dock._on_redraw_whole_tree()
-            self.apply_status_label.setText(_("Applied — whole-tree redraw started."))
+        """Accept, then the whole-tree redraw (plan §2.3) — an anchor moves the
+        WHOLE tree, a point-redraw for it has no meaning (design §9.3). The ONE
+        Apply button reaches this through trees_accept.apply_and_redraw."""
+        if self.apply():
+            trees_accept.redraw_form(self._dock, self)
 
 
 class _AnchorDialog(QDialog):

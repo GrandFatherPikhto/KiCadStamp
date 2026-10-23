@@ -18715,3 +18715,22 @@ msgstr "запись net_traces (сеть {net!r}) дублирует медь �
 #~ msgid "footprint {ref!r} ({label}) not found in the selection"
 #~ msgstr "футпринт {ref!r} ({label}) не найден в выделении"
 
+# Ч1 of plan_2026_10_23_node_form_without_apply — one Apply button, form accepted on the way out
+
+msgid "Applied — nothing to redraw on this node."
+msgstr "Применено — на этой ноде нечего перерисовывать."
+
+msgid "Node {ref}: the edit was not applied ({reason}) — nothing was written and the form is unchanged."
+msgstr "Нода {ref}: правка не применена ({reason}) — ничего не записано, форма не изменена."
+
+msgid "Save refused — the node form was not applied: {names}"
+msgstr "Сохранение отменено — форма ноды не применена: {names}"
+
+msgid "Unapplied node edit {ref} was discarded with the working set."
+msgstr "Непринятая правка ноды {ref} отброшена вместе с изменениями."
+
+msgid "the open form"
+msgstr "открытая форма"
+
+msgid "the form did not validate"
+msgstr "форма не прошла проверку"

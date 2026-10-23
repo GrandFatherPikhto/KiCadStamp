@@ -97,6 +97,7 @@ from kicadstamp.i18n import _
 
 from . import exit_guard, settings, slow_poll, tray
 from .checks_menu import build_checks_menu
+from .save_and_discard import discard_unsaved, settle_forms
 from .view_menu import build_view_menu
 from .connection import BoardConnection, LATENCY_KIND_FAST
 from .dock_hub import DockHub
@@ -773,7 +774,13 @@ class MainWindow(QMainWindow):
         """File > Save (Ctrl+S) — commit the whole staged working set to disk.
         The flush validates the staged graph BEFORE writing anything (see
         kicadstamp/config_working_set.py); on a cross-file inconsistency
-        nothing is written and the errors are shown."""
+        nothing is written and the errors are shown. FIRST it accepts an
+        unapplied edit from the Trees node form — otherwise a typed rename
+        would answer "Nothing to save" and be lost (Ч1 of
+        plan_2026_10_23_node_form_without_apply.md); a form that does not
+        validate REFUSES the whole write."""
+        if not settle_forms(self, refuse=True):
+            return
         root = self.root_metadata_dock.root_path
         if root is None:
             self.status_label.setText(_("No project open — nothing to save"))
@@ -791,27 +798,11 @@ class MainWindow(QMainWindow):
         self.status_label.setText(_("Project saved"))
 
     def _discard_project(self) -> None:
-        """File > Discard unsaved changes... — drop the working set and reload
-        every dock from disk. Deliberately does NOT roll back Redraw steps that
-        were already applied to the board (stated in the confirm dialog)."""
-        if not WORKING_SET.is_dirty():
-            return
-        reply = QMessageBox.question(
-            self, _("Discard unsaved changes"),
-            _("Discard will revert unsaved CONFIG edits, but NOT Redraw steps "
-              "already applied to the board. Continue?"),
-            QMessageBox.StandardButton.Save | QMessageBox.StandardButton.Discard
-            | QMessageBox.StandardButton.Cancel,
-            QMessageBox.StandardButton.Cancel)
-        if reply == QMessageBox.StandardButton.Save:
-            self._save_project()
-            return
-        if reply != QMessageBox.StandardButton.Discard:
-            return
-        WORKING_SET.clear()
-        self._dock_hub.reload_project_from_disk()
-        self._update_dirty_indicator()
-        self.status_label.setText(_("Unsaved config changes discarded"))
+        """File > Discard unsaved changes... — seam onto `gui/save_and_discard.py`
+        (Ч1 of plan_2026_10_23_node_form_without_apply.md): the flow moved out of
+        this giant, and it is the ONE door that does NOT accept the open Trees
+        form — the user has just asked for the unsaved changes to go."""
+        discard_unsaved(self)
 
     # ── Reconnect interval + latency readout (Э2/Э3/Э4а) ────────────────
 

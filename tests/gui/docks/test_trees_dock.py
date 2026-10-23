@@ -13,8 +13,8 @@ import logging
 
 import pytest
 from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import (QLabel, QMessageBox, QSplitter, QStackedWidget,
-                             QTreeWidget)
+from PyQt6.QtWidgets import (QLabel, QMessageBox, QPushButton, QSplitter,
+                             QStackedWidget, QTreeWidget)
 
 from kicadstamp.config.loader import load_config
 from kicadstamp.config.sexp_format import dict_to_sexp
@@ -417,9 +417,13 @@ def _embedded_form(page):
     return item.widget() if item is not None else None
 
 
-def _embedded_redraw_button(page):
-    """The master-detail Redraw QPushButton inside a _form_action_row wrapper
-    page — the row's second QHBoxLayout item (Apply is itemAt(0))."""
+def _embedded_apply_button(page):
+    """The ONE Apply QPushButton inside a _form_action_row wrapper page.
+
+    Ч1 of plan_2026_10_23_node_form_without_apply.md: the row used to carry
+    Apply + Redraw (this helper's predecessor, `_embedded_redraw_button`,
+    returned the SECOND one). It now carries exactly one button, and this
+    helper FAILS when that stops being true — the shape is the property."""
     lay = page.layout()
     if lay is None:
         return None
@@ -427,8 +431,10 @@ def _embedded_redraw_button(page):
     row = row_item.layout() if row_item is not None else None
     if row is None:
         return None
-    btn_item = row.itemAt(1)
-    return btn_item.widget() if btn_item is not None else None
+    buttons = [row.itemAt(i).widget() for i in range(row.count())]
+    buttons = [b for b in buttons if isinstance(b, QPushButton)]
+    assert len(buttons) == 1, f"the panel row must carry ONE button, got {buttons}"
+    return buttons[0]
 
 
 def test_master_detail_right_panel_is_one_selection_following_panel(main_window, tmp_path):
@@ -545,10 +551,14 @@ def test_anchor_form_field_edit_marks_touched_and_apply_clears(main_window, tmp_
     assert dock._current_tree().anchor.is_origin
 
 
-def test_master_detail_node_switch_warns_when_draft_discarded(main_window, tmp_path):
-    """design §9.4: switching to ANOTHER node while the current editor holds
-    unapplied edits replaces it (never blocks) but reports the lost draft in
-    the status row, and the Node tab now shows the NEW node's editor."""
+def test_master_detail_node_switch_accepts_the_draft(main_window, tmp_path):
+    """Ч1 of plan_2026_10_23_node_form_without_apply.md.
+
+    REPLACES test_master_detail_node_switch_warns_when_draft_discarded, whose
+    property — switching away THROWS the draft away — is exactly the one this
+    change removes: the switch now ACCEPTS the edit first, so the old node
+    carries the new name, the config is dirty, nothing says "discarded", and
+    the Node tab shows the NEW node's editor."""
     dock, _root = _dock_with(main_window, tmp_path)
     tree_widget = dock._tree_widget_of_page(dock.tree_tabs.widget(0))
     nodes = _children(_children(tree_widget.invisibleRootItem())[0])
@@ -557,16 +567,22 @@ def test_master_detail_node_switch_warns_when_draft_discarded(main_window, tmp_p
     assert isinstance(form, NodeFormWidget)
     form.name_edit.setText("unsaved")
     assert form._touched is True
-    tree_widget.setCurrentItem(nodes[1])  # R_AROUND — discards the draft
-    assert "Unapplied changes were discarded." in dock.status_label.text()
+    tree_widget.setCurrentItem(nodes[1])  # R_AROUND — the draft is ACCEPTED
+    assert dock._trees[0].nodes[0].name == "unsaved"
+    assert dock._dirty is True
+    assert "discarded" not in dock.status_label.text()
     new_form = _embedded_form(dock._active_form_page())
     assert isinstance(new_form, NodeFormWidget)
     assert new_form._existing is dock._trees[0].nodes[1]
 
 
-def test_rebuild_warns_when_active_page_form_touched(main_window, tmp_path):
-    """§7.1.2/design §9.4: _rebuild_tabs() clears every page, so a touched
-    form on the ACTIVE page is reported (non-blocking) before the rebuild."""
+def test_rebuild_accepts_the_active_page_form(main_window, tmp_path):
+    """§7.1.2/design §9.4 + Ч1 of plan_2026_10_23_node_form_without_apply.md.
+
+    REPLACES test_rebuild_warns_when_active_page_form_touched: _rebuild_tabs()
+    clears every page, so the touched form on the ACTIVE page is ACCEPTED
+    before the pages go — the edit survives the rebuild instead of being
+    reported as lost."""
     dock, _root = _dock_with(main_window, tmp_path)
     tree = dock._current_tree()
     tree_widget = dock._tree_widget_of_page(dock.tree_tabs.widget(0))
@@ -576,7 +592,8 @@ def test_rebuild_warns_when_active_page_form_touched(main_window, tmp_path):
     form.name_edit.setText("unsaved")
     assert form._touched is True
     dock._rebuild_tabs()
-    assert "Unapplied changes were discarded." in dock.status_label.text()
+    assert dock._trees[0].nodes[0].name == "unsaved"
+    assert dock._dirty is True
 
 
 def test_master_detail_same_node_reselect_keeps_editor(main_window, tmp_path):
@@ -3737,23 +3754,16 @@ def test_master_detail_module_node_apply_leaves_the_tree_pivot_untouched(
     assert dock._dirty is True
 
 
-def test_master_detail_redraw_button_enabled_for_module_node(main_window, tmp_path):
-    """2026-09-07 live bug (round 1): the master-detail Node tab's own Redraw
-    button (_form_action_row) had NO kind guard at all — unlike the modal
-    _NodeDialog (_update_redraw_state) — so clicking Redraw on a module node
-    reached run_single_node_redraw_worker with only=[<tree name>], which
-    ApplyPipeline can never resolve ("--only: names not found", since a module
-    node's ref is an embedded TREE's name, not a config record).
+def test_master_detail_row_carries_one_apply_button_whatever_the_kind(
+        main_window, tmp_path):
+    """Ч1 of plan_2026_10_23_node_form_without_apply.md.
 
-    Round 1 fixed this by disabling Redraw for "module" — but Denis pointed
-    out that's the wrong fix: Redraw on a module node should DO something
-    (place that module's own content), not just be blocked. Round 2
-    (_redraw_edited_node) routes "module" through the SAME forest-content-
-    activation machinery the "Full redraw" menu action uses
-    (run_curated_forest_redraw_worker, selected_refs={ref}) instead of the
-    plain --only worker — so the button stays ENABLED for "module" too; see
-    test_redraw_edited_node_module_kind_uses_forest_content_worker for the
-    actual dispatch."""
+    REPLACES the three Redraw-button guards (enabled for "module", enabled for
+    "placement", kind tracking). Their property — a Redraw button whose
+    enablement followed the kind — is the one this change removes: the row
+    carries ONE button, it says "Apply", and it is NEVER disabled by kind, not
+    even for "mount" (the kind the old pair switched OFF, so a mount edit could
+    not be looked at at all)."""
     dock, _root = _module_dock(main_window, tmp_path)
     fpga = _tree_of(dock, "fpga")
     module_node = fpga.nodes[0]  # ref "ch0_dac_buf", kind "module"
@@ -3766,14 +3776,20 @@ def test_master_detail_redraw_button_enabled_for_module_node(main_window, tmp_pa
     form = _embedded_form(page)
     assert isinstance(form, NodeFormWidget)
     assert form.kind_combo.currentData() == "module"
-    redraw_btn = _embedded_redraw_button(page)
-    assert redraw_btn.isEnabled() is True
+    apply_btn = _embedded_apply_button(page)
+    assert apply_btn.text() == "Apply"
+    assert apply_btn.isEnabled() is True
+
+    form.kind_combo.setCurrentIndex(form.kind_combo.findData("mount"))
+    assert _embedded_apply_button(page).isEnabled() is True
 
 
-def test_master_detail_redraw_button_enabled_for_placement_node(main_window, tmp_path):
-    """Regression guard for the fix above: a normal record-backed kind (here
-    "placement") must still get an ENABLED Redraw button — the new guard must
-    not accidentally disable everything."""
+def test_master_detail_apply_button_accepts_and_places(main_window, tmp_path,
+                                                       monkeypatch):
+    """The ONE button does BOTH halves: the edit is written onto the node and
+    the dock's own dispatch is asked to place it (trees_accept.apply_and_redraw
+    — accept first, then redraw; a placement kind goes through
+    _redraw_edited_node unchanged)."""
     dock, _root = _dock_with(main_window, tmp_path)
     tree_widget = dock._tree_widget_of_page(dock.tree_tabs.widget(0))
     nodes = _children(_children(tree_widget.invisibleRootItem())[0])
@@ -3781,36 +3797,13 @@ def test_master_detail_redraw_button_enabled_for_placement_node(main_window, tmp
     page = dock._active_form_page()
     form = _embedded_form(page)
     assert isinstance(form, NodeFormWidget)
-    assert form.kind_combo.currentData() in ("placement", "clone")
-    redraw_btn = _embedded_redraw_button(page)
-    assert redraw_btn.isEnabled() is True
-
-
-def test_master_detail_redraw_button_tracks_live_kind_changes(main_window, tmp_path):
-    """The master-detail Redraw button must re-evaluate when the user changes
-    Kind live in the form — not just once at construction (a stale enabled
-    state would let a name neither worker can resolve back in through an
-    edit). "mount" (whose position IS its anchor — nothing to redraw by
-    --only) is the still-disabled kind; Ч3 replaced "external" with it, since
-    "external" left the Kind menu altogether."""
-    dock, _root = _module_dock(main_window, tmp_path)
-    fpga = _tree_of(dock, "fpga")
-    module_node = fpga.nodes[0]  # ref "ch0_dac_buf", kind "module"
-    dock.tree_tabs.setCurrentIndex(dock._trees.index(fpga))
-    tree_widget = dock._tree_widget_of_page(dock.tree_tabs.currentWidget())
-    tree_widget.expandAll()
-    tree_widget.setCurrentItem(dock._node_items[module_node.ref])
-    page = dock._active_form_page()
-    form = _embedded_form(page)
-    redraw_btn = _embedded_redraw_button(page)
-
-    idx = form.kind_combo.findData("mount")
-    form.kind_combo.setCurrentIndex(idx)
-    assert redraw_btn.isEnabled() is False
-
-    idx = form.kind_combo.findData("placement")
-    form.kind_combo.setCurrentIndex(idx)
-    assert redraw_btn.isEnabled() is True
+    seen = []
+    monkeypatch.setattr(dock, "_redraw_edited_node",
+                        lambda node: seen.append(node))
+    form.name_edit.setText("applied_and_placed")
+    _embedded_apply_button(page).click()
+    assert dock._trees[0].nodes[0].name == "applied_and_placed"
+    assert seen and seen[0] is dock._trees[0].nodes[0]
 
 
 def test_render_tree_shows_module_tag(main_window, tmp_path):
@@ -4651,11 +4644,13 @@ def test_double_click_on_module_node_switches_tab(main_window, tmp_path, monkeyp
     assert switched == ["ch0"]
 
 
-def test_edit_dialog_has_apply_redraw_close_and_apply_mutates_in_place(
+def test_edit_dialog_has_one_apply_and_close_and_apply_mutates_in_place(
         main_window, tmp_path, monkeypatch):
-    """EDIT mode: the dialog carries Apply/Redraw/Close (no OK/Cancel); Apply
-    writes the form onto the existing node IN PLACE and marks the dock dirty
-    WITHOUT closing the dialog."""
+    """EDIT mode: the dialog carries Apply/Close (no OK/Cancel) — ONE Apply
+    since Ч1 of plan_2026_10_23_node_form_without_apply.md, REPLACING
+    test_edit_dialog_has_apply_redraw_close_and_apply_mutates_in_place whose
+    second button is the one that went. Apply writes the form onto the existing
+    node IN PLACE and marks the dock dirty WITHOUT closing the dialog."""
     import gui.docks.trees_dock as td_mod
     dock, _root = _dock_with(main_window, tmp_path)
     tree = dock._current_tree()
@@ -4667,7 +4662,7 @@ def test_edit_dialog_has_apply_redraw_close_and_apply_mutates_in_place(
                       sheet_names={}, tree=tree,
                       parent_node=dock._find_parent(tree, node), existing=node)
     assert dlg.apply_button is not None
-    assert dlg.redraw_button is not None
+    assert not hasattr(dlg, "redraw_button")
     assert dlg.close_button is not None
     assert not hasattr(dlg, "ok_button")
     dlg.name_edit.setText("renamed_via_apply")
@@ -4680,10 +4675,13 @@ def test_edit_dialog_has_apply_redraw_close_and_apply_mutates_in_place(
     assert "Applied" in dlg.apply_status_label.text()
 
 
-def test_edit_dialog_redraw_applies_then_requests_dock_redraw(
+def test_edit_dialog_apply_button_applies_then_requests_dock_redraw(
         main_window, tmp_path, monkeypatch):
-    """Redraw = Apply + a background per-node redraw request on the dock (the
-    real worker is start_long_op-driven, so here we just assert the request)."""
+    """The dialog's ONE Apply button = accept + a background per-node redraw
+    request on the dock (the real worker is start_long_op-driven, so here we
+    just assert the request). REPLACES
+    test_edit_dialog_redraw_applies_then_requests_dock_redraw: the behaviour
+    survived, the second button that used to trigger it did not."""
     dock, _root = _dock_with(main_window, tmp_path)
     tree = dock._current_tree()
     node = tree.nodes[0]
@@ -4694,9 +4692,9 @@ def test_edit_dialog_redraw_applies_then_requests_dock_redraw(
                       "Edit node", cfg=dock._cfg, adapter=None,
                       sheet_names={}, tree=tree,
                       parent_node=dock._find_parent(tree, node), existing=node)
-    assert dlg.redraw_button.isEnabled() is True  # placement/clone kind + dock
+    assert dlg.apply_button.isEnabled() is True
     dlg.name_edit.setText("redrawn_via_apply")
-    dlg._on_redraw()
+    dlg.apply_button.click()
     assert node.name == "redrawn_via_apply"
     assert requested and requested[0] is node
 
