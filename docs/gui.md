@@ -2832,14 +2832,30 @@ drill/diameter differs (a mismatch does NOT split the group).
 Why duplicates exist at all, and what to collect when they reappear:
 [docs/commands.md](commands.md), section `dedupe`.
 
-## Checks (2026-10-22)
+## Checks (2026-10-22, moved 2026-10-23)
 
-A third bottom tab, **tabified with the Log** (View → Checks), that LAUNCHES the three read-only
-CLI checks and shows their output: **Placement**, **Config records**, **Footprints vs library**.
-The checks themselves stay CLI scripts in `tools/` ([docs/check_scripts.md](check_scripts.md)) —
-the tab adds no logic of its own, so what it prints is byte for byte what the terminal prints.
+The **Checks** page — FOURTH in the left tab row (**Components | Config | Trees | Checks**, the
+place was named by Denis on 23.10) — that LAUNCHES the four read-only CLI checks: **Placement**,
+**Config records**, **Footprints vs library** and **Duplicate mounts**. The left half is the tree
+of checks (one row per check, with the verdict of its last run and how long it took), the right
+half is the SELECTED check's view. The checks themselves stay CLI scripts in `tools/`
+([docs/check_scripts.md](check_scripts.md)) — the page adds no logic of its own, so what it prints
+is byte for byte what the terminal prints.
 
-- every button runs the SAME script in a **separate process** (`QProcess`, `sys.executable`, `-u`),
+- **Run** runs the SELECTED check, **Run all** queues every check in registry order (the next one
+  starts only after the previous finished). One process at a time: while a check runs, Run, Run
+  all and the menu items are disabled. **Stop** kills the running check and drops whatever the
+  queue had not started yet — the status line says the rest was cancelled;
+- every check keeps its OWN last output and status: selecting another row shows THAT check's
+  report without re-running anything, and **Copy** copies the SELECTED check's own output;
+- the row says what the last run said: `·` never run, `✔` clean, `⚠` problems found, `✖`
+  refused/crashed/stopped (the same vocabulary as the status colour), plus the duration;
+- the **Checks** menu (between Tools and View) is a shortcut, not a second door: one item per check
+  plus **Run all**. An item shows that check's row on the page and runs it; the items are disabled
+  without a project and while anything runs;
+- **Duplicate mounts** runs `tools/merge_duplicate_mounts.py` as a DRY run — the GUI never passes
+  `--write`, so the page reports duplicate anchors and never rewrites the profile;
+- every run is the SAME script in a **separate process** (`QProcess`, `sys.executable`, `-u`),
   with stdout and stderr merged in arrival order; the child gets `PYTHONIOENCODING=utf-8`. `-u` is
   what makes the report arrive line by line — a piped Python block-buffers by default;
 - the argument is the OPEN project's config FILE (the same path the root dock holds), so switching

@@ -1,116 +1,169 @@
 # gui/docks/checks.py
-"""ChecksDock — "Checks": a LAUNCHER for the three read-only CLI checks (`tools/check_*.py`).
+"""The "Checks" PAGE — fourth page of the left tab row (Components | Config | Trees | Checks).
 
-Plan: techdocs/handoff/deepseek/plan/plan_2026_10_22_checks_tab.md. The checks stay where they
-are: CLI scripts, the one source of truth (docs/check_scripts.md). This dock runs the same
-script in a SEPARATE PROCESS and shows its output — it carries no check logic of its own, so
-the tab and the terminal can never disagree about what a check means:
+Plan: plan_2026_10_23_checks_tab_top_level.md (place named by Denis, 23.10) on top of
+plan_2026_10_22_checks_tab.md. Shape: a TREE of the CLI checks on the left, the selected check's
+QView on the right:
 
-  * `QProcess` with `MergedChannels` — stdout and stderr in the order the OS hands them over,
-    exactly the interleaving a terminal shows (the config loader's warnings travel through
-    `logging`, i.e. stderr);
-  * the child is started with `-u` (a Python whose stdout is a PIPE block-buffers in 8 KB
-    chunks: without it the report would appear only when the process ends) and with
-    `PYTHONIOENCODING=utf-8`, so decoding never depends on the parent's locale;
-  * the bytes are decoded once and kept: "Copy" puts on the clipboard EXACTLY what the script
-    wrote, and the warning line the dock may prepend is deliberately NOT part of it;
-  * one run at a time. A second start is impossible while one runs (buttons are disabled and
-    the handler re-checks), and a start never lands in the middle of the GUI's own IPC
-    transaction: `socket_busy` + exactly ONE deferred retry, the project's usual seam — the
-    script reads the LIVE board, and the GUI may be writing it right now.
-  * the exit code is what the status line speaks: 0 clean (green), 1 problems found (yellow),
-    2 refused (red); anything else — a crash, "could not start", "stopped" — is red with the
-    reason. `gui/checks_registry.exit_level` owns that vocabulary;
-  * one Log line per run (`Check <script>: exit <code> (<seconds> s)`), no modal windows: the
-    pane and the Log ARE the report.
+  * the tree has ONE row per check from `gui/checks_registry.CHECKS` — the verdict of its LAST
+    run (never run / clean / problems / refused-or-crashed, by the exit code, the same vocabulary
+    `exit_level` owns) and how long that run took. Error kinds and single errors are Ч2 (they
+    need the scripts' `--json`); this page must not pretend to know them.
+  * EVERY check keeps its OWN last output and status: selecting another row shows that check's
+    report without re-running anything, and "Copy" hands over the SELECTED check's own bytes.
+  * one process at a time — "Run" runs the SELECTED check, "Run all" queues every check in
+    registry order and starts the next one only when the previous has finished.
 
-Nothing here reads the board: the check has its own KiCad connection, in its own process, so
-the board door does not grow and the window cannot freeze on IPC.
-
-The dock is a bottom QDockWidget TABIFIED WITH THE LOG (`gui/dock_hub.py`), the same shape as
-the copper-duplicates panel, so its View-menu entry is Qt's own toggleViewAction.
+What does NOT change from the accepted 22–23.10 tab: the checks stay CLI scripts and the page
+only LAUNCHES them (own process, own KiCad connection, `-u`, `PYTHONIOENCODING=utf-8`,
+`MergedChannels`, one incremental UTF-8 decoder per run with its tail flushed at the end), a
+start never lands inside the GUI's own IPC transaction (`socket_busy` + exactly ONE deferred
+retry), no modal windows (rule 43), and "Copy" never includes the page's own warning line.
 """
 import codecs
 import logging
+from dataclasses import dataclass
 from time import perf_counter
+from typing import Optional
 
 from PyQt6.QtCore import QProcess, QProcessEnvironment, Qt, pyqtSignal
 from PyQt6.QtGui import QFontDatabase, QTextCursor
-from PyQt6.QtWidgets import (QApplication, QDockWidget, QHBoxLayout, QLabel,
-                             QPlainTextEdit, QPushButton, QVBoxLayout, QWidget)
+from PyQt6.QtWidgets import (QApplication, QHBoxLayout, QLabel, QPlainTextEdit,
+                             QPushButton, QSplitter, QTreeWidget, QTreeWidgetItem,
+                             QVBoxLayout, QWidget)
 
 from kicadstamp.config_working_set import WORKING_SET
 from kicadstamp.i18n import _
 
-from ..checks_registry import CHECKS, command_for, exit_level, find_repo_root
+from ..checks_registry import CHECKS, command_for, exit_level
 from ..worker import defer_while_socket_busy, socket_busy
 from ._common import style_for_level
 
 logger = logging.getLogger(__name__)
 
+#: The verdict glyph of a tree row. A check that never ran must not look clean, and a run that
+#: crashed or was stopped must not look like "problems found" — both land on the error glyph by
+#: `exit_level`, which is also what colours the status line.
+_GLYPHS = {"success": "✔", "warn": "⚠", "error": "✖"}
+_NOT_RUN = "·"
 
-class ChecksDock(QDockWidget):
-    """Bottom dock: run one CLI check at a time, show its output, colour its exit code."""
 
-    #: One finished run: (button title, exit code or None, seconds). Emitted for a crashed,
-    #: unstarted and user-stopped run too — a caller waiting on a run must never hang.
+@dataclass
+class CheckState:
+    """What ONE check has to remember between runs — its own output, verdict and timing."""
+
+    #: The script's OWN bytes (what "Copy" copies) — the page's warning line is not in it.
+    output: str = ""
+    #: The warning line (unsaved working set) prepended to the PANE only, for THIS run.
+    warning: str = ""
+    code: Optional[int] = None
+    seconds: Optional[float] = None
+    #: True while THIS check's process is alive.
+    running: bool = False
+    #: The status line of the last run (or of the refusal that stopped it from starting).
+    message: str = ""
+    level: Optional[str] = None
+    #: True once a run has FINISHED (a refused start is not a run: the row keeps "not run").
+    started: bool = False
+
+    def glyph(self) -> str:
+        """The row's verdict: a live run shows the ellipsis, a check that never FINISHED a run
+        shows the neutral dot, everything else follows `exit_level` (so crashed/stopped is not
+        "problems found")."""
+        if self.running:
+            return "…"
+        if not self.started:
+            return _NOT_RUN
+        return _GLYPHS[exit_level(self.code)]
+
+
+class ChecksPage(QWidget):
+    """Tree of checks + the selected check's view; one check process at a time."""
+
+    #: One finished run: (script, exit code or None, seconds). Emitted for a crashed, unstarted
+    #: and user-stopped run too — a caller waiting on a run must never hang.
     finished = pyqtSignal(object, object, float)
+    #: Anything the menu needs to re-read (a project opened, a run started or ended).
+    state_changed = pyqtSignal()
 
     def __init__(self, main_window, connection=None, *, scripts_root=None, python=None):
-        super().__init__(_("Checks"), main_window)
-        # A stable objectName is what QMainWindow.saveState()/restoreState() map a saved
-        # layout blob back to (same reason LogDock and DedupeDock set one).
-        self.setObjectName("checks_dock")
+        super().__init__()
+        #: NOT a dock any more (23.10): the page is a `left_tabs` page, so it carries no
+        #: objectName/`toggleViewAction` of its own.
         self._main_window = main_window
         self._connection = (connection if connection is not None
                             else getattr(main_window, "connection", None))
         #: The profile's config FILE — what `root_metadata.root_path` holds, and the one
-        #: argument all three scripts accept. None = no project open = buttons disabled.
+        #: argument every check script accepts. None = no project open = nothing to run.
         self._root_path = None
         #: Test seams: a tree that carries `tools/` and the interpreter to run. Production
         #: passes neither (the tree is found by `checks_registry.find_repo_root`).
         self._scripts_root = scripts_root
         self._python = python
         self._process = None
-        self._check = None
+        #: The script the running process belongs to.
+        self._current: Optional[str] = None
         self._started_at = 0.0
         self._stopping = False
-        #: The SCRIPT's own bytes (what "Copy" copies) — the warning line below is not in it.
-        self._output = ""
-        #: ONE incremental UTF-8 decoder per run. A pipe may deliver a chunk that ends in the
-        #: middle of a multi-byte character ("—", "→", or any Cyrillic in a ru report), and
-        #: decoding each chunk on its own turned the halves into U+FFFD — the pane and "Copy"
-        #: then carried a broken character (acceptance finding Д-1, 22.10.2026).
+        #: "Run all" order still to start — one process at a time, the next starts on finish.
+        self._queue: list = []
+        #: How many queued checks a Stop dropped — named in the status line, never silent.
+        self._queue_cancelled = 0
+        #: ONE incremental UTF-8 decoder per run (Д-1 of the 22.10 acceptance).
         self._decoder = None
+        self._states = {check.script: CheckState() for check in CHECKS}
 
-        container = QWidget()
-        layout = QVBoxLayout(container)
+        layout = QVBoxLayout(self)
         layout.setContentsMargins(4, 4, 4, 4)
+        splitter = QSplitter(Qt.Orientation.Horizontal, self)
+        layout.addWidget(splitter, 1)
+
+        self.tree = QTreeWidget()
+        self.tree.setColumnCount(2)
+        self.tree.setHeaderLabels([_("Check"), _("Last run")])
+        self.tree.setRootIsDecorated(False)
+        self.tree.setUniformRowHeights(True)
+        # 1, not 0 — Qt treats an explicit 0 as "unset" (gui/docks/log_panel.py:157).
+        self.tree.setMinimumWidth(1)
+        self._items = {}
+        for check in CHECKS:
+            item = QTreeWidgetItem([check.title, ""])
+            item.setToolTip(0, check.tooltip)
+            item.setData(0, Qt.ItemDataRole.UserRole, check.script)
+            self.tree.addTopLevelItem(item)
+            self._items[check.script] = item
+        self.tree.currentItemChanged.connect(self._on_current_changed)
+        splitter.addWidget(self.tree)
+
+        view = QWidget()
+        view_layout = QVBoxLayout(view)
+        view_layout.setContentsMargins(0, 0, 0, 0)
 
         row = QHBoxLayout()
-        # One button per check, each label/tooltip its OWN literal `_()` (in the registry):
-        # pybabel extracts literals, so a `_(check.title)` at runtime would be invisible.
-        self.check_buttons = {}
-        for check in CHECKS:
-            button = QPushButton(check.title)
-            button.setToolTip(check.tooltip)
-            button.clicked.connect(lambda _checked=False, c=check: self._on_check(c))
-            self.check_buttons[check.script] = button
-            row.addWidget(button)
+        self.run_button = QPushButton(_("Run"))
+        self.run_button.setToolTip(_("Run the SELECTED check"))
+        self.run_button.clicked.connect(self._on_run_clicked)
+        row.addWidget(self.run_button)
+        self.run_all_button = QPushButton(_("Run all"))
+        self.run_all_button.setToolTip(_("Run every check, one after another"))
+        self.run_all_button.clicked.connect(self.run_all)
+        row.addWidget(self.run_all_button)
         self.stop_button = QPushButton(_("Stop"))
         self.stop_button.setToolTip(_("Stop the running check"))
-        self.stop_button.clicked.connect(self._on_stop)
+        self.stop_button.clicked.connect(self.stop)
         row.addWidget(self.stop_button)
         self.copy_button = QPushButton(_("Copy"))
-        self.copy_button.setToolTip(_("Copy the report exactly as the script printed it"))
-        self.copy_button.clicked.connect(self._on_copy)
+        self.copy_button.setToolTip(_("Copy the SELECTED check's report exactly as the script "
+                                      "printed it"))
+        self.copy_button.clicked.connect(self.copy)
         row.addWidget(self.copy_button)
-        layout.addLayout(row)
+        row.addStretch(1)
+        view_layout.addLayout(row)
 
         self.status_label = QLabel("")
         self.status_label.setTextFormat(Qt.TextFormat.PlainText)
         self.status_label.setWordWrap(True)
-        layout.addWidget(self.status_label)
+        view_layout.addWidget(self.status_label)
 
         # The two facts a report cannot tell by itself: it is a snapshot of the START, and a
         # live check needs this profile's board open. Permanent, not a one-off message.
@@ -118,24 +171,51 @@ class ChecksDock(QDockWidget):
             _("A check reads the board as of the moment it starts — changes made while it "
               "runs are not in its report."))
         self.hint_label.setWordWrap(True)
-        layout.addWidget(self.hint_label)
+        view_layout.addWidget(self.hint_label)
 
         self.output = QPlainTextEdit()
         self.output.setReadOnly(True)
         self.output.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
         self.output.setFont(QFontDatabase.systemFont(
             QFontDatabase.SystemFont.FixedFont))
-        # The same rule LogDock follows (gui/docks/log_panel.py:161): a QPlainTextEdit
-        # scrolls its own content, so its natural minimumSizeHint must not floor how small
-        # the shared BOTTOM AREA can shrink. Measured 22.10.2026: without this the tab's
-        # minimum height was 174 px and `resizeDocks([log], [200])` was clamped to it,
-        # breaking the exact-delta guard of tests/gui/test_dock_sizing.py (174 vs 171).
-        # 1, NOT 0 — Qt treats an explicit 0 as "unset" and falls back to the layout hint.
+        # A QPlainTextEdit scrolls its own content, so its natural minimumSizeHint must not
+        # floor the page: 1, NOT 0 (Qt treats 0 as "unset"; see gui/docks/log_panel.py:157).
         self.output.setMinimumHeight(1)
-        layout.addWidget(self.output, 1)
-        self.setWidget(container)
+        view_layout.addWidget(self.output, 1)
+        splitter.addWidget(view)
+        splitter.setStretchFactor(0, 1)
+        splitter.setStretchFactor(1, 3)
 
+        first = self.tree.topLevelItem(0)
+        if first is not None:
+            self.tree.setCurrentItem(first)
+        self._update_rows()
         self._update_buttons()
+
+    # ── the checks, as data ─────────────────────────────────────────────────
+
+    @staticmethod
+    def check_for(script: str):
+        """The registry row of `script`, or None — the ONE lookup every door shares."""
+        return next((c for c in CHECKS if c.script == script), None)
+
+    def state_of(self, script: str) -> CheckState:
+        return self._states[script]
+
+    def selected_script(self) -> Optional[str]:
+        item = self.tree.currentItem()
+        return item.data(0, Qt.ItemDataRole.UserRole) if item is not None else None
+
+    def select(self, script: str) -> None:
+        """Make `script` the selected row — the menu's door and the tests' handle."""
+        item = self._items.get(script)
+        if item is not None:
+            self.tree.setCurrentItem(item)
+
+    def run_from_menu(self, script: str) -> None:
+        """A "Checks" menu item: show that check's row, then run IT — never the first one."""
+        self.select(script)
+        self.run(script)
 
     # ── state ───────────────────────────────────────────────────────────────
 
@@ -144,18 +224,57 @@ class ChecksDock(QDockWidget):
         the same contract every other dock follows. No project → nothing to check."""
         self._root_path = path
         self._update_buttons()
+        self.state_changed.emit()
+
+    @property
+    def has_project(self) -> bool:
+        return self._root_path is not None
 
     def is_running(self) -> bool:
-        """True while a check process is alive — the ONE definition used by the buttons."""
+        """True while a check process is alive — the ONE definition the buttons and menu use."""
         return self._process is not None
 
+    def can_run(self) -> bool:
+        """Everything "Run"/"Run all"/a menu item needs: a project and no live process."""
+        return self.has_project and not self.is_running()
+
     def _update_buttons(self) -> None:
-        running = self.is_running()
-        has_project = self._root_path is not None
-        for button in self.check_buttons.values():
-            button.setEnabled(has_project and not running)
-        self.stop_button.setEnabled(running)
-        self.copy_button.setEnabled(bool(self._output))
+        runnable = self.can_run()
+        self.run_button.setEnabled(runnable)
+        self.run_all_button.setEnabled(runnable)
+        self.stop_button.setEnabled(self.is_running())
+        self._update_copy()
+
+    def _update_copy(self) -> None:
+        script = self.selected_script()
+        self.copy_button.setEnabled(
+            bool(script is not None and self._states[script].output))
+
+    def _update_rows(self) -> None:
+        for check in CHECKS:
+            state = self._states[check.script]
+            item = self._items[check.script]
+            item.setText(0, f"{state.glyph()} {check.title}")
+            if state.running:
+                item.setText(1, _("running…"))
+            elif state.seconds is None:
+                item.setText(1, "")
+            else:
+                item.setText(1, _("{seconds:.0f} s").format(seconds=state.seconds))
+
+    def _on_current_changed(self, _current, _previous) -> None:
+        """Another row selected: show ITS last report and status — never re-run anything."""
+        script = self.selected_script()
+        state = self._states[script] if script is not None else CheckState()
+        self._show_status(state.message, state.level)
+        self._render_pane(state)
+        self._update_copy()
+
+    def _render_pane(self, state: CheckState) -> None:
+        """The pane is the check's own bytes; the working-set warning rides on TOP of them
+        and stays out of `state.output` (what "Copy" hands over)."""
+        text = (state.warning + "\n" if state.warning else "") + state.output
+        self.output.setPlainText(text)
 
     def _show_status(self, text: str, level) -> None:
         """One status line: the text plus the colour of its level (None = no colour, i.e.
@@ -163,58 +282,109 @@ class ChecksDock(QDockWidget):
         self.status_label.setText(text)
         self.status_label.setStyleSheet(style_for_level(level) if level else "")
 
+    def _set_message(self, script: str, text: str, level) -> None:
+        state = self._states[script]
+        state.message = text
+        state.level = level
+        if self.selected_script() == script:
+            self._show_status(text, level)
+        self._update_rows()
+
     # ── buttons ─────────────────────────────────────────────────────────────
 
-    def _on_check(self, check) -> None:
-        if self.is_running() or self._root_path is None:
+    def _on_run_clicked(self) -> None:
+        script = self.selected_script()
+        if script is not None:
+            self.run(script)
+
+    def copy(self) -> None:
+        """Exactly the SELECTED check's own output — never the page's warning line, never
+        the report of whichever check happened to run last."""
+        script = self.selected_script()
+        if script is None:
             return
-        # Never start in the middle of the GUI's own IPC transaction: the script reads the
-        # LIVE board. One deferred retry covers the ~400 ms selection-poll tick that holds
-        # the socket 16.4 % of the time; a second refusal is a real refusal.
-        defer_while_socket_busy(self._connection, (), lambda: self._launch(check),
-                                self._warn_busy, owner=self)
+        QApplication.clipboard().setText(self._states[script].output)
 
-    def _warn_busy(self) -> None:
-        """The deferred attempt met a busy socket again — say so, do not run half-blind."""
-        text = _("KiCad is busy — try again in a moment.")
-        self._show_status(text, "error")
-        logger.info("Check: not started — %s", text)
-
-    def _on_stop(self) -> None:
-        """Kill the running check. `finished` still arrives (CrashExit) and says "stopped"."""
+    def stop(self) -> None:
+        """Kill the running check and drop whatever "Run all" had not started yet."""
         if self._process is None:
             return
+        cancelled = len(self._queue)
+        self._queue.clear()
         self._stopping = True
+        self._queue_cancelled = cancelled
         self._process.kill()
 
-    def _on_copy(self) -> None:
-        """Exactly the script's own output — never the dock's warning line."""
-        QApplication.clipboard().setText(self._output)
+    def run_all(self) -> None:
+        """Queue EVERY check in registry order; the next one starts when the previous ends."""
+        if not self.can_run():
+            return
+        self._queue = [check.script for check in CHECKS]
+        self._start_next()
+
+    def _start_next(self) -> None:
+        if not self._queue or self.is_running():
+            return
+        script = self._queue.pop(0)
+        self.select(script)
+        self.run(script)
+
+    def run(self, script: str) -> None:
+        """THE door every caller uses (Run button, "Run all", the menu item, the tests): one
+        process at a time, and a start never lands inside the GUI's own IPC transaction."""
+        check = self.check_for(script)
+        if check is None or not self.can_run():
+            return
+        # The script reads the LIVE board. One deferred retry covers the ~400 ms
+        # selection-poll tick that holds the socket 16.4 % of the time; a second refusal is a
+        # real refusal.
+        defer_while_socket_busy(self._connection, (), lambda: self._launch(check),
+                                lambda: self._warn_busy(script), owner=self)
+
+    def _warn_busy(self, script: str) -> None:
+        """The deferred attempt met a busy socket again — say so, do not run half-blind."""
+        text = _("KiCad is busy — try again in a moment.")
+        self._set_message(script, text, "error")
+        logger.info("Check %s: not started — %s", script, text)
+        self._queue.clear()
+        self._update_buttons()
+        self.state_changed.emit()
 
     # ── the run ─────────────────────────────────────────────────────────────
 
     def _launch(self, check) -> None:
+        script = check.script
         argv, reason = command_for(check, self._root_path,
                                    root=self._scripts_root, python=self._python)
         if argv is None:
-            self._output = ""
-            self.output.clear()
-            self._show_status(reason, "error")
-            logger.warning("Check %s: %s", check.script, reason)
+            state = self._states[script]
+            state.output = ""
+            state.warning = ""
+            state.seconds = None
+            state.started = False
+            state.running = False
+            self._set_message(script, reason, "error")
+            self._render_pane(state)
+            logger.warning("Check %s: %s", script, reason)
+            self._queue.clear()
             self._update_buttons()
+            self.state_changed.emit()
             return
 
-        self._check = check
+        state = self._states[script]
+        state.output = ""
+        state.warning = ""
+        state.seconds = None
+        state.running = True
+        self._current = script
         self._stopping = False
-        self._output = ""
+        self._queue_cancelled = 0
         self._decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
-        self.output.clear()
         if WORKING_SET.is_dirty():
             # The scripts read the profile FROM DISK; the GUI's unsaved edits are not there.
             # Prepended to the PANE only — "Copy" still hands over the script's own bytes.
-            self._warning = _("The check reads the SAVED profile — unsaved config changes "
+            state.warning = _("The check reads the SAVED profile — unsaved config changes "
                               "are not visible to it.")
-            self.output.setPlainText(self._warning + "\n")
 
         process = QProcess(self)
         # One stream: stdout and stderr in the order they arrive, like a terminal.
@@ -228,23 +398,30 @@ class ChecksDock(QDockWidget):
 
         self._process = process
         self._started_at = perf_counter()
-        self._show_status(_("{name} is running…").format(name=check.title), None)
+        self._set_message(script, _("{name} is running…").format(name=check.title), None)
+        if self.selected_script() == script:
+            self._render_pane(state)
         self._update_buttons()
+        self.state_changed.emit()
         process.start(argv[0], argv[1:])
 
     def _on_output(self) -> None:
         process = self._process
-        if process is None or self._decoder is None:
+        if process is None or self._decoder is None or self._current is None:
             return
         chunk = self._decoder.decode(bytes(process.readAllStandardOutput()))
         self._append_output(chunk)
 
     def _append_output(self, chunk: str) -> None:
-        """Append one already-decoded piece to the report (kept bytes: `_output`) and to the
-        pane. ONE place, so the text "Copy" hands over can never drift from what is shown."""
-        if not chunk:
+        """Append one already-decoded piece to the CURRENT check's report (kept bytes:
+        `state.output`) and to the pane. ONE place, so the text "Copy" hands over can never
+        drift from what is shown."""
+        if not chunk or self._current is None:
             return
-        self._output += chunk
+        state = self._states[self._current]
+        state.output += chunk
+        if self.selected_script() != self._current:
+            return
         self.output.moveCursor(QTextCursor.MoveOperation.End)
         self.output.insertPlainText(chunk)
 
@@ -269,42 +446,59 @@ class ChecksDock(QDockWidget):
 
     def _on_finished(self, code, status) -> None:
         process = self._process
-        if process is None:
+        if process is None or self._current is None:
             return
+        script = self._current
         self._process = None
         process.deleteLater()
+        # BEFORE `_current` is cleared: the tail belongs to THIS check's report (the Д-3 cell
+        # went red the moment the flush ran after the clear — `_append_output` had no target).
         self._flush_decoder()
-        seconds = perf_counter() - self._started_at
-        check = self._check
+        self._current = None
+        state = self._states[script]
+        state.running = False
+        state.started = True
+        state.code = code
+        state.seconds = perf_counter() - self._started_at
+        check = self.check_for(script)
         stopped, self._stopping = self._stopping, False
-        self._update_buttons()
+        cancelled, self._queue_cancelled = getattr(self, "_queue_cancelled", 0), 0
 
         if stopped:
-            self._show_status(
-                _("{name}: stopped after {seconds:.1f} s").format(
-                    name=check.title, seconds=seconds), "error")
-            logger.info("Check %s: stopped by the user after %.1f s", check.script, seconds)
+            if cancelled:
+                # "Run all" was running: the rest of the queue was dropped, not started. ONE
+                # whole sentence, not a glued fragment — a translator must see the context.
+                text = _("{name}: stopped after {seconds:.1f} s — the rest of the run is "
+                         "cancelled").format(name=check.title, seconds=state.seconds)
+            else:
+                text = _("{name}: stopped after {seconds:.1f} s").format(
+                    name=check.title, seconds=state.seconds)
+            self._set_message(script, text, "error")
+            logger.info("Check %s: stopped by the user after %.1f s", script, state.seconds)
         elif status == QProcess.ExitStatus.CrashExit:
-            self._show_status(
-                _("{name}: crashed (exit code {code}) after {seconds:.1f} s").format(
-                    name=check.title, code=code, seconds=seconds), "error")
+            self._set_message(script, _("{name}: crashed (exit code {code}) after "
+                                        "{seconds:.1f} s").format(
+                name=check.title, code=code, seconds=state.seconds), "error")
             logger.warning("Check %s: crashed, exit code %s, %.1f s",
-                           check.script, code, seconds)
+                           script, code, state.seconds)
         elif code in (0, 1, 2):
             words = {0: _("clean"), 1: _("problems found"), 2: _("refused")}[code]
-            self._show_status(
-                _("{name}: {words} — exit {code}, {seconds:.1f} s").format(
-                    name=check.title, words=words, code=code, seconds=seconds),
+            self._set_message(script, _("{name}: {words} — exit {code}, {seconds:.1f} s").format(
+                name=check.title, words=words, code=code, seconds=state.seconds),
                 exit_level(code))
             # The one Log line per run — the same wording the docs use.
-            logger.info("Check %s: exit %s (%.1f s)", check.script, code, seconds)
+            logger.info("Check %s: exit %s (%.1f s)", script, code, state.seconds)
         else:
-            self._show_status(
-                _("{name}: unexpected exit code {code} after {seconds:.1f} s").format(
-                    name=check.title, code=code, seconds=seconds), "error")
+            self._set_message(script, _("{name}: unexpected exit code {code} after "
+                                        "{seconds:.1f} s").format(
+                name=check.title, code=code, seconds=state.seconds), "error")
             logger.warning("Check %s: unexpected exit code %s (%.1f s)",
-                           check.script, code, seconds)
-        self.finished.emit(check.title, code, seconds)
+                           script, code, state.seconds)
+        self._update_buttons()
+        self._update_copy()
+        self.state_changed.emit()
+        self.finished.emit(script, code, state.seconds)
+        self._start_next()
 
     def _on_error(self, error) -> None:
         """`FailedToStart` only: no interpreter, no script, no permission — a red line with the
@@ -318,21 +512,20 @@ class ChecksDock(QDockWidget):
         if error != QProcess.ProcessError.FailedToStart:
             return
         process = self._process
-        if process is None:
+        if process is None or self._current is None:
             return
+        script = self._current
         reason = process.errorString()
         self._process = None
+        self._current = None
         process.deleteLater()
+        state = self._states[script]
+        state.running = False
+        state.started = False
+        self._set_message(script, _("{name}: could not start — {reason}").format(
+            name=self.check_for(script).title, reason=reason), "error")
+        logger.error("Check %s: could not start — %s", script, reason)
+        self._queue.clear()
         self._update_buttons()
-        self._show_status(
-            _("{name}: could not start — {reason}").format(
-                name=self._check.title, reason=reason), "error")
-        logger.error("Check %s: could not start — %s", self._check.script, reason)
-        self.finished.emit(self._check.title, None, 0.0)
-
-    def closeEvent(self, event) -> None:
-        """Closing the tab stops a running check: its output has nowhere to go, and a
-        report nobody can read is worse than an honest "stopped"."""
-        if self._process is not None:
-            self._on_stop()
-        super().closeEvent(event)
+        self.state_changed.emit()
+        self.finished.emit(script, None, 0.0)

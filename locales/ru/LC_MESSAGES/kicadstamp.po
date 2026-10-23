@@ -18439,6 +18439,61 @@ msgstr "KiCad отклонил перемещение {ref!r} — плата н�
 msgid "footprint {ref!r} not found on the board"
 msgstr "футпринт {ref!r} не найден на плате"
 
+#: gui/docks/checks.py:139
+msgid "Check"
+msgstr "Проверка"
+
+#: gui/docks/checks.py:140
+msgid "Last run"
+msgstr "Последний прогон"
+
+#: gui/docks/checks.py:145
+msgid "Run"
+msgstr "Запустить"
+
+#: gui/docks/checks.py:150
+msgid "Run all"
+msgstr "Запустить все"
+
+#: gui/docks/checks.py:151
+msgid "Run the SELECTED check"
+msgstr "Запустить ВЫБРАННУЮ проверку"
+
+#: gui/checks_menu.py:44
+msgid "Run every check, one after another"
+msgstr "Запустить все проверки по очереди"
+
+#: gui/docks/checks.py:157
+msgid "Copy the SELECTED check's report exactly as the script printed it"
+msgstr "Скопировать отчёт ВЫБРАННОЙ проверки ровно так, как его напечатал скрипт"
+
+#: gui/docks/checks.py:222
+msgid "running…"
+msgstr "выполняется…"
+
+#: gui/docks/checks.py:212
+#, python-brace-format
+msgid "{seconds:.0f} s"
+msgstr "{{seconds:.0f}} с"
+
+#: gui/docks/checks.py:471
+#, python-brace-format
+msgid ""
+"{name}: stopped after {seconds:.1f} s — the rest of the run is "
+"cancelled"
+msgstr "{name}: остановлено через {seconds:.1f} с — остаток очереди отменён"
+
+#: gui/checks_registry.py:62
+msgid "Duplicate mounts"
+msgstr "Дубли опор mount"
+
+#: gui/checks_registry.py:63
+msgid ""
+"Does any tree carry two mount nodes on the same anchor? Reads the profile's "
+"config and writes NOTHING — a dry run."
+msgstr "Есть ли в каком-то дереве два узла mount на одном якоре? Читает конфиг профиля и НИЧЕГО не пишет — сухой прогон."
+
+
 #~ msgid ""
 #~ "role {role!r} occurs {count} times in"
 #~ " cluster {cluster!r} — this is a "

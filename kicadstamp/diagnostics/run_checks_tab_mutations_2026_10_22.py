@@ -14,11 +14,20 @@ those decisions and must turn a named cell red:
   M6  the tail of a run that ended mid-character is
       never flushed (Д-3)                               (gui/docks/checks.py `_on_finished`)
   M7  the flush is not final — `decode(b"", False)`     (gui/docks/checks.py `_flush_decoder`)
-  M8  cosmetic control (a comment must change nothing)
+  M8  every check's output goes to the FIRST one        (gui/docks/checks.py `_append_output`)
+  M9  Copy ignores the selected row                     (gui/docks/checks.py `copy`)
+  M10 a finished run does not touch its row             (gui/docks/checks.py `_update_rows`)
+  M11 "Run" runs the FIRST check, not the selected      (gui/docks/checks.py `_on_run_clicked`)
+  M12 the page is not in the left tab row (23.10)       (gui/dock_hub.py `__init__`)
+  M13 `--write` reaches the duplicate-mounts command    (gui/checks_registry.py `command_for`)
+  M14 "Run all" launches every check at once            (gui/docks/checks.py `run_all`)
+  M15 Stop keeps the queue                              (gui/docks/checks.py `stop`)
+  M16 a menu item runs the FIRST check                  (gui/checks_menu.py `build_checks_menu`)
+  M17 cosmetic control (a comment must change nothing)
 
-M6 and M7 arrived with acceptance Д-3 (23.10.2026); the control row that used to be M6 is M8 now.
-Both redden exactly ONE cell — the Д-1 cell staying green is what says the row hit the flush and
-not the incremental decoder as such.
+M6 and M7 arrived with acceptance Д-3 (23.10.2026); M8–M16 with the page move (Ч1 of
+plan_2026_10_23_checks_tab_top_level, 23.10). The control row has been renumbered twice and is
+always LAST: M6 -> M8 (Д-3) -> M17 (page move).
 
 Safeguards, the same as every harness in this package: a template that matches more than once
 is refused (a silent miss is indistinguishable from a healthy guard — rule 38); a row that
@@ -54,15 +63,12 @@ MUTATIONS = [
      "        process.setProcessChannelMode("
      "QProcess.ProcessChannelMode.SeparateChannels)  # MUTATION\n",
      ["test_the_pane_is_the_scripts_own_bytes_and_exit_1_is_yellow",
-      "test_copy_hands_over_the_script_bytes",
+      "test_copy_hands_over_the_selected_scripts_bytes",
       "test_a_dirty_working_set_warns_in_the_pane_but_not_in_the_copied_text"]),
 
     ("M3 a stopped run is reported as a crash", CHECKS,
-     "        if stopped:\n            self._show_status(\n"
-     '                _("{name}: stopped after {seconds:.1f} s").format(\n',
-     "        if False:  # MUTATION: a stopped run is reported as a crash\n"
-     "            self._show_status(\n"
-     '                _("{name}: stopped after {seconds:.1f} s").format(\n',
+     "        if stopped:\n",
+     "        if False:  # MUTATION: a stopped run is reported as a crash\n",
      ["test_stop_kills_the_running_check_and_says_so"]),
 
     ("M4 a check may be built with no project", REGISTRY,
@@ -82,8 +88,8 @@ MUTATIONS = [
     # Д-3 (acceptance 23.10.2026): a run that ENDED mid-character keeps its tail in the decoder;
     # `final=True` is the only thing that turns those bytes into the honest U+FFFD.
     ("M6 the decoder tail is never flushed", CHECKS,
-     "        process.deleteLater()\n        self._flush_decoder()\n",
-     "        process.deleteLater()  # MUTATION: the tail goes down with the process\n",
+     "        self._flush_decoder()\n        self._current = None\n",
+     "        self._current = None  # MUTATION: the tail goes down with the run\n",
      ["test_a_character_cut_off_by_the_run_end_is_shown_as_a_replacement_char"]),
 
     ("M7 the flush is not final (decode(b\"\", False))", CHECKS,
@@ -91,9 +97,71 @@ MUTATIONS = [
      '            self._append_output(decoder.decode(b"", False))  # MUTATION\n',
      ["test_a_character_cut_off_by_the_run_end_is_shown_as_a_replacement_char"]),
 
-    ("M8 cosmetic control (a comment must change nothing)", CHECKS,
-     "        running = self.is_running()\n",
-     "        running = self.is_running()  # MUTATION: cosmetic\n",
+    # Ч1 of plan_2026_10_23_checks_tab_top_level: the page's own promises — one output per check,
+    # Copy of the SELECTED one, a row that follows the last run, "Run" of the SELECTED check, the
+    # page in the left tab row, a dry duplicate-mounts run, "Run all" as a QUEUE and a Stop that
+    # drops it, and a menu item that runs its OWN check.
+    ("M8 every check's output goes to the first one", CHECKS,
+     "        state = self._states[self._current]\n"
+     "        state.output += chunk\n",
+     "        state = next(iter(self._states.values()))  # MUTATION: one shared report\n"
+     "        state.output += chunk\n",
+     ["test_each_check_keeps_its_own_output_and_copy_follows_the_selection"]),
+
+    ("M9 Copy ignores the selected row", CHECKS,
+     "        script = self.selected_script()\n        if script is None:\n"
+     "            return\n        QApplication.clipboard().setText("
+     "self._states[script].output)\n",
+     "        script = next((s for s, st in self._states.items() if st.output), None)\n"
+     "        if script is None:  # MUTATION: copies the first check that ran\n"
+     "            return\n        QApplication.clipboard().setText("
+     "self._states[script].output)\n",
+     ["test_each_check_keeps_its_own_output_and_copy_follows_the_selection"]),
+
+    ("M10 a finished run does not touch its row", CHECKS,
+     "        for check in CHECKS:\n            state = self._states[check.script]\n",
+     "        for check in ():  # MUTATION: the tree stops following the runs\n"
+     "            state = self._states[check.script]\n",
+     ["test_the_row_glyph_follows_the_exit_code"]),
+
+    ("M11 \"Run\" runs the FIRST check", CHECKS,
+     "        script = self.selected_script()\n        if script is not None:\n",
+     "        script = CHECKS[0].script  # MUTATION: whatever is selected\n"
+     "        if script is not None:\n",
+     ["test_each_check_keeps_its_own_output_and_copy_follows_the_selection"]),
+
+    ("M12 the page is not in the left tab row", "gui/dock_hub.py",
+     '        self.left_tabs.addTab(self.checks_page, _("Checks"))\n',
+     "        pass  # MUTATION: the Checks page never reaches the tab row\n",
+     ["test_the_page_is_the_fourth_left_tab_and_not_a_bottom_dock"]),
+
+    ("M13 --write reaches the duplicate-mounts command", REGISTRY,
+     "    return [python or sys.executable, \"-u\", str(script), str(profile)], \"\"\n",
+     "    extra = [\"--write\"] if \"merge_duplicate_mounts\" in check.script else []\n"
+     "    return [python or sys.executable, \"-u\", str(script), str(profile), *extra], \"\"  "
+     "# MUTATION\n",
+     ["test_the_merge_check_is_a_dry_run_and_its_code_colours_the_row"]),
+
+    ("M14 \"Run all\" launches every check at once", CHECKS,
+     "        self._queue = [check.script for check in CHECKS]\n        self._start_next()\n",
+     "        for check in CHECKS:  # MUTATION: a fan-out instead of a queue\n"
+     "            self._launch(check)\n",
+     ["test_run_all_runs_the_checks_one_after_another"]),
+
+    ("M15 Stop keeps the queue", CHECKS,
+     "        cancelled = len(self._queue)\n        self._queue.clear()\n",
+     "        cancelled = len(self._queue)  # MUTATION: the rest starts anyway\n",
+     ["test_stop_mid_queue_stops_the_current_and_drops_the_rest"]),
+
+    ("M16 a menu item runs the FIRST check", "gui/checks_menu.py",
+     "            lambda _checked=False, script=check.script: page.run_from_menu(script))\n",
+     "            lambda _checked=False, script=CHECKS[0].script: page.run_from_menu(script))  "
+     "# MUTATION\n",
+     ["test_the_checks_menu_sits_between_tools_and_view_and_runs_its_own_check"]),
+
+    ("M17 cosmetic control (a comment must change nothing)", CHECKS,
+     "        runnable = self.can_run()\n",
+     "        runnable = self.can_run()  # MUTATION: cosmetic\n",
      "survive"),
 ]
 

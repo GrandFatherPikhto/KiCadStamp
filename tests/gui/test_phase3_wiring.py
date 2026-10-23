@@ -1521,7 +1521,9 @@ def test_central_tab_bar_is_on_the_south(main_window):
         assert main_window.centralWidget() is hub.left_tabs
         assert (hub.left_tabs.tabPosition()
                 == QTabWidget.TabPosition.South)
-        assert hub.left_tabs.count() == 3
+        # 4 since 23.10 (Checks joined the row, plan_2026_10_23_checks_tab_top_level §1); the
+        # property here is the bar's POSITION, not how many pages it happens to carry.
+        assert hub.left_tabs.count() == 4
     finally:
         _teardown_hub(hub)
 

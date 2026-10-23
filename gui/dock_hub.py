@@ -71,7 +71,7 @@ from .explode_wiring import ExplodeWiring
 from .docks.configurator import ConfiguratorDock
 from .docks.net_trace import NetTraceDock
 from .docks.trees_dock import TreesDock
-from .docks.checks import ChecksDock
+from .docks.checks import ChecksPage
 from .docks.dedupe import DedupeDock
 from .docks.fieldstool_dock import FieldsToolDock
 from .docks.sheet_narrowing_warning import warn_once
@@ -169,6 +169,9 @@ class DockHub:
         self.config_tree_dock = ConfigTreeDock(main_window)
         self.trees_dock = TreesDock(main_window)
         inject_snapshot_refresher(self)
+        # Checks (plan_2026_10_23_checks_tab_top_level): a PAGE of the left tab row (Denis,
+        # 23.10), not a dock — it only LAUNCHES tools/check_*.py in their own process.
+        self.checks_page = ChecksPage(main_window, connection=connection)
 
         # Tab labels at the BOTTOM, matching the tab bar the dock area used
         # (plan_2026_09_04_trees_dock_master_detail.md §4, confirmed with Denis:
@@ -180,6 +183,7 @@ class DockHub:
         self.left_tabs.addTab(self.tree_dock, _("Components"))
         self.left_tabs.addTab(self.config_tree_dock, _("Config"))
         self.left_tabs.addTab(self.trees_dock, _("Trees"))
+        self.left_tabs.addTab(self.checks_page, _("Checks"))
         # The elastic centre: Expanding so it takes/gives the window's vertical
         # slack, and a minimum height of 1 so the Log dock can be grown past the
         # tabs' content height — the pages inside then scroll (S.2's per-page
@@ -378,14 +382,9 @@ class DockHub:
         main_window.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea,
                                   self.dedupe_dock)
         main_window.tabifyDockWidget(self.log_dock, self.dedupe_dock)
-        # Checks (plan_2026_10_22_checks_tab): a THIRD tab of the same bottom area, built the
-        # same way, so its View-menu entry is Qt's own toggleViewAction too. It only LAUNCHES
-        # tools/check_*.py in their own process (what each one is lives in
-        # gui/checks_registry.py): no board read, no worker, no check logic in the GUI.
-        self.checks_dock = ChecksDock(main_window, connection=connection)
-        main_window.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea,
-                                  self.checks_dock)
-        main_window.tabifyDockWidget(self.log_dock, self.checks_dock)
+        # Checks USED to be a third tab of this bottom area (plan_2026_10_22_checks_tab). Since
+        # plan_2026_10_23_checks_tab_top_level it is a page of `left_tabs` (built above), so the
+        # bottom area is back to Log + Copper duplicates and has no View-menu entry for it.
         # Keep the LOG as the visible bottom tab. Measured: without this the
         # tabified area came up with the dedupe tab current, and S.1/S.2's
         # acceptance (`resizeDocks([log], [200], Vertical)` honoured exactly —
@@ -408,7 +407,7 @@ class DockHub:
         # be floated or closed, so they have no toggleViewAction and no View-menu
         # entry. Only the Log and the copper-duplicates panel remain real
         # top-level docks.
-        self.docks = [self.log_dock, self.dedupe_dock, self.checks_dock]
+        self.docks = [self.log_dock, self.dedupe_dock]
 
         self._wire()
 
@@ -810,8 +809,8 @@ class DockHub:
         # config FILE, so the tab follows the same root_changed signal as every dock above — a
         # root switch enables/disables its buttons with no extra wiring.
         self.root_metadata_dock.root_changed.connect(
-            partial(self._safe_call, "checks_dock.set_root_path",
-                    self.checks_dock.set_root_path))
+            partial(self._safe_call, "checks_page.set_root_path",
+                    self.checks_page.set_root_path))
         # Cell anchor (Phase C, 2026-09-09): the marker/bbox live frame and the
         # Sheet combo need the project root — same root_changed source as every
         # other dock.
@@ -2791,7 +2790,7 @@ class DockHub:
                         self.thermal_via_dock.set_root_path, path)
         self._safe_call("cells_dock.set_root_path", self.cells_dock.set_root_path, path)
         self._safe_call("dedupe_dock.set_root_path", self.dedupe_dock.set_root_path, path)
-        self._safe_call("checks_dock.set_root_path", self.checks_dock.set_root_path, path)
+        self._safe_call("checks_page.set_root_path", self.checks_page.set_root_path, path)
         self._safe_call("tools_dock.set_root_path", self.tools_dock.set_root_path, path)
         self._safe_call("entity_dock.set_root_path", self.entity_dock.set_root_path, path)
         self._safe_call("points_dock.set_root_path", self.points_dock.set_root_path, path)

@@ -96,6 +96,7 @@ from kicadstamp.explore import selection_signature
 from kicadstamp.i18n import _
 
 from . import exit_guard, settings, slow_poll, tray
+from .checks_menu import build_checks_menu
 from .connection import BoardConnection, LATENCY_KIND_FAST
 from .dock_hub import DockHub
 from .app_icon import build_app_icon
@@ -469,6 +470,11 @@ class MainWindow(QMainWindow):
         self.settings_action.triggered.connect(
             lambda: self._dock_hub.open_settings_dialog())
         tools_menu.addAction(self.settings_action)
+
+        # The "Checks" menu (plan_2026_10_23_checks_tab_top_level §8): between Tools and View,
+        # one item per check plus "Run all". The list is built from the SAME registry the page
+        # reads, in a module of its own — this window only makes the one call.
+        self.checks_menu = build_checks_menu(self, self._dock_hub.checks_page)
 
         # View menu (2026-08-27, handoff sync_skip_message_and_view_menu): the
         # app had no menu bar at all, so a closed dock had no way back short of

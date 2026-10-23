@@ -30,10 +30,14 @@ def test_the_repository_root_is_the_tree_that_carries_the_scripts():
 
 
 def test_every_check_names_a_script_that_exists_in_this_tree():
-    """A renamed or dropped tool must fail a cell, not leave the tab with a dead button."""
+    """A renamed or dropped tool must fail a cell, not leave the tab with a dead button.
+
+    The list is LITERAL on purpose. It grew by one on 23.10 (`merge_duplicate_mounts.py`,
+    plan_2026_10_23_checks_tab_top_level §7 — the mount-duplicate check) — the property the
+    cell asserts is unchanged: every registry row names a script this tree really carries."""
     scripts = [check.script for check in CHECKS]
     assert scripts == ["check_placement.py", "check_config_records.py",
-                       "check_footprints_vs_library.py"]
+                       "check_footprints_vs_library.py", "merge_duplicate_mounts.py"]
     for check in CHECKS:
         assert (REPO_ROOT / TOOLS_DIR / check.script).is_file(), check.script
         assert check.title and check.tooltip, check

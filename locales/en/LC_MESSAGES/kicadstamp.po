@@ -17486,6 +17486,61 @@ msgstr "KiCad rejected the move of {ref!r} — the board was not modified"
 msgid "footprint {ref!r} not found on the board"
 msgstr "footprint {ref!r} not found on the board"
 
+#: gui/docks/checks.py:139
+msgid "Check"
+msgstr ""
+
+#: gui/docks/checks.py:140
+msgid "Last run"
+msgstr ""
+
+#: gui/docks/checks.py:145
+msgid "Run"
+msgstr ""
+
+#: gui/docks/checks.py:150
+msgid "Run all"
+msgstr ""
+
+#: gui/docks/checks.py:151
+msgid "Run the SELECTED check"
+msgstr ""
+
+#: gui/checks_menu.py:44
+msgid "Run every check, one after another"
+msgstr ""
+
+#: gui/docks/checks.py:157
+msgid "Copy the SELECTED check's report exactly as the script printed it"
+msgstr ""
+
+#: gui/docks/checks.py:222
+msgid "running…"
+msgstr ""
+
+#: gui/docks/checks.py:212
+#, python-brace-format
+msgid "{seconds:.0f} s"
+msgstr ""
+
+#: gui/docks/checks.py:471
+#, python-brace-format
+msgid ""
+"{name}: stopped after {seconds:.1f} s — the rest of the run is "
+"cancelled"
+msgstr ""
+
+#: gui/checks_registry.py:62
+msgid "Duplicate mounts"
+msgstr ""
+
+#: gui/checks_registry.py:63
+msgid ""
+"Does any tree carry two mount nodes on the same anchor? Reads the profile's "
+"config and writes NOTHING — a dry run."
+msgstr ""
+
+
 #~ msgid ""
 #~ "role {role!r} occurs {count} times in"
 #~ " cluster {cluster!r} — this is a "

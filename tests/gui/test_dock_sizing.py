@@ -76,15 +76,19 @@ def test_the_left_widgets_are_central_tabs(real_main_window):
     bottom area also carries the "Дубли меди" panel (plan_2026_10_01_dedupe_
     into_kicadstamp §2.3), so `docks == [log_dock]` would make this cell about
     the bottom area instead of about these three. Р2в briefly added a fourth page
-    ("Explode"); Р3а-0 moved it onto the CELL page, so the strip is three again.
+    ("Explode"); Р3а-0 moved it onto the CELL page. 23.10 added a fourth page FOR
+    GOOD — Checks moved here from the bottom area by Denis's decision
+    (plan_2026_10_23_checks_tab_top_level §1): the count is 4 and the page is a
+    page, not a dock — the property this cell asserts is untouched.
     """
     hub = real_main_window._dock_hub
-    assert hub.left_tabs.count() == 3
+    assert hub.left_tabs.count() == 4
     assert hub.left_tabs.widget(0) is hub.tree_dock
     assert hub.left_tabs.widget(1) is hub.config_tree_dock
     assert hub.left_tabs.widget(2) is hub.trees_dock
+    assert hub.left_tabs.widget(3) is hub.checks_page
     assert hub.left_tabs.tabPosition() == hub.left_tabs.TabPosition.South
-    for widget in (hub.tree_dock, hub.config_tree_dock, hub.trees_dock):
+    for widget in (hub.tree_dock, hub.config_tree_dock, hub.trees_dock, hub.checks_page):
         assert widget not in hub.docks
 
 

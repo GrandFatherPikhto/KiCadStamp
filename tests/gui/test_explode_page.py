@@ -664,7 +664,9 @@ def test_the_explode_tab_is_permanent(ex):
     page = hub.entity_dock
     assert page.tabs.indexOf(hub.explode_page) != -1
     assert page.tabs.tabText(page.tabs.indexOf(hub.explode_page)) == "Explode"
-    assert hub.left_tabs.count() == 3
+    # 4 since 23.10: the Checks page joined the row (plan_2026_10_23_checks_tab_top_level §1).
+    # The property this cell asserts is the Explode page's PLACE on the entity page, untouched.
+    assert hub.left_tabs.count() == 4
 
 
 def test_the_tab_takes_its_cell_from_the_entity_page(ex, monkeypatch):

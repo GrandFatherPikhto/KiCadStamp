@@ -1,10 +1,11 @@
 # gui/checks_registry.py
-"""The three CLI checks as DATA: which script, what it asks, and the command line that runs it.
+"""The CLI checks as DATA: which script, what it asks, and the command line that runs it.
 
 The checks themselves stay in `tools/check_*.py` (see docs/check_scripts.md) — the CLI is the
-one source of truth, and the GUI's Checks tab only LAUNCHES them (plan_2026_10_22_checks_tab).
-This module is the one place that knows the LIST of checks and where the scripts live; the dock
-owns nothing but the widgets and the process, so no check logic can leak into the GUI.
+one source of truth, and the GUI's Checks page only LAUNCHES them (plan_2026_10_22_checks_tab,
+place and fourth check: plan_2026_10_23_checks_tab_top_level). This module is the one place that
+knows the LIST of checks and where the scripts live; the page owns nothing but the widgets and
+the process, so no check logic can leak into the GUI.
 
 Qt-free on purpose: nothing here imports PyQt6, so these rules are testable without a
 QApplication and the tab's Qt half stays small.
@@ -55,6 +56,12 @@ CHECKS: Tuple[Check, ...] = (
     Check("check_footprints_vs_library.py", _("Footprints vs library"),
           _("Are the saved board's footprints still what the library has? Reads the SAVED "
             ".kicad_pcb — save the board in KiCad first.")),
+    # plan_2026_10_23_checks_tab_top_level §7: the mount-duplicate merge is a check like the
+    # others — but ONLY its dry run. `command_for` never passes `--write` (see below), so the
+    # page can report duplicates and can never rewrite the profile.
+    Check("merge_duplicate_mounts.py", _("Duplicate mounts"),
+          _("Does any tree carry two mount nodes on the same anchor? Reads the profile's "
+            "config and writes NOTHING — a dry run.")),
 )
 
 
@@ -76,9 +83,13 @@ def command_for(check: Check, profile, root: Optional[Path] = None,
     """(argv, "") or (None, the reason to show the user).
 
     `profile` is the path of the profile's config FILE (what `root_metadata.root_path` holds) —
-    all three scripts accept exactly that. A ``None`` profile is refused HERE, not passed on as
-    an empty argument: the tab disables its buttons without a project, and a programmatic call
+    every script accepts exactly that. A ``None`` profile is refused HERE, not passed on as
+    an empty argument: the page disables its buttons without a project, and a programmatic call
     must not be able to run a check against nothing.
+
+    The argv is the SAME for every check and carries NO extra flags: `merge_duplicate_mounts.py`
+    is therefore always a DRY run (its `--write` is never passed by the GUI — rule: the page
+    reports, it does not rewrite the profile).
 
     `python`/`root` are seams for tests (a fake interpreter, a bare tree); production passes
     neither, so the interpreter is `sys.executable` and the tree is found by `find_repo_root`.
