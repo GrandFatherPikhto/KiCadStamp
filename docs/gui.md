@@ -1547,6 +1547,17 @@ the area matched a node of the tree, with a line naming the tree and the `(Clust
 wait for; two nodes of one Cluster matching one component are reported by name and left unmatched rather
 than guessed.
 
+**A cell's own copper is given BACK to the cell** (2026-10-23, plan
+`plan_2026_10_23_internode_without_cell_copper`): the classification is still pad-to-pad, and every
+INTERNODE piece then loses the copper a CELL's record owns — by the registry KEY, the same ownership
+«Select cell» uses, so a cell that was never redrawn still gives its copper back (the place check is not
+asked at all on this path). Both doors — «Select inter-node copper» and the re-read — run the SAME step,
+so they keep agreeing; a piece that is cell copper ENTIRELY is neither selected nor written and is
+COUNTED instead. The Log line says how many tracks/vias went back to cells, how many pieces were cell
+copper entirely and how many cell records have no registry key (their copper is not given back). The
+copper is read from the WHOLE board even when the area is a selection, and the profile is a REQUIRED
+argument now: `None` means "no profile", and then nothing is subtracted — said out loud, never silent.
+
 **The re-read also follows `kind "module"` nodes, and a NEW record is anchored on the side it redraws
 from** (2026-10-05, plan `plan_2026_10_05_tree_reread_modules`): the tree's nodes include the nodes of
 every embedded module tree, a node is `(Cluster, sheet)` rather than a label (two channels reusing one

@@ -339,7 +339,7 @@ def cell_record_slots(cell) -> set:
 
 
 def own_instance_context(adapter, cfg, cell_name: str, cluster, sheet,
-                         sheet_names=None, own_refs=None) -> tuple:
+                         sheet_names=None, own_refs=None, footprints=None) -> tuple:
     """``(footprints, cell_identity, own_addresses, chosen_address, refs)`` for
     ONE instance — the ONE resolution of the inputs ``is_own_key`` needs.
 
@@ -359,17 +359,18 @@ def own_instance_context(adapter, cfg, cell_name: str, cluster, sheet,
     and the ``name:``/``role:`` branches still work."""
     from .cell_instance import resolve_context_footprints
 
-    if cluster:
-        footprints = list(resolve_context_footprints(
-            adapter, _live_items(adapter, "get_footprints"), cluster, sheet,
-            sheet_names or {}))
-    elif own_refs:
-        get_footprint = getattr(adapter, "get_footprint", None)
-        footprints = ([fp for ref in own_refs.values()
-                       if (fp := get_footprint(ref)) is not None]
-                      if get_footprint else [])
-    else:
-        footprints = []
+    if footprints is None:
+        if cluster:
+            footprints = list(resolve_context_footprints(
+                adapter, _live_items(adapter, "get_footprints"), cluster, sheet,
+                sheet_names or {}))
+        elif own_refs:
+            get_footprint = getattr(adapter, "get_footprint", None)
+            footprints = ([fp for ref in own_refs.values()
+                           if (fp := get_footprint(ref)) is not None]
+                          if get_footprint else [])
+        else:
+            footprints = []
     # A mapping's refs are its VALUES — a role->ref map iterated directly would
     # give ROLES here and quietly break the anchor:<ref> test in is_own_key;
     # a plain iterable of refs is taken as-is («Select cell»'s shape).
@@ -450,7 +451,8 @@ def record_copper_map_for(adapter, config_path: str,
 
 def registry_record_copper_map(adapter, config_path: str, cfg, cell_name: str,
                                cluster, sheet, own_refs=None,
-                               sheet_names=None, place_check: bool = True
+                               sheet_names=None, place_check: bool = True, *,
+                               live=None, registry=None, frame_check: bool = True
                                ) -> RecordCopperMap:
     """The «registry only» map of ONE instance — the fallback for a REFUSED tree.
 
@@ -488,6 +490,18 @@ def registry_record_copper_map(adapter, config_path: str, cfg, cell_name: str,
         (``disagreed``, reported by the caller as a note), so an instance that was
         never redrawn still shows the copper the registry recorded for it.
 
+    ``live``/``registry``/``frame_check`` are the RUN-SCOPED SEAM added on 23.10
+    (plan_2026_10_23_internode_without_cell_copper): the caller that asks this map for EVERY node
+    of a tree reads the board's footprints/tracks/vias and the two registry files ONCE and passes
+    them in (`live={"footprint": [...], "via": [...], "track": [...]}`,
+    `registry=(via_entries, track_entries, owner)`), instead of three whole-board reads per node.
+    ``None`` (the default) keeps every existing door byte-identical.
+
+    ``frame_check=False`` skips the cell frame ALTOGETHER: ownership is then the KEY alone (the
+    «Select cell» rule) and there is no `disagreed`/`not_rigid` measurement — both come back as
+    ``None`` ("not measured"), never ``False``/``True``, so a caller cannot print "the frame is not
+    rigid" about a frame nobody built. `place_check` stays as it was for the doors that use it.
+
     READ-ONLY: reads the two registry files and the board, writes nothing. The
     drift guard, the redraw plan and the config are not touched."""
     from .cell_frame import RIGID_TOLERANCE_MM
@@ -495,36 +509,48 @@ def registry_record_copper_map(adapter, config_path: str, cfg, cell_name: str,
     from .cell_origin import cell_slot_dicts
 
     cell = (getattr(cfg, "cells", {}) or {}).get(cell_name)
+    board_footprints = None if live is None else list(live.get("footprint") or ())
     footprints, cell_identity, own_addresses, chosen_address, refs = \
         own_instance_context(adapter, cfg, cell_name, cluster, sheet,
-                             sheet_names=sheet_names, own_refs=own_refs)
-    via_entries, track_entries, _owner = load_registry_entries(config_path, cfg)
-    live = {"via": _live_items(adapter, "get_vias"),
-            "track": _live_items(adapter, "get_tracks")}
+                             sheet_names=sheet_names, own_refs=own_refs,
+                             footprints=board_footprints)
+    via_entries, track_entries, _owner = (
+        load_registry_entries(config_path, cfg) if registry is None else registry)
+    if live is None:
+        live_items = {"via": _live_items(adapter, "get_vias"),
+                      "track": _live_items(adapter, "get_tracks")}
+    else:
+        # The pre-read board: nothing is read here, or a per-node caller would still pay one
+        # whole-board read per node (measured by the read-count cell of the Ч1 plan).
+        live_items = {"via": list(live.get("via") or ()),
+                      "track": list(live.get("track") or ())}
     by_uuid = {kind: {getattr(item, "uuid", None): item for item in items}
-               for kind, items in live.items()}
+               for kind, items in live_items.items()}
     entries = own_registry_entries(via_entries, track_entries, cell_identity,
                                    own_addresses, chosen_address, refs)
     without_registry = len(cell_record_slots(cell) - {
         (kind, role_part, index)
         for kind, role_part, index, _uuid in entries})
 
-    frame = cell_frame_from_live(
-        cell_slot_dicts(cell), footprints, adapter,
-        origin_role=getattr(cell, "anchor_role", None))
-    residual = None if frame is None else frame.residual_mm
-    if frame is None or frame.residual_mm > RIGID_TOLERANCE_MM:
-        if place_check:
-            # No frame / no rigid frame: not one pair can be checked by place, so
-            # none is claimed — the caller prints the reason, never a lie.
-            return RecordCopperMap(by_record={}, planned=0, source="registry",
-                                   without_registry=without_registry,
-                                   entries_total=len(entries), not_rigid=True,
-                                   frame_residual_mm=residual)
-        # The SELECT door takes the pairs by their KEY: without a trustworthy
-        # frame the place is simply not part of the answer (``not_rigid`` carries
-        # that fact to the caller's note).
-        frame = None
+    frame = None
+    residual = None
+    if frame_check:
+        frame = cell_frame_from_live(
+            cell_slot_dicts(cell), footprints, adapter,
+            origin_role=getattr(cell, "anchor_role", None))
+        residual = None if frame is None else frame.residual_mm
+        if frame is None or frame.residual_mm > RIGID_TOLERANCE_MM:
+            if place_check:
+                # No frame / no rigid frame: not one pair can be checked by place,
+                # so none is claimed — the caller prints the reason, never a lie.
+                return RecordCopperMap(by_record={}, planned=0, source="registry",
+                                       without_registry=without_registry,
+                                       entries_total=len(entries), not_rigid=True,
+                                       frame_residual_mm=residual)
+            # The SELECT door takes the pairs by their KEY: without a trustworthy
+            # frame the place is simply not part of the answer (``not_rigid``
+            # carries that fact to the caller's note).
+            frame = None
 
     by_record: dict = {}
     disagreed = orphan = gone = 0
@@ -547,7 +573,8 @@ def registry_record_copper_map(adapter, config_path: str, cfg, cell_name: str,
     return RecordCopperMap(by_record=by_record, planned=len(by_record),
                            source="registry", without_registry=without_registry,
                            entries_total=len(entries), disagreed=disagreed,
-                           orphan_keys=orphan, not_rigid=frame is None,
+                           orphan_keys=orphan,
+                           not_rigid=(frame is None) if frame_check else None,
                            frame_residual_mm=residual, missing_from_board=gone)
 
 

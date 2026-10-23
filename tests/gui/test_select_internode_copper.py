@@ -198,13 +198,13 @@ def test_select_inter_node_copper_equals_what_a_whole_board_reread_takes(monkeyp
     result = run_select_inter_node_copper_worker(_payload(cfg, tree, sheets))
 
     units, _discarded, _warnings = internode_units(
-        board, cfg, tree, area_items=list(tracks), area_footprints=fps,
+        board, cfg, tree, config_path=None, area_items=list(tracks), area_footprints=fps,
         sheet_names=sheets)
     reread_uuids = {p.uuid for u in units for p in (*u.tracks, *u.vias)}
     assert _area_uuid_set(board) == reread_uuids
     assert result["pieces"] == len(units) == 1
 
-    plan = plan_internode_reread(board, cfg, tree, area_items=list(tracks),
+    plan = plan_internode_reread(board, cfg, tree, config_path=None, area_items=list(tracks),
                                  area_footprints=fps, sheet_names=sheets)
     assert len(plan.added) == result["pieces"]      # one fresh record per piece
 

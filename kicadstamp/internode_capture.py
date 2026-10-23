@@ -486,6 +486,13 @@ class AreaClassification:
     units: list[CopperUnit] = field(default_factory=list)
     discarded: dict[str, int] = field(default_factory=dict)
     warnings: list[str] = field(default_factory=list)
+    #: The tree's cell copper (plan_2026_10_23_internode_without_cell_copper); None when the
+    #: caller could not name a profile — then nothing was subtracted and a warning says so.
+    cell_copper: Any = None
+    #: Pieces of copper given back to cells (removed from `units`).
+    subtracted: int = 0
+    #: Units that were cell copper ENTIRELY — taken by neither door, counted for the report.
+    cell_only: int = 0
     matched_components: int = 0
     unmatched_components: int = 0
     node_keys: list[str] = field(default_factory=list)
@@ -498,6 +505,7 @@ class AreaClassification:
 
 
 def _classify_area(adapter, cfg: Config, tree: Tree, *,
+                   config_path,
                    area_items: Iterable[Any],
                    area_footprints: Iterable[Any],
                    sheet_names: dict[str, str] | None = None
@@ -568,10 +576,20 @@ def _classify_area(adapter, cfg: Config, tree: Tree, *,
             out.discarded[verdict.value] = out.discarded.get(verdict.value, 0) + 1
             continue
         out.units.append(unit)
+    # Give a CELL's copper back to the cell BEFORE either door sees the units (plan
+    # plan_2026_10_23_internode_without_cell_copper): the step lives in its own module, and the
+    # classifier is the ONE place both doors pass through, so they cannot disagree.
+    from .internode_cell_copper import subtract_units
+
+    (out.units, out.cell_copper, out.subtracted, out.cell_only,
+     cell_lines) = subtract_units(adapter, cfg, tree, config_path, out.units,
+                                  sheet_names=_sn)
+    out.warnings.extend(cell_lines)
     return out
 
 
 def internode_units(adapter, cfg: Config, tree: Tree, *,
+                    config_path,
                     area_items: Iterable[Any],
                     area_footprints: Iterable[Any],
                     sheet_names: dict[str, str] | None = None
@@ -583,7 +601,7 @@ def internode_units(adapter, cfg: Config, tree: Tree, *,
     "Select inter-node copper" highlights exactly what a whole-board re-read
     would take. No second classifier exists."""
     classification = _classify_area(
-        adapter, cfg, tree, area_items=area_items,
+        adapter, cfg, tree, config_path=config_path, area_items=area_items,
         area_footprints=area_footprints, sheet_names=sheet_names)
     return classification.units, classification.discarded, \
         classification.warnings
@@ -592,6 +610,7 @@ def internode_units(adapter, cfg: Config, tree: Tree, *,
 # ── the plan ───────────────────────────────────────────────────────────────
 
 def plan_internode_reread(adapter, cfg: Config, tree: Tree, *,
+                          config_path,
                           area_items: Iterable[Any],
                           area_footprints: Iterable[Any],
                           sheet_names: dict[str, str] | None = None,
@@ -624,7 +643,7 @@ def plan_internode_reread(adapter, cfg: Config, tree: Tree, *,
             "as copper, so a pour never appears in the capture"))
 
     classification = _classify_area(
-        adapter, cfg, tree, area_items=area_items,
+        adapter, cfg, tree, config_path=config_path, area_items=area_items,
         area_footprints=area_footprints, sheet_names=_sn)
     plan.warnings.extend(classification.warnings)
     plan.discarded = classification.discarded

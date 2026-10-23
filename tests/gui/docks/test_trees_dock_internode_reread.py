@@ -126,7 +126,7 @@ def test_finish_adds_nodes_marks_missing_and_stages(main_window, tmp_path):
     dock, root = _dock(main_window, tmp_path)
     tree = dock._trees[0]
     board, fps, items = _board()
-    plan = plan_internode_reread(board, dock._cfg, tree, area_items=items,
+    plan = plan_internode_reread(board, dock._cfg, tree, config_path=None, area_items=items,
                                  area_footprints=fps)
 
     assert len(plan.added) == 1 and plan.missing == ["gone__a__z"]
@@ -188,7 +188,7 @@ def test_finish_uses_an_existing_container_however_it_is_named(main_window, tmp_
    dock.set_root_file(root)
    tree = dock._trees[0]
    board, fps, items = _board()
-   plan = plan_internode_reread(board, dock._cfg, tree, area_items=items,
+   plan = plan_internode_reread(board, dock._cfg, tree, config_path=None, area_items=items,
                                 area_footprints=fps)
    assert len(plan.added) == 1
    added_identity = plan.added[0].identity
@@ -222,7 +222,7 @@ def test_finish_ignores_a_node_merely_named_copper(
    dock.set_root_file(root)
    tree = dock._trees[0]
    board, fps, items = _board()
-   plan = plan_internode_reread(board, dock._cfg, tree, area_items=items,
+   plan = plan_internode_reread(board, dock._cfg, tree, config_path=None, area_items=items,
                                 area_footprints=fps)
    added_identity = plan.added[0].identity
 
@@ -260,7 +260,7 @@ def test_finish_with_nothing_changed_keeps_the_tree_and_is_clean(main_window, tm
     root = _root(tmp_path, stored)
     dock.set_root_file(root)
     tree = dock._trees[0]
-    plan = plan_internode_reread(board, dock._cfg, tree, area_items=items,
+    plan = plan_internode_reread(board, dock._cfg, tree, config_path=None, area_items=items,
                                  area_footprints=fps)
     assert plan.unchanged == ["match__a__b"]
     before = len(tree.nodes)

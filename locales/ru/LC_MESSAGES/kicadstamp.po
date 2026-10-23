@@ -18498,6 +18498,33 @@ msgstr "Есть ли в каком-то дереве два узла mount на
 msgid "The rest of the run is cancelled."
 msgstr "Остаток очереди отменён."
 
+#: kicadstamp/internode_cell_copper.py:188
+#, python-brace-format
+msgid ""
+"cell copper left to cells: {tracks} tracks, {vias} vias across {cells} cell(s); "
+"{whole} piece(s) are cell copper entirely; {nokey} cell record(s) have no "
+"registry key, so their copper is not given back"
+msgstr "медь ячеек оставлена ячейкам: {tracks} дорожек, {vias} переходных у {cells} ячеек; {whole} кусков целиком принадлежат ячейкам; у {nokey} записей ячеек нет ключа реестра — их медь не возвращается"
+
+#: kicadstamp/internode_cell_copper.py:113
+msgid ""
+"the profile is not known — cell copper is NOT subtracted: copper that "
+"belongs to a cell's record is taken as inter-node copper"
+msgstr "профиль не известен — медь ячеек НЕ вычитается: медь, принадлежащая записи ячейки, берётся как межнодовая"
+
+#: kicadstamp/internode_cell_copper.py:146
+#, python-brace-format
+msgid ""
+"cell copper could not be read ({err}) — nothing is given back to cells"
+msgstr "медь ячеек не прочитать ({err}) — ячейкам ничего не возвращается"
+
+#: kicadstamp/internode_cell_copper.py:175
+#, python-brace-format
+msgid ""
+"cell {cell!r}: its copper could not be asked ({err}) — it is not given "
+"back to the cell"
+msgstr "ячейка {cell!r}: её медь не удалось спросить ({err}) — ячейке она не возвращается"
+
 #~ msgid ""
 #~ "role {role!r} occurs {count} times in"
 #~ " cluster {cluster!r} — this is a "

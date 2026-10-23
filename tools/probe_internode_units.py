@@ -44,8 +44,12 @@ def main(argv) -> int:
             adapter.refresh_board()
             footprints = list(adapter.get_footprints())
             items = list(adapter.get_tracks()) + list(adapter.get_vias())
-            area = _classify_area(adapter, cfg, tree, area_items=items,
-                                  area_footprints=footprints, sheet_names=sheet_names)
+            # 23.10: the classifier now needs the profile's config file to give a CELL's copper
+            # back to the cell (plan_2026_10_23_internode_without_cell_copper) — this probe is
+            # read-only, and the row below reports what the subtraction left behind.
+            area = _classify_area(adapter, cfg, tree, config_path=str(cfg_file),
+                                  area_items=items, area_footprints=footprints,
+                                  sheet_names=sheet_names)
             print(f"board: {len(footprints)} footprints, {len(items)} tracks+vias")
             print(f"tree {tree.name!r} nodes: {', '.join(area.node_keys)}")
             print(f"matched components: {area.matched_components}, "

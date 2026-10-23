@@ -400,7 +400,9 @@ def main() -> int:
     # ── E: the shipping planner, and the check ───────────────────────────
     print("\n== E. shipping plan_internode_reread over the same area "
           "(nothing written) ==")
-    plan = plan_internode_reread(adapter, cfg, tree, area_items=items,
+    plan = plan_internode_reread(adapter, cfg, tree,
+                                 config_path=getattr(args, "config", None),
+                                 area_items=items,
                                  area_footprints=fps, sheet_names=sheet_names)
     for line in reread_report_lines(tree.name, plan):
         print(f"  | {line}")

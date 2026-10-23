@@ -174,7 +174,7 @@ def test_a_module_channel_component_is_a_tree_node_for_the_reread():
     board = _Board(fps, pads)
     cfg = _cfg_fpga(1)
     plan = plan_internode_reread(
-        board, cfg, _tree_fpga(cfg),
+        board, cfg, _tree_fpga(cfg), config_path=None,
         area_items=_bridge_fpga_to_dac(0), area_footprints=fps,
         sheet_names=_SHEET_NAMES)
     assert len(plan.added) == 1
@@ -194,7 +194,7 @@ def test_the_new_record_is_anchored_on_the_side_it_redraws_from():
     board = _Board(fps, pads)
     cfg = _cfg_fpga(3)
     plan = plan_internode_reread(
-        board, cfg, _tree_fpga(cfg),
+        board, cfg, _tree_fpga(cfg), config_path=None,
         area_items=_bridge_fpga_to_dac(0), area_footprints=fps,
         sheet_names=_SHEET_NAMES)
     assert len(plan.added) == 1
@@ -224,7 +224,7 @@ def test_two_channels_of_one_cluster_get_two_records_and_the_cross_piece_is_inte
     board = _Board(fps, pads)
     cfg = _cfg_fpga(3)
     plan = plan_internode_reread(
-        board, cfg, _tree_fpga(cfg),
+        board, cfg, _tree_fpga(cfg), config_path=None,
         area_items=(_bridge_fpga_to_dac(0) + _bridge_fpga_to_dac(1)
                     + [_piece_between_channels(0, 1)]),
         area_footprints=fps, sheet_names=_SHEET_NAMES)
@@ -248,11 +248,11 @@ def test_the_anchor_does_not_depend_on_the_board_selection():
     ic2 = next(f for f in fps if f.ref == "IC2")
     cfg = _cfg_fpga(3)
     items = _bridge_fpga_to_dac(0)
-    plain = plan_internode_reread(_Board(fps, pads), cfg, _tree_fpga(cfg),
+    plain = plan_internode_reread(_Board(fps, pads), cfg, _tree_fpga(cfg), config_path=None,
                                   area_items=items, area_footprints=fps,
                                   sheet_names=_SHEET_NAMES)
     selected = plan_internode_reread(_Board(fps, pads, selected=[ic2]), cfg,
-                                     _tree_fpga(cfg), area_items=items,
+                                     _tree_fpga(cfg), config_path=None, area_items=items,
                                      area_footprints=fps,
                                      sheet_names=_SHEET_NAMES)
     assert plain.added[0].record.anchor_sheet == "Channel_0"
@@ -293,13 +293,20 @@ def test_a_piece_no_pad_can_anchor_is_skipped_and_its_neighbour_is_written():
                            _node("e_ok", "placement"),
                            _node("e_ok2", "placement")])])
     plan = plan_internode_reread(
-        _Board(fps, pads), cfg, cfg.trees[0],
+        _Board(fps, pads), cfg, cfg.trees[0], config_path=None,
         area_items=[_track(10.0, 10.0, 30.0, 10.0, "AMB"),     # unanchorable
                     _track(10.0, 30.0, 30.0, 30.0, "OKN")],    # fine
         area_footprints=fps)
     assert [set(c.record.pads) for c in plan.added] == [{"OK_ROLE.1", "OK2_ROLE.1"}]
-    assert len(plan.warnings) == 1
-    warning = plan.warnings[0]
+    # 23.10: a run now also says whether cell copper was given back. `config_path=None` is "no
+    # profile", so the second line is the honest note about it — the skip message is still the
+    # ONLY other line, which is what this cell is about.
+    assert len(plan.warnings) == 2, plan.warnings
+    # The skip message is not necessarily FIRST any more (the cell-copper note is appended by
+    # the classifier's own step) — take it by what it says.
+    warning = next(w for w in plan.warnings
+                   if "no pad of the piece anchors the record" in w)
+    assert any("cell copper is NOT subtracted" in w for w in plan.warnings)
     assert "AMB_A1.1" in warning and "AMB_B1.1" in warning
     assert "AMB_ROLE" in warning and "AMB2_ROLE" in warning
 
@@ -334,7 +341,7 @@ def test_a_component_of_a_cluster_outside_the_tree_stays_foreign():
     board = _Board(fps, pads)
     cfg = _cfg_fpga(1)
     plan = plan_internode_reread(
-        board, cfg, _tree_fpga(cfg),
+        board, cfg, _tree_fpga(cfg), config_path=None,
         area_items=[_track(10.0, 90.0, 30.0, 90.0, "VCC")],
         area_footprints=fps, sheet_names=_SHEET_NAMES)
     assert plan.added == []
@@ -401,7 +408,7 @@ def test_copper_inside_one_module_is_the_modules_not_the_parents():
     board, fps = _two_module_board()
     cfg = _two_module_cfg()
     plan = plan_internode_reread(
-        board, cfg, _tree_fpga(cfg),
+        board, cfg, _tree_fpga(cfg), config_path=None,
         area_items=[_track(10.0, 10.0, 30.0, 10.0, "N_M0"),    # inside m0
                     _track(10.0, 20.0, 30.0, 20.0, "N_M1")],   # inside m1
         area_footprints=fps, sheet_names=_SHEETS_2M)
@@ -418,7 +425,7 @@ def test_copper_between_two_modules_of_the_same_tags_is_internode():
     board, fps = _two_module_board()
     cfg = _two_module_cfg()
     plan = plan_internode_reread(
-        board, cfg, _tree_fpga(cfg),
+        board, cfg, _tree_fpga(cfg), config_path=None,
         area_items=[_track(12.0, 10.0, 12.0, 20.0, "N_XMOD")],
         area_footprints=fps, sheet_names=_SHEETS_2M)
     assert [set(c.record.pads) for c in plan.added] == [{"R_A0.2", "R_A1.2"}]
@@ -433,7 +440,7 @@ def test_copper_between_the_tree_and_a_module_is_internode():
     board, fps = _two_module_board()
     cfg = _two_module_cfg()
     plan = plan_internode_reread(
-        board, cfg, _tree_fpga(cfg),
+        board, cfg, _tree_fpga(cfg), config_path=None,
         area_items=[_track(50.0, 10.0, 60.0, 10.0, "N_FMOD"),   # own + module
                     _track(30.0, 50.0, 50.0, 50.0, "N_CD")],    # two own nodes
         area_footprints=fps, sheet_names=_SHEETS_2M)
@@ -490,7 +497,7 @@ def test_copper_inside_a_module_nested_in_another_module_is_the_top_modules():
     board, fps = _nested_module_board()
     cfg = _nested_module_cfg()
     plan = plan_internode_reread(
-        board, cfg, _tree_fpga(cfg),
+        board, cfg, _tree_fpga(cfg), config_path=None,
         area_items=[_track(10.0, 10.0, 30.0, 10.0, "N_AB")],
         area_footprints=fps, sheet_names=_SHEETS_NESTED)
     assert plan.added == []
@@ -527,7 +534,7 @@ def test_three_channels_of_one_tag_on_one_net_get_three_distinct_names():
     fps, pads = _same_net_channels(3)
     cfg = _cfg_fpga(3)
     plan = plan_internode_reread(
-        _Board(fps, pads), cfg, _tree_fpga(cfg),
+        _Board(fps, pads), cfg, _tree_fpga(cfg), config_path=None,
         area_items=(_same_net_bridge(0) + _same_net_bridge(1)
                     + _same_net_bridge(2)),
         area_footprints=fps, sheet_names=_SHEET_NAMES)
@@ -557,7 +564,7 @@ def test_a_chain_between_two_channels_gets_a_record_whose_elements_all_stay_in_t
              _via(_X_DAC + 5.0, mid, "XCH"),
              _track(_X_DAC + 5.0, mid, _X_DAC + 5.0, yj, "XCH")]
     plan = plan_internode_reread(
-        _Board(fps, pads), cfg, _tree_fpga(cfg),
+        _Board(fps, pads), cfg, _tree_fpga(cfg), config_path=None,
         area_items=chain, area_footprints=fps, sheet_names=_SHEET_NAMES)
     assert not any("no pad of the piece anchors" in w for w in plan.warnings)
     assert len(plan.added) == 1
@@ -598,7 +605,7 @@ def test_a_module_nodes_own_child_is_a_node_of_this_tree():
     pads = {"FPGA1": [_pad("1", "N1", 10.0, 10.0)],
             "CH1": [_pad("1", "N1", 30.0, 10.0)]}
     plan = plan_internode_reread(
-        _Board(fps, pads), cfg, fpga,
+        _Board(fps, pads), cfg, fpga, config_path=None,
         area_items=[_track(10.0, 10.0, 30.0, 10.0, "N1")],
         area_footprints=fps, sheet_names={"fpga": "FPGA"})
     assert [set(c.record.pads) for c in plan.added] == [{"R_CHILD.1", "R_FPGA.1"}]
@@ -612,7 +619,7 @@ def test_a_mid_chain_via_falls_back_to_the_CHOSEN_anchor_not_pads_zero():
     fps, pads = _fpga_channel_fps(3)
     cfg = _cfg_fpga(3)
     plan = plan_internode_reread(
-        _Board(fps, pads), cfg, _tree_fpga(cfg),
+        _Board(fps, pads), cfg, _tree_fpga(cfg), config_path=None,
         area_items=_bridge_fpga_to_dac(0), area_footprints=fps,
         sheet_names=_SHEET_NAMES)
     record = plan.added[0].record
@@ -756,7 +763,7 @@ def test_copper_between_clusters_that_share_a_role_gets_a_record_from_the_second
     fps, pads = _power_rail_fps()
     cfg = _cfg_power_embedded()
     board = _Board(fps, pads)
-    plan = plan_internode_reread(board, cfg, _tree(cfg, "mcu"),
+    plan = plan_internode_reread(board, cfg, _tree(cfg, "mcu"), config_path=None,
                                  area_items=_power_star(), area_footprints=fps,
                                  sheet_names=_POWER_SHEET_NAMES)
     assert not any("no pad of the piece anchors" in w for w in plan.warnings)
@@ -788,7 +795,7 @@ def test_rereading_the_same_power_copper_reports_unchanged_not_updated():
     fps, pads = _power_rail_fps()
     cfg = _cfg_power_embedded()
     board = _Board(fps, pads)
-    first = plan_internode_reread(board, cfg, _tree(cfg, "mcu"),
+    first = plan_internode_reread(board, cfg, _tree(cfg, "mcu"), config_path=None,
                                   area_items=_power_star(), area_footprints=fps,
                                   sheet_names=_POWER_SHEET_NAMES)
     assert len(first.added) == 1
@@ -801,7 +808,7 @@ def test_rereading_the_same_power_copper_reports_unchanged_not_updated():
                          _node(first.added[0].identity, "net_trace")])
     applied = dataclasses.replace(
         applied, trees=[tree if t.name == "mcu" else t for t in applied.trees])
-    second = plan_internode_reread(board, applied, tree,
+    second = plan_internode_reread(board, applied, tree, config_path=None,
                                    area_items=_power_star(), area_footprints=fps,
                                    sheet_names=_POWER_SHEET_NAMES)
     assert second.added == [] and second.updated == []
@@ -850,7 +857,7 @@ def test_an_element_whose_pair_lands_on_a_component_outside_the_piece_gets_the_a
     assert [fp.ref for fp in resolver.narrowed("R_C", "MCU", "MCU")] == ["B1"]
     assert [fp.ref for fp in resolver.narrowed("R_A", "POWER", "RAIL")] == ["A2"]
 
-    plan = plan_internode_reread(board, cfg, cfg.trees[0], area_items=chain,
+    plan = plan_internode_reread(board, cfg, cfg.trees[0], config_path=None, area_items=chain,
                                  area_footprints=fps,
                                  sheet_names=_THIRD_SHEET_NAMES)
     assert len(plan.added) == 1
@@ -924,7 +931,7 @@ def test_updating_a_second_tier_record_keeps_every_element_inside_the_piece():
     assertion and the net assertion red."""
     fps, pads, cfg, chain = _second_tier_reread_board(20.0)
     board = _Board(fps, pads)
-    first = plan_internode_reread(board, cfg, _tree(cfg, "mcu"), area_items=chain,
+    first = plan_internode_reread(board, cfg, _tree(cfg, "mcu"), config_path=None, area_items=chain,
                                   area_footprints=fps,
                                   sheet_names=_POWER_SHEET_NAMES)
     assert len(first.added) == 1
@@ -938,7 +945,7 @@ def test_updating_a_second_tier_record_keeps_every_element_inside_the_piece():
                                  _node("e_power", "module"))
     fps2, pads2, _cfg2, chain2 = _second_tier_reread_board(24.0)
     board2 = _Board(fps2, pads2)
-    second = plan_internode_reread(board2, applied, tree, area_items=chain2,
+    second = plan_internode_reread(board2, applied, tree, config_path=None, area_items=chain2,
                                    area_footprints=fps2,
                                    sheet_names=_POWER_SHEET_NAMES)
     assert second.added == [] and len(second.updated) == 1
@@ -966,7 +973,7 @@ def test_updating_an_fpga_bridge_record_keeps_the_via_on_the_records_anchor_pair
     fps, pads = _fpga_channel_fps(3)
     cfg = _cfg_fpga(3)
     board = _Board(fps, pads)
-    first = plan_internode_reread(board, cfg, _tree_fpga(cfg),
+    first = plan_internode_reread(board, cfg, _tree_fpga(cfg), config_path=None,
                                   area_items=_bridge_fpga_to_dac(0),
                                   area_footprints=fps, sheet_names=_SHEET_NAMES)
     assert len(first.added) == 1
@@ -979,7 +986,7 @@ def test_updating_an_fpga_bridge_record_keeps_the_via_on_the_records_anchor_pair
     moved = [_track(10.0, _Y[0], 64.0, _Y[0], "DB0"),
              _via(64.0, _Y[0], "DB0"),
              _track(64.0, _Y[0], _X_DAC, _Y[0], "DB0")]
-    second = plan_internode_reread(_Board(fps, pads), applied, tree,
+    second = plan_internode_reread(_Board(fps, pads), applied, tree, config_path=None,
                                    area_items=moved, area_footprints=fps,
                                    sheet_names=_SHEET_NAMES)
     assert second.added == [] and len(second.updated) == 1

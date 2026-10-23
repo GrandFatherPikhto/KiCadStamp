@@ -156,7 +156,7 @@ def test_new_unit_is_captured_as_a_named_record():
     board, fps, items = _area()
     cfg = _cfg()
     plan = plan_internode_reread(board, cfg, _tree(net_trace_refs=()),
-                                 area_items=items, area_footprints=fps)
+                                 area_items=items, area_footprints=fps, config_path=None)
 
     assert len(plan.added) == 1
     record = plan.added[0].record
@@ -184,7 +184,7 @@ def test_mid_chain_via_takes_the_units_pad_reference():
     items = [_track(10, 10, 15, 10, "N"), _via(15, 10, "N"),
              _track(15, 10, 20, 10, "N")]
     plan = plan_internode_reread(board, _cfg(), _tree(net_trace_refs=()),
-                                 area_items=items, area_footprints=fps)
+                                 area_items=items, area_footprints=fps, config_path=None)
     record = plan.added[0].record
     assert len(record.tracks) == 2 and len(record.vias) == 1
     assert record.vias[0].net is None
@@ -203,7 +203,7 @@ def test_cluster_copper_and_foreign_copper_are_not_captured():
     items = [_track(10, 10, 12, 10, "N"),      # both ends inside node A
              _track(20, 10, 30, 10, "N")]      # A/B -> a foreign component
     plan = plan_internode_reread(_Board(fps, pads), _cfg(), _tree(net_trace_refs=()),
-                                 area_items=items, area_footprints=fps)
+                                 area_items=items, area_footprints=fps, config_path=None)
     assert plan.added == []
 
 
@@ -212,7 +212,7 @@ def test_unit_without_a_role_on_its_pad_is_skipped_with_a_warning():
     pads = {"R1": [_pad("1", "N", 10, 10)], "R2": [_pad("1", "N", 20, 10)]}
     plan = plan_internode_reread(_Board(fps, pads), _cfg(), _tree(net_trace_refs=()),
                                  area_items=[_track(10, 10, 20, 10, "N")],
-                                 area_footprints=fps)
+                                 area_footprints=fps, config_path=None)
     assert plan.added == []
     assert any("no Role field" in w for w in plan.warnings)
 
@@ -228,7 +228,7 @@ def test_a_role_less_pad_not_first_still_skips_and_names_that_pad():
     pads = {"R1": [_pad("1", "N", 10, 10)], "R2": [_pad("1", "N", 20, 10)]}
     plan = plan_internode_reread(_Board(fps, pads), _cfg(), _tree(net_trace_refs=()),
                                  area_items=[_track(10, 10, 20, 10, "N")],
-                                 area_footprints=fps)
+                                 area_footprints=fps, config_path=None)
     assert plan.added == []
     assert any("R2.1" in w and "no Role field" in w for w in plan.warnings)
 
@@ -238,7 +238,7 @@ def test_a_role_less_pad_not_first_still_skips_and_names_that_pad():
 def test_unchanged_when_the_stored_geometry_already_matches():
     board, fps, items = _area()
     cfg = _cfg([_existing()])
-    plan = plan_internode_reread(board, cfg, _tree(),
+    plan = plan_internode_reread(board, cfg, _tree(), config_path=None,
                                  area_items=items, area_footprints=fps)
     assert plan.unchanged == ["n__a__b"]
     assert plan.added == [] and plan.updated == [] and plan.missing == []
@@ -250,7 +250,7 @@ def test_updated_when_the_geometry_moved():
         start_along_mm=0.0, start_across_mm=0.0, end_along_mm=99.0,
         end_across_mm=0.0, width_mm=0.25, layer="F.Cu",
         net_from_role="A", net_from_role_pad="1")])])
-    plan = plan_internode_reread(board, cfg, _tree(),
+    plan = plan_internode_reread(board, cfg, _tree(), config_path=None,
                                  area_items=items, area_footprints=fps)
     assert len(plan.updated) == 1
     fresh, counts = plan.updated[0]
@@ -266,7 +266,7 @@ def test_missing_record_is_reported_and_kept():
     board, fps, items = _area()
     cfg = _cfg([_existing(name="gone__a__b", pads=("A.1", "Z.9"))])
     plan = plan_internode_reread(board, cfg, _tree(net_trace_refs=("gone__a__b",)),
-                                 area_items=items, area_footprints=fps)
+                                 area_items=items, area_footprints=fps, config_path=None)
     assert plan.missing == ["gone__a__b"]
     assert plan.added and plan.added[0].identity.startswith("n__")
     after = apply_reread_plan(cfg, plan)
@@ -284,7 +284,7 @@ def test_legacy_record_is_matched_by_net_and_keeps_literal_nets():
                                             end_along_mm=99.0, end_across_mm=0.0,
                                             width_mm=0.25, layer="F.Cu", net="N")])
     plan = plan_internode_reread(board, _cfg([legacy]), _tree(net_trace_refs=("N",)),
-                                 area_items=items, area_footprints=fps)
+                                 area_items=items, area_footprints=fps, config_path=None)
     assert len(plan.updated) == 1
     fresh, _counts = plan.updated[0]
     assert fresh.identity == "N"
@@ -301,7 +301,7 @@ def test_one_stored_record_cannot_satisfy_two_fresh_units():
             "R2": [_pad("1", "N", 20, 10), _pad("2", "N", 20, 20)]}
     items = [_track(10, 10, 20, 10, "N"), _track(10, 20, 20, 20, "N")]
     plan = plan_internode_reread(_Board(fps, pads), _cfg(), _tree(net_trace_refs=()),
-                                 area_items=items, area_footprints=fps)
+                                 area_items=items, area_footprints=fps, config_path=None)
     assert len(plan.added) == 2
     assert plan.added[0].signature != plan.added[1].signature
 
@@ -318,7 +318,7 @@ def test_apply_plan_replaces_in_place_and_appends_without_removing():
     other = NetTrace(net="OTHER", anchor_role="Z")
     cfg = _cfg([other, first])
     plan = plan_internode_reread(board, cfg, _tree(net_trace_refs=("first__a__b",)),
-                                 area_items=items, area_footprints=fps)
+                                 area_items=items, area_footprints=fps, config_path=None)
     after = apply_reread_plan(cfg, plan)
     # position preserved (the update stays where it was), the rest untouched
     assert [nt.net for nt in after.net_traces] == ["OTHER", "N"]
@@ -337,7 +337,7 @@ def test_report_lines_list_every_category_with_full_names():
                 _existing(name="gone__a__c", pads=("A.1", "Z.9"))])
     plan = plan_internode_reread(board, cfg,
                                  _tree(net_trace_refs=("match__a__b", "gone__a__c")),
-                                 area_items=items, area_footprints=fps)
+                                 area_items=items, area_footprints=fps, config_path=None)
     text = "\n".join(reread_report_lines("fpga", plan))
     assert "Tree 'fpga': inter-node copper re-read." in text
     assert "unchanged:  1" in text
@@ -346,7 +346,7 @@ def test_report_lines_list_every_category_with_full_names():
 
     # a fresh tree: the same copper is ADDED (full name, never abbreviated)
     plan2 = plan_internode_reread(board, _cfg(), _tree(net_trace_refs=()),
-                                  area_items=items, area_footprints=fps)
+                                  area_items=items, area_footprints=fps, config_path=None)
     text2 = "\n".join(reread_report_lines("fpga", plan2))
     assert "added:      n__a__b" in text2
 
@@ -357,7 +357,7 @@ def test_report_lines_show_the_before_and_after_counts():
         start_along_mm=0.0, start_across_mm=0.0, end_along_mm=99.0,
         end_across_mm=0.0, width_mm=0.25, layer="F.Cu",
         net_from_role="A", net_from_role_pad="1")])])
-    plan = plan_internode_reread(board, cfg, _tree(),
+    plan = plan_internode_reread(board, cfg, _tree(), config_path=None,
                                  area_items=items, area_footprints=fps)
     text = "\n".join(reread_report_lines("fpga", plan))
     assert "updated:    n__a__b (was 1 tracks / 0 via, now 1 / 0)" in text
@@ -394,7 +394,7 @@ def test_created_and_reread_copper_are_identical():
     # what the dialog would have built: the two cluster nodes + a net_trace
     # node whose ref IS the created record's identity
     tree = _tree(net_trace_refs=(created.identity,))
-    plan = plan_internode_reread(board, _cfg([created.record]), tree,
+    plan = plan_internode_reread(board, _cfg([created.record]), tree, config_path=None,
                                  area_items=items, area_footprints=fps)
     assert plan.added == [] and plan.updated == [] and plan.missing == []
     assert plan.unchanged == [created.identity]
@@ -406,7 +406,7 @@ def test_zones_are_reported_as_not_read():
     board, fps, items = _area()
     plan = plan_internode_reread(board, _cfg(), _tree(net_trace_refs=()),
                                  area_items=items, area_footprints=fps,
-                                 zone_count=3)
+                                 zone_count=3, config_path=None)
     assert any("zones are not read" in w for w in plan.warnings)
     assert any("zones are not read" in line
                for line in reread_report_lines("t", plan))
@@ -524,7 +524,7 @@ def test_c1_a_nested_component_matches_the_node_of_any_path_segment():
     FOREIGN) and the re-read reports an empty result — the live complaint."""
     board, fps = _nested_board()
     entities = _channel_entities((0,))
-    plan = plan_internode_reread(board, _nested_cfg(entities), _tree_of(entities),
+    plan = plan_internode_reread(board, _nested_cfg(entities), _tree_of(entities), config_path=None,
                                  area_items=[_bridge_pif_to_dac(0)],
                                  area_footprints=fps, sheet_names=_sheet_map())
     assert [c.identity for c in plan.added] == ["3v3_dvdd__dac_buf__pif_dvdd"]
@@ -546,7 +546,7 @@ def test_c2_the_same_cluster_on_another_channel_is_not_this_node():
     board, fps = _nested_board()
     entities = _channel_entities((0,))
     plan = plan_internode_reread(
-        board, _nested_cfg(entities), _tree_of(entities),
+        board, _nested_cfg(entities), _tree_of(entities), config_path=None,
         area_items=[_bridge_pif_to_dac(0), _bridge_pif_to_dac(1)],
         area_footprints=fps, sheet_names=_sheet_map())
     assert [c.identity for c in plan.added] == ["3v3_dvdd__dac_buf__pif_dvdd"]
@@ -564,7 +564,7 @@ def test_c3_two_nodes_of_one_cluster_matching_one_component_are_reported_not_cho
                        sheet="Channel_0"),
                 Entity(name="dac_buf_far", cell="c", cluster="DAC_BUF",
                        sheet="DAC")]
-    plan = plan_internode_reread(board, _nested_cfg(entities), _tree_of(entities),
+    plan = plan_internode_reread(board, _nested_cfg(entities), _tree_of(entities), config_path=None,
                                  area_items=[_bridge_dac_to_out(0)],
                                  area_footprints=fps, sheet_names=_sheet_map())
     assert plan.added == []
@@ -585,7 +585,7 @@ def test_a_sheet_key_outranks_the_sheet_less_key():
                        sheet="Channel_0"),
                 Entity(name="dac_buf_nosheet", cell="c", cluster="DAC_BUF",
                        sheet=None)]
-    plan = plan_internode_reread(board, _nested_cfg(entities), _tree_of(entities),
+    plan = plan_internode_reread(board, _nested_cfg(entities), _tree_of(entities), config_path=None,
                                  area_items=[_bridge_dac_to_out(0)],
                                  area_footprints=fps, sheet_names=_sheet_map())
     assert len(plan.added) == 1
@@ -600,7 +600,7 @@ def test_c8_a_new_record_stores_the_node_sheet_and_its_anchor_narrows_to_one():
     board, fps = _nested_board()
     entities = [e for e in _channel_entities((0,))
                 if e.cluster in ("DAC_BUF", "DAC_OUT")]
-    plan = plan_internode_reread(board, _nested_cfg(entities), _tree_of(entities),
+    plan = plan_internode_reread(board, _nested_cfg(entities), _tree_of(entities), config_path=None,
                                  area_items=[_bridge_dac_to_out(0)],
                                  area_footprints=fps, sheet_names=_sheet_map())
     assert len(plan.added) == 1
@@ -701,7 +701,7 @@ def test_c10_an_existing_record_keeps_its_own_anchor_sheet():
                        sheet="Channel_0"),
                 Entity(name="oa_ch0", cell="c", cluster="OA", sheet="Channel_0")]
     unit = _track(120.0, 20.0, 120.0, 30.0, "OA_OUT")       # U7.4 -> U8.1
-    fresh = plan_internode_reread(board, _nested_cfg(entities), _tree_of(entities),
+    fresh = plan_internode_reread(board, _nested_cfg(entities), _tree_of(entities), config_path=None,
                                   area_items=[unit], area_footprints=fps,
                                   sheet_names=_sheet_map())
     assert len(fresh.added) == 1
@@ -714,7 +714,7 @@ def test_c10_an_existing_record_keeps_its_own_anchor_sheet():
     tree = _tree_of(entities, net_trace_refs=("kept__oa",))
 
     # unchanged: the stored geometry already matches the board
-    same = plan_internode_reread(board, cfg, tree, area_items=[unit],
+    same = plan_internode_reread(board, cfg, tree, config_path=None, area_items=[unit],
                                  area_footprints=fps, sheet_names=_sheet_map())
     assert same.unchanged == ["kept__oa"]
     assert apply_reread_plan(cfg, same).net_traces[0].anchor_sheet == "OpAmp"
@@ -722,7 +722,7 @@ def test_c10_an_existing_record_keeps_its_own_anchor_sheet():
     # updated: the geometry moved — the refreshed record keeps the identity
     moved = dataclasses.replace(
         stored, tracks=[dataclasses.replace(stored.tracks[0], end_along_mm=99.0)])
-    plan = plan_internode_reread(board, _nested_cfg(entities, [moved]), tree,
+    plan = plan_internode_reread(board, _nested_cfg(entities, [moved]), tree, config_path=None,
                                  area_items=[unit], area_footprints=fps,
                                  sheet_names=_sheet_map())
     assert len(plan.updated) == 1
@@ -753,7 +753,7 @@ def test_c11_the_report_names_what_was_discarded_and_when_nothing_matched():
     board, fps = _nested_board()
     entities = _channel_entities((0,))
     plan = plan_internode_reread(
-        board, _nested_cfg(entities), _tree_of(entities),
+        board, _nested_cfg(entities), _tree_of(entities), config_path=None,
         area_items=[_bridge_pif_to_dac(0), _bridge_pif_to_dac(1)],
         area_footprints=fps, sheet_names=_sheet_map())
     text = "\n".join(reread_report_lines("ch0_dac_buf", plan))
@@ -762,7 +762,7 @@ def test_c11_the_report_names_what_was_discarded_and_when_nothing_matched():
 
     far = [Entity(name="dac_buf_far", cell="c", cluster="DAC_BUF",
                   sheet="Sheet_9")]
-    plan2 = plan_internode_reread(board, _nested_cfg(far), _tree_of(far),
+    plan2 = plan_internode_reread(board, _nested_cfg(far), _tree_of(far), config_path=None,
                                   area_items=[_bridge_pif_to_dac(0)],
                                   area_footprints=fps, sheet_names=_sheet_map())
     assert plan2.matched_components == 0 and plan2.unmatched_components == 9
@@ -798,6 +798,6 @@ def test_c12_created_and_reread_copper_are_identical_on_nested_sheets():
         board, _nested_cfg(entities, [created.record]),
         _tree_of(entities, net_trace_refs=(created.identity,)),
         area_items=[_bridge_dac_to_out(0)], area_footprints=fps,
-        sheet_names=_sheet_map())
+        sheet_names=_sheet_map(), config_path=None)
     assert plan.added == [] and plan.updated == [] and plan.missing == []
     assert plan.unchanged == [created.identity]
