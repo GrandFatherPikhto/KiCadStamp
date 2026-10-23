@@ -87,7 +87,7 @@ def run_select_inter_node_copper_worker(payload: dict) -> dict:
         items = list(adapter.get_tracks()) + list(adapter.get_vias())
         units, discarded, warnings = internode_units(
             adapter, payload["cfg"], payload["tree"],
-            config_path=payload.get("config_path"),
+            config_path=payload["config_path"],
             area_items=items, area_footprints=footprints,
             sheet_names=payload.get("sheet_names") or {})
         selected = [piece for unit in units for piece in (*unit.tracks, *unit.vias)]

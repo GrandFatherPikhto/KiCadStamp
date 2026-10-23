@@ -17572,6 +17572,13 @@ msgid ""
 "back to the cell"
 msgstr ""
 
+#: kicadstamp/internode_cell_copper.py:262
+#, python-brace-format
+msgid ""
+"net_traces entry (net {net!r}) duplicates cell copper — that copper now "
+"belongs to a cell's record; delete the entry if it is not needed"
+msgstr ""
+
 #~ msgid ""
 #~ "role {role!r} occurs {count} times in"
 #~ " cluster {cluster!r} — this is a "

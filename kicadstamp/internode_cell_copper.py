@@ -41,6 +41,7 @@ from .i18n import _
 __all__ = [
     "CellCopperMap",
     "cut_cell_copper",
+    "duplicate_line",
     "live_board_copper",
     "registry_snapshot",
     "report_line",
@@ -221,15 +222,18 @@ def subtract_units(adapter, cfg, tree, config_path, units, *, sheet_names=None) 
     silent, because a silently unchanged run is exactly how the defect looked.
 
     Returns `(kept units, the map, pieces given back, pieces that were cell copper entirely, the
-    report lines)` — the lines go into the caller's warning list, which is what both doors print.
+    report lines, the dropped units)`. The lines go into the caller's warning list, which is what
+    both doors print; the dropped units are returned so the RE-READ can tell an entry that now
+    duplicates a cell's copper from one whose copper is gone (cell copper is on the board).
     """
     mapping = tree_cell_copper(adapter, cfg, config_path, tree,
                                sheet_names=sheet_names)
     lines = list(mapping.warnings)
     if config_path is None:
-        return list(units), mapping, 0, 0, lines
+        return list(units), mapping, 0, 0, lines, []
 
     kept: list = []
+    dropped: list = []
     given_total = 0
     whole = 0
     for unit in units:
@@ -237,13 +241,26 @@ def subtract_units(adapter, cfg, tree, config_path, units, *, sheet_names=None) 
         if given and not trimmed.tracks and not trimmed.vias:
             # Cell copper ENTIRELY: neither selected nor written, only counted (rule 5).
             whole += 1
+            dropped.append(unit)
             continue
         given_total += given
         kept.append(trimmed)
     line = report_line(mapping, whole)
     if line:
         lines.append(line)
-    return kept, mapping, given_total, whole, lines
+    return kept, mapping, given_total, whole, lines, dropped
+
+
+def duplicate_line(identity: str) -> str:
+    """The report sentence for a `net_traces:` entry that now duplicates a cell's copper.
+
+    Д-2 of the Ч1 acceptance (23.10): the piece is still on the board, its copper simply belongs
+    to a cell's record now — so the re-read must NOT call it "no longer on the board". What the
+    human needs is the fact and the decision left to him.
+    """
+    return _(
+        "net_traces entry (net {net!r}) duplicates cell copper — that copper now belongs to a "
+        "cell's record; delete the entry if it is not needed").format(net=identity)
 
 
 def report_line(mapping: Optional[CellCopperMap], whole_pieces: int) -> Optional[str]:

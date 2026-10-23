@@ -324,6 +324,41 @@ def test_the_classifier_is_where_the_subtraction_happens(tmp_path):
     assert any("cell copper is NOT subtracted" in w for w in classification.warnings)
 
 
+def test_an_entry_that_duplicates_cell_copper_is_named_not_called_missing(
+        tmp_path, monkeypatch):
+    """Д-2 (acceptance 23.10): the piece is still on the board and its pads belong to a stored
+    `net_traces:` entry — so the re-read must NOT say "the copper is no longer on the board".
+    It names the entry as a duplicate of cell copper instead, and the decision stays with the
+    human. Mutation 'the duplicate goes to `missing`' turns this red."""
+    from kicadstamp.config import format_version, NetTrace
+    from kicadstamp.internode_capture import plan_internode_reread
+    from tests.gui.docks.test_trees_dock_internode_reread import _cell_copper_root, _board
+    from kicadstamp.config.loader import load_config
+
+    monkeypatch.setattr(format_version, "CURRENT_FORMAT", 2)
+    root = _cell_copper_root(tmp_path)
+    cfg, _ctx = load_config(str(root))
+    tree = next(t for t in cfg.trees if t.name == "t")
+    board, fps, items = _board()
+    board.get_tracks.return_value = list(items)
+    board.get_vias.return_value = []
+
+    import kicadstamp.internode_cell_copper as module
+
+    monkeypatch.setattr(module, "tree_cell_copper",
+                        lambda *a, **k: CellCopperMap(uuids={"t1"}, tracks=1,
+                                                      by_cell={"c": 1}))
+
+    plan = plan_internode_reread(board, cfg, tree, config_path=str(root),
+                                 area_items=list(items), area_footprints=fps,
+                                 sheet_names={})
+
+    assert isinstance(cfg.net_traces[0], NetTrace)      # the fixture really carries an entry
+    assert plan.missing == []                           # nothing left the board
+    assert plan.cell_duplicates == ["dup__a__b"]
+    assert any("duplicates cell copper" in w for w in plan.warnings), plan.warnings
+
+
 def test_a_piece_that_is_cell_copper_entirely_is_counted_and_dropped(
         tmp_path, monkeypatch):
     """Plan §2.5 + cell 3: the unit loses ALL its copper, so it is neither selected nor written —

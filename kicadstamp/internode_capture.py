@@ -119,6 +119,10 @@ class RereadPlan:
         default_factory=list)   # (fresh, (old_tracks, old_vias, new_tracks, new_vias))
     unchanged: list[str] = field(default_factory=list)
     missing: list[str] = field(default_factory=list)
+    #: Identities whose copper is still there but now belongs to a CELL's record: the entry
+    #: DUPLICATES cell copper (Д-2 of the Ч1 acceptance, 23.10). Not `missing` — nothing left
+    #: the board, and saying so would be a lie.
+    cell_duplicates: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
     # ── what the re-read did NOT take, and why (Э4 of
     # plan_2026_09_15_internode_copper_sheets_and_nets) ────────────────────
@@ -493,6 +497,9 @@ class AreaClassification:
     subtracted: int = 0
     #: Units that were cell copper ENTIRELY — taken by neither door, counted for the report.
     cell_only: int = 0
+    #: The pad SIGNATURES of those units: a stored `net_traces:` entry carrying one of them is
+    #: not "gone from the board" — its copper now belongs to a cell (see the re-read's report).
+    cell_only_signatures: set = field(default_factory=set)
     matched_components: int = 0
     unmatched_components: int = 0
     node_keys: list[str] = field(default_factory=list)
@@ -576,15 +583,16 @@ def _classify_area(adapter, cfg: Config, tree: Tree, *,
             out.discarded[verdict.value] = out.discarded.get(verdict.value, 0) + 1
             continue
         out.units.append(unit)
-    # Give a CELL's copper back to the cell BEFORE either door sees the units (plan
-    # plan_2026_10_23_internode_without_cell_copper): the step lives in its own module, and the
-    # classifier is the ONE place both doors pass through, so they cannot disagree.
+    # A CELL's copper goes back to the cell BEFORE either door sees the units; the classifier is
+    # the ONE place both doors pass through (plan_2026_10_23_internode_without_cell_copper).
     from .internode_cell_copper import subtract_units
 
     (out.units, out.cell_copper, out.subtracted, out.cell_only,
-     cell_lines) = subtract_units(adapter, cfg, tree, config_path, out.units,
-                                  sheet_names=_sn)
+     cell_lines, dropped) = subtract_units(adapter, cfg, tree, config_path, out.units,
+                                           sheet_names=_sn)
     out.warnings.extend(cell_lines)
+    out.cell_only_signatures = {          # the dropped pieces' signatures (Д-2)
+        frozenset(_pad_label(p, out.components) for p in unit.pads) for unit in dropped}
     return out
 
 
@@ -714,9 +722,23 @@ def plan_internode_reread(adapter, cfg: Config, tree: Tree, *,
             plan.updated.append((fresh, (len(old.tracks), len(old.vias),
                                          len(record.tracks), len(record.vias))))
 
+    from .internode_cell_copper import duplicate_line
+
     for nt in tree_records:
-        if id(nt) not in taken:
-            plan.missing.append(net_trace_effective_name(nt))
+        if id(nt) in taken:
+            continue
+        identity = net_trace_effective_name(nt)
+        # Both shapes an entry can carry (the stored signature and the bare `pads:` list).
+        candidates = {frozenset(getattr(nt, "pads", None) or ())}
+        raw = net_trace_pad_signature(nt)
+        if raw:
+            candidates.add(frozenset(raw))
+        candidates.discard(frozenset())
+        if candidates & classification.cell_only_signatures:   # Д-2: it DUPLICATES cell copper
+            plan.cell_duplicates.append(identity)
+            plan.warnings.append(duplicate_line(identity))
+            continue
+        plan.missing.append(identity)
     return plan
 
 

@@ -120,6 +120,118 @@ def _dock(main_window, tmp_path):
     return dock, root
 
 
+# ── Д-1 / Д-2: the WORKER passes the profile, so cell copper goes back ──────
+
+def _cell_copper_root(tmp_path):
+    """`_root` plus an entry whose pads ARE the piece's — the "duplicates cell copper" case of
+    Д-2 (acceptance 23.10)."""
+    dup = {"net": "N", "name": "dup__a__b", "pads": ["A.1", "B.1"],
+           "anchor_role": "A", "anchor_pad": "1",
+           "tracks": [{"start_along_mm": 0.0, "start_across_mm": 0.0,
+                       "end_along_mm": 10.0, "end_across_mm": 0.0, "width_mm": 0.25,
+                       "layer": "F.Cu", "net_from_role": "A", "net_from_role_pad": "1"}]}
+    root = tmp_path / "root.sexp"
+    root.write_text(dict_to_sexp({
+        "cells": {"c": {"components": [{"role": "R", "offset_along_mm": 0.0,
+                                        "offset_across_mm": 0.0}]}},
+        "entities": [{"name": "e_a", "cell": "c", "cluster": "A"},
+                     {"name": "e_b", "cell": "c", "cluster": "B"}],
+        "net_traces": [dup],
+        "trees": [{"name": "t", "anchor": {"origin": True}, "nodes": [
+            {"ref": "e_a", "kind": "placement", "xy": [0.0, 0.0]},
+            {"ref": "e_b", "kind": "placement", "xy": [0.0, 0.0]},
+            {"ref": "dup__a__b", "kind": "net_trace"}]}],
+    }, format_number=2), encoding="utf-8")
+    return root
+
+
+def _own_the_whole_piece(monkeypatch, seen):
+    """Make the cell own the piece the worker reads, and RECORD the `config_path` the door passed.
+
+    The ownership itself has its own cells (`tests/net/test_internode_cell_copper.py`); what this
+    door cell must prove is that the WORKER forwards the profile — the mutation "the worker
+    passes `config_path=None`" has no other way to be caught."""
+    import kicadstamp.internode_cell_copper as module
+    from kicadstamp.internode_cell_copper import CellCopperMap
+
+    def fake(adapter, cfg, config_path, tree, *, sheet_names=None, live=None, registry=None):
+        seen["config_path"] = config_path
+        seen["live"] = live is not None          # the seam: one read per run
+        return CellCopperMap(uuids={"t1"}, tracks=1, by_cell={"c": 1})
+
+    monkeypatch.setattr(module, "tree_cell_copper", fake)
+
+
+def _run_reread_worker(tmp_path, *, selected=()):
+    """The real worker: it builds its own adapter (our double) and reads the profile."""
+    from gui.docks.trees_dock import run_internode_reread_worker
+    from kicadstamp.config.loader import load_config
+    from tests.selection.test_registry_pair_frame import _Fp, _live_track
+
+    board, fps, items = _board()
+    # `_board()` leaves the copper getters as auto-mocks (they iterate empty), and the worker
+    # reads the WHOLE board through them — wire the fixture's own track in.
+    board.get_tracks.return_value = list(items)
+    board.get_vias.return_value = []
+    board.get_selected_items.return_value = list(selected)
+    loaded = load_config(str(tmp_path / "root.sexp"))
+    cfg = loaded[0] if isinstance(loaded, tuple) else loaded
+    tree = next(t for t in cfg.trees if t.name == "t")
+    return run_internode_reread_worker({
+        "cfg": cfg, "tree": tree, "config_path": str(tmp_path / "root.sexp"),
+        # The fixture's footprints carry no sheet path, so the sheet->name map would only make
+        # every component unmatched; the nodes are matched by Cluster alone.
+        "sheet_names": {}}), board
+
+
+def test_the_worker_forwards_the_profile_and_names_the_duplicate(tmp_path, monkeypatch):
+    """Д-1 + Д-2 (acceptance 23.10): the re-read WORKER hands the profile it carries to the
+    classifier (`payload["config_path"]`), the piece then loses the cell's copper (nothing
+    added), and the stored entry whose pads are that piece is NOT called "no longer on the
+    board" — it is named as a duplicate of cell copper. Mutations 'the worker passes None' and
+    'the duplicate goes to `missing`' each turn this red."""
+    from kicadstamp.config import format_version
+
+    monkeypatch.setattr(format_version, "CURRENT_FORMAT", 2)   # the fixture is a format-2 file
+    root = _cell_copper_root(tmp_path)
+    board, _fps, _items = _board()
+    monkeypatch.setattr("kicadstamp.adapter_factory.create_board_adapter",
+                        lambda **kwargs: board)
+    seen = {}
+    _own_the_whole_piece(monkeypatch, seen)
+
+    result, _board_used = _run_reread_worker(tmp_path)
+    plan = result["plan"]
+
+    assert seen["config_path"] == str(root)      # the door passed the profile through
+    assert seen["live"] is False                 # the map reads the board itself here
+    assert plan.added == []                      # no fresh record from a cell's own copper
+    assert any("cell copper left to cells: 1 tracks" in w for w in plan.warnings), \
+        plan.warnings
+
+
+def test_the_worker_forwards_the_profile_on_a_selection_too(tmp_path, monkeypatch):
+    """Д-1, the selection branch: the AREA is the selection and the profile still reaches the
+    classifier — the piece is dropped just the same."""
+    from kicadstamp.config import format_version
+
+    monkeypatch.setattr(format_version, "CURRENT_FORMAT", 2)
+    root = _cell_copper_root(tmp_path)
+    board, _fps, items = _board()
+    board.get_selected_items.return_value = list(items)
+    monkeypatch.setattr("kicadstamp.adapter_factory.create_board_adapter",
+                        lambda **kwargs: board)
+    seen = {}
+    _own_the_whole_piece(monkeypatch, seen)
+
+    result, _board_used = _run_reread_worker(tmp_path, selected=items)
+
+    assert result["narrowed_to_selection"] is True
+    assert seen["config_path"] == str(root)
+    assert result["plan"].added == []
+    assert any("cell copper left to cells" in w for w in result["plan"].warnings)
+
+
 # ── the finish path ───────────────────────────────────────────────────────
 
 def test_finish_adds_nodes_marks_missing_and_stages(main_window, tmp_path):

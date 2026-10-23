@@ -225,7 +225,10 @@ def _payload_for(worker_name, monkeypatch, tmp_path):
         monkeypatch.setattr(capture_mod, "plan_internode_reread",
                             lambda *a, **k: SimpleNamespace(added=[]))
         monkeypatch.setattr(capture_mod, "apply_reread_plan", lambda cfg, plan: cfg)
-        return {"cfg": Config(), "tree": _plain_tree(), "sheet_names": {}}
+        # The worker reads this key directly since 23.10 (`payload["config_path"]`): the door
+        # must hand the profile on, and a stand-in profile is enough for the socket cell.
+        return {"cfg": Config(), "tree": _plain_tree(), "sheet_names": {},
+                "config_path": str(tmp_path / "root.sexp")}
     config_path = tmp_path / "root.sexp"
     config_path.write_text("", encoding="utf-8")
     if worker_name == "run_select_record_copper_worker":

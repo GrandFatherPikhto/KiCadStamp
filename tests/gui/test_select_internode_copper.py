@@ -144,6 +144,73 @@ def _area_uuid_set(board):
     return {p.uuid for p in board.selected}
 
 
+# ── В1: a cell's own copper is not selected (23.10, Д-1) ───────────────────
+
+def _cell_copper_board():
+    """The bridge R1→R2 where the F.Cu stretch is FREE and the mid-chain via + the B.Cu leg
+    belong to the cell `c` (plan_2026_10_23_internode_without_cell_copper)."""
+    fps = [_fp("R1", "RA", "A", 10.0, 10.0), _fp("R2", "RB", "B", 30.0, 10.0)]
+    pads = {"R1": [_pad("1", "N1", 10.0, 10.0)],
+            "R2": [_pad("1", "N1", 30.0, 10.0)]}
+    tracks = [_track(10.0, 10.0, 30.0, 10.0, "N1", "free-fcu"),
+              _track(30.0, 10.0, 30.0, 20.0, "N1", "cell-bcu")]
+    tracks[1].layer = BoardLayer.BL_B_Cu
+    vias = [_via(30.0, 10.0, "N1", "cell-via")]
+    return _Board(fps, pads, tracks, vias=vias), fps, tracks
+
+
+def _cell_copper_cfg():
+    from types import SimpleNamespace
+
+    cell = SimpleNamespace(uuid="cu", anchor_role="RA", anchor_xy=None,
+                           vias=[SimpleNamespace(offset_along_mm=0.0, offset_across_mm=0.0)],
+                           tracks=[SimpleNamespace(start_along_mm=0.0, start_across_mm=0.0,
+                                                   end_along_mm=0.0, end_across_mm=10.0)],
+                           components=[SimpleNamespace(role="RA", offset_along_mm=0.0,
+                                                       offset_across_mm=0.0, vias=[])])
+    return Config(cells={"c": cell},
+                  entities=[Entity(name="e_a", cell="c", cluster="A", sheet="S"),
+                            Entity(name="e_b", cell="c", cluster="B", sheet="S")],
+                  trees=[_tree("t", [_node("e_a"), _node("e_b")])])
+
+
+def _cell_registries(tmp_path):
+    """Both registry files: the cell's via 0 and track 0 ARE the live `cell-via`/`cell-bcu`."""
+    from tests.selection.test_registry_pair_frame import (
+        _registries, _track_entry, _via_entry)
+
+    from kicadstamp.registry import make_registry_key
+
+    key = make_registry_key("name:e_a", "c", None, 0)
+    key_b = make_registry_key("name:e_b", "c", None, 0)
+    _registries(tmp_path,
+                {key: _via_entry("cell-via", 30.0, 10.0),
+                 key_b: _via_entry("cell-via", 30.0, 10.0)},
+                {key: _track_entry("cell-bcu", 30.0, 10.0, 30.0, 20.0),
+                 key_b: _track_entry("cell-bcu", 30.0, 10.0, 30.0, 20.0)})
+
+
+def test_select_inter_node_copper_leaves_a_cells_own_copper_alone(monkeypatch, tmp_path):
+    """Д-1 (acceptance 23.10): the WORKER passes the profile through, so the cell's via and its
+    B.Cu leg are given back and only the free F.Cu stretch is selected. Mutation 'the worker
+    passes `config_path=None`' turns this red — the whole bridge would be selected."""
+    from kicadstamp.config import format_version
+
+    monkeypatch.setattr(format_version, "CURRENT_FORMAT", 2)
+    board, fps, tracks = _cell_copper_board()
+    _install_adapter(monkeypatch, board)
+    _cell_registries(tmp_path)
+    cfg = _cell_copper_cfg()
+
+    result = run_select_inter_node_copper_worker(
+        {**_payload(cfg, cfg.trees[0], {"S": "S"}),
+         "config_path": str(tmp_path / "config.sexp")})
+
+    assert [t.uuid for t in board.selected] == ["free-fcu"]
+    assert result["pieces"] == 1 and result["tracks"] == 1 and result["vias"] == 0
+    assert any("cell copper left to cells" in w for w in result["warnings"])
+
+
 # ── В1: exactly what a whole-board re-read would take ──────────────────────
 
 def _one_bridge_board():

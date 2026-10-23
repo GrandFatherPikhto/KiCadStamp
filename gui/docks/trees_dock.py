@@ -299,9 +299,8 @@ def run_internode_reread_worker(payload: dict) -> dict:
         cfg = payload["cfg"]
         tree = payload["tree"]
         plan = plan_internode_reread(
-            adapter, cfg, tree, config_path=payload.get("config_path"),
-            area_items=items, area_footprints=footprints,
-            sheet_names=payload.get("sheet_names") or {})
+            adapter, cfg, tree, config_path=payload["config_path"], area_items=items,
+            area_footprints=footprints, sheet_names=payload.get("sheet_names") or {})
         return {
             "plan": plan,
             "cfg": apply_reread_plan(cfg, plan),

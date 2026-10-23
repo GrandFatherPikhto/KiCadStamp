@@ -11,7 +11,10 @@ fix and must turn a named cell red:
   M4  a piece that is cell copper entirely is kept anyway      (internode_cell_copper.subtract_units)
   M5  the board is read again for every node                   (internode_cell_copper.tree_cell_copper)
   M6  the run says nothing about what it gave back             (internode_cell_copper.subtract_units)
-  M7  cosmetic control (a comment must change nothing)
+  M7  the В1 WORKER stops forwarding the profile               (gui/select_internode_copper.py)
+  M8  the RE-READ WORKER stops forwarding the profile          (gui/docks/trees_dock.py)
+  M9  a cell-copper duplicate is called "no longer on board"   (internode_capture.plan_internode_reread)
+  M10 cosmetic control (a comment must change nothing)
 
 Safeguards, as in every harness of this package: a template matching more than once is refused
 (rule 38); a row that reddens nothing is a MISS; the control must survive; every file is restored
@@ -34,14 +37,16 @@ CELL_COPPER = "kicadstamp/internode_cell_copper.py"
 ABSENT = "kicadstamp/absent_copper_prune.py"
 
 GUARDS = ("tests/net/test_internode_cell_copper.py "
+          "tests/gui/test_select_internode_copper.py "
+          "tests/gui/docks/test_trees_dock_internode_reread.py "
           "tests/selection/test_registry_pair_frame.py")
 
 MUTATIONS = [
     ("M1 the classifier never subtracts", CAPTURE,
      "    (out.units, out.cell_copper, out.subtracted, out.cell_only,\n"
-     "     cell_lines) = subtract_units(adapter, cfg, tree, config_path, out.units,\n"
-     "                                  sheet_names=_sn)\n",
-     "    cell_lines = []  # MUTATION: the units keep the cells' own copper\n",
+     "     cell_lines, dropped) = subtract_units(adapter, cfg, tree, config_path, out.units,\n"
+     "                                           sheet_names=_sn)\n",
+     "    cell_lines, dropped = [], []  # MUTATION: the units keep the cells' own copper\n",
      ["test_the_classifier_is_where_the_subtraction_happens",
       "test_a_piece_that_is_cell_copper_entirely_is_counted_and_dropped"]),
 
@@ -77,7 +82,26 @@ MUTATIONS = [
      "    lines = []  # MUTATION: the run says nothing about the cells\n",
      ["test_the_classifier_is_where_the_subtraction_happens"]),
 
-    ("M7 cosmetic control (a comment must change nothing)", CELL_COPPER,
+    # Д-1 of the Ч1 acceptance (23.10): the GUI doors must FORWARD the profile they carry. Each
+    # row kills one door; the cells are at the worker level on a cell-copper scene.
+    ("M7 the В1 worker stops forwarding the profile", "gui/select_internode_copper.py",
+     '            config_path=payload["config_path"],\n',
+     "            config_path=None,  # MUTATION: the door forgets its profile\n",
+     ["test_select_inter_node_copper_leaves_a_cells_own_copper_alone"]),
+
+    ("M8 the re-read worker stops forwarding the profile", "gui/docks/trees_dock.py",
+     '            adapter, cfg, tree, config_path=payload["config_path"], area_items=items,\n',
+     "            adapter, cfg, tree, config_path=None, area_items=items,  # MUTATION\n",
+     ["test_the_worker_forwards_the_profile_and_names_the_duplicate",
+      "test_the_worker_forwards_the_profile_on_a_selection_too"]),
+
+    # Д-2: "the copper is no longer on the board" is a LIE when the piece now belongs to a cell.
+    ("M9 a cell-copper duplicate is called \"no longer on board\"", CAPTURE,
+     "        if candidates & classification.cell_only_signatures:\n",
+     "        if False:  # MUTATION: the duplicate is reported as missing\n",
+     ["test_an_entry_that_duplicates_cell_copper_is_named_not_called_missing"]),
+
+    ("M10 cosmetic control (a comment must change nothing)", CELL_COPPER,
      "    out = CellCopperMap()\n",
      "    out = CellCopperMap()  # MUTATION: cosmetic\n",
      "survive"),
