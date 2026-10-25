@@ -72,7 +72,6 @@ from .docks.configurator import ConfiguratorDock
 from .docks.net_trace import NetTraceDock
 from .docks.trees_dock import TreesDock
 from .docks.checks import ChecksPage
-from .docks.dedupe import DedupeDock
 from .docks.fieldstool_dock import FieldsToolDock
 from .docks.sheet_narrowing_warning import warn_once
 from .docks.log_panel import LogDock
@@ -368,30 +367,15 @@ class DockHub:
         self.tools_dock = ToolsDock(main_window)
         self.tools_dialog = ToolsDialog(self.tools_dock, main_window)
 
-        # ── bottom: Log (+ the copper-duplicates tab) ──────────────────────
+        # ── bottom: Log, and nothing else ─────────────────────────────────
         # 2026-09-05 (plan components_fieldstool_master_detail): Pending moved
         # into the Components dock's left tab, so Log is the sole bottom dock.
+        # Ч1б (23.10, Denis: «справа снизу Copper Duplicates убираем»): the
+        # copper-duplicates panel moved into the Checks page as its fifth row, so
+        # the bottom area is Log ALONE — `docks` below has one entry and the View
+        # menu one item.
         self.log_dock = LogDock(main_window, verbose=verbose)
         main_window.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, self.log_dock)
-        # Copper duplicates (plan_2026_10_01_dedupe_into_kicadstamp §2.3): a
-        # second bottom dock TABIFIED with the Log, so this panel is opened and
-        # closed from the View menu by the very same toggleViewAction machinery
-        # as every other dock — nobody hand-rolls a switch for it. It needs the
-        # connection: its work (and the board read) runs on a worker thread.
-        self.dedupe_dock = DedupeDock(main_window, connection=connection)
-        main_window.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea,
-                                  self.dedupe_dock)
-        main_window.tabifyDockWidget(self.log_dock, self.dedupe_dock)
-        # Checks USED to be a third tab of this bottom area (plan_2026_10_22_checks_tab). Since
-        # plan_2026_10_23_checks_tab_top_level it is a page of `left_tabs` (built above), so the
-        # bottom area is back to Log + Copper duplicates and has no View-menu entry for it.
-        # Keep the LOG as the visible bottom tab. Measured: without this the
-        # tabified area came up with the dedupe tab current, and S.1/S.2's
-        # acceptance (`resizeDocks([log], [200], Vertical)` honoured exactly —
-        # tests/gui/test_dock_sizing.py) collapsed to 59 px, because Qt resizes
-        # the area's CURRENT dock. The Log was the sole bottom dock before this
-        # panel existed and must stay the one on top, both for the user and for
-        # that guard.
         self.log_dock.raise_()
 
         # All real TOP-LEVEL QDockWidgets (2026-08-27, handoff
@@ -405,9 +389,9 @@ class DockHub:
         # bottom). Since task T (2026-09-10) the three Components/Config/Trees
         # widgets are pages of the central QTabWidget, not docks — they cannot
         # be floated or closed, so they have no toggleViewAction and no View-menu
-        # entry. Only the Log and the copper-duplicates panel remain real
-        # top-level docks.
-        self.docks = [self.log_dock, self.dedupe_dock]
+        # entry. Since Ч1б (23.10) the copper-duplicates panel is a ROW of the
+        # Checks page, so the Log is the only real top-level dock left.
+        self.docks = [self.log_dock]
 
         self._wire()
 
@@ -799,12 +783,6 @@ class DockHub:
         self.root_metadata_dock.root_changed.connect(
             partial(self._safe_call, "cells_dock.set_root_path",
                     self.cells_dock.set_root_path))
-        # Copper duplicates (plan_2026_10_01_dedupe_into_kicadstamp §2.3): the
-        # root config decides whether a removal can be journaled, so the panel
-        # follows the same root_changed source as every dock above.
-        self.root_metadata_dock.root_changed.connect(
-            partial(self._safe_call, "dedupe_dock.set_root_path",
-                    self.dedupe_dock.set_root_path))
         # Checks (plan_2026_10_22_checks_tab): every button runs a script against the profile's
         # config FILE, so the tab follows the same root_changed signal as every dock above — a
         # root switch enables/disables its buttons with no extra wiring.
@@ -2789,7 +2767,7 @@ class DockHub:
         self._safe_call("thermal_via_dock.set_root_path",
                         self.thermal_via_dock.set_root_path, path)
         self._safe_call("cells_dock.set_root_path", self.cells_dock.set_root_path, path)
-        self._safe_call("dedupe_dock.set_root_path", self.dedupe_dock.set_root_path, path)
+        # The Checks page forwards the root to its copper-duplicates row itself (Ч1б).
         self._safe_call("checks_page.set_root_path", self.checks_page.set_root_path, path)
         self._safe_call("tools_dock.set_root_path", self.tools_dock.set_root_path, path)
         self._safe_call("entity_dock.set_root_path", self.entity_dock.set_root_path, path)

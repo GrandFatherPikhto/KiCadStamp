@@ -26,11 +26,15 @@ those decisions and must turn a named cell red:
   M17 a busy socket leaves the queue alone              (gui/docks/checks.py `_warn_busy`)
   M18 a missing script leaves the queue alone           (gui/docks/checks.py `_launch`)
   M19 a failed start leaves the queue alone             (gui/docks/checks.py `_on_error`)
-  M20 cosmetic control (a comment must change nothing)
+  M21 the page is announced as a bottom dock again       (gui/dock_hub.py `__init__`, Ч1б)
+  M22 "Run all" CLEARS copper before it runs             (gui/docks/checks.py `run_all`, Ч1б)
+  M23 the menu's Clear is on with nothing found          (gui/checks_menu.py, Ч1б)
+  M24 cosmetic control (a comment must change nothing)
 
 M6 and M7 arrived with acceptance Д-3 (23.10.2026); M8–M16 with the page move (Ч1 of
-plan_2026_10_23_checks_tab_top_level, 23.10). The control row has been renumbered twice and is
-always LAST: M6 -> M8 (Д-3) -> M17 (page move).
+plan_2026_10_23_checks_tab_top_level, 23.10); M21–M23 with Ч1б of the same plan (the
+copper-duplicates panel moving into the page). The control row has been renumbered three times
+and is always LAST: M6 -> M8 (Д-3) -> M17 (page move) -> M20 (Д-1/Д-2) -> M24 (Ч1б).
 
 Safeguards, the same as every harness in this package: a template that matches more than once
 is refused (a silent miss is indistinguishable from a healthy guard — rule 38); a row that
@@ -52,7 +56,8 @@ ROOT = Path(__file__).resolve().parents[2]
 CHECKS = "gui/docks/checks.py"
 REGISTRY = "gui/checks_registry.py"
 
-GUARDS = "tests/gui/docks/test_checks_dock.py tests/gui/test_checks_registry.py"
+GUARDS = ("tests/gui/docks/test_checks_dock.py tests/gui/test_checks_registry.py "
+          "tests/gui/docks/test_dedupe_dock.py")
 
 MUTATIONS = [
     ("M1 every exit code looks clean", CHECKS,
@@ -111,14 +116,18 @@ MUTATIONS = [
      "        state.output += chunk\n",
      ["test_each_check_keeps_its_own_output_and_copy_follows_the_selection"]),
 
+    # Ч1б added a DEDUPE_ROW branch to `copy`, so the template now spells the whole body —
+    # the mutation must still replace ONLY the "which row" decision.
     ("M9 Copy ignores the selected row", CHECKS,
      "        script = self.selected_script()\n        if script is None:\n"
-     "            return\n        QApplication.clipboard().setText("
-     "self._states[script].output)\n",
+     "            return\n        if script == DEDUPE_ROW:\n"
+     "            self.dedupe.copy()\n            return\n"
+     "        QApplication.clipboard().setText(self._states[script].output)\n",
      "        script = next((s for s, st in self._states.items() if st.output), None)\n"
      "        if script is None:  # MUTATION: copies the first check that ran\n"
-     "            return\n        QApplication.clipboard().setText("
-     "self._states[script].output)\n",
+     "            return\n        if script == DEDUPE_ROW:\n"
+     "            self.dedupe.copy()\n            return\n"
+     "        QApplication.clipboard().setText(self._states[script].output)\n",
      ["test_each_check_keeps_its_own_output_and_copy_follows_the_selection"]),
 
     ("M10 a finished run does not touch its row", CHECKS,
@@ -146,7 +155,8 @@ MUTATIONS = [
      ["test_the_merge_check_is_a_dry_run_and_its_code_colours_the_row"]),
 
     ("M14 \"Run all\" launches every check at once", CHECKS,
-     "        self._queue = [check.script for check in CHECKS]\n        self._start_next()\n",
+     "        self._queue = [check.script for check in CHECKS] + [DEDUPE_ROW]\n"
+     "        self._start_next()\n",
      "        for check in CHECKS:  # MUTATION: a fan-out instead of a queue\n"
      "            self._launch(check)\n",
      ["test_run_all_runs_the_checks_one_after_another"]),
@@ -183,7 +193,27 @@ MUTATIONS = [
      "            name=self.check_for(script).title, reason=reason)\n",
      ["test_a_start_that_fails_cancels_the_rest_of_the_run"]),
 
-    ("M20 cosmetic control (a comment must change nothing)", CHECKS,
+    # Ч1б (23.10): the copper-duplicates panel is a ROW of this page now, its Clear is a WRITE
+    # and "Run all" must never be able to reach it. One row per promise.
+    ("M21 the page is announced as a bottom dock again", "gui/dock_hub.py",
+     "        self.docks = [self.log_dock]\n",
+     "        self.docks = [self.log_dock, self.log_dock]  "
+     "# MUTATION: a second bottom panel is back\n",
+     ["test_the_page_is_the_fourth_left_tab_and_not_a_bottom_dock",
+      "test_the_panel_is_the_fifth_row_of_the_checks_page_and_not_a_bottom_dock"]),
+
+    ("M22 \"Run all\" CLEARS copper before it runs", CHECKS,
+     "        self._queue = [check.script for check in CHECKS] + [DEDUPE_ROW]\n",
+     "        self.dedupe.clear()  # MUTATION: the run rewrites the board\n"
+     "        self._queue = [check.script for check in CHECKS] + [DEDUPE_ROW]\n",
+     ["test_run_all_searches_for_duplicates_and_never_clears"]),
+
+    ("M23 the menu's Clear is on with nothing found", "gui/checks_menu.py",
+     "        clear_dedupe.setEnabled(not page.is_running() and page.dedupe.can_clear())\n",
+     "        clear_dedupe.setEnabled(True)  # MUTATION: offered with nothing to clear\n",
+     ["test_the_menu_follows_the_page_and_the_clear_follows_the_panel"]),
+
+    ("M24 cosmetic control (a comment must change nothing)", CHECKS,
      "        runnable = self.can_run()\n",
      "        runnable = self.can_run()  # MUTATION: cosmetic\n",
      "survive"),

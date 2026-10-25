@@ -34,6 +34,14 @@ TOOLS_DIR = "tools"
 _ROOT_MARKERS = ("pyproject.toml", f"{TOOLS_DIR}/check_placement.py")
 
 
+#: The Checks page's FIFTH row is not a CLI script: it is the copper-duplicates
+#: panel (`gui/docks/dedupe.py`, moved out of the bottom dock area 23.10 —
+#: plan_2026_10_23_checks_tab_top_level.md, Ч1б). Its data row lives HERE, beside
+#: CHECKS, because the tree and the "Checks" menu both read it and neither may
+#: grow a second constant of its own.
+DEDUPE_ROW = "__copper_duplicates__"
+
+
 @dataclass(frozen=True)
 class Check:
     """One CLI check, described the way the tab needs it — never how it works."""

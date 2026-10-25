@@ -25,13 +25,14 @@ starts, prints and then hangs for the Stop cell).
 """
 import logging
 import sys
+from types import SimpleNamespace
 
 import pytest
 from PyQt6.QtCore import QProcess
 from PyQt6.QtWidgets import QApplication, QDockWidget, QMainWindow
 
 from gui.checks_menu import build_checks_menu
-from gui.checks_registry import CHECKS, command_for
+from gui.checks_registry import CHECKS, DEDUPE_ROW, command_for
 from gui.docks._common import style_for_level
 from gui.docks.checks import ChecksPage
 from kicadstamp.config_working_set import WORKING_SET
@@ -170,7 +171,10 @@ def test_the_page_is_the_fourth_left_tab_and_not_a_bottom_dock(real_main_window)
         ["Components", "Config", "Trees", "Checks"]
     assert hub.left_tabs.widget(3) is page
     assert not isinstance(page, QDockWidget)
-    assert hub.docks == [hub.log_dock, hub.dedupe_dock]
+    # Ч1б (23.10): the copper-duplicates dock left the bottom area for a ROW of this page, so
+    # the Log is the only real top-level dock left (layout change by Denis's decision, named
+    # here and in test_dedupe_dock's own cell).
+    assert hub.docks == [hub.log_dock]
     assert page not in real_main_window.tabifiedDockWidgets(hub.log_dock)
 
     real_main_window.resize(1900, 1000)
@@ -178,14 +182,22 @@ def test_the_page_is_the_fourth_left_tab_and_not_a_bottom_dock(real_main_window)
     assert hub.log_dock.isVisible()
 
 
-def test_the_tree_has_one_row_per_check_and_nothing_else(main_window, tmp_path):
-    """One row per registry check, in registry order — no invented rows before Ч2 (no kinds,
-    no single errors: they need the scripts' `--json`)."""
+def test_the_tree_has_one_row_per_check_and_the_copper_panel_last(main_window,
+                                                                 tmp_path):
+    """One row per registry check, in registry order, then the copper-duplicates panel — no
+    invented rows before Ч2 (no kinds, no single errors: they need the scripts' `--json`).
+
+    REPLACED (Ч1б) `test_the_tree_has_one_row_per_check_and_nothing_else`: "nothing else"
+    stopped being true when the panel became the fifth row by Denis's decision."""
+    from kicadstamp.i18n import _
+
     page = _make_page(main_window, tmp_path)
 
-    assert page.tree.topLevelItemCount() == len(CHECKS)
+    assert page.tree.topLevelItemCount() == len(CHECKS) + 1
     titles = [page.tree.topLevelItem(i).text(0) for i in range(len(CHECKS))]
     assert titles == [f"· {check.title}" for check in CHECKS]
+    panel_title = page.tree.topLevelItem(len(CHECKS)).text(0)
+    assert panel_title == f"· {_('Copper duplicates')}"
 
 
 # ── per-check output and Copy ───────────────────────────────────────────────
@@ -385,7 +397,11 @@ def test_the_checks_menu_sits_between_tools_and_view_and_runs_its_own_check(
     page = _make_page(main_window, tmp_path)
     menu = build_checks_menu(window, page)
     actions = _check_actions(menu)
-    assert [a.text() for a in actions] == [c.title for c in CHECKS] + ["Run all"]
+    # Ч1б: the panel's SEARCH joins the list, then "Run all", then the panel's CLEAR — the
+    # order is the menu's own contract (runs together, the write apart).
+    assert [a.text() for a in actions] == (
+        [c.title for c in CHECKS]
+        + ["Copper duplicates", "Run all", "Clear copper duplicates"])
 
     page.set_root_path(_profile(tmp_path, 0))
     with qtbot.waitSignal(page.finished, timeout=20000):
@@ -395,29 +411,39 @@ def test_the_checks_menu_sits_between_tools_and_view_and_runs_its_own_check(
     assert not page.state_of(SCRIPT).started
 
 
-def test_the_menu_is_disabled_without_a_project_and_while_a_check_runs(
+def test_the_menu_follows_the_page_and_the_clear_follows_the_panel(
         main_window, qtbot, tmp_path):
-    """Both facts the page already owns, seen through the menu: no project → nothing enabled;
-    a live run → nothing enabled (including "Run all")."""
+    """Two rules, seen through the menu (Ч1б).
+
+    Every RUN door (each check, the panel's search, "Run all") follows the PAGE: off without
+    a project, off while anything runs. "Clear copper duplicates" alone follows the PANEL:
+    it stays off here even though a project is open and nothing runs, because nothing has
+    been FOUND — the very condition its own button uses."""
     window = QMainWindow()
     page = _make_page(main_window, tmp_path)
     menu = build_checks_menu(window, page)
     actions = _check_actions(menu)
+    run_doors = actions[:-1]
+    clear = actions[-1]
 
-    assert all(not action.isEnabled() for action in actions)
+    assert all(not action.isEnabled() for action in run_doors)
+    assert clear.isEnabled() is False
 
     page.set_root_path(_profile(tmp_path, 99))
-    assert all(action.isEnabled() for action in actions)
+    assert all(action.isEnabled() for action in run_doors)
+    assert clear.isEnabled() is False        # root, but no found list yet
 
     page.select(SCRIPT)
     page.run(SCRIPT)
     qtbot.waitUntil(lambda: page.is_running(), timeout=20000)
-    assert all(not action.isEnabled() for action in actions)
+    assert all(not action.isEnabled() for action in run_doors)
+    assert clear.isEnabled() is False
 
     with qtbot.waitSignal(page.finished, timeout=15000):
         page.stop()
     qtbot.waitUntil(lambda: not page.is_running(), timeout=5000)
-    assert all(action.isEnabled() for action in actions)
+    assert all(action.isEnabled() for action in run_doors)
+    assert clear.isEnabled() is False
 
 
 # ── the pane is the script's bytes; the code colours the status ─────────────
@@ -598,3 +624,92 @@ def test_a_second_press_cannot_start_a_second_process(main_window, qtbot, tmp_pa
     with qtbot.waitSignal(page.finished, timeout=15000):
         page.stop()
     qtbot.waitUntil(lambda: not page.is_running(), timeout=5000)
+
+
+# ── the copper-duplicates row (Ч1б, 23.10) ──────────────────────────────────
+
+def test_run_all_searches_for_duplicates_and_never_clears(main_window, qtbot,
+                                                          tmp_path, monkeypatch):
+    """Ч1б: the panel's row is queued LAST and only as a SEARCH. Clearing rewrites the board,
+    so "Run all" must be unable to reach it — pinned by spying the panel's two doors and by
+    watching the queue move on after the search."""
+    from kicadstamp.i18n import _
+
+    page = _make_page(main_window, tmp_path, script_source=SLOW_SCRIPT)
+    page.set_root_path(_profile(tmp_path, 0))
+    order, cleared = [], []
+
+    def fake_find():
+        order.append("find")
+        page.dedupe.finished_op.emit()      # the search is over at once: no board here
+
+    monkeypatch.setattr(page.dedupe, "find", fake_find)
+    monkeypatch.setattr(page.dedupe, "clear", lambda: cleared.append(True))
+    codes = []
+    page.finished.connect(lambda script, code, _s: codes.append(script))
+
+    page.run_all()
+    qtbot.waitUntil(lambda: (not page.is_running() and not page._queue), timeout=40000)
+
+    assert codes == [check.script for check in CHECKS]
+    assert order == ["find"]
+    assert cleared == []
+    assert page._items[page.selected_script()].text(0).endswith(_("Copper duplicates"))
+
+
+def test_the_menu_clear_is_the_panels_own_door_and_appears_only_when_usable(
+        main_window, qtbot, tmp_path):
+    """Ч1б: the menu's Clear item is enabled exactly when the panel's Clear button is (a root,
+    a found list, nothing running) and it calls the PANEL's door — the extras really go."""
+    from tests.gui.docks.test_dedupe_dock import _board as _duplicate_board
+
+    adapter = _duplicate_board()
+    main_window.connection.board = SimpleNamespace(adapter=adapter)
+    page = _make_page(main_window, tmp_path)
+    page.set_root_path(_profile(tmp_path, 0))
+    window = QMainWindow()
+    menu = build_checks_menu(window, page)
+    clear = _check_actions(menu)[-1]
+
+    assert clear.isEnabled() is False                       # nothing found yet
+    page.dedupe.set_root_path(tmp_path / "root.sexp")
+    assert clear.isEnabled() is False                       # root, still nothing found
+
+    with qtbot.waitSignal(page.dedupe.finished_op, timeout=20000):
+        page.dedupe.find()
+    assert page.dedupe.has_groups() is True
+    assert clear.isEnabled() is True
+    assert clear.isEnabled() == page.dedupe.clear_button.isEnabled()
+
+    with qtbot.waitSignal(page.dedupe.finished_op, timeout=20000):
+        clear.trigger()
+    qtbot.waitUntil(lambda: adapter.removed == ["v2", "t2"], timeout=5000)
+    # Clear auto-rescans (one deferred turn), and the rescan is what empties the list — the
+    # item turns off with it, not before.
+    qtbot.waitUntil(lambda: not page.dedupe.has_groups(), timeout=10000)
+    assert clear.isEnabled() is False
+
+
+def test_the_panel_row_shows_its_own_verdict(main_window, qtbot, tmp_path):
+    """The row's glyph is the PANEL's last scan: `·` before it, `⚠ N groups` with duplicates,
+    `✔` on a clean board — never a CLI exit code."""
+    from tests.gui.docks.test_dedupe_dock import _board as _duplicate_board
+
+    page = _make_page(main_window, tmp_path)
+    page.set_root_path(_profile(tmp_path, 0))
+    row = page._items[DEDUPE_ROW]
+    assert row.text(0).startswith("· ")
+
+    main_window.connection.board = SimpleNamespace(adapter=_duplicate_board())
+    page.dedupe.set_root_path(tmp_path / "root.sexp")
+    with qtbot.waitSignal(page.dedupe.finished_op, timeout=20000):
+        page.dedupe.find()
+    assert row.text(0).startswith("⚠ ")
+    assert row.text(1) == "2 groups"
+
+    main_window.connection.board = SimpleNamespace(
+        adapter=_duplicate_board(duplicates=False))
+    with qtbot.waitSignal(page.dedupe.finished_op, timeout=20000):
+        page.dedupe.find()
+    assert row.text(0).startswith("✔ ")
+    assert row.text(1) == "0 groups"

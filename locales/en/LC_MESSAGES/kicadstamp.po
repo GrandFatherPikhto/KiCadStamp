@@ -17754,3 +17754,19 @@ msgstr "the open form"
 
 msgid "the form did not validate"
 msgstr "the form did not validate"
+# Ч1б of plan_2026_10_23_checks_tab_top_level — the copper duplicates row
+
+msgid "Clear copper duplicates"
+msgstr "Clear copper duplicates"
+
+msgid "Duplicate vias/tracks on the live board — find them, copy the report, or clear the extra copies"
+msgstr "Duplicate vias/tracks on the live board — find them, copy the report, or clear the extra copies"
+
+msgid "Find duplicate vias/tracks on the live board"
+msgstr "Find duplicate vias/tracks on the live board"
+
+msgid "Remove the extra copies the last search found — the same door the panel's Clear button uses"
+msgstr "Remove the extra copies the last search found — the same door the panel's Clear button uses"
+
+msgid "{n} groups"
+msgstr "{n} groups"

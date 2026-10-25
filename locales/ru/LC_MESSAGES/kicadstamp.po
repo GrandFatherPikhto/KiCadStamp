@@ -18734,3 +18734,19 @@ msgstr "открытая форма"
 
 msgid "the form did not validate"
 msgstr "форма не прошла проверку"
+# Ч1б of plan_2026_10_23_checks_tab_top_level — the copper duplicates row
+
+msgid "Clear copper duplicates"
+msgstr "Очистить дубли меди"
+
+msgid "Duplicate vias/tracks on the live board — find them, copy the report, or clear the extra copies"
+msgstr "Дубли переходных/дорожек на живой плате — найти их, скопировать отчёт или убрать лишние копии"
+
+msgid "Find duplicate vias/tracks on the live board"
+msgstr "Найти дубли переходных/дорожек на живой плате"
+
+msgid "Remove the extra copies the last search found — the same door the panel's Clear button uses"
+msgstr "Убрать лишние копии, найденные последним поиском — та же дверь, что у кнопки Clear панели"
+
+msgid "{n} groups"
+msgstr "Групп: {n}"

@@ -29,15 +29,16 @@ from typing import Optional
 from PyQt6.QtCore import QProcess, QProcessEnvironment, Qt, pyqtSignal
 from PyQt6.QtGui import QFontDatabase, QTextCursor
 from PyQt6.QtWidgets import (QApplication, QHBoxLayout, QLabel, QPlainTextEdit,
-                             QPushButton, QSplitter, QTreeWidget, QTreeWidgetItem,
-                             QVBoxLayout, QWidget)
+                             QPushButton, QSplitter, QStackedWidget, QTreeWidget,
+                             QTreeWidgetItem, QVBoxLayout, QWidget)
 
 from kicadstamp.config_working_set import WORKING_SET
 from kicadstamp.i18n import _
 
-from ..checks_registry import CHECKS, command_for, exit_level
+from ..checks_registry import CHECKS, DEDUPE_ROW, command_for, exit_level
 from ..worker import defer_while_socket_busy, socket_busy
 from ._common import style_for_level
+from .dedupe import DedupePage
 
 logger = logging.getLogger(__name__)
 
@@ -112,6 +113,13 @@ class ChecksPage(QWidget):
         #: ONE incremental UTF-8 decoder per run (Д-1 of the 22.10 acceptance).
         self._decoder = None
         self._states = {check.script: CheckState() for check in CHECKS}
+        #: The FIFTH row is the copper-duplicates panel (see DEDUPE_ROW): its
+        #: verdict is "not scanned yet" / "no duplicates" / "N groups", read off
+        #: the panel itself, never invented here.
+        self._dedupe_scanned = False
+        self.dedupe = DedupePage(main_window, connection=self._connection)
+        self.dedupe.changed.connect(self._on_dedupe_changed)
+        self.dedupe.finished_op.connect(self._on_dedupe_finished)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(4, 4, 4, 4)
@@ -132,6 +140,15 @@ class ChecksPage(QWidget):
             item.setData(0, Qt.ItemDataRole.UserRole, check.script)
             self.tree.addTopLevelItem(item)
             self._items[check.script] = item
+        # The panel row, AFTER the four CLI checks (Ч1б): not a script, so it has
+        # no process of its own — its verdict comes from the panel's last scan.
+        dedupe_item = QTreeWidgetItem([_("Copper duplicates"), ""])
+        dedupe_item.setToolTip(
+            0, _("Duplicate vias/tracks on the live board — find them, copy the "
+                 "report, or clear the extra copies"))
+        dedupe_item.setData(0, Qt.ItemDataRole.UserRole, DEDUPE_ROW)
+        self.tree.addTopLevelItem(dedupe_item)
+        self._items[DEDUPE_ROW] = dedupe_item
         self.tree.currentItemChanged.connect(self._on_current_changed)
         splitter.addWidget(self.tree)
 
@@ -181,7 +198,13 @@ class ChecksPage(QWidget):
         # A QPlainTextEdit scrolls its own content, so its natural minimumSizeHint must not
         # floor the page: 1, NOT 0 (Qt treats 0 as "unset"; see gui/docks/log_panel.py:157).
         self.output.setMinimumHeight(1)
-        view_layout.addWidget(self.output, 1)
+        # The pane is a STACK: page 0 is the selected CLI check's own bytes, page 1 is the
+        # copper-duplicates panel — the row's QView IS that panel, buttons and table
+        # untouched (Ч1б). One stack, so a row switch can never show the wrong one.
+        self.pane = QStackedWidget()
+        self.pane.addWidget(self.output)
+        self.pane.addWidget(self.dedupe)
+        view_layout.addWidget(self.pane, 1)
         splitter.addWidget(view)
         splitter.setStretchFactor(0, 1)
         splitter.setStretchFactor(1, 3)
@@ -221,8 +244,13 @@ class ChecksPage(QWidget):
 
     def set_root_path(self, path) -> None:
         """Remember which project root is open — called by DockHub on every root_changed,
-        the same contract every other dock follows. No project → nothing to check."""
+        the same contract every other dock follows. No project → nothing to check.
+
+        The copper-duplicates panel reads the root too (its removals are journaled into
+        that config's actions.log), so the ONE root notification reaches it from HERE —
+        the hub has no dedupe dock to tell any more (Ч1б)."""
         self._root_path = path
+        self.dedupe.set_root_path(path)
         self._update_buttons()
         self.state_changed.emit()
 
@@ -231,8 +259,10 @@ class ChecksPage(QWidget):
         return self._root_path is not None
 
     def is_running(self) -> bool:
-        """True while a check process is alive — the ONE definition the buttons and menu use."""
-        return self._process is not None
+        """True while a check process OR the copper-duplicates panel is busy — the ONE
+        definition the buttons, the menu and "Run all" use (one thing at a time across the
+        whole page)."""
+        return self._process is not None or self.dedupe.is_running()
 
     def can_run(self) -> bool:
         """Everything "Run"/"Run all"/a menu item needs: a project and no live process."""
@@ -240,15 +270,32 @@ class ChecksPage(QWidget):
 
     def _update_buttons(self) -> None:
         runnable = self.can_run()
-        self.run_button.setEnabled(runnable)
+        # "Run"/"Copy" mean a CLI check's own process and bytes: on the panel row the
+        # panel carries its own Find/Copy/Clear, so these two stay off there rather than
+        # running some other check behind the user's back.
+        cli_row = self.selected_script() != DEDUPE_ROW
+        self.run_button.setEnabled(runnable and cli_row)
         self.run_all_button.setEnabled(runnable)
-        self.stop_button.setEnabled(self.is_running())
+        self.stop_button.setEnabled(self._process is not None)
         self._update_copy()
 
     def _update_copy(self) -> None:
         script = self.selected_script()
+        if script == DEDUPE_ROW:
+            # The panel's Copy is right there in its own row; this button would be a
+            # second door onto the same clipboard write, so it stays off.
+            self.copy_button.setEnabled(False)
+            return
         self.copy_button.setEnabled(
             bool(script is not None and self._states[script].output))
+
+    def _dedupe_glyph(self) -> str:
+        """The panel row's verdict: scanning / never scanned / no duplicates / N groups."""
+        if self.dedupe.is_running():
+            return "…"
+        if not self._dedupe_scanned:
+            return _NOT_RUN
+        return _GLYPHS["warn"] if self.dedupe.has_groups() else _GLYPHS["success"]
 
     def _update_rows(self) -> None:
         for check in CHECKS:
@@ -261,14 +308,29 @@ class ChecksPage(QWidget):
                 item.setText(1, "")
             else:
                 item.setText(1, _("{seconds:.0f} s").format(seconds=state.seconds))
+        panel = self._items[DEDUPE_ROW]
+        panel.setText(0, f"{self._dedupe_glyph()} {_('Copper duplicates')}")
+        if self.dedupe.is_running():
+            panel.setText(1, _("running…"))
+        elif not self._dedupe_scanned:
+            panel.setText(1, "")
+        else:
+            panel.setText(1, _("{n} groups").format(n=self.dedupe.group_count()))
 
     def _on_current_changed(self, _current, _previous) -> None:
-        """Another row selected: show ITS last report and status — never re-run anything."""
+        """Another row selected: show ITS last report and status — never re-run anything.
+        The panel row shows the copper-duplicates panel itself."""
         script = self.selected_script()
+        if script == DEDUPE_ROW:
+            self.pane.setCurrentWidget(self.dedupe)
+            self._show_status("", None)
+            self._update_buttons()
+            return
+        self.pane.setCurrentWidget(self.output)
         state = self._states[script] if script is not None else CheckState()
         self._show_status(state.message, state.level)
         self._render_pane(state)
-        self._update_copy()
+        self._update_buttons()
 
     def _render_pane(self, state: CheckState) -> None:
         """The pane is the check's own bytes; the working-set warning rides on TOP of them
@@ -290,6 +352,22 @@ class ChecksPage(QWidget):
             self._show_status(text, level)
         self._update_rows()
 
+    # ── the copper-duplicates row ───────────────────────────────────────────
+
+    def _on_dedupe_changed(self) -> None:
+        """The panel's state moved (a scan started or ended, a root arrived): the row
+        glyph, the buttons and the menu's Clear item all read it from here."""
+        self._update_rows()
+        self._update_buttons()
+        self.state_changed.emit()
+
+    def _on_dedupe_finished(self) -> None:
+        """A scan or a clear of the panel is over: the row counts as SCANNED (its verdict
+        is its own last scan) and "Run all" moves on to whatever is queued after it."""
+        self._dedupe_scanned = True
+        self._update_rows()
+        self._start_next()
+
     # ── buttons ─────────────────────────────────────────────────────────────
 
     def _on_run_clicked(self) -> None:
@@ -299,9 +377,13 @@ class ChecksPage(QWidget):
 
     def copy(self) -> None:
         """Exactly the SELECTED check's own output — never the page's warning line, never
-        the report of whichever check happened to run last."""
+        the report of whichever check happened to run last. On the panel row it hands the
+        panel's own report over, the same bytes its Copy button copies."""
         script = self.selected_script()
         if script is None:
+            return
+        if script == DEDUPE_ROW:
+            self.dedupe.copy()
             return
         QApplication.clipboard().setText(self._states[script].output)
 
@@ -316,10 +398,14 @@ class ChecksPage(QWidget):
         self._process.kill()
 
     def run_all(self) -> None:
-        """Queue EVERY check in registry order; the next one starts when the previous ends."""
+        """Queue EVERY check in registry order, then the copper-duplicates SEARCH.
+
+        The panel's row is queued as a search and only as a search: clearing copper is a
+        WRITE that rewrites the board, and "Run all" must never be able to do that behind
+        the user's back (Ч1б)."""
         if not self.can_run():
             return
-        self._queue = [check.script for check in CHECKS]
+        self._queue = [check.script for check in CHECKS] + [DEDUPE_ROW]
         self._start_next()
 
     def _start_next(self) -> None:
@@ -331,7 +417,15 @@ class ChecksPage(QWidget):
 
     def run(self, script: str) -> None:
         """THE door every caller uses (Run button, "Run all", the menu item, the tests): one
-        process at a time, and a start never lands inside the GUI's own IPC transaction."""
+        process at a time, and a start never lands inside the GUI's own IPC transaction.
+
+        The copper-duplicates row is not a script: `run` on it means its SEARCH (the same
+        door its own Find button and the menu item use) — never a clear."""
+        if script == DEDUPE_ROW:
+            if not self.can_run():
+                return
+            self.dedupe.find()
+            return
         check = self.check_for(script)
         if check is None or not self.can_run():
             return

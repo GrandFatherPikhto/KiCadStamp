@@ -1,11 +1,14 @@
 # gui/docks/dedupe.py
-"""DedupeDock — "Дубли меди": duplicate vias/tracks on the live board, listed
-and (optionally) cleaned.
+"""DedupePage — "Copper duplicates": duplicate vias/tracks on the live board,
+listed and (optionally) cleaned.
 
 Plan: techdocs/handoff/deepseek/plan/plan_2026_10_01_dedupe_into_kicadstamp.md,
-§2.3. The panel is a bottom QDockWidget TABIFIED WITH THE LOG (gui/dock_hub.py),
-so its View-menu entry comes from Qt's own ready-made toggleViewAction, like
-every other real dock — no separate switch is invented here.
+§2.3; MOVED 23.10 into the Checks tab (plan_2026_10_23_checks_tab_top_level.md,
+Ч1б): it used to be a bottom QDockWidget tabified with the Log, and Denis asked
+for the bottom-right panel to go — the panel is now the QView of the FIFTH row
+of the Checks tree (`gui/docks/checks.py`), with its own Find / Copy / Clear and
+no change of behaviour. A page, not a dock: no objectName, no
+`toggleViewAction`, nothing in the View menu.
 
 The data comes from the SAME core as the CLI (kicadstamp/board_dedupe.py): one
 row per duplicate group with type, net, position, layer, copy count, the UUID
@@ -23,7 +26,7 @@ copied text said (1,0)->(5,0).
 DOOR RULE (techdocs/me/door.md): the board is read and written ONLY on the
 worker (gui/worker.py's start_long_op), and the worker is handed the CONNECTION,
 never the board. Inside the worker thread `connection.board` is a legal read —
-the guard asks the UI thread for a sign, not every thread — so this dock needs
+the guard asks the UI thread for a sign, not every thread — so this panel needs
 no ui_thread_board_read() sign and cannot freeze the window with IPC.
 start_long_op also owns the shared kipy socket for the whole scan/clean, which
 is why the poll tick cannot interleave into it.
@@ -34,14 +37,19 @@ gui/dock_hub.py attaches for that config's log_file), and a removal that cannot
 be journaled must not happen — the same rule the CLI enforces by requiring
 --config. The check is repeated in the handler, so a programmatic call cannot
 bypass the disabled button.
+
+WHAT THE PAGE TELLS ITS HOST (the Checks page, which owns the tree row and the
+menu item): `changed` after anything a row glyph or a menu enablement depends on
+(a scan, a clear, a root, an op starting/ending), and `finished` once a scan or a
+clear is READY — that is what lets "Run all" wait for this row like it waits for
+a check process.
 """
 import logging
 
-from PyQt6.QtCore import QTimer
-from PyQt6.QtWidgets import (QAbstractItemView, QApplication, QDockWidget,
-                             QHBoxLayout, QHeaderView, QLabel, QPushButton,
-                             QTableWidget, QTableWidgetItem, QVBoxLayout,
-                             QWidget)
+from PyQt6.QtCore import QTimer, pyqtSignal
+from PyQt6.QtWidgets import (QAbstractItemView, QApplication, QHBoxLayout,
+                             QHeaderView, QLabel, QPushButton, QTableWidget,
+                             QTableWidgetItem, QVBoxLayout, QWidget)
 
 from kicadstamp.board_dedupe import (apply_dedupe, apply_summary,
                                      format_report, scan_copper_duplicates,
@@ -64,14 +72,17 @@ _COLUMNS = (_("Type"), _("Net"), _("Position"), _("Layer"), _("Copies"),
             _("Keep"), _("Delete"), _("Warning"))
 
 
-class DedupeDock(QDockWidget):
-    """Bottom dock: find, list, copy and remove duplicate copper."""
+class DedupePage(QWidget):
+    """Find, list, copy and remove duplicate copper — the Checks tab's fifth row."""
+
+    #: Something the row glyph or a menu item depends on has changed.
+    changed = pyqtSignal()
+    #: This row's operation is over (a scan or a clear, succeeded or refused) —
+    #: what "Run all" waits for.
+    finished_op = pyqtSignal()
 
     def __init__(self, main_window, connection=None):
-        super().__init__(_("Copper duplicates"), main_window)
-        # A stable objectName is what QMainWindow.saveState()/restoreState()
-        # map a saved layout blob back to (same reason LogDock sets one).
-        self.setObjectName("dedupe_dock")
+        super().__init__()
         self._main_window = main_window
         self._connection = (connection if connection is not None
                             else getattr(main_window, "connection", None))
@@ -81,9 +92,12 @@ class DedupeDock(QDockWidget):
         #: The last scan's canonical report TEXT (what "Копировать" copies).
         self._report_text = ""
         self._active_op = None
+        #: True from the moment an operation is started until its UI half runs —
+        #: the panel's own answer to "is something running?" (`can_clear` and the
+        #: menu's Clear item both read it).
+        self._running = False
 
-        container = QWidget()
-        layout = QVBoxLayout(container)
+        layout = QVBoxLayout(self)
         layout.setContentsMargins(4, 4, 4, 4)
 
         row = QHBoxLayout()
@@ -109,32 +123,63 @@ class DedupeDock(QDockWidget):
         self.table.horizontalHeader().setSectionResizeMode(
             QHeaderView.ResizeMode.ResizeToContents)
         layout.addWidget(self.table, 1)
-        self.setWidget(container)
 
         self._update_buttons()
 
     # ── state ───────────────────────────────────────────────────────────────
 
     def set_root_path(self, path) -> None:
-        """Remember which project root is open — called by DockHub on every
-        root_changed / discard, the same contract every other dock follows."""
+        """Remember which project root is open — called by the Checks page on
+        every root_changed, the same contract every dock follows."""
         self._root_path = path
         self._update_buttons()
 
-    def _has_groups(self) -> bool:
+    def has_groups(self) -> bool:
+        """True when the last scan found at least one duplicate group — the
+        row's ⚠/✔ verdict and Clear's first condition."""
         return self.table.rowCount() > 0
 
+    def group_count(self) -> int:
+        return self.table.rowCount()
+
+    def is_running(self) -> bool:
+        """True while a scan or a clear of THIS panel is in flight."""
+        return self._running
+
+    def can_clear(self) -> bool:
+        """Everything "Clear" needs — the ONE rule the button and the menu item
+        share: no operation in flight, a root to journal into, and a found list."""
+        return (not self._running) and self.has_groups() \
+            and self._root_path is not None
+
     def _update_buttons(self) -> None:
-        self.copy_button.setEnabled(bool(self._report_text))
-        self.clear_button.setEnabled(self._has_groups()
-                                     and self._root_path is not None)
+        interactive = not self._running
+        self.find_button.setEnabled(interactive)
+        self.copy_button.setEnabled(interactive and bool(self._report_text))
+        self.clear_button.setEnabled(self.can_clear())
+
+    def _op_started(self) -> None:
+        self._running = True
+        self._update_buttons()
+        self.changed.emit()
+
+    def _op_ended(self) -> None:
+        self._running = False
+        self._update_buttons()
+        self.changed.emit()
+        self.finished_op.emit()
 
     # ── buttons ─────────────────────────────────────────────────────────────
 
-    def _on_find(self) -> None:
+    def find(self) -> None:
+        """THE door every caller uses: the Find button, the Checks menu item and
+        "Run all". A refused start (no board) starts nothing and says so."""
+        if self._running:
+            return
         if not getattr(self._connection, "is_connected", False):
             show_message(_("Connect to KiCad first."), ERROR_STYLE, logger)
             return
+        self._op_started()
         self._active_op = start_long_op(
             self._connection,
             (self.find_button, self.clear_button),
@@ -142,25 +187,39 @@ class DedupeDock(QDockWidget):
             {"connection": self._connection},
             busy_text=_("reading the board"))
 
-    def _on_copy(self) -> None:
+    def copy(self) -> None:
         """Put EXACTLY the last report text on the clipboard — the same bytes
         `kicadstamp dedupe` prints (board_dedupe.format_report)."""
         QApplication.clipboard().setText(self._report_text)
 
-    def _on_clear(self) -> None:
-        # Belt and braces: the button is disabled in both refused states, and a
-        # programmatic call must not be able to delete unjournaled copper.
-        if not self._has_groups() or self._root_path is None:
+    def clear(self) -> None:
+        """THE door every caller uses (the Clear button and the menu's "Clear
+        copper duplicates"). Belt and braces: the button is disabled in both
+        refused states, and a programmatic call must not be able to delete
+        unjournaled copper."""
+        if not self.can_clear():
             return
         if not getattr(self._connection, "is_connected", False):
             show_message(_("Connect to KiCad first."), ERROR_STYLE, logger)
             return
+        self._op_started()
         self._active_op = start_long_op(
             self._connection,
             (self.find_button, self.clear_button),
             self._clear_worker, self._finish_clear, self._on_op_failed,
             {"connection": self._connection},
             busy_text=_("removing duplicate copper"))
+
+    # The button slots keep their historic names: the Ctrl-less cells drive them
+    # directly and there is no second body behind them.
+    def _on_find(self) -> None:
+        self.find()
+
+    def _on_copy(self) -> None:
+        self.copy()
+
+    def _on_clear(self) -> None:
+        self.clear()
 
     # ── worker halves (no widget is touched here) ────────────────────────────
 
@@ -177,7 +236,7 @@ class DedupeDock(QDockWidget):
 
     @staticmethod
     def _scan_worker(payload):
-        adapter, error = DedupeDock._worker_adapter(payload.get("connection"))
+        adapter, error = DedupePage._worker_adapter(payload.get("connection"))
         if error:
             return {"error": error}
         via_groups, track_groups, short_tracks = scan_copper_duplicates(adapter)
@@ -187,7 +246,7 @@ class DedupeDock(QDockWidget):
 
     @staticmethod
     def _clear_worker(payload):
-        adapter, error = DedupeDock._worker_adapter(payload.get("connection"))
+        adapter, error = DedupePage._worker_adapter(payload.get("connection"))
         if error:
             return {"error": error}
         # Re-scan inside the worker: the displayed list may be stale by the time
@@ -205,27 +264,31 @@ class DedupeDock(QDockWidget):
     def _on_op_failed(self, message: str) -> None:
         show_message(_("Operation failed: {error}").format(error=message),
                      ERROR_STYLE, logger)
+        self._op_ended()
 
     def _finish_scan(self, result) -> None:
         if result.get("error"):
             show_message(result["error"], ERROR_STYLE, logger)
+            self._op_ended()
             return
         self._report_text = result.get("report", "")
         self._fill_table(result.get("via_groups", ()),
                          result.get("track_groups", ()))
-        self._update_buttons()
+        self._op_ended()
 
     def _finish_clear(self, result) -> None:
         if result.get("error"):
             show_message(result["error"], ERROR_STYLE, logger)
+            self._op_ended()
             return
         summary = apply_summary(result["removed"], result["groups"])
         show_message(summary, SUCCESS_STYLE, logger)
+        self._op_ended()
         # Auto-rescan, deferred by ONE event-loop turn: this handler runs while
         # the operation that just finished is still releasing the shared socket,
         # and worker.py's start() refuses a start on a busy socket (one deferred
         # retry later). A zero-delay singleShot runs after that release.
-        QTimer.singleShot(0, self._on_find)
+        QTimer.singleShot(0, self.find)
 
     def _fill_table(self, via_groups, track_groups) -> None:
         rows = [self._via_row(group) for group in via_groups]
