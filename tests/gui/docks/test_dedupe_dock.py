@@ -672,16 +672,37 @@ def test_highlight_replaces_the_previous_groups_marks_before_drawing(
     assert "cell-anchor/root/cell/marker" in _owner_keys()
 
 
-@pytest.mark.parametrize("door", ["clear", "clear_group"])
+@pytest.mark.parametrize("door,left", [("clear", 0), ("clear_group", 1)])
 def test_both_clears_take_the_marks_off(main_window, qapp, tmp_path, monkeypatch,
-                                        door):
+                                        door, left):
     """Д-2: a removal makes every mark of the OLD list a lie — the copper under it
-    is gone. Both clearing doors drop the `dedupe` namespace, and again only it."""
+    is gone. Both clearing doors drop the `dedupe` namespace BEFORE they delete
+    anything, and again only it.
+
+    TWO things this cell learned the hard way (Д-3 of the acceptance):
+
+    * the ORDER is part of the property, so ONE event list pins it: the marks go
+      first, then copper;
+    * waiting for `not is_running()` alone is NOT the end of the operation: the
+      clear is followed by a deferred AUTO-RESCAN, and a cell that returned in that
+      gap let the rescan run inside the NEXT test (`pytest -n 4`: the worker then
+      touched a deleted widget — "QPushButton has been deleted"). So the wait is
+      the neighbours': the list settles (`group_count()`), which only the rescan's
+      own `_finish_scan` does."""
     adapter = _board()
-    removed = []
+    events = []
     monkeypatch.setattr(adapter, "remove_by_ids",
-                        lambda uuids: removed.extend(uuids), raising=False)
+                        lambda uuids: events.append(("marks", tuple(uuids))),
+                        raising=False)
     monkeypatch.setattr(adapter, "select_items", lambda items: None, raising=False)
+    original_remove_by_id = adapter.remove_by_id
+
+    def recording_remove_by_id(uuid_str):
+        events.append(("copper", uuid_str))
+        return original_remove_by_id(uuid_str)
+
+    monkeypatch.setattr(adapter, "remove_by_id", recording_remove_by_id)
+
     page = _page(main_window, adapter)
     page.dedupe.set_root_path(tmp_path / "root.sexp")
     _scan(page.dedupe, qapp)
@@ -691,8 +712,15 @@ def test_both_clears_take_the_marks_off(main_window, qapp, tmp_path, monkeypatch
     page.select_dedupe_group(0)
     getattr(page.dedupe, f"_on_{door}")()
     _pump(qapp, lambda: (not main_window.connection.long_op_active
-                         and not page.dedupe.is_running()))
+                         and not page.dedupe.is_running()
+                         and page.dedupe.group_count() == left))
 
-    assert "marker-v1" in removed
-    assert "point/p1" not in removed
+    marks = [event for event in events if event[0] == "marks"]
+    copper = [event for event in events if event[0] == "copper"]
+    assert marks == [("marks", ("marker-v1",))], \
+        "the panel's own mark went, and nobody else's"
+    assert copper, "the clear really did delete copper"
+    assert events.index(marks[0]) < events.index(copper[0]), \
+        "the marks must go BEFORE the copper they describe"
+    assert "marker-v1" not in [uuid for _, uuid in copper]
     assert _owner_keys() == {"point/p1"}

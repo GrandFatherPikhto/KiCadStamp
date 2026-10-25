@@ -39,7 +39,8 @@ those decisions and must turn a named cell red:
   M33 "Highlight" keeps the previous group's marks        (gui/docks/dedupe.py `_highlight_worker`)
   M34 "Find" keeps the marks of the list it replaced      (gui/docks/dedupe.py `_scan_worker`)
   M35 "Clear this group" keeps the marks                  (gui/docks/dedupe.py `_clear_one_worker`)
-  M36 cosmetic control (a comment must change nothing)
+  M36 "Clear all" keeps the marks                         (gui/docks/dedupe.py `_clear_worker`)
+  M37 cosmetic control (a comment must change nothing)
 
 M6 and M7 arrived with acceptance Д-3 (23.10.2026); M8–M16 with the page move (Ч1 of
 plan_2026_10_23_checks_tab_top_level, 23.10); M21–M23 with Ч1б of the same plan (the
@@ -48,9 +49,11 @@ copper-duplicates panel moving into the page); M25/M26 with Д-1 of the Ч1б ac
 tree nodes, with "Clear this group" and "Highlight on board"); M32–M35 with Д-1 and Д-2 of the
 Ч2а acceptance (the nodes moved into the PAGE's tree, and every list change clears the
 `dedupe` overlay namespace). M28 was re-aimed at `_rebuild_dedupe_groups` by Д-1 — the panel's
-own `_fill_tree` it used to name no longer exists. The control row has been renumbered six
-times and is always LAST: M6 -> M8 (Д-3) -> M17 (page move) -> M20 (Д-1/Д-2) ->
-M24 (Ч1б) -> M27 (Д-1 Ч1б) -> M32 (Ч2а) -> M36 (Д-1/Д-2 Ч2а).
+own `_fill_tree` it used to name no longer exists. M36 splits the clearing doors into one row
+each (Д-3: "remove the namespace call from BOTH clearing workers must die"). The control row has
+been renumbered seven times and is always LAST: M6 -> M8 (Д-3) -> M17 (page move) ->
+M20 (Д-1/Д-2) -> M24 (Ч1б) -> M27 (Д-1 Ч1б) -> M32 (Ч2а) -> M36 (Д-1/Д-2 Ч2а) ->
+M37 (Д-3 Ч2а).
 
 Safeguards, the same as every harness in this package: a template that matches more than once
 is refused (a silent miss is indistinguishable from a healthy guard — rule 38); a row that
@@ -306,7 +309,15 @@ MUTATIONS = [
      "  # MUTATION: the marks outlive the copper\n",
      ["test_both_clears_take_the_marks_off"]),
 
-    ("M36 cosmetic control (a comment must change nothing)", CHECKS,
+    # Д-3: BOTH clearing workers must drop the namespace, so each door gets its own row — one
+    # survivor would otherwise hide behind the other's row.
+    ("M36 \"Clear all\" keeps the marks", "gui/docks/dedupe.py",
+     "        # The marks point at copper that is about to be deleted (Д-2).\n"
+     "        DedupePage._forget_marks(adapter)\n",
+     "        # MUTATION: the marks outlive the copper Clear all deleted\n",
+     ["test_both_clears_take_the_marks_off"]),
+
+    ("M37 cosmetic control (a comment must change nothing)", CHECKS,
      "        runnable = self.can_run()\n",
      "        runnable = self.can_run()  # MUTATION: cosmetic\n",
      "survive"),
