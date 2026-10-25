@@ -162,6 +162,23 @@ def _own_the_whole_piece(monkeypatch, seen):
     monkeypatch.setattr(module, "tree_cell_copper", fake)
 
 
+def _the_worker_gets_our_board(board, monkeypatch):
+    """Patch the adapter factory WHERE THE WORKER LOOKS IT UP (Д-4, CI 23.10).
+
+    `gui/docks/trees_dock.py` binds the name at module level
+    (`from kicadstamp.adapter_factory import create_board_adapter`), so patching
+    `kicadstamp.adapter_factory.create_board_adapter` left the worker building a
+    REAL adapter — it read the live board of whatever KiCad happened to be open.
+    That made the two cells below green on every developer machine and red on CI
+    (`kipy.errors.ConnectionError: Failed to connect to KiCad`). The fix is the
+    patch target; `tests/conftest.py::_no_live_kicad` is the guard that makes the
+    same mistake impossible to hide anywhere else."""
+    import gui.docks.trees_dock as trees_dock_mod
+
+    monkeypatch.setattr(trees_dock_mod, "create_board_adapter",
+                        lambda **kwargs: board)
+
+
 def _run_reread_worker(tmp_path, *, selected=()):
     """The real worker: it builds its own adapter (our double) and reads the profile."""
     from gui.docks.trees_dock import run_internode_reread_worker
@@ -195,8 +212,7 @@ def test_the_worker_forwards_the_profile_and_names_the_duplicate(tmp_path, monke
     monkeypatch.setattr(format_version, "CURRENT_FORMAT", 2)   # the fixture is a format-2 file
     root = _cell_copper_root(tmp_path)
     board, _fps, _items = _board()
-    monkeypatch.setattr("kicadstamp.adapter_factory.create_board_adapter",
-                        lambda **kwargs: board)
+    _the_worker_gets_our_board(board, monkeypatch)
     seen = {}
     _own_the_whole_piece(monkeypatch, seen)
 
@@ -219,8 +235,7 @@ def test_the_worker_forwards_the_profile_on_a_selection_too(tmp_path, monkeypatc
     root = _cell_copper_root(tmp_path)
     board, _fps, items = _board()
     board.get_selected_items.return_value = list(items)
-    monkeypatch.setattr("kicadstamp.adapter_factory.create_board_adapter",
-                        lambda **kwargs: board)
+    _the_worker_gets_our_board(board, monkeypatch)
     seen = {}
     _own_the_whole_piece(monkeypatch, seen)
 

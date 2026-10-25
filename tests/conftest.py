@@ -92,6 +92,56 @@ def _guard_tracked_config_fixtures():
         f"changed={changed} added={added} stray_backups={backups}")
 
 
+#: The socket a UNIT cell is allowed to see: a path nothing listens on, so a
+#: real `kipy.KiCad()` construction fails at once instead of talking to whatever
+#: KiCad happens to be running on this machine (Д-4, CI 23.10). POSIX resolves
+#: `ipc:///tmp/...` to an absolute path, Windows to `\tmp\...` on the current
+#: drive — neither can exist unless somebody binds it, which no test does.
+_UNIT_ONLY_KICAD_SOCKET = "ipc:///tmp/kicadstamp-unit-tests-no-kicad.sock"
+
+
+def _is_integration_case(request) -> bool:
+    """True for a cell that is ALLOWED to touch a live KiCad.
+
+    Two answers, because both spellings exist in this tree: the
+    `pytest.mark.integration` marker (how the cells declare it) and living under
+    `tests/integration_tests/` (how a cell that forgot the marker still gets the
+    real board instead of a mystery ConnectionError). The directory half is what
+    keeps the guard from breaking the integration suite itself."""
+    if request.node.get_closest_marker("integration") is not None:
+        return True
+    parts = Path(str(getattr(request.node, "fspath", ""))).parts
+    return "integration_tests" in parts
+
+
+@pytest.fixture(autouse=True)
+def _no_live_kicad(request, monkeypatch):
+    """A UNIT cell must not reach a REAL KiCad — on ANY machine (Д-4, CI 23.10).
+
+    Why this exists: two cells in `tests/gui/docks/test_trees_dock_internode_
+    reread.py` patched `kicadstamp.adapter_factory.create_board_adapter`, a name
+    the worker no longer looks up there (it was imported into
+    `gui/docks/trees_dock.py` at module level), so the worker built a REAL
+    adapter. Every developer machine has KiCad open with a live board, so the
+    cells read the live board and passed — while CI, with no KiCad at all, died
+    with `kipy.errors.ConnectionError: Failed to connect to KiCad`. The patch
+    target is fixed in those cells; THIS fixture is what makes the same class of
+    mistake impossible to hide again: a unit run now sees a socket nothing
+    listens on, so reaching for the real board is a red cell everywhere, KiCad
+    open or not.
+
+    Integration cells are exempt (see `_is_integration_case`) — they are the
+    ones that mean to talk to the real thing. `KICAD_API_TOKEN` is cleared with
+    the socket: a leftover token from a developer's session would otherwise
+    point the same client at a live counterpart."""
+    if _is_integration_case(request):
+        yield
+        return
+    monkeypatch.setenv("KICAD_API_SOCKET", _UNIT_ONLY_KICAD_SOCKET)
+    monkeypatch.delenv("KICAD_API_TOKEN", raising=False)
+    yield
+
+
 @pytest.fixture(autouse=True)
 def _reset_logging_after_test():
     """The queue-based logging rework (2026-08-15, see
