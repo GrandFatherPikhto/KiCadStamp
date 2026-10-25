@@ -240,6 +240,82 @@ def test_a_rescan_keeps_the_selected_group_by_its_kept_uuid(
     assert _detail(page.dedupe, "keep") == ""
 
 
+def test_the_selection_follows_the_kept_uuid_when_its_index_changes(
+        main_window, qapp):
+    """Д-4 of the Ч2а acceptance: the nodes are DELETED AND REBUILT after every scan, so a
+    selection keyed by the row INDEX would silently jump to whichever group landed on that
+    index. The one honest identity is the uuid the group KEEPS.
+
+    Here the track group starts at index 1 and ends at index 0 — the same group, the same
+    uuid, a different number."""
+    page = _page(main_window, _board())
+    _scan(page.dedupe, qapp)
+    assert [node.text(0).split("  ")[0] for node in _nodes(page)] == ["via", "track"]
+
+    page.select_dedupe_group(1)                       # the track group: index 1, keep t1
+    assert _detail(page.dedupe, "keep") == "t1"
+
+    # The via pair is GONE, so the track group keeps its uuid but becomes index 0.
+    main_window.connection.board = SimpleNamespace(
+        adapter=FakeAdapter(
+            vias=[_via("v3", "VCC", 9.0, 9.0)],
+            tracks=[_track("t1", "SIG", BoardLayer.BL_F_Cu, (0.0, 0.0), (1.0, 1.0)),
+                    _track("t2", "SIG", BoardLayer.BL_F_Cu, (0.0, 0.0), (1.0, 1.0)),
+                    _track("t4", "SIG", BoardLayer.BL_F_Cu, (5.0, 5.0), (6.0, 6.0))]))
+    _scan(page.dedupe, qapp)
+
+    assert page.dedupe.group_count() == 1
+    assert page.selected_group_index() == 0, "the node moved to index 0"
+    assert page.dedupe.stack.currentWidget() is page.dedupe.group_page
+    assert _detail(page.dedupe, "kind") == "track"
+    assert _detail(page.dedupe, "keep") == "t1", "still the SAME group, now at index 0"
+
+
+def test_the_page_doors_are_off_on_a_group_node(main_window, qapp, tmp_path):
+    """Д-4 of the Ч2а acceptance: a group node is not a script and has no report of its own, so
+    the PAGE's "Run" and "Copy" stand down there — with a project OPEN, the only state in which
+    their default is "on". The baseline on a check row is asserted in the same cell, so a page
+    that simply never enables them cannot pass."""
+    from gui.checks_registry import CHECKS
+
+    page = _page(main_window, _board())
+    page.set_root_path(tmp_path / "config.sexp")
+    _scan(page.dedupe, qapp)
+
+    page.select(CHECKS[0].script)
+    assert page.run_button.isEnabled() is True, \
+        "baseline: a check row with a project open is runnable"
+
+    page.select_dedupe_group(0)
+    assert page.selected_group_index() == 0
+    assert page.run_button.isEnabled() is False, "a group is not a script"
+    assert page.copy_button.isEnabled() is False, \
+        "a group's report is the panel's own Copy, not the page's"
+
+
+def test_show_group_with_no_such_index_falls_back_to_the_row(main_window, qapp):
+    """Д-4 of the Ч2а acceptance: `show_group()` refuses an index that no longer exists.
+
+    The page only ever passes a live index, so the branch is pinned by calling the panel
+    DIRECTLY — which is the point: a stale caller must not make the panel show whichever group
+    happens to sit at that number."""
+    page = _page(main_window, _board())
+    panel = page.dedupe
+    _scan(panel, qapp)
+    page.select_dedupe_group(1)
+    assert panel.stack.currentWidget() is panel.group_page
+    assert _detail(panel, "keep") == "t1"
+
+    panel.show_group(99)
+
+    assert panel.stack.currentWidget() is panel.row_page
+    assert panel.selected_group() is None
+    assert _detail(panel, "kind") == ""
+    assert _detail(panel, "keep") == ""
+    assert panel.highlight_button.isEnabled() is False
+    assert panel.clear_group_button.isEnabled() is False
+
+
 # ── "Очистить" gating ────────────────────────────────────────────────────────
 
 def test_clear_needs_both_a_root_and_a_found_list(main_window, qapp, tmp_path):

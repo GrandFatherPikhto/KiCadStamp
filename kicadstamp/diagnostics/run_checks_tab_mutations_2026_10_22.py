@@ -40,7 +40,14 @@ those decisions and must turn a named cell red:
   M34 "Find" keeps the marks of the list it replaced      (gui/docks/dedupe.py `_scan_worker`)
   M35 "Clear this group" keeps the marks                  (gui/docks/dedupe.py `_clear_one_worker`)
   M36 "Clear all" keeps the marks                         (gui/docks/dedupe.py `_clear_worker`)
-  M37 cosmetic control (a comment must change nothing)
+  M38 the selection is keyed by the row INDEX             (gui/docks/checks.py `_rebuild_dedupe_groups`)
+  M39 "Run" stays on for a group node                     (gui/docks/checks.py `_update_buttons`)
+  M40 `show_group` takes any index at face value          (gui/docks/dedupe.py `show_group`)
+  M41 the copper row keeps a vanished group's QView       (gui/docks/checks.py `_on_current_changed`)
+  M42 a rescan steals another row's selection             (gui/docks/checks.py `_rebuild_dedupe_groups`)
+  M43 the pipe decoder is not wrapped for newlines        (gui/docks/checks.py `new_output_decoder`)
+  M44 the page arms a bare decoder                        (gui/docks/checks.py `_launch`)
+  M45 cosmetic control (a comment must change nothing)
 
 M6 and M7 arrived with acceptance Д-3 (23.10.2026); M8–M16 with the page move (Ч1 of
 plan_2026_10_23_checks_tab_top_level, 23.10); M21–M23 with Ч1б of the same plan (the
@@ -50,10 +57,14 @@ tree nodes, with "Clear this group" and "Highlight on board"); M32–M35 with Д
 Ч2а acceptance (the nodes moved into the PAGE's tree, and every list change clears the
 `dedupe` overlay namespace). M28 was re-aimed at `_rebuild_dedupe_groups` by Д-1 — the panel's
 own `_fill_tree` it used to name no longer exists. M36 splits the clearing doors into one row
-each (Д-3: "remove the namespace call from BOTH clearing workers must die"). The control row has
-been renumbered seven times and is always LAST: M6 -> M8 (Д-3) -> M17 (page move) ->
+each (Д-3: "remove the namespace call from BOTH clearing workers must die"). M38–M42 are the four
+rows Д-4 of the same acceptance asked for — mutants that SURVIVED the Д-1/Д-2 cells because the
+Д-3 race hid them (a 1-error run counted as "killed") — plus one row for the "a rescan must not
+steal another row's selection" rule that replaced the dead `show_row()` call. M43/M44 are Д-5(b):
+the newline-translating decoder and the fact that `_launch` arms IT. The control row has been
+renumbered eight times and is always LAST: M6 -> M8 (Д-3) -> M17 (page move) ->
 M20 (Д-1/Д-2) -> M24 (Ч1б) -> M27 (Д-1 Ч1б) -> M32 (Ч2а) -> M36 (Д-1/Д-2 Ч2а) ->
-M37 (Д-3 Ч2а).
+M37 (Д-3 Ч2а) -> M45 (Д-4/Д-5 Ч2а).
 
 Safeguards, the same as every harness in this package: a template that matches more than once
 is refused (a silent miss is indistinguishable from a healthy guard — rule 38); a row that
@@ -317,7 +328,52 @@ MUTATIONS = [
      "        # MUTATION: the marks outlive the copper Clear all deleted\n",
      ["test_both_clears_take_the_marks_off"]),
 
-    ("M37 cosmetic control (a comment must change nothing)", CHECKS,
+    # Д-4 (25.10): the four mutants that SURVIVED the Д-1/Д-2 cells because the Д-3 race hid
+    # them, plus the rule that replaced the dead `show_row()` call.
+    ("M38 the selection is keyed by the row INDEX, not the kept uuid", CHECKS,
+     "                if child.data(0, Qt.ItemDataRole.UserRole)[2] == keep:\n",
+     "                if child.data(0, Qt.ItemDataRole.UserRole)[1] == role[1]:"
+     "  # MUTATION: index instead of uuid\n",
+     ["test_the_selection_follows_the_kept_uuid_when_its_index_changes"]),
+
+    ("M39 \"Run\" stays on for a group node", CHECKS,
+     "        cli_row = isinstance(role, str) and role != DEDUPE_ROW\n",
+     "        cli_row = role != DEDUPE_ROW  # MUTATION: a group is runnable\n",
+     ["test_the_page_doors_are_off_on_a_group_node"]),
+
+    ("M40 show_group takes any index at face value", "gui/docks/dedupe.py",
+     "        if not isinstance(index, int) or not 0 <= index < len(self._groups):\n",
+     "        if False:  # MUTATION: whatever index comes in is trusted\n",
+     ["test_show_group_with_no_such_index_falls_back_to_the_row"]),
+
+    ("M41 the copper row keeps a vanished group's QView", CHECKS,
+     "            self.pane.setCurrentWidget(self.dedupe)\n"
+     "            self.dedupe.show_row()\n",
+     "            self.pane.setCurrentWidget(self.dedupe)"
+     "  # MUTATION: the vanished group stays on screen\n",
+     ["test_a_rescan_keeps_the_selected_group_by_its_kept_uuid"]),
+
+    ("M42 a rescan steals another row's selection", CHECKS,
+     "        elif inside_row:\n            self.tree.setCurrentItem(row)\n",
+     "        elif True:  # MUTATION: the panel's row always wins\n"
+     "            self.tree.setCurrentItem(row)\n",
+     ["test_a_rescan_leaves_another_rows_selection_alone"]),
+
+    # Д-5(b) (25.10): Windows checks print \r\n through Python's text mode.
+    ("M43 the pipe decoder is not wrapped for newlines", CHECKS,
+     "    return io.IncrementalNewlineDecoder(\n"
+     "        codecs.getincrementaldecoder(\"utf-8\")(errors=\"replace\"), translate=True)\n",
+     "    return codecs.getincrementaldecoder(\"utf-8\")(errors=\"replace\")"
+     "  # MUTATION: CRLF reaches the pane\n",
+     ["test_the_pipe_decoder_turns_crlf_into_one_newline"]),
+
+    ("M44 the page arms a bare decoder", CHECKS,
+     "        self._decoder = new_output_decoder()\n",
+     "        self._decoder = codecs.getincrementaldecoder(\"utf-8\")(errors=\"replace\")"
+     "  # MUTATION: the wrapper is never used\n",
+     ["test_a_script_that_prints_crlf_reaches_the_pane_and_copy_as_lf"]),
+
+    ("M45 cosmetic control (a comment must change nothing)", CHECKS,
      "        runnable = self.can_run()\n",
      "        runnable = self.can_run()  # MUTATION: cosmetic\n",
      "survive"),

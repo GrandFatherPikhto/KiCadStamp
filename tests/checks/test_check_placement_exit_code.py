@@ -27,6 +27,7 @@ from types import SimpleNamespace
 
 from kicadstamp.utils.units import MM
 
+from tests.support_env import isolate_home
 from tools import check_placement
 
 
@@ -93,9 +94,10 @@ def _run(tmp_path, monkeypatch, capsys, footprints, board_file="Test02.kicad_pcb
     monkeypatch.setattr(check_placement, "create_board_adapter", lambda **kwargs: adapter)
     monkeypatch.setattr(check_placement, "resolve_sheet_path_names",
                         lambda footprint, names: ["Channel_0"])
-    home = tmp_path / "home"
-    home.mkdir()
-    monkeypatch.setenv("HOME", str(home))
+    # BOTH names of the home directory: `_compare_with_last` remembers itself under
+    # `~/.local/state/...`, and `Path.home()` reads USERPROFILE on Windows — with HOME alone
+    # this cell wrote into the runner's real profile and failed on `windows-latest` (Д-5(a)).
+    isolate_home(monkeypatch, tmp_path / "home")
 
     code = check_placement.main([str(sexp)])
     return code, capsys.readouterr().out

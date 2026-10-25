@@ -15,7 +15,9 @@ QView on the right:
     summary) or one group (all of its fields, "Highlight on board", "Clear this group"). The
     panel owns no tree of its own; it is asked for the QView it should show.
   * EVERY check keeps its OWN last output and status: selecting another row shows that check's
-    report without re-running anything, and "Copy" hands over the SELECTED check's own bytes.
+    report without re-running anything, and "Copy" hands over the SELECTED check's own TEXT —
+    exactly what the script printed, with line endings normalised to `\\n` (see
+    `new_output_decoder`).
   * one process at a time — "Run" runs the SELECTED check, "Run all" queues every check in
     registry order and starts the next one only when the previous has finished.
 
@@ -26,6 +28,7 @@ start never lands inside the GUI's own IPC transaction (`socket_busy` + exactly 
 retry), no modal windows (rule 43), and "Copy" never includes the page's own warning line.
 """
 import codecs
+import io
 import logging
 from dataclasses import dataclass
 from time import perf_counter
@@ -62,11 +65,32 @@ DEDUPE_GROUP_ROLE = "dedupe-group"
 _NO_ITEM = object()
 
 
+def new_output_decoder():
+    """The ONE text decoder for a check's pipe: UTF-8 with replacement, `\\r\\n`/`\\r`
+    translated to `\\n` exactly like Python's text mode.
+
+    Two promises live here, both learned the hard way:
+
+      * the pipe carries BYTES; an incremental decoder with `errors="replace"` is what turns
+        them into text without ever raising on a character split across two reads (Д-1 of the
+        22.10 acceptance), and `decode(b"", final=True)` flushes a cut-off multi-byte
+        character as U+FFFD (Д-3 of the same);
+      * the script prints through Python's TEXT mode, and on Windows that means `\\r\\n`.
+        Without this wrapper the pane showed `\\r\\n` next to the page's own `\\n` lines, and
+        "Copy" handed over a mixture (Д-5(b) of the Ч2а acceptance — four cells were red on
+        `windows-latest` for exactly that). `io.IncrementalNewlineDecoder(translate=True)` is
+        the same translator the text mode uses: it HOLDS a trailing `\\r` until the next read,
+        so a `\\r` | `\\n` split across two pipe chunks still becomes ONE newline."""
+    return io.IncrementalNewlineDecoder(
+        codecs.getincrementaldecoder("utf-8")(errors="replace"), translate=True)
+
+
 @dataclass
 class CheckState:
     """What ONE check has to remember between runs — its own output, verdict and timing."""
 
-    #: The script's OWN bytes (what "Copy" copies) — the page's warning line is not in it.
+    #: The script's OWN text (what "Copy" copies) — its bytes decoded, line endings
+    #: normalised to `\\n`; the page's warning line is NOT in it.
     output: str = ""
     #: The warning line (unsaved working set) prepended to the PANE only, for THIS run.
     warning: str = ""
@@ -221,7 +245,7 @@ class ChecksPage(QWidget):
         # A QPlainTextEdit scrolls its own content, so its natural minimumSizeHint must not
         # floor the page: 1, NOT 0 (Qt treats 0 as "unset"; see gui/docks/log_panel.py:157).
         self.output.setMinimumHeight(1)
-        # The pane is a STACK: page 0 is the selected CLI check's own bytes, page 1 is the
+        # The pane is a STACK: page 0 is the selected CLI check's own text, page 1 is the
         # copper-duplicates panel — the row's QView IS that panel, buttons and table
         # untouched (Ч1б). One stack, so a row switch can never show the wrong one.
         self.pane = QStackedWidget()
@@ -319,7 +343,7 @@ class ChecksPage(QWidget):
 
     def _update_buttons(self) -> None:
         runnable = self.can_run()
-        # "Run"/"Copy" mean a CLI check's own process and bytes: on the panel row the
+        # "Run"/"Copy" mean a CLI check's own process and text: on the panel row the
         # panel carries its own Find/Copy/Clear, so these two stay off there rather than
         # running some other check behind the user's back — and a GROUP node is not a
         # script at all, so it is off there for the same reason.
@@ -403,7 +427,7 @@ class ChecksPage(QWidget):
         self._update_buttons()
 
     def _render_pane(self, state: CheckState) -> None:
-        """The pane is the check's own bytes; the working-set warning rides on TOP of them
+        """The pane is the check's own text; the working-set warning rides on TOP of it
         and stays out of `state.output` (what "Copy" hands over)."""
         text = (state.warning + "\n" if state.warning else "") + state.output
         self.output.setPlainText(text)
@@ -443,14 +467,26 @@ class ChecksPage(QWidget):
 
         Д-1 of the Ч2а acceptance: the groups belong in the PAGE's tree — the panel owns the
         data and the QViews, this page owns the nodes. The selection survives by the group's
-        KEPT uuid (the core's own identity in the words of the report), so a rescan that
-        changed nothing keeps the operator on the group they were reading; a group that is
-        gone drops them back on the row rather than onto another group's fields."""
+        KEPT uuid (the core's own identity in the words of the report), never by the row
+        INDEX, so a rescan that reorders the groups keeps the operator on the group they were
+        reading; a group that is gone drops them back on the row rather than onto another
+        group's fields.
+
+        `takeChildren()` does half of that by itself: when the CURRENT item is a child, Qt
+        moves the current item to the parent and emits `currentItemChanged` (measured —
+        kicadstamp/diagnostics/probe_take_children_current_2026_10_25.py), so the panel's row
+        page is back through the ordinary selection path. The `setCurrentItem(row)` below is
+        the safety net for the other case (the row was already current, or Qt stays silent),
+        and a selection OUTSIDE this subtree — another check's row — is left alone: a rescan
+        must not steal the operator from the report they are reading."""
         row = self._items[DEDUPE_ROW]
         keep = None
         role = self._role()
         if isinstance(role, tuple) and role[0] == DEDUPE_GROUP_ROLE:
             keep = role[2]
+        current = self.tree.currentItem()
+        inside_row = current is row or (current is not None
+                                        and current.parent() is row)
         row.takeChildren()
         for index, fields in enumerate(self.dedupe.groups()):
             item = QTreeWidgetItem([group_label(fields), ""])
@@ -468,11 +504,8 @@ class ChecksPage(QWidget):
                     break
         if target is not None:
             self.tree.setCurrentItem(target)
-        else:
-            # The row may ALREADY be current (a scan started from it): Qt then emits
-            # nothing, so the QView is told directly — it must not keep a vanished group.
+        elif inside_row:
             self.tree.setCurrentItem(row)
-            self.dedupe.show_row()
         self._update_buttons()
 
     # ── buttons ─────────────────────────────────────────────────────────────
@@ -485,7 +518,7 @@ class ChecksPage(QWidget):
     def copy(self) -> None:
         """Exactly the SELECTED check's own output — never the page's warning line, never
         the report of whichever check happened to run last. On the panel row it hands the
-        panel's own report over, the same bytes its Copy button copies."""
+        panel's own report over, the same text its Copy button copies."""
         script = self.selected_script()
         if script is None:
             return
@@ -593,10 +626,10 @@ class ChecksPage(QWidget):
         self._current = script
         self._stopping = False
         self._queue_cancelled = 0
-        self._decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
+        self._decoder = new_output_decoder()
         if WORKING_SET.is_dirty():
             # The scripts read the profile FROM DISK; the GUI's unsaved edits are not there.
-            # Prepended to the PANE only — "Copy" still hands over the script's own bytes.
+            # Prepended to the PANE only — "Copy" still hands over the script's own text.
             state.warning = _("The check reads the SAVED profile — unsaved config changes "
                               "are not visible to it.")
 

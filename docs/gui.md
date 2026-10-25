@@ -2885,7 +2885,9 @@ place was named by Denis on 23.10) — that LAUNCHES the four read-only CLI chec
 tree of checks (one row per check, with the verdict of its last run and how long it took), the
 right half is the SELECTED check's view. The checks themselves stay CLI scripts in `tools/`
 ([docs/check_scripts.md](check_scripts.md)) — the page adds no logic of its own, so what it prints
-is byte for byte what the terminal prints.
+is what the terminal prints, with ONE deliberate difference: the pipe's line endings are
+translated to `\n` (`io.IncrementalNewlineDecoder`, exactly like Python's text mode). On Windows a
+check prints `\r\n`, and the pane must not show those next to the page's own `\n` lines.
 
 - **Run** runs the SELECTED check, **Run all** queues every check in registry order (the next one
   starts only after the previous finished). **One thing at a time on the whole page, in both
@@ -2910,8 +2912,8 @@ is byte for byte what the terminal prints.
 - the status line speaks the exit code: `0` clean (green), `1` problems found (yellow), `2` refused
   (red); a crash, "could not start" or a run the user stopped is red with the reason. One Log line
   per run: `Check <script>: exit <code> (<seconds> s)`;
-- **Copy** puts the script's own output on the clipboard (the warning line below is not in it);
-  **Stop** kills the run;
+- **Copy** puts the script's own text on the clipboard — exactly what it printed, line endings
+  normalised to `\n` (the warning line below is not in it); **Stop** kills the run;
 - one run at a time, and a start never lands in the middle of the GUI's own IPC transaction
   (`socket_busy` + exactly one deferred retry, then "KiCad is busy");
 - the scripts read the profile FROM DISK: unsaved config edits are invisible to them, which the pane

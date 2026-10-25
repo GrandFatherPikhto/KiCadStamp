@@ -22,17 +22,17 @@ from pathlib import Path
 
 import pytest
 
+from tests.support_env import isolate_home
 from tools import check_footprints_vs_library as check
 
 
 @pytest.fixture(autouse=True)
 def _isolated_environment(tmp_path, monkeypatch):
-    """No ambient library may leak in: HOME decides where kicad_common.json is looked for."""
+    """No ambient library may leak in: the home directory decides where kicad_common.json is
+    looked for — BOTH of its names, because `Path.home()` reads `USERPROFILE` on Windows
+    (Д-5(a) of the Ч2а acceptance: HOME alone was red on `windows-latest`)."""
     monkeypatch.delenv("KICAD10_FOOTPRINT_DIR", raising=False)
-    home = tmp_path / "home"
-    home.mkdir()
-    monkeypatch.setenv("HOME", str(home))
-    return home
+    return isolate_home(monkeypatch, tmp_path / "home")
 
 
 def _dir(tmp_path, name):
@@ -50,12 +50,16 @@ def _write_common_json(home, value):
 
 
 def _settings_dir(monkeypatch, tmp_path, platform, *, appdata=True):
-    """Run `_kicad_settings_dir()` AS `platform` — `HOME` and `%APPDATA%` both under tmp_path,
-    so the cell can never read the developer's own KiCad install. Patching `sys.platform` is the
-    suite's existing way to answer a platform question (tests/repo/test_process_exit_helper.py)."""
+    """Run `_kicad_settings_dir()` AS `platform` — the home directory and `%APPDATA%` both
+    under tmp_path, so the cell can never read the developer's own KiCad install. Patching
+    `sys.platform` is the suite's existing way to answer a platform question
+    (tests/repo/test_process_exit_helper.py).
+
+    The home comes from `tests/support_env.isolate_home`, which sets HOME *and* USERPROFILE:
+    with HOME alone the `win32`/`darwin` branches read the runner's real home on
+    `windows-latest` (Д-5(a))."""
     monkeypatch.setattr(sys, "platform", platform)
-    monkeypatch.setenv("HOME", str(tmp_path / "home"))
-    (tmp_path / "home").mkdir(exist_ok=True)
+    isolate_home(monkeypatch, tmp_path / "home")
     if appdata:
         monkeypatch.setenv("APPDATA", str(tmp_path / "appdata"))
     else:
@@ -107,7 +111,7 @@ def test_the_users_fp_lib_table_is_read_from_the_windows_settings_directory(tmp_
     is placed at the LITERAL %APPDATA% path (not where the owner would say), so a wrong platform
     branch leaves the nickname unresolved."""
     monkeypatch.setattr(sys, "platform", "win32")
-    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    isolate_home(monkeypatch, tmp_path / "home")
     monkeypatch.setenv("APPDATA", str(tmp_path / "appdata"))
     directory = tmp_path / "appdata" / "kicad" / "10.0"
     directory.mkdir(parents=True)

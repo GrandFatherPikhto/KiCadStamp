@@ -10,7 +10,8 @@ The page is a LAUNCHER, so what is pinned here is the launcher's contract, not a
   * the tree has one row per check, nothing else, and the row's glyph/duration follow the LAST
     run's exit code;
   * every check keeps its OWN output: selecting another row shows that check's report without
-    re-running anything, and "Copy" hands over the SELECTED check's own bytes;
+    re-running anything, and "Copy" hands over the SELECTED check's own text (its bytes decoded,
+    line endings normalised to `\n` — Д-5(b) of the Ч2а acceptance);
   * one run at a time; "Run all" queues every check and starts the next only after the previous
     finished; "Stop" drops the rest of the queue and says so;
   * the "Checks" menu sits between Tools and View, has one item per check plus "Run all", and an
@@ -34,7 +35,7 @@ from PyQt6.QtWidgets import QApplication, QDockWidget, QMainWindow
 from gui.checks_menu import build_checks_menu
 from gui.checks_registry import CHECKS, DEDUPE_ROW, command_for
 from gui.docks._common import style_for_level
-from gui.docks.checks import ChecksPage
+from gui.docks.checks import ChecksPage, new_output_decoder
 from kicadstamp.config_working_set import WORKING_SET
 
 
@@ -94,6 +95,18 @@ import sys
 
 out = sys.stdout.buffer
 out.write(b"a" + "—".encode("utf-8")[:2])
+out.flush()
+'''
+
+#: Д-5(b) probe (acceptance 25.10.2026): the bytes a Windows check really prints — Python's text
+#: mode writes `\r\n` there, and the pipe carries those bytes wherever the GUI runs. Written
+#: through `sys.stdout.buffer` on purpose: the probe must produce the SAME bytes on Linux.
+CRLF_SCRIPT = '''\
+"""A stand-in that prints Windows line endings — the Д-5(b) probe."""
+import sys
+
+out = sys.stdout.buffer
+out.write(b"first line\\r\\nsecond line\\r\\n")
 out.flush()
 '''
 
@@ -518,6 +531,48 @@ def test_a_character_cut_off_by_the_run_end_is_shown_as_a_replacement_char(
     assert QApplication.clipboard().text() == "a\ufffd"
 
 
+def test_the_pipe_decoder_turns_crlf_into_one_newline(qapp):
+    """Д-5(b) of the Ч2а acceptance: the ONE decoder the page arms for every run.
+
+    `io.IncrementalNewlineDecoder(translate=True)` around the UTF-8 replacement decoder is the
+    same translator Python's text mode uses. It HOLDS a `\\r` at the end of a chunk, so a
+    `\\r` | `\\n` split across two pipe reads still comes out as ONE newline — exactly the shape
+    a Windows check produces — and a lone trailing `\\r` becomes `\\n` on the final flush, which
+    is what `_flush_decoder` relies on. The Д-3 promise (a cut-off multi-byte character becomes
+    U+FFFD) must survive the wrapper: it is transparent."""
+    decoder = new_output_decoder()
+
+    assert decoder.decode(b"a\r") == "a"          # the CR is held, not shown yet
+    assert decoder.decode(b"\nb") == "\nb"        # ... and joins the LF into ONE newline
+    assert decoder.decode(b"\r\nc") == "\nc"
+    assert decoder.decode(b"", True) == ""
+
+    lone_cr = new_output_decoder()
+    assert lone_cr.decode(b"tail\r") == "tail"
+    assert lone_cr.decode(b"", True) == "\n"
+
+    cut = new_output_decoder()
+    assert cut.decode(b"a" + "\u2014".encode("utf-8")[:2]) == "a"
+    assert cut.decode(b"", True) == "\ufffd"
+
+
+def test_a_script_that_prints_crlf_reaches_the_pane_and_copy_as_lf(
+        main_window, qtbot, tmp_path):
+    """Д-5(b): the same thing END TO END, with the bytes a Windows check really prints.
+
+    The pane must not mix the script's `\\r\\n` with the page's own `\\n`, and "Copy" must hand
+    over the text the pane shows. Before the wrapper these were the four 22.10 cells that were
+    red only on `windows-latest`."""
+    page = _make_page(main_window, tmp_path, script_source=CRLF_SCRIPT)
+
+    _run(page, qtbot, _profile(tmp_path, 0))
+
+    assert page.state_of(SCRIPT).output == "first line\nsecond line\n"
+    assert page.output.toPlainText() == "first line\nsecond line\n"
+    page.copy_button.click()
+    assert QApplication.clipboard().text() == "first line\nsecond line\n"
+
+
 def test_copy_hands_over_the_selected_scripts_bytes(main_window, qtbot, tmp_path):
     """Byte for byte: exactly what the script printed, with the stderr line in it."""
     page = _make_page(main_window, tmp_path)
@@ -704,6 +759,10 @@ def test_a_running_panel_turns_the_check_doors_off(main_window, qtbot, tmp_path)
     page.set_root_path(_profile(tmp_path, 0))
     page.dedupe.set_root_path(tmp_path / "root.sexp")
 
+    # The row is selected the way production selects it (the menu item and "Run all" both
+    # `select(DEDUPE_ROW)` first): a scan started from ANOTHER row must not steal its
+    # selection — that is pinned by `test_a_rescan_leaves_another_rows_selection_alone`.
+    page.select(DEDUPE_ROW)
     page.dedupe.find()                  # started, NOT awaited: the panel is busy now
     assert page.dedupe.is_running() is True
     assert page.is_running() is True
@@ -723,6 +782,33 @@ def test_a_running_panel_turns_the_check_doors_off(main_window, qtbot, tmp_path)
     assert page.run_button.isEnabled() is False
     page.select(SCRIPT)
     assert page.run_button.isEnabled() is True
+
+
+def test_a_rescan_leaves_another_rows_selection_alone(main_window, qtbot, tmp_path):
+    """Д-4.4 of the Ч2а acceptance: rebuilding the group nodes only re-selects INSIDE the
+    copper row's own subtree.
+
+    The nodes are deleted and re-created on every scan, and Qt moves the current item to the
+    parent when the current CHILD disappears (measured —
+    kicadstamp/diagnostics/probe_take_children_current_2026_10_25.py), so the "a vanished group
+    goes back to the row" half needs no extra call at all. The other half is the one a naive
+    implementation gets wrong: a scan started while the operator is reading a CHECK's report must
+    not pull them onto the panel's row."""
+    from tests.gui.docks.test_dedupe_dock import _board as _duplicate_board
+
+    main_window.connection.board = SimpleNamespace(adapter=_duplicate_board())
+    page = _make_page(main_window, tmp_path)
+    page.set_root_path(_profile(tmp_path, 0))
+    page.dedupe.set_root_path(tmp_path / "root.sexp")
+
+    page.select(SCRIPT)
+    with qtbot.waitSignal(page.dedupe.finished_op, timeout=20000):
+        page.dedupe.find()
+
+    assert page.dedupe.group_count() == 2            # the nodes WERE rebuilt ...
+    assert page._items[DEDUPE_ROW].childCount() == 2
+    assert page.selected_script() == SCRIPT          # ... and the check row kept the selection
+    assert page.pane.currentWidget() is page.output
 
 
 def test_a_running_check_turns_the_panels_doors_off(main_window, qtbot, tmp_path):
