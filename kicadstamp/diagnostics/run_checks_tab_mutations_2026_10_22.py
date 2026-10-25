@@ -31,19 +31,26 @@ those decisions and must turn a named cell red:
   M23 the menu's Clear is on with nothing found          (gui/checks_menu.py, Ч1б)
   M25 the page's "is anything running?" ignores the panel (gui/docks/checks.py `is_running`)
   M26 the panel ignores a running CHECK                  (gui/docks/dedupe.py `_update_buttons`)
-  M28 every group node shows the FIRST group's texts     (gui/docks/dedupe.py `_fill_tree`)
+  M28 every group node shows the FIRST group's texts     (gui/docks/checks.py `_rebuild_dedupe_groups`)
   M29 "Clear this group" clears EVERYTHING               (gui/docks/dedupe.py `_clear_one_worker`)
   M30 "Clear this group" ignores a busy page             (gui/docks/dedupe.py `clear_selected_group`)
   M31 "Highlight on board" marks only the first member    (gui/docks/dedupe.py `_marker_points`)
-  M32 cosmetic control (a comment must change nothing)
+  M32 a GROUP node shows the ROW's QView                  (gui/docks/checks.py `_on_current_changed`)
+  M33 "Highlight" keeps the previous group's marks        (gui/docks/dedupe.py `_highlight_worker`)
+  M34 "Find" keeps the marks of the list it replaced      (gui/docks/dedupe.py `_scan_worker`)
+  M35 "Clear this group" keeps the marks                  (gui/docks/dedupe.py `_clear_one_worker`)
+  M36 cosmetic control (a comment must change nothing)
 
 M6 and M7 arrived with acceptance Д-3 (23.10.2026); M8–M16 with the page move (Ч1 of
 plan_2026_10_23_checks_tab_top_level, 23.10); M21–M23 with Ч1б of the same plan (the
 copper-duplicates panel moving into the page); M25/M26 with Д-1 of the Ч1б acceptance (one
 "something runs" answer, asked in BOTH directions); M28–M31 with Ч2а (the duplicate GROUPS as
-tree nodes, with "Clear this group" and "Highlight on board"). The control row has been
-renumbered five times and is always LAST: M6 -> M8 (Д-3) -> M17 (page move) -> M20 (Д-1/Д-2) ->
-M24 (Ч1б) -> M27 (Д-1 Ч1б) -> M32 (Ч2а).
+tree nodes, with "Clear this group" and "Highlight on board"); M32–M35 with Д-1 and Д-2 of the
+Ч2а acceptance (the nodes moved into the PAGE's tree, and every list change clears the
+`dedupe` overlay namespace). M28 was re-aimed at `_rebuild_dedupe_groups` by Д-1 — the panel's
+own `_fill_tree` it used to name no longer exists. The control row has been renumbered six
+times and is always LAST: M6 -> M8 (Д-3) -> M17 (page move) -> M20 (Д-1/Д-2) ->
+M24 (Ч1б) -> M27 (Д-1 Ч1б) -> M32 (Ч2а) -> M36 (Д-1/Д-2 Ч2а).
 
 Safeguards, the same as every harness in this package: a template that matches more than once
 is refused (a silent miss is indistinguishable from a healthy guard — rule 38); a row that
@@ -237,10 +244,12 @@ MUTATIONS = [
      ["test_a_running_check_turns_the_panels_doors_off"]),
 
     # Ч2а (25.10): the groups are tree nodes; the group's own two doors act on ONE group.
-    ("M28 every group node shows the FIRST group's texts", "gui/docks/dedupe.py",
-     "        for index, fields in enumerate(self._groups):\n",
+    # Д-1 of the Ч2а acceptance moved the nodes into the PAGE's tree, so M28 now removes the
+    # decision in `_rebuild_dedupe_groups` (the panel's `_fill_tree` it used to name is gone).
+    ("M28 every group node shows the FIRST group's texts", CHECKS,
+     "        for index, fields in enumerate(self.dedupe.groups()):\n",
      "        for index, fields in enumerate(  # MUTATION: every node is the first group\n"
-     "                [self._groups[0]] * len(self._groups) if self._groups else []):\n",
+     "                [self.dedupe.groups()[0]] if self.dedupe.groups() else []):\n",
      ["test_find_fills_the_group_nodes_with_the_core_groups_and_report"]),
 
     ("M29 \"Clear this group\" clears EVERYTHING", "gui/docks/dedupe.py",
@@ -263,7 +272,41 @@ MUTATIONS = [
      "    for member in group[:1]:  # MUTATION: the rest of the group stays unmarked\n",
      ["test_highlight_marks_the_groups_members_and_selects_nothing"]),
 
-    ("M32 cosmetic control (a comment must change nothing)", CHECKS,
+    # Д-1 of the Ч2а acceptance: three kinds of selection in ONE tree, and the pane follows the
+    # KIND. This row makes a group node fall through to the check pane.
+    ("M32 a GROUP node shows the ROW's (check) QView", CHECKS,
+     "        if isinstance(role, tuple) and role[0] == DEDUPE_GROUP_ROLE:\n"
+     "            self._show_dedupe_group(role[1])\n"
+     "            return\n",
+     "        if False:  # MUTATION: a group is shown as a check's bytes\n"
+     "            self._show_dedupe_group(role[1])\n"
+     "            return\n",
+     ["test_the_row_shows_the_page_doors_and_a_group_shows_its_fields"]),
+
+    # Д-2 of the Ч2а acceptance: the `dedupe` namespace is dropped by EVERY list change. Each
+    # row silences ONE door, so the door left undone names itself in the failure.
+    ("M33 \"Highlight\" keeps the previous group's marks", "gui/docks/dedupe.py",
+     "        # Highlight B AFTER A: A's circles go first (Д-2). \"Replace, never stack\"\n"
+     "        # has to hold across GROUPS, not only across presses of the same group.\n"
+     "        DedupePage._forget_marks(adapter)\n",
+     "        # MUTATION: B is drawn on top of A's circles\n",
+     ["test_highlight_replaces_the_previous_groups_marks_before_drawing"]),
+
+    ("M34 \"Find\" keeps the marks of the list it replaced", "gui/docks/dedupe.py",
+     "        # The list the old marks described is being replaced — including the case\n"
+     "        # where the new list is EMPTY: a clean board has nothing left to mark.\n"
+     "        DedupePage._forget_marks(adapter)\n",
+     "        # MUTATION: the old marks describe copper that may be gone\n",
+     ["test_find_takes_the_previous_highlight_off_and_spares_other_spaces"]),
+
+    ("M35 \"Clear this group\" keeps the marks", "gui/docks/dedupe.py",
+     "        DedupePage._forget_marks(adapter)\n"
+     "        via_groups, track_groups, _short = scan_copper_duplicates(adapter)\n",
+     "        via_groups, track_groups, _short = scan_copper_duplicates(adapter)"
+     "  # MUTATION: the marks outlive the copper\n",
+     ["test_both_clears_take_the_marks_off"]),
+
+    ("M36 cosmetic control (a comment must change nothing)", CHECKS,
      "        runnable = self.can_run()\n",
      "        runnable = self.can_run()  # MUTATION: cosmetic\n",
      "survive"),

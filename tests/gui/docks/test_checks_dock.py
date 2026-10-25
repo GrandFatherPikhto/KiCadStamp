@@ -198,6 +198,9 @@ def test_the_tree_has_one_row_per_check_and_the_copper_panel_last(main_window,
     assert titles == [f"· {check.title}" for check in CHECKS]
     panel_title = page.tree.topLevelItem(len(CHECKS)).text(0)
     assert panel_title == f"· {_('Copper duplicates')}"
+    # Д-1 of the Ч2а acceptance: the duplicate GROUPS are this row's CHILDREN, and
+    # before the first scan there are none — no invented groups, no second tree.
+    assert page._items[DEDUPE_ROW].childCount() == 0
 
 
 # ── per-check output and Copy ───────────────────────────────────────────────
@@ -712,8 +715,14 @@ def test_a_running_panel_turns_the_check_doors_off(main_window, qtbot, tmp_path)
     assert page._items[DEDUPE_ROW].text(1) == "running…"
 
     qtbot.waitUntil(lambda: not page.dedupe.is_running(), timeout=20000)
-    assert page.run_button.isEnabled() is True
     assert page.run_all_button.isEnabled() is True
+    # The scan leaves the operator on the PANEL's row (Д-1 of the Ч2а acceptance: the
+    # row is what owns Find), so "Run" is off there by kind, not by busyness — pick a
+    # check row and the door is back.
+    assert page.selected_script() == DEDUPE_ROW
+    assert page.run_button.isEnabled() is False
+    page.select(SCRIPT)
+    assert page.run_button.isEnabled() is True
 
 
 def test_a_running_check_turns_the_panels_doors_off(main_window, qtbot, tmp_path):

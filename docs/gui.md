@@ -2828,23 +2828,29 @@ writes) plus the redraw chain's per-record failures. `_mutating_call` (the adapt
 also finally RETRIES a write when KiCad answers AS_BUSY — it used to match the text `not ready`,
 which the real message never contains, so the retry silently never fired (2026-09-11).
 
-## Copper duplicates (2026-10-01, moved 2026-10-23, tree since 2026-10-25)
+## Copper duplicates (2026-10-01, moved 2026-10-23, group nodes since 2026-10-25)
 
 The **fifth row of the Checks page** (23.10: the bottom-right dock is gone — the bottom area is
-the Log alone, so the View menu has one item). Select that row and its QView IS this panel: it
-lists the duplicate vias/tracks on the live board — the same groups `kicadstamp dedupe` reports.
-The row's own verdict is its last scan: `·` not searched yet, `…` searching, `⚠ N groups`, `✔`
-none.
+the Log alone, so the View menu has one item). The row's own verdict is its last scan: `·` not
+searched yet, `…` searching, `⚠ N groups`, `✔` none. The right-hand side is the QView of whatever
+is selected: on the ROW it is Find, Copy, "Clear all" and the summary; on a GROUP node it is that
+group's card and its two doors (below).
 
-Since 25.10 the list is a **tree of the groups** (the flat table is gone): one node per group with
-type, net, position, number of copies and the drill/diameter warning (a mismatch does NOT split a
-group). Selecting a node shows that group's whole detail below the tree — type, net, position,
-layer, copies, the UUID kept, the UUIDs deleted, the warning — and two doors that act on that
-group alone:
+Since 25.10 the duplicate groups are **CHILD NODES of the row in the page's own tree** (the flat
+table is gone, and the panel has no tree of its own): one node per group with type, net, position,
+number of copies and the drill/diameter warning (a mismatch does NOT split a group). Selecting a
+node shows the whole card on the right — type, net, position, layer, copies, the UUID kept, the
+UUIDs deleted, the warning — and two doors that act on that group alone. A rescan keeps you on the
+same group (it is re-selected by the uuid it keeps); a group that is gone drops the selection back
+on the row rather than onto another group's card.
 
 - **Highlight on board** marks the group's members as overlay circles on the user's overlay layer
   (a via at its position, a track at its middle). Your own board selection is never touched, and
-  pressing it again replaces its markers instead of stacking them.
+  the panel's PREVIOUS marks are cleared before it draws: highlighting group B after group A
+  leaves B alone, never both. Find, **Clear this group** and **Clear all** take the panel's marks
+  off as well — a circle must never outlive the copper it describes. Nobody else's marks are
+  touched: a cell anchor's `cell-anchor/…` key or a point's `point/…` key in `gui_state.json`
+  stays exactly where it was.
 - **Clear this group** removes just that group's extra copies — the same core call, the same
   `actions.log` journal and the same refusals as **Clear all** (a root must be open, the list must
   not be empty, nothing may be running).

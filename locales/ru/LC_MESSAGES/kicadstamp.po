@@ -3,7 +3,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version:  kicadstamp\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-22 20:42+0300\n"
+"POT-Creation-Date: 2026-10-25 13:31+0300\n"
 "PO-Revision-Date: 2026-07-27 12:00+0000\n"
 "Last-Translator: \n"
 "Language: ru\n"
@@ -185,11 +185,44 @@ msgstr ""
 "выделите ОДНУ пару этой ячейки на плате (повторяющиеся роли делают "
 "кластер неоднозначным) и идентифицируйте заново"
 
-#: gui/checks_registry.py:49
+#: gui/checks_menu.py:38 gui/dock_hub.py:185
+msgid "Checks"
+msgstr "Проверки"
+
+#: gui/checks_menu.py:47 gui/docks/checks.py:165 gui/docks/checks.py:360
+msgid "Copper duplicates"
+msgstr "Дубли меди"
+
+#: gui/checks_menu.py:48
+msgid "Find duplicate vias/tracks on the live board"
+msgstr "Найти дубли переходных/дорожек на живой плате"
+
+#: gui/checks_menu.py:54 gui/docks/checks.py:184
+msgid "Run all"
+msgstr "Запустить все"
+
+#: gui/checks_menu.py:55 gui/docks/checks.py:185
+msgid "Run every check, one after another"
+msgstr "Запустить все проверки по очереди"
+
+# Ч1б of plan_2026_10_23_checks_tab_top_level — the copper duplicates row
+#: gui/checks_menu.py:59
+msgid "Clear copper duplicates"
+msgstr "Очистить дубли меди"
+
+#: gui/checks_menu.py:61
+msgid ""
+"Remove the extra copies the last search found — the same door the panel's"
+" Clear button uses"
+msgstr ""
+"Убрать лишние копии, найденные последним поиском — та же дверь, что у "
+"кнопки Clear панели"
+
+#: gui/checks_registry.py:58
 msgid "Placement"
 msgstr "Размещение"
 
-#: gui/checks_registry.py:50
+#: gui/checks_registry.py:59
 msgid ""
 "Is every part on its cluster's slot? Reads the LIVE board — this "
 "profile's board must be open in KiCad."
@@ -197,11 +230,11 @@ msgstr ""
 "Всякая ли деталь на месте своей ячейки? Читает ЖИВУЮ плату — плата этого "
 "профиля должна быть открыта в KiCad."
 
-#: gui/checks_registry.py:52
+#: gui/checks_registry.py:61
 msgid "Config records"
 msgstr "Записи конфига"
 
-#: gui/checks_registry.py:53
+#: gui/checks_registry.py:62
 msgid ""
 "Does every record of the .sexp address a part of its own cluster and "
 "sheet? Reads the LIVE board."
@@ -209,11 +242,11 @@ msgstr ""
 "Адресует ли каждая запись .sexp деталь своего кластера и листа? Читает "
 "ЖИВУЮ плату."
 
-#: gui/checks_registry.py:55
+#: gui/checks_registry.py:64
 msgid "Footprints vs library"
 msgstr "Футпринты и библиотека"
 
-#: gui/checks_registry.py:56
+#: gui/checks_registry.py:65
 msgid ""
 "Are the saved board's footprints still what the library has? Reads the "
 "SAVED .kicad_pcb — save the board in KiCad first."
@@ -221,11 +254,23 @@ msgstr ""
 "Совпадают ли футпринты сохранённой платы с библиотекой? Читает "
 "СОХРАНЁННЫЙ .kicad_pcb — сначала сохраните плату в KiCad."
 
-#: gui/checks_registry.py:87
+#: gui/checks_registry.py:70
+msgid "Duplicate mounts"
+msgstr "Дубли опор mount"
+
+#: gui/checks_registry.py:71
+msgid ""
+"Does any tree carry two mount nodes on the same anchor? Reads the "
+"profile's config and writes NOTHING — a dry run."
+msgstr ""
+"Есть ли в каком-то дереве два узла mount на одном якоре? Читает конфиг "
+"профиля и НИЧЕГО не пишет — сухой прогон."
+
+#: gui/checks_registry.py:106
 msgid "Open a project first — the checks run against the profile's config file."
 msgstr "Сначала откройте проект — проверки идут по файлу конфига профиля."
 
-#: gui/checks_registry.py:90
+#: gui/checks_registry.py:109
 msgid ""
 "The checks are available only from a repository working copy "
 "(tools/check_*.py was not found)."
@@ -233,7 +278,7 @@ msgstr ""
 "Проверки доступны только из рабочей копии репозитория (tools/check_*.py "
 "не найден)."
 
-#: gui/checks_registry.py:94
+#: gui/checks_registry.py:113
 #, python-brace-format
 msgid "The check script was not found: {path}"
 msgstr "Скрипт проверки не найден: {path}"
@@ -274,32 +319,32 @@ msgstr "Компоненты — по последнему чтению плат
 msgid "Not connected"
 msgstr "Не подключено"
 
-#: gui/dock_hub.py:180 gui/docks/cell_editor.py:531 gui/docks/imprint.py:1336
+#: gui/dock_hub.py:182 gui/docks/cell_editor.py:531 gui/docks/imprint.py:1336
 #: gui/docks/role_cluster_tree.py:339
 msgid "Components"
 msgstr "Компоненты"
 
-#: gui/dock_hub.py:181 gui/main_window.py:369
+#: gui/dock_hub.py:183 gui/main_window.py:372
 msgid "Config"
 msgstr "Конфиг"
 
-#: gui/dock_hub.py:182 gui/docks/config_tree.py:167 gui/main_window.py:265
+#: gui/dock_hub.py:184 gui/docks/config_tree.py:167 gui/main_window.py:268
 msgid "Trees"
 msgstr "Деревья"
 
-#: gui/dock_hub.py:561 gui/dock_hub.py:590
+#: gui/dock_hub.py:544 gui/dock_hub.py:573
 msgid "Select an Imprint record first."
 msgstr "Сначала выберите запись Imprint."
 
-#: gui/dock_hub.py:584 gui/dock_hub.py:589 gui/dock_hub.py:1452
-#: gui/dock_hub.py:1516 gui/dock_hub.py:1522 gui/dock_hub.py:1528
+#: gui/dock_hub.py:567 gui/dock_hub.py:572 gui/dock_hub.py:1429
+#: gui/dock_hub.py:1493 gui/dock_hub.py:1499 gui/dock_hub.py:1505
 #: gui/docks/config_tree.py:158 gui/docks/imprint.py:873
-#: gui/docks/imprint.py:901 gui/main_window.py:413
+#: gui/docks/imprint.py:901 gui/main_window.py:416
 msgid "Imprints"
 msgstr "Отпечатки"
 
-#: gui/dock_hub.py:585 gui/dock_hub.py:1453 gui/dock_hub.py:1830
-#: gui/dock_hub.py:2059 gui/docks/add_entities_flow.py:84
+#: gui/dock_hub.py:568 gui/dock_hub.py:1430 gui/dock_hub.py:1807
+#: gui/dock_hub.py:2036 gui/docks/add_entities_flow.py:84
 #: gui/docks/cell_editor.py:1533 gui/docks/cell_editor.py:1615
 #: gui/docks/cell_editor.py:2135 gui/docks/cell_editor.py:2458
 #: gui/docks/cell_editor.py:2558 gui/docks/change_cell_flow.py:189
@@ -315,22 +360,22 @@ msgstr "Отпечатки"
 msgid "Set the project root first."
 msgstr "Сначала задайте root проекта."
 
-#: gui/dock_hub.py:599 gui/dock_hub.py:1461 gui/docks/cell_editor.py:1609
+#: gui/dock_hub.py:582 gui/dock_hub.py:1438 gui/docks/cell_editor.py:1609
 #: gui/docks/cell_editor.py:1711 gui/docks/cell_editor.py:2129
-#: gui/docks/cell_editor.py:2455 gui/docks/dedupe.py:136
-#: gui/docks/dedupe.py:156 gui/docks/dedupe.py:175 gui/docks/imprint.py:868
-#: gui/docks/imprint.py:1567 gui/docks/imprint.py:1641
-#: gui/docks/net_trace.py:317 gui/docks/net_trace.py:432
-#: gui/fieldstool_window.py:810 gui/select_enclosed_copper.py:141
-#: gui/subtract_copper.py:367
+#: gui/docks/cell_editor.py:2455 gui/docks/dedupe.py:374
+#: gui/docks/dedupe.py:397 gui/docks/dedupe.py:414 gui/docks/dedupe.py:436
+#: gui/docks/dedupe.py:479 gui/docks/imprint.py:868 gui/docks/imprint.py:1567
+#: gui/docks/imprint.py:1641 gui/docks/net_trace.py:317
+#: gui/docks/net_trace.py:432 gui/fieldstool_window.py:810
+#: gui/select_enclosed_copper.py:141 gui/subtract_copper.py:367
 msgid "Connect to KiCad first."
 msgstr "Сначала подключитесь к KiCad."
 
-#: gui/dock_hub.py:651 gui/dock_hub.py:658 gui/dock_hub.py:671
+#: gui/dock_hub.py:634 gui/dock_hub.py:641 gui/dock_hub.py:654
 msgid "Cannot re-source Imprint"
 msgstr "Нельзя переисточить Imprint"
 
-#: gui/dock_hub.py:659 gui/dock_hub.py:1529 gui/docks/imprint.py:874
+#: gui/dock_hub.py:642 gui/dock_hub.py:1506 gui/docks/imprint.py:874
 msgid ""
 "No footprints to record — pick a sheet that has footprints on the 'By "
 "sheet' tab, or select footprints on the board for 'By selection'."
@@ -344,16 +389,16 @@ msgstr ""
 # статус-баре
 # было видно, КАКАЯ работа с платой идёт («Работа с платой: расстановка»).
 # Операция без своего слова получает общую формулировку выше.
-#: gui/dock_hub.py:710 gui/dock_hub.py:1569 gui/dock_hub.py:1643
-#: gui/dock_hub.py:1757 gui/dock_hub.py:1983 gui/docks/dedupe.py:143
+#: gui/dock_hub.py:693 gui/dock_hub.py:1546 gui/dock_hub.py:1620
+#: gui/dock_hub.py:1734 gui/dock_hub.py:1960 gui/docks/dedupe.py:382
 #: gui/docks/imprint.py:882 gui/docks/imprint.py:1582
-#: gui/docks/net_trace.py:339 gui/docks/trees_dock.py:3076
-#: gui/docks/trees_dock.py:3285 gui/docks/trees_dock.py:3334
+#: gui/docks/net_trace.py:339 gui/docks/trees_dock.py:3063
+#: gui/docks/trees_dock.py:3272 gui/docks/trees_dock.py:3321
 #: gui/extract_cluster_flow.py:196
 msgid "reading the board"
 msgstr "чтение платы"
 
-#: gui/dock_hub.py:1284
+#: gui/dock_hub.py:1261
 msgid ""
 "The board is busy — using the previously read board snapshot; the "
 "Role/Cluster suggestions may be slightly out of date."
@@ -361,22 +406,22 @@ msgstr ""
 "Плата занята — используется ранее прочитанный снимок платы; подсказки "
 "Role/Cluster могут быть немного устаревшими."
 
-#: gui/dock_hub.py:1517 gui/docks/add_entities.py:268
+#: gui/dock_hub.py:1494 gui/docks/add_entities.py:268
 #: gui/docks/cell_editor.py:1460 gui/docks/create_entity.py:345
 #: gui/docks/points.py:367 gui/docks/points.py:536 gui/docks/thermal_via.py:272
 msgid "Name is required."
 msgstr "Требуется имя."
 
-#: gui/dock_hub.py:1538
+#: gui/dock_hub.py:1515
 msgid "Cannot record Imprint"
 msgstr "Не удаётся записать Imprint"
 
-#: gui/dock_hub.py:1617 gui/dock_hub.py:1652 gui/dock_hub.py:1666
-#: gui/dock_hub.py:1680
+#: gui/dock_hub.py:1594 gui/dock_hub.py:1629 gui/dock_hub.py:1643
+#: gui/dock_hub.py:1657
 msgid "Record failed"
 msgstr "Запись не удалась"
 
-#: gui/dock_hub.py:1671
+#: gui/dock_hub.py:1648
 #, python-brace-format
 msgid ""
 "Recorded Imprint {name!r} — {components} components, {vias} vias, "
@@ -385,18 +430,18 @@ msgstr ""
 "Записан Imprint {name!r} — {components} компон., {vias} виа, {tracks} "
 "треков -> {path}"
 
-#: gui/dock_hub.py:1681 gui/dock_hub.py:1800 gui/docks/dedupe.py:206
+#: gui/dock_hub.py:1658 gui/dock_hub.py:1777 gui/docks/dedupe.py:570
 #: gui/docks/net_trace.py:417
 #, python-brace-format
 msgid "Operation failed: {error}"
 msgstr "Операция не удалась: {error}"
 
-#: gui/dock_hub.py:1733 gui/dock_hub.py:1766 gui/dock_hub.py:1785
-#: gui/dock_hub.py:1799
+#: gui/dock_hub.py:1710 gui/dock_hub.py:1743 gui/dock_hub.py:1762
+#: gui/dock_hub.py:1776
 msgid "Re-source failed"
 msgstr "Сбой Re-source"
 
-#: gui/dock_hub.py:1790
+#: gui/dock_hub.py:1767
 #, python-brace-format
 msgid ""
 "Re-sourced Imprint {name!r} — {components} components, {vias} vias, "
@@ -405,21 +450,21 @@ msgstr ""
 "Переисточён Imprint {name!r} — {components} компон., {vias} виа, {tracks}"
 " треков -> {path}"
 
-#: gui/dock_hub.py:1808
+#: gui/dock_hub.py:1785
 msgid "Pick an Imprint in the Config tree first."
 msgstr "Сначала выберите Imprint в дереве Config."
 
-#: gui/dock_hub.py:1829 gui/dock_hub.py:1836 gui/docks/instances_dialog.py:129
+#: gui/dock_hub.py:1806 gui/dock_hub.py:1813 gui/docks/instances_dialog.py:129
 msgid "Tree instances"
 msgstr "Копии шаблона"
 
-#: gui/dock_hub.py:1837 gui/dock_hub.py:2066 gui/docks/add_entities_flow.py:92
+#: gui/dock_hub.py:1814 gui/dock_hub.py:2043 gui/docks/add_entities_flow.py:92
 #: gui/docks/create_entity_flow.py:79 gui/extract_cluster_flow.py:129
 #, python-brace-format
 msgid "Failed to load config: {error}"
 msgstr "Не удалось загрузить конфиг: {error}"
 
-#: gui/dock_hub.py:1991
+#: gui/dock_hub.py:1968
 msgid ""
 "The board is busy — the cluster list comes from the previously read board"
 " snapshot: a component added to a cluster since then may be missing, so a"
@@ -431,15 +476,15 @@ msgstr ""
 "поэтому частично выбранный кластер может выглядеть выбранным полностью — "
 "проверьте извлечённое дерево на пропущенный компонент."
 
-#: gui/dock_hub.py:2003 gui/docks/imprint.py:914 gui/docks/imprint.py:1628
+#: gui/dock_hub.py:1980 gui/docks/imprint.py:914 gui/docks/imprint.py:1628
 #, python-brace-format
 msgid "Could not refresh the board snapshot: {error}"
 msgstr "Не удалось перестроить снимок платы: {error}"
 
-#: gui/dock_hub.py:2015 gui/dock_hub.py:2045 gui/dock_hub.py:2053
-#: gui/dock_hub.py:2058 gui/dock_hub.py:2065 gui/dock_hub.py:2093
-#: gui/dock_hub.py:2174 gui/dock_hub.py:2180 gui/dock_hub.py:2240
-#: gui/dock_hub.py:2314 gui/dock_hub.py:2324
+#: gui/dock_hub.py:1992 gui/dock_hub.py:2022 gui/dock_hub.py:2030
+#: gui/dock_hub.py:2035 gui/dock_hub.py:2042 gui/dock_hub.py:2070
+#: gui/dock_hub.py:2151 gui/dock_hub.py:2157 gui/dock_hub.py:2217
+#: gui/dock_hub.py:2291 gui/dock_hub.py:2301
 #: gui/docks/tree_from_selection_dialog.py:88
 #: gui/docks/tree_from_selection_dialog.py:415
 #: gui/docks/tree_from_selection_dialog.py:423
@@ -448,15 +493,15 @@ msgstr "Не удалось перестроить снимок платы: {err
 msgid "Extract tree"
 msgstr "Извлечь дерево"
 
-#: gui/dock_hub.py:2046 gui/dock_hub.py:2054 gui/docks/points.py:438
+#: gui/dock_hub.py:2023 gui/dock_hub.py:2031 gui/docks/points.py:438
 #: gui/docks/points.py:543 gui/docks/points.py:720 gui/docks/points.py:771
 #: gui/docks/role_cluster_tree.py:905 gui/docks/role_cluster_tree.py:917
-#: gui/docks/trees_dock.py:6977 gui/docks/trees_dock.py:7041
+#: gui/docks/trees_dock.py:6976 gui/docks/trees_dock.py:7040
 #: gui/extract_cluster_flow.py:119
 msgid "Not connected."
 msgstr "Нет подключения."
 
-#: gui/dock_hub.py:2094 gui/extract_cluster_flow.py:155
+#: gui/dock_hub.py:2071 gui/extract_cluster_flow.py:155
 msgid ""
 "No fully selected Cluster found — select ALL components of a cluster (its"
 " Cluster tag + sheet) first."
@@ -464,15 +509,15 @@ msgstr ""
 "Не найден полностью выделенный кластер — выдели ВСЕ компоненты кластера "
 "(его тег Cluster + лист) сначала."
 
-#: gui/dock_hub.py:2175
+#: gui/dock_hub.py:2152
 msgid "No clusters selected."
 msgstr "Не выбрано ни одного кластера."
 
-#: gui/dock_hub.py:2181 gui/docks/tree_from_selection_dialog.py:432
+#: gui/dock_hub.py:2158 gui/docks/tree_from_selection_dialog.py:432
 msgid "Role is required for the tree anchor."
 msgstr "Для якоря дерева требуется Role."
 
-#: gui/dock_hub.py:2241
+#: gui/dock_hub.py:2218
 #, python-brace-format
 msgid ""
 "Cannot build the tree:\n"
@@ -481,21 +526,21 @@ msgstr ""
 "Не удалось построить дерево:\n"
 "{errors}"
 
-#: gui/dock_hub.py:2315
+#: gui/dock_hub.py:2292
 #, python-brace-format
 msgid "Saved, but the round-trip check failed: {error}"
 msgstr "Сохранено, но проверка round-trip не прошла: {error}"
 
-#: gui/dock_hub.py:2325
+#: gui/dock_hub.py:2302
 #, python-brace-format
 msgid "Tree {name!r} saved to {path}."
 msgstr "Дерево {name!r} сохранено в {path}."
 
-#: gui/dock_hub.py:2459
+#: gui/dock_hub.py:2436
 msgid "Pick a cell in the Config tree first."
 msgstr "Сначала выбери ячейку в дереве Config."
 
-#: gui/dock_hub.py:2464
+#: gui/dock_hub.py:2441
 #, python-brace-format
 msgid "pick an entity of cell {cell!r}"
 msgstr "выбери сущность ячейки {cell!r}"
@@ -923,7 +968,7 @@ msgstr "Убрать из include:"
 #: gui/docks/cell_editor.py:273 gui/docks/cell_editor.py:301
 #: gui/docks/cell_layers.py:110 gui/docks/instances_dialog.py:299
 #: gui/docks/profile_import.py:175 gui/docks/settings_dialog.py:52
-#: gui/docks/trees_dock.py:5701 gui/docks/trees_dock.py:7094
+#: gui/docks/trees_dock.py:5695 gui/docks/trees_dock.py:7090
 #: gui/include_recovery.py:122
 msgid "Cancel"
 msgstr "Отмена"
@@ -951,8 +996,8 @@ msgstr "Обновить"
 msgid "Force-close selected"
 msgstr "Принудительно закрыть выбранное"
 
-#: gui/docks/profile_import.py:106 gui/docks/trees_dock.py:5686
-#: gui/kicad_processes_dialog.py:59 gui/main_window.py:218
+#: gui/docks/profile_import.py:106 gui/docks/trees_dock.py:5681
+#: gui/kicad_processes_dialog.py:59 gui/main_window.py:221
 msgid "Close"
 msgstr "Закрыть"
 
@@ -997,171 +1042,167 @@ msgstr "Закрываю PID {pid}…"
 msgid "PID {pid} did not confirm closing within a reasonable time."
 msgstr "PID {pid} не подтвердил закрытие за разумное время."
 
-#: gui/main_window.py:148 gui/tray.py:52
+#: gui/main_window.py:151 gui/tray.py:52
 msgid "KiCadStamp"
 msgstr "KiCadStamp"
 
-#: gui/main_window.py:183
+#: gui/main_window.py:186
 msgid "&File"
 msgstr "&Файл"
 
-#: gui/main_window.py:184
+#: gui/main_window.py:187
 msgid "&Project..."
 msgstr "&Проект..."
 
-#: gui/main_window.py:201
+#: gui/main_window.py:204
 msgid "Recent project"
 msgstr "Недавний проект"
 
-#: gui/main_window.py:210 gui/main_window.py:914
+#: gui/main_window.py:213 gui/main_window.py:897
 msgid "&Save"
 msgstr "&Сохранить"
 
-#: gui/main_window.py:214
+#: gui/main_window.py:217
 msgid "&Discard unsaved changes..."
 msgstr "&Отменить несохранённые изменения..."
 
-#: gui/main_window.py:223
+#: gui/main_window.py:226
 msgid "&Quit"
 msgstr "&Выход"
 
-#: gui/main_window.py:244
+#: gui/main_window.py:247
 msgid "Edit"
 msgstr "Правка"
 
-#: gui/main_window.py:245
+#: gui/main_window.py:248
 msgid "&Import from profile..."
 msgstr "&Импорт из профиля..."
 
-#: gui/main_window.py:258
+#: gui/main_window.py:261
 msgid "Tools"
 msgstr "Инструменты"
 
-#: gui/main_window.py:270
+#: gui/main_window.py:273
 msgid "Extract tree..."
 msgstr "Извлечь дерево..."
 
-#: gui/main_window.py:280
+#: gui/main_window.py:283
 msgid "Create tree..."
 msgstr "Создать дерево..."
 
-#: gui/docks/trees_dock.py:2634 gui/main_window.py:284
+#: gui/docks/trees_dock.py:2621 gui/main_window.py:287
 msgid "Rename tree..."
 msgstr "Переименовать дерево..."
 
-#: gui/docks/trees_dock.py:2636 gui/main_window.py:288
+#: gui/docks/trees_dock.py:2623 gui/main_window.py:291
 msgid "Delete tree..."
 msgstr "Удалить дерево..."
 
-#: gui/main_window.py:299 kicadstamp/trees.py:151
+#: gui/main_window.py:302 kicadstamp/trees.py:151
 msgid "Copper"
 msgstr "Медь"
 
-#: gui/docks/trees_dock.py:2621 gui/main_window.py:303
+#: gui/docks/trees_dock.py:2608 gui/main_window.py:306
 msgid "Reread inter-node copper"
 msgstr "Перечитать межузловую медь"
 
-#: gui/main_window.py:309
+#: gui/main_window.py:312
 msgid "Select inter-node copper"
 msgstr "Выделить межузловую медь"
 
-#: gui/main_window.py:317
+#: gui/main_window.py:320
 msgid "Select recorded inter-node copper"
 msgstr "Выделить записанную межузловую медь"
 
-#: gui/main_window.py:324
+#: gui/main_window.py:327
 msgid "Whose copper is this?"
 msgstr "Чья эта медь?"
 
-#: gui/docks/trees_dock.py:2615 gui/main_window.py:337
+#: gui/docks/trees_dock.py:2602 gui/main_window.py:340
 msgid "Redraw selected"
 msgstr "Перерисовать выбранное"
 
-#: gui/docks/trees_dock.py:2618 gui/main_window.py:341
+#: gui/docks/trees_dock.py:2605 gui/main_window.py:344
 msgid "Redraw whole tree"
 msgstr "Перерисовать всё дерево"
 
-#: gui/docks/trees_dock.py:2632 gui/main_window.py:350
+#: gui/docks/trees_dock.py:2619 gui/main_window.py:353
 msgid "Instances..."
 msgstr "Копии шаблона..."
 
-#: gui/main_window.py:370
+#: gui/main_window.py:373
 msgid "Edit Cell..."
 msgstr "Изменить шаблон..."
 
-#: gui/main_window.py:375
+#: gui/main_window.py:378
 msgid "Extract cluster (by selection)"
 msgstr "Извлечь кластер (по выделению)"
 
-#: gui/main_window.py:385
+#: gui/main_window.py:388
 msgid "Update cell from selection..."
 msgstr "Обновить ячейку из выделения..."
 
-#: gui/main_window.py:390
+#: gui/main_window.py:393
 msgid "Update cell from selection (choose layers)..."
 msgstr "Обновить ячейку из выделения (выбрать слои)..."
 
-#: gui/docks/entity_tree.py:400 gui/main_window.py:396
+#: gui/docks/entity_tree.py:400 gui/main_window.py:399
 msgid "Add selected copper..."
 msgstr "Добавить выделенное..."
 
-#: gui/docks/entity_tree.py:418 gui/main_window.py:401
+#: gui/docks/entity_tree.py:418 gui/main_window.py:404
 msgid "Add selected copper (choose layers)..."
 msgstr "Добавить выделенное (выбрать слои)..."
 
-#: gui/main_window.py:414
+#: gui/main_window.py:417
 msgid "Record..."
 msgstr "Записать..."
 
-#: gui/docks/config_tree.py:1259 gui/main_window.py:418
+#: gui/docks/config_tree.py:1259 gui/main_window.py:421
 msgid "Reread..."
 msgstr "Перечитать..."
 
-#: gui/docks/config_tree.py:1266 gui/main_window.py:427
+#: gui/docks/config_tree.py:1266 gui/main_window.py:430
 msgid "Place..."
 msgstr "Разместить..."
 
-#: gui/docks/config_tree.py:1273 gui/main_window.py:436
+#: gui/docks/config_tree.py:1273 gui/main_window.py:439
 msgid "Re-source..."
 msgstr "Переисточить..."
 
-#: gui/main_window.py:446
+#: gui/main_window.py:449
 msgid "Place thermal vias..."
 msgstr "Расставить термо-виа"
 
-#: gui/docks/config_tree.py:180 gui/main_window.py:453
+#: gui/docks/config_tree.py:180 gui/main_window.py:456
 msgid "Add point..."
 msgstr "Добавить точку..."
 
-#: gui/main_window.py:461
+#: gui/main_window.py:464
 msgid "Edit template..."
 msgstr "Редактировать шаблон..."
 
-#: gui/main_window.py:468
+#: gui/main_window.py:471
 msgid "Settings..."
 msgstr "Настройки..."
 
-#: gui/main_window.py:482
-msgid "View"
-msgstr "Вид"
-
-#: gui/main_window.py:589
+#: gui/main_window.py:582
 msgid "No recent projects"
 msgstr "Нет недавних проектов"
 
-#: gui/main_window.py:787
+#: gui/main_window.py:786
 msgid "No project open — nothing to save"
 msgstr "Проект не открыт — нечего сохранять"
 
-#: gui/main_window.py:790
+#: gui/main_window.py:789
 msgid "Nothing to save"
 msgstr "Нечего сохранять"
 
-#: gui/docks/trees_dock.py:2207 gui/main_window.py:795
+#: gui/docks/trees_dock.py:2194 gui/main_window.py:794
 msgid "Save"
 msgstr "Сохранить"
 
-#: gui/main_window.py:796
+#: gui/main_window.py:795
 #, python-brace-format
 msgid ""
 "Save failed — nothing was written:\n"
@@ -1170,32 +1211,16 @@ msgstr ""
 "Не удалось сохранить — ничего не записано:\n"
 "{errors}"
 
-#: gui/main_window.py:799
+#: gui/main_window.py:798
 msgid "Project saved"
 msgstr "Проект сохранён"
 
-#: gui/main_window.py:808
-msgid "Discard unsaved changes"
-msgstr "Отменить несохранённые изменения"
-
-#: gui/main_window.py:809
-msgid ""
-"Discard will revert unsaved CONFIG edits, but NOT Redraw steps already "
-"applied to the board. Continue?"
-msgstr ""
-"Отмена вернёт несохранённые правки КОНФИГА, но НЕ шаги Redraw, уже "
-"применённые к плате. Продолжить?"
-
-#: gui/main_window.py:822
-msgid "Unsaved config changes discarded"
-msgstr "Несохранённые изменения конфига отменены"
-
-#: gui/main_window.py:880
+#: gui/main_window.py:863
 #, python-brace-format
 msgid "KiCad: {ms} ms"
 msgstr "KiCad: {ms} мс"
 
-#: gui/main_window.py:882
+#: gui/main_window.py:865
 #, python-brace-format
 msgid "KiCad response time — median {median} ms, max {maximum} ms"
 msgstr "Время отклика KiCad — медиана {median} мс, максимум {maximum} мс"
@@ -1204,30 +1229,30 @@ msgstr "Время отклика KiCad — медиана {median} мс, мак
 # В отличие от соседней метки ● (несохранённые правки), эта НАЗЫВАЕТ операцию:
 # слово передаётся на месте вызова start_long_op (busy_text=...), а операция
 # без своего слова получает общую формулировку ниже.
-#: gui/main_window.py:898
+#: gui/main_window.py:881
 msgid "Working with the board…"
 msgstr "Работа с платой…"
 
-#: gui/main_window.py:901
+#: gui/main_window.py:884
 #, python-brace-format
 msgid "Working with the board: {what}"
 msgstr "Работа с платой: {what}"
 
-#: gui/main_window.py:910
+#: gui/main_window.py:893
 msgid "Project has unsaved config changes — press Ctrl+S to save"
 msgstr ""
 "В проекте есть несохранённые изменения конфига — нажмите Ctrl+S для "
 "сохранения"
 
-#: gui/main_window.py:914
+#: gui/main_window.py:897
 msgid "● &Save"
 msgstr "● &Сохранить"
 
-#: gui/main_window.py:1020 gui/slow_poll.py:185 gui/status_bar.py:45
+#: gui/main_window.py:1003 gui/slow_poll.py:185 gui/status_bar.py:45
 msgid "Reconnect"
 msgstr "Переподключиться"
 
-#: gui/main_window.py:1055
+#: gui/main_window.py:1038
 #, python-brace-format
 msgid ""
 "Board snapshot is stale: {count} selected component(s) are not in it yet "
@@ -1309,29 +1334,29 @@ msgid ""
 msgstr "читается не разнесённый экземпляр — межкластерная медь вычтена"
 
 # ── Overlay markers owner (plan_2026_09_11_overlay_markers_owner) ──
-#: gui/overlay_markers.py:207
+#: gui/overlay_markers.py:216
 #, python-brace-format
 msgid "No live board — the overlay marker {key!r} was not drawn."
 msgstr "Нет живой платы — маркер оверлея {key!r} не нарисован."
 
-#: gui/overlay_markers.py:235
+#: gui/overlay_markers.py:244
 #, python-brace-format
 msgid "No live board — the overlay bbox {key!r} was not drawn."
 msgstr "Нет живой платы — рамка bbox оверлея {key!r} не нарисована."
 
-#: gui/overlay_markers.py:333
+#: gui/overlay_markers.py:342
 #, python-brace-format
 msgid ""
 "Overlay reconcile: layer {layer!r} is not enabled on this board — nothing"
 " to reconcile."
 msgstr "Сверка оверлея: слой {layer!r} не включён на этой плате — сверять нечего."
 
-#: gui/overlay_markers.py:338
+#: gui/overlay_markers.py:347
 #, python-brace-format
 msgid "Overlay reconcile: could not read layer {layer!r}: {error}"
 msgstr "Сверка оверлея: не удалось прочитать слой {layer!r}: {error}"
 
-#: gui/overlay_markers.py:351
+#: gui/overlay_markers.py:360
 #, python-brace-format
 msgid ""
 "Overlay reconcile: {count} shape(s) on layer {layer!r} have no owner key "
@@ -1430,6 +1455,32 @@ msgid ""
 msgstr ""
 "кластер у строк разный ({clusters}) — нажмите «Применить ко всем "
 "строкам», чтобы разметить одним кластером"
+
+#: gui/save_and_discard.py:59
+#, python-brace-format
+msgid "Save refused — the node form was not applied: {names}"
+msgstr "Сохранение отменено — форма ноды не применена: {names}"
+
+#: gui/save_and_discard.py:76
+msgid "Discard unsaved changes"
+msgstr "Отменить несохранённые изменения"
+
+#: gui/save_and_discard.py:77
+msgid ""
+"Discard will revert unsaved CONFIG edits, but NOT Redraw steps already "
+"applied to the board. Continue?"
+msgstr ""
+"Отмена вернёт несохранённые правки КОНФИГА, но НЕ шаги Redraw, уже "
+"применённые к плате. Продолжить?"
+
+#: gui/save_and_discard.py:89
+#, python-brace-format
+msgid "Unapplied node edit {ref} was discarded with the working set."
+msgstr "Непринятая правка ноды {ref} отброшена вместе с изменениями."
+
+#: gui/save_and_discard.py:95
+msgid "Unsaved config changes discarded"
+msgstr "Несохранённые изменения конфига отменены"
 
 #: gui/schematic_freshness.py:78
 msgid ""
@@ -1545,7 +1596,7 @@ msgstr ""
 msgid "selecting enclosed copper"
 msgstr "выделение замкнутой меди"
 
-#: gui/select_internode_copper.py:120
+#: gui/select_internode_copper.py:121
 #, python-brace-format
 msgid ""
 "Select inter-node copper: no inter-node copper of tree {tree!r} is on the"
@@ -1554,7 +1605,7 @@ msgstr ""
 "Выделить межузловую медь: на всей плате нет межузловой меди дерева "
 "{tree!r} — ничего не выделено. Узлы дерева ждут: {keys}"
 
-#: gui/select_internode_copper.py:126
+#: gui/select_internode_copper.py:127
 #, python-brace-format
 msgid ""
 "Selected {pieces} inter-node piece(s) of tree {tree!r} — {tracks} "
@@ -1563,12 +1614,12 @@ msgstr ""
 "Выделено {pieces} межузловых кусков дерева {tree!r} — {tracks} дорожек, "
 "{vias} переходных"
 
-#: gui/select_internode_copper.py:135 kicadstamp/internode_capture.py:750
+#: gui/select_internode_copper.py:136 kicadstamp/internode_capture.py:791
 #, python-brace-format
 msgid "  not taken:  {counts} — copper the classification left alone"
 msgstr "  не взято:     {counts} — медь, которую классификация не взяла"
 
-#: gui/select_internode_copper.py:206
+#: gui/select_internode_copper.py:207
 #, python-brace-format
 msgid ""
 "Selected recorded copper of {k} record(s) of tree {tree!r} — {tracks} "
@@ -1577,28 +1628,28 @@ msgstr ""
 "Выделена записанная медь {k} записей дерева {tree!r} — {tracks} дорожек, "
 "{vias} переходных"
 
-#: gui/select_internode_copper.py:213
+#: gui/select_internode_copper.py:214
 #, python-brace-format
 msgid "  {count} record(s) of tree {tree!r} have no copper on the board: {names}"
 msgstr "  {count} записей дерева {tree!r} не имеют меди на плате: {names}"
 
-#: gui/docks/trees_dock.py:3133 gui/docks/trees_dock.py:3257
-#: gui/docks/trees_dock.py:3314 gui/select_internode_copper.py:232
+#: gui/docks/trees_dock.py:3120 gui/docks/trees_dock.py:3244
+#: gui/docks/trees_dock.py:3301 gui/select_internode_copper.py:233
 msgid "No project loaded — open a root config first."
 msgstr "Проект не загружен — сначала откройте корневой конфиг."
 
-#: gui/docks/trees_dock.py:3041 gui/docks/trees_dock.py:3137
-#: gui/docks/trees_dock.py:3261 gui/docks/trees_dock.py:3318
-#: gui/docks/trees_dock.py:5149 gui/docks/trees_mount_point.py:61
-#: gui/docks/trees_mount_point.py:127 gui/select_internode_copper.py:235
+#: gui/docks/trees_dock.py:3028 gui/docks/trees_dock.py:3124
+#: gui/docks/trees_dock.py:3248 gui/docks/trees_dock.py:3305
+#: gui/docks/trees_dock.py:5141 gui/docks/trees_mount_point.py:61
+#: gui/docks/trees_mount_point.py:127 gui/select_internode_copper.py:236
 msgid "No live board connection — connect KiCad first."
 msgstr "Нет соединения с платой — сначала подключись к KiCad."
 
-#: gui/select_internode_copper.py:277
+#: gui/select_internode_copper.py:278
 msgid "selecting inter-node copper"
 msgstr "выделение межузловой меди"
 
-#: gui/select_internode_copper.py:289
+#: gui/select_internode_copper.py:290
 msgid "selecting recorded copper"
 msgstr "выделение записанной меди"
 
@@ -1734,6 +1785,10 @@ msgstr "Показать/Скрыть"
 msgid "Quit"
 msgstr "Выход"
 
+#: gui/view_menu.py:27
+msgid "View"
+msgstr "Вид"
+
 #: gui/worker.py:131
 #, python-brace-format
 msgid ""
@@ -1763,7 +1818,7 @@ msgstr "Абсолютный XY"
 msgid "Anchor (ref/role)"
 msgstr "Якорь (ref/роль)"
 
-#: gui/docks/_anchor_origin.py:57 gui/docks/trees_dock.py:5827
+#: gui/docks/_anchor_origin.py:57 gui/docks/trees_dock.py:5820
 #: kicadstamp/trees.py:149
 msgid "Point"
 msgstr "Точка"
@@ -1784,8 +1839,8 @@ msgstr "Grid (только визуально — Place > Set Grid Origin)"
 msgid "e.g. U3 (refdes — mostly avoided in this project)"
 msgstr "например, U3 (refdes — в этом проекте в основном избегается)"
 
-#: gui/docks/_anchor_origin.py:87 gui/docks/trees_dock.py:4314
-#: gui/docks/trees_dock.py:5937
+#: gui/docks/_anchor_origin.py:87 gui/docks/trees_dock.py:4307
+#: gui/docks/trees_dock.py:5930
 msgid "Ref:"
 msgstr "Ref:"
 
@@ -1801,14 +1856,14 @@ msgstr "Лист:"
 
 #: gui/docks/_anchor_origin.py:107 gui/docks/cell_editor.py:434
 #: gui/docks/cell_editor.py:507 gui/docks/tree_from_selection_dialog.py:219
-#: gui/docks/trees_dock.py:5991
+#: gui/docks/trees_dock.py:5984
 msgid "pad (optional)"
 msgstr "пад (необязательно)"
 
 #: gui/docks/_anchor_origin.py:108 gui/docks/cell_editor.py:435
 #: gui/docks/cell_editor.py:578 gui/docks/cell_editor.py:654
 #: gui/docks/thermal_via.py:131 gui/docks/tree_from_selection_dialog.py:221
-#: gui/docks/trees_dock.py:5992 gui/entity/anchor_tab.py:129
+#: gui/docks/trees_dock.py:5985 gui/entity/anchor_tab.py:129
 msgid "Pad:"
 msgstr "Пад:"
 
@@ -1864,28 +1919,28 @@ msgstr "Угол:"
 msgid "angle deg"
 msgstr "угол, град"
 
-#: gui/docks/_anchor_origin.py:252 gui/docks/trees_dock.py:5975
+#: gui/docks/_anchor_origin.py:252 gui/docks/trees_dock.py:5968
 msgid "Point:"
 msgstr "Точка:"
 
-#: gui/docks/_anchor_origin.py:263 gui/docks/trees_dock.py:4304
-#: gui/docks/trees_dock.py:5933
+#: gui/docks/_anchor_origin.py:263 gui/docks/trees_dock.py:4297
+#: gui/docks/trees_dock.py:5926
 msgid "Kind:"
 msgstr "Вид:"
 
-#: gui/docks/_anchor_origin.py:271 gui/docks/trees_dock.py:6005
+#: gui/docks/_anchor_origin.py:271 gui/docks/trees_dock.py:5998
 msgid "shift X mm (0)"
 msgstr "сдвиг X мм (0)"
 
-#: gui/docks/_anchor_origin.py:273 gui/docks/trees_dock.py:6009
+#: gui/docks/_anchor_origin.py:273 gui/docks/trees_dock.py:6002
 msgid "shift Y mm (0)"
 msgstr "сдвиг Y мм (0)"
 
-#: gui/docks/_anchor_origin.py:274 gui/docks/trees_dock.py:6003
+#: gui/docks/_anchor_origin.py:274 gui/docks/trees_dock.py:5996
 msgid "Shift X:"
 msgstr "Сдвиг X:"
 
-#: gui/docks/_anchor_origin.py:276 gui/docks/trees_dock.py:6007
+#: gui/docks/_anchor_origin.py:276 gui/docks/trees_dock.py:6000
 msgid "Shift Y:"
 msgstr "Сдвиг Y:"
 
@@ -1917,7 +1972,7 @@ msgstr "X"
 msgid "Y"
 msgstr "Y"
 
-#: gui/docks/_anchor_origin.py:491 gui/docks/trees_dock.py:4946
+#: gui/docks/_anchor_origin.py:491 gui/docks/trees_dock.py:4938
 msgid "Anchor: Role is required."
 msgstr "Якорь: требуется указать Role."
 
@@ -2245,20 +2300,20 @@ msgstr "Добавить выделенное"
 msgid "Kind"
 msgstr "Тип"
 
-#: gui/docks/cell_editor.py:261 gui/docks/dedupe.py:63
-#: gui/docks/trees_dock.py:4463 gui/docks/trees_dock.py:5438
+#: gui/docks/cell_editor.py:261 gui/docks/dedupe.py:223
+#: gui/docks/trees_dock.py:4456 gui/docks/trees_dock.py:5430
 msgid "Position"
 msgstr "Положение"
 
-#: gui/docks/cell_editor.py:261 gui/docks/dedupe.py:63
+#: gui/docks/cell_editor.py:261 gui/docks/dedupe.py:222
 #: gui/docks/explode_page.py:192 gui/docks/tools.py:74 gui/docks/tools.py:80
 #: gui/docks/tree_from_selection_dialog.py:318
 msgid "Net"
 msgstr "Сеть"
 
 #: gui/docks/cell_editor.py:272 gui/docks/imprint.py:1283
-#: gui/docks/settings_dialog.py:51 gui/docks/trees_dock.py:1873
-#: gui/docks/trees_dock.py:5682
+#: gui/docks/settings_dialog.py:51 gui/docks/trees_dock.py:1878
+#: gui/docks/trees_dock.py:5679
 msgid "Apply"
 msgstr "Применить"
 
@@ -2272,7 +2327,7 @@ msgstr "Скопировать расстановку из шаблона"
 msgid "Copy from cell:"
 msgstr "Копировать из шаблона:"
 
-#: gui/docks/cell_editor.py:300 gui/docks/checks.py:98 gui/docks/dedupe.py:93
+#: gui/docks/cell_editor.py:300 gui/docks/checks.py:192 gui/docks/dedupe.py:183
 msgid "Copy"
 msgstr "Копировать"
 
@@ -2301,11 +2356,11 @@ msgstr "(нет)"
 #: gui/docks/cell_editor.py:405 gui/docks/cell_editor.py:694
 #: gui/docks/cell_refs_tab.py:379 gui/docks/imprint_refs_tab.py:133
 #: gui/docks/role_cluster_tree.py:240 gui/docks/tools.py:74
-#: gui/docks/tools.py:86 gui/docks/trees_dock.py:5826
+#: gui/docks/tools.py:86 gui/docks/trees_dock.py:5819
 msgid "Role"
 msgstr "Роль"
 
-#: gui/docks/cell_editor.py:407 gui/docks/trees_dock.py:5918
+#: gui/docks/cell_editor.py:407 gui/docks/trees_dock.py:5911
 msgid "Anchor:"
 msgstr "Якорь:"
 
@@ -2446,7 +2501,7 @@ msgid "Cell:"
 msgstr "Шаблон:"
 
 #: gui/docks/cell_editor.py:729 gui/docks/imprint_place.py:253
-#: gui/docks/trees_dock.py:4375
+#: gui/docks/trees_dock.py:4368
 msgid "Rotation (deg):"
 msgstr "Поворот (град):"
 
@@ -2470,7 +2525,7 @@ msgstr "Индикатор только для чтения: у ячейки е�
 msgid "yes"
 msgstr "да"
 
-#: gui/docks/cell_editor.py:1000 gui/docks/trees_dock.py:6820
+#: gui/docks/cell_editor.py:1000 gui/docks/trees_dock.py:6819
 msgid "Role is required."
 msgstr "Требуется Role."
 
@@ -2887,8 +2942,7 @@ msgstr ""
 "Убрать выделенные строки из таблицы (Delete делает то же). Плата и "
 "идентифицированные рефы не затрагиваются."
 
-#: gui/docks/cell_refs_tab.py:432 gui/docks/dedupe.py:96
-#: gui/docks/log_panel.py:145
+#: gui/docks/cell_refs_tab.py:432 gui/docks/log_panel.py:145
 msgid "Clear"
 msgstr "Очистить"
 
@@ -3092,23 +3146,43 @@ msgstr ""
 "сущность {name!r} теперь стоит на ячейке {cell!r} — медь старой раскладки"
 " не записана"
 
-#: gui/docks/checks.py:59
-msgid "Checks"
-msgstr "Проверки"
+#: gui/docks/checks.py:149
+msgid "Check"
+msgstr "Проверка"
 
-#: gui/docks/checks.py:94
+#: gui/docks/checks.py:149
+msgid "Last run"
+msgstr "Последний прогон"
+
+#: gui/docks/checks.py:167
+msgid ""
+"Duplicate vias/tracks on the live board — find them, copy the report, or "
+"clear the extra copies"
+msgstr ""
+"Дубли переходных/дорожек на живой плате — найти их, скопировать отчёт или"
+" убрать лишние копии"
+
+#: gui/docks/checks.py:180
+msgid "Run"
+msgstr "Запустить"
+
+#: gui/docks/checks.py:181
+msgid "Run the SELECTED check"
+msgstr "Запустить ВЫБРАННУЮ проверку"
+
+#: gui/docks/checks.py:188
 msgid "Stop"
 msgstr "Остановить"
 
-#: gui/docks/checks.py:95
+#: gui/docks/checks.py:189
 msgid "Stop the running check"
 msgstr "Остановить идущую проверку"
 
-#: gui/docks/checks.py:99
-msgid "Copy the report exactly as the script printed it"
-msgstr "Скопировать отчёт ровно так, как его напечатал скрипт"
+#: gui/docks/checks.py:193
+msgid "Copy the SELECTED check's report exactly as the script printed it"
+msgstr "Скопировать отчёт ВЫБРАННОЙ проверки ровно так, как его напечатал скрипт"
 
-#: gui/docks/checks.py:112
+#: gui/docks/checks.py:208
 msgid ""
 "A check reads the board as of the moment it starts — changes made while "
 "it runs are not in its report."
@@ -3116,54 +3190,81 @@ msgstr ""
 "Проверка читает плату на момент старта — правки, сделанные во время "
 "прогона, в её отчёт не попадут."
 
-#: gui/docks/checks.py:173
+#: gui/docks/checks.py:354 gui/docks/checks.py:362
+msgid "running…"
+msgstr "выполняется…"
+
+#: gui/docks/checks.py:358
+#, python-brace-format
+msgid "{seconds:.0f} s"
+msgstr "{{seconds:.0f}} с"
+
+#: gui/docks/checks.py:366
+#, python-brace-format
+msgid "{n} groups"
+msgstr "Групп: {n}"
+
+#: gui/docks/checks.py:450
+msgid "Click to see this group's UUIDs"
+msgstr "Нажмите, чтобы увидеть UUID этой группы"
+
+#: gui/docks/checks.py:550
+msgid "The rest of the run is cancelled."
+msgstr "Остаток очереди отменён."
+
+#: gui/docks/checks.py:554
 msgid "KiCad is busy — try again in a moment."
 msgstr "KiCad занят — попробуйте ещё раз через мгновение."
 
-#: gui/docks/checks.py:208
+#: gui/docks/checks.py:593
 msgid ""
 "The check reads the SAVED profile — unsaved config changes are not "
 "visible to it."
 msgstr "Проверка читает СОХРАНЁННЫЙ профиль — несохранённые правки ей не видны."
 
-#: gui/docks/checks.py:224
+#: gui/docks/checks.py:608
 #, python-brace-format
 msgid "{name} is running…"
 msgstr "{name}: идёт…"
 
-#: gui/docks/checks.py:252
+#: gui/docks/checks.py:678
+#, python-brace-format
+msgid "{name}: stopped after {seconds:.1f} s — the rest of the run is cancelled"
+msgstr "{name}: остановлено через {seconds:.1f} с — остаток очереди отменён"
+
+#: gui/docks/checks.py:681
 #, python-brace-format
 msgid "{name}: stopped after {seconds:.1f} s"
 msgstr "{name}: остановлено через {seconds:.1f} с"
 
-#: gui/docks/checks.py:257
+#: gui/docks/checks.py:686
 #, python-brace-format
 msgid "{name}: crashed (exit code {code}) after {seconds:.1f} s"
 msgstr "{name}: упало (код {code}) через {seconds:.1f} с"
 
-#: gui/docks/checks.py:262
+#: gui/docks/checks.py:692
 msgid "clean"
 msgstr "чисто"
 
-#: gui/docks/checks.py:262
+#: gui/docks/checks.py:692
 msgid "problems found"
 msgstr "есть проблемы"
 
-#: gui/docks/checks.py:262
+#: gui/docks/checks.py:692
 msgid "refused"
 msgstr "отказ"
 
-#: gui/docks/checks.py:264
+#: gui/docks/checks.py:693
 #, python-brace-format
 msgid "{name}: {words} — exit {code}, {seconds:.1f} s"
 msgstr "{name}: {words} — код {code}, {seconds:.1f} с"
 
-#: gui/docks/checks.py:271
+#: gui/docks/checks.py:699
 #, python-brace-format
 msgid "{name}: unexpected exit code {code} after {seconds:.1f} s"
 msgstr "{name}: неожиданный код выхода {code} через {seconds:.1f} с"
 
-#: gui/docks/checks.py:296
+#: gui/docks/checks.py:732
 #, python-brace-format
 msgid "{name}: could not start — {reason}"
 msgstr "{name}: не удалось запустить — {reason}"
@@ -3404,7 +3505,7 @@ msgstr ""
 "Удалить {name!r} из include: файла {parent!r}? Сам файл не удаляется — "
 "позже это можно отменить, добавив его снова."
 
-#: gui/docks/configurator.py:190 gui/docks/trees_dock.py:4462
+#: gui/docks/configurator.py:190 gui/docks/trees_dock.py:4455
 msgid "General"
 msgstr "Общие"
 
@@ -3977,46 +4078,93 @@ msgstr ""
 "Здесь уже есть конфиг проекта: {path} — ничего не создано. Откройте его "
 "или выберите другой каталог."
 
-#: gui/docks/dedupe.py:63 gui/docks/profile_import.py:89
-msgid "Type"
-msgstr "Тип"
-
-#: gui/docks/dedupe.py:63 gui/docks/explode_page.py:192
-msgid "Layer"
-msgstr "Слой"
-
-#: gui/docks/dedupe.py:63
-msgid "Copies"
-msgstr "Копий"
-
-#: gui/docks/dedupe.py:64
-msgid "Keep"
-msgstr "Оставить"
-
-#: gui/docks/dedupe.py:64
-msgid "Delete"
-msgstr "Удаляемые"
-
-#: gui/docks/dedupe.py:64
-msgid "Warning"
-msgstr "Предупреждение"
-
-#: gui/docks/dedupe.py:71
-msgid "Copper duplicates"
-msgstr "Дубли меди"
-
-#: gui/docks/dedupe.py:90
+#: gui/docks/dedupe.py:180
 msgid "Find"
 msgstr "Найти"
 
-#: gui/docks/dedupe.py:163
+#: gui/docks/dedupe.py:186 gui/docks/role_cluster_tree.py:253
+#: gui/docks/role_cluster_tree.py:923
+msgid "Clear all"
+msgstr "Очистить все"
+
+#: gui/docks/dedupe.py:192
+msgid ""
+"Select a group under this row to see its fields, mark it on the board or "
+"clear just it."
+msgstr ""
+"Выберите группу под этой строкой, чтобы увидеть её поля, подсветить её на "
+"плате или очистить только её."
+
+#: gui/docks/dedupe.py:221 gui/docks/profile_import.py:89
+msgid "Type"
+msgstr "Тип"
+
+#: gui/docks/dedupe.py:224 gui/docks/explode_page.py:192
+msgid "Layer"
+msgstr "Слой"
+
+#: gui/docks/dedupe.py:225
+msgid "Copies"
+msgstr "Копий"
+
+#: gui/docks/dedupe.py:226
+msgid "Keep"
+msgstr "Оставить"
+
+#: gui/docks/dedupe.py:227
+msgid "Delete"
+msgstr "Удаляемые"
+
+#: gui/docks/dedupe.py:228
+msgid "Warning"
+msgstr "Предупреждение"
+
+# Ч2а of plan_2026_10_23_checks_tab_top_level — duplicate groups as tree nodes
+#: gui/docks/dedupe.py:232
+msgid "Highlight on board"
+msgstr "Подсветить на плате"
+
+#: gui/docks/dedupe.py:234
+msgid ""
+"Mark this group's copper on the board's overlay layer — your own board "
+"selection is left alone"
+msgstr ""
+"Отметить медь этой группы на слое оверлея платы — ваше собственное "
+"выделение на плате не трогается"
+
+#: gui/docks/dedupe.py:238
+msgid "Clear this group"
+msgstr "Очистить эту группу"
+
+#: gui/docks/dedupe.py:240
+msgid ""
+"Remove this group's extra copies — the same journal and the same refusals"
+" as Clear all"
+msgstr ""
+"Убрать лишние копии этой группы — тот же журнал и те же запреты, что у "
+"«Очистить всё»"
+
+#: gui/docks/dedupe.py:405 gui/docks/dedupe.py:423
 msgid "removing duplicate copper"
 msgstr "удаление дублей меди"
 
-#: gui/docks/dedupe.py:240
+#: gui/docks/dedupe.py:450
+msgid "marking the board"
+msgstr "отметка на плате"
+
+#: gui/docks/dedupe.py:544
+msgid "That group is no longer on the board — run Find again."
+msgstr "Этой группы больше нет на плате — запустите «Найти» снова."
+
+#: gui/docks/dedupe.py:587
 #, python-brace-format
 msgid "Duplicate groups: {groups}; extra copies: {extra}"
 msgstr "Групп дублей: {groups}; лишних копий: {extra}"
+
+#: gui/docks/dedupe.py:615
+#, python-brace-format
+msgid "Marked {drawn} of {total} duplicate item(s) on the board."
+msgstr "Отмечено {drawn} из {total} дублей на плате."
 
 #: gui/docks/entity_export.py:76
 msgid "export between profiles in format 3 is not supported yet (Ф4)"
@@ -4841,7 +4989,7 @@ msgstr "Неизвестное дерево {name!r}."
 msgid "Entity name is required."
 msgstr "Требуется имя сущности."
 
-#: gui/docks/imprint_place.py:721 gui/docks/trees_dock.py:5598
+#: gui/docks/imprint_place.py:721 gui/docks/trees_dock.py:5590
 msgid "Rotation must be a number."
 msgstr ""
 
@@ -5052,7 +5200,7 @@ msgstr ""
 " разрешается якорь шаблона."
 
 #: gui/docks/instances_dialog.py:297 gui/docks/settings_dialog.py:49
-#: gui/docks/trees_dock.py:5699 gui/docks/trees_dock.py:7092
+#: gui/docks/trees_dock.py:5693 gui/docks/trees_dock.py:7088
 msgid "OK"
 msgstr ""
 
@@ -5272,8 +5420,7 @@ msgid "Extract"
 msgstr "Извлечение"
 
 #: gui/docks/net_trace.py:143 gui/docks/thermal_via.py:172
-#: gui/docks/trees_dock.py:1875 gui/docks/trees_dock.py:2544
-#: gui/docks/trees_dock.py:5684
+#: gui/docks/trees_dock.py:2531
 msgid "Redraw"
 msgstr "Перерисовать"
 
@@ -5329,8 +5476,9 @@ msgid "{action} net trace {net!r} in {path}"
 msgstr "{action} трассировку сети {net!r} в {path}"
 
 #: gui/docks/net_trace.py:583 gui/docks/thermal_via.py:431
-#: gui/docks/trees_dock.py:3453 gui/docks/trees_dock.py:3466
-#: gui/docks/trees_dock.py:4097 gui/docks/trees_dock.py:4171
+#: gui/docks/trees_accept.py:372 gui/docks/trees_dock.py:3446
+#: gui/docks/trees_dock.py:3459 gui/docks/trees_dock.py:4090
+#: gui/docks/trees_dock.py:4164
 msgid "placing"
 msgstr "расстановка"
 
@@ -5465,7 +5613,7 @@ msgstr "имя (на него ссылаются anchor_point в другом м
 msgid "Resolve"
 msgstr "Разрешить"
 
-#: gui/docks/points.py:269 gui/docks/trees_dock.py:4444
+#: gui/docks/points.py:269 gui/docks/trees_dock.py:4437
 msgid "Read from board"
 msgstr "Прочитать с платы"
 
@@ -5657,10 +5805,6 @@ msgstr "Свернуть все"
 #: gui/docks/role_cluster_tree.py:250
 msgid "Delete selected"
 msgstr "Удалить выбранное"
-
-#: gui/docks/role_cluster_tree.py:253 gui/docks/role_cluster_tree.py:923
-msgid "Clear all"
-msgstr "Очистить все"
 
 #: gui/docks/role_cluster_tree.py:269
 msgid "Role (leave empty to skip)"
@@ -5944,7 +6088,7 @@ msgid ""
 "again."
 msgstr "Источник Role/Cluster снова РЕЕСТР: наши значения опять действуют."
 
-#: gui/docks/root_metadata.py:884 gui/docks/trees_dock.py:1004
+#: gui/docks/root_metadata.py:884 gui/docks/trees_dock.py:996
 msgid "Unsaved changes"
 msgstr "Несохранённые изменения"
 
@@ -6124,8 +6268,8 @@ msgstr "живая позиция кластера {cluster!r}"
 msgid "Tree name must not be empty."
 msgstr "Имя дерева не должно быть пустым."
 
-#: gui/docks/tree_from_selection.py:464 gui/docks/trees_dock.py:3930
-#: gui/docks/trees_dock.py:3969
+#: gui/docks/tree_from_selection.py:464 gui/docks/trees_dock.py:3923
+#: gui/docks/trees_dock.py:3962
 #, python-brace-format
 msgid "A tree named {name!r} already exists."
 msgstr ""
@@ -6156,8 +6300,8 @@ msgstr ""
 msgid "tree anchor (from selection)"
 msgstr "якорь дерева (из выделения)"
 
-#: gui/docks/tree_from_selection_dialog.py:114 gui/docks/trees_dock.py:3924
-#: gui/docks/trees_dock.py:3962
+#: gui/docks/tree_from_selection_dialog.py:114 gui/docks/trees_dock.py:3917
+#: gui/docks/trees_dock.py:3955
 msgid "Tree name:"
 msgstr "Имя дерева:"
 
@@ -6285,6 +6429,41 @@ msgstr ""
 "места, где {ref!r} стоит. Перерисуйте всё дерево или поставьте {ref!r} на"
 " место."
 
+#: gui/docks/trees_accept.py:93
+msgid "the open form"
+msgstr "открытая форма"
+
+#: gui/docks/trees_accept.py:105
+msgid "the form did not validate"
+msgstr "форма не прошла проверку"
+
+#: gui/docks/trees_accept.py:106
+#, python-brace-format
+msgid ""
+"Node {ref}: the edit was not applied ({reason}) — nothing was written and"
+" the form is unchanged."
+msgstr ""
+"Нода {ref}: правка не применена ({reason}) — ничего не записано, форма не"
+" изменена."
+
+#: gui/docks/trees_accept.py:298
+msgid "Applied — no live board Redraw available."
+msgstr "Применено — живой Redraw недоступен."
+
+#: gui/docks/trees_accept.py:302
+msgid "Applied — whole-tree redraw started."
+msgstr "Применено — запущен redraw всего дерева."
+
+# Ч1 of plan_2026_10_23_node_form_without_apply — one Apply button, form
+# accepted on the way out
+#: gui/docks/trees_accept.py:305
+msgid "Applied — nothing to redraw on this node."
+msgstr "Применено — на этой ноде нечего перерисовывать."
+
+#: gui/docks/trees_accept.py:308
+msgid "Applied — Redraw started."
+msgstr "Применено — Redraw запущен."
+
 #: gui/docks/trees_delete.py:110
 msgid "Delete node"
 msgstr "Удалить узел"
@@ -6324,7 +6503,7 @@ msgstr ""
 "{records}"
 
 # Tree node duplicating its own explicit tree anchor — gui/docks/trees_dock.py
-#: gui/docks/trees_dock.py:160
+#: gui/docks/trees_dock.py:161
 #, python-brace-format
 msgid ""
 "this node duplicates the tree's own anchor (role {role}) — safe to "
@@ -6333,11 +6512,11 @@ msgstr ""
 "Этот узел дублирует собственный якорь дерева (роль {role}) — его можно "
 "безопасно удалить: якорь дерева резолвится независимо от списка узлов."
 
-#: gui/docks/trees_dock.py:169
+#: gui/docks/trees_dock.py:170
 msgid "handle"
 msgstr "ручка"
 
-#: gui/docks/trees_dock.py:171
+#: gui/docks/trees_dock.py:172
 msgid ""
 "this node is the tree's suspension point (pivot-ref) — the tree is "
 "positioned and rotated around it"
@@ -6345,7 +6524,7 @@ msgstr ""
 "этот узел — точка подвеса дерева (pivot-ref): относительно неё дерево "
 "позиционируется и вращается"
 
-#: gui/docks/trees_dock.py:180
+#: gui/docks/trees_dock.py:181
 msgid ""
 "Move to…: the board is busy right now — the node was NOT moved. Try the "
 "move again."
@@ -6353,11 +6532,11 @@ msgstr ""
 "Переместить…: плата сейчас занята — узел НЕ перемещён. Попробуйте "
 "переместить снова."
 
-#: gui/docks/trees_dock.py:255
+#: gui/docks/trees_dock.py:237
 msgid "no copper"
 msgstr "меди нет"
 
-#: gui/docks/trees_dock.py:257
+#: gui/docks/trees_dock.py:239
 msgid ""
 "The last re-read of the inter-node copper found no copper for this record"
 " on the board. The record is KEPT — remove it by hand if you meant to."
@@ -6365,11 +6544,11 @@ msgstr ""
 "При последнем перечитывании межузловой меди для этой записи меди на плате"
 " не нашлось. Запись СОХРАНЕНА — удалите её вручную, если так и задумано."
 
-#: gui/docks/trees_dock.py:681
+#: gui/docks/trees_dock.py:663
 msgid "the base of this node is MIRRORED on the live board"
 msgstr "база этого узла ОТЗЕРКАЛЕНА на живой плате"
 
-#: gui/docks/trees_dock.py:682
+#: gui/docks/trees_dock.py:664
 msgid ""
 "a tree node cannot store a mirror — unmirror the component in KiCad (or "
 "pick another base), then read the position again"
@@ -6377,11 +6556,11 @@ msgstr ""
 "узел дерева не умеет хранить зеркало — снимите зеркало у компонента в "
 "KiCad (или выберите другую базу) и повторите чтение позиции"
 
-#: gui/docks/trees_dock.py:717
+#: gui/docks/trees_dock.py:699
 msgid "this node's instance is MIRRORED on the live board"
 msgstr "экземпляр этого узла ОТЗЕРКАЛЕН на живой плате"
 
-#: gui/docks/trees_dock.py:718
+#: gui/docks/trees_dock.py:700
 msgid ""
 "a tree node cannot store a mirror — unmirror the component in KiCad, then"
 " read the position again"
@@ -6389,65 +6568,61 @@ msgstr ""
 "узел дерева не умеет хранить зеркало — снимите зеркало у компонента в "
 "KiCad и повторите чтение позиции"
 
-#: gui/docks/trees_dock.py:882 gui/docks/trees_dock.py:925
+#: gui/docks/trees_dock.py:874 gui/docks/trees_dock.py:917
 #, python-brace-format
 msgid "Trees: root config failed to load: {error}"
 msgstr "Trees: не удалось загрузить корневой конфиг: {error}"
 
-#: gui/docks/trees_dock.py:962
+#: gui/docks/trees_dock.py:954
 #, python-brace-format
 msgid "Trees: root config failed to reload: {error}"
 msgstr "Деревья: не удалось перезагрузить корневой конфиг: {error}"
 
-#: gui/docks/trees_dock.py:1005
+#: gui/docks/trees_dock.py:997
 #, python-brace-format
 msgid "Save changes to {path}?"
 msgstr "Сохранить изменения в {path}?"
 
-#: gui/docks/trees_dock.py:1067
+#: gui/docks/trees_dock.py:1064
 msgid "(no trees)"
 msgstr "Нет деревьев"
 
-#: gui/docks/trees_dock.py:1452
+#: gui/docks/trees_dock.py:1449
 #, python-brace-format
 msgid "⇐ instance of {template} (sheet={sheet})"
 msgstr "⇐ копия шаблона {template} (sheet={sheet})"
 
-#: gui/docks/trees_dock.py:1494
+#: gui/docks/trees_dock.py:1491
 #, python-brace-format
 msgid "⇐ embedded in {parent}"
 msgstr "⇐ встроено в {parent}"
 
-#: gui/docks/trees_dock.py:1501
+#: gui/docks/trees_dock.py:1498
 #, python-brace-format
 msgid "→ instance: {name}"
 msgstr "→ копия: {name}"
 
-#: gui/docks/trees_dock.py:1711
+#: gui/docks/trees_dock.py:1708
 #, python-brace-format
 msgid "Copper ({count})"
 msgstr "Медь ({count})"
 
-#: gui/docks/trees_dock.py:1923
+#: gui/docks/trees_dock.py:1909
 msgid "Edit node"
 msgstr "Редактировать узел"
 
-#: gui/docks/trees_dock.py:2005 gui/docks/trees_dock.py:2502
+#: gui/docks/trees_dock.py:1991 gui/docks/trees_dock.py:2489
 #, python-brace-format
 msgid ""
 "Instance of {template} — read-only: edit the template tree to change the "
 "geometry"
 msgstr "Копия шаблона {template} — только чтение: геометрию меняй в дереве-шаблоне"
 
-#: gui/docks/trees_dock.py:2030 gui/docks/trees_selection.py:57
-msgid "Unapplied changes were discarded."
-msgstr "Неприменённые изменения были отброшены."
-
-#: gui/docks/trees_dock.py:2178
+#: gui/docks/trees_dock.py:2165
 msgid "●"
 msgstr ""
 
-#: gui/docks/trees_dock.py:2243
+#: gui/docks/trees_dock.py:2230
 #, python-brace-format
 msgid ""
 "Anchor for tree {name!r}: a ref anchor pointing at its own root Entity "
@@ -6456,11 +6631,11 @@ msgstr ""
 "Якорь дерева {name!r}: ref-якорь, указывающий на собственный корневой "
 "Entity {ref!r}, никогда не разрешится (самоссылка) — переключено на Self."
 
-#: gui/docks/trees_dock.py:2335
+#: gui/docks/trees_dock.py:2322
 msgid "Read-only instance"
 msgstr "Копия шаблона — только для чтения"
 
-#: gui/docks/trees_dock.py:2336
+#: gui/docks/trees_dock.py:2323
 #, python-brace-format
 msgid ""
 "This tree is an instance of template {template!r} (read-only) — its "
@@ -6471,83 +6646,83 @@ msgstr ""
 "геометрия приходит из шаблона; меняйте дерево-шаблон или управляйте "
 "экземпляром через Инструменты → Деревья → Экземпляры."
 
-#: gui/docks/trees_dock.py:2536
+#: gui/docks/trees_dock.py:2523
 msgid "Select copper on board"
 msgstr "Выделить медь на плате"
 
-#: gui/docks/trees_dock.py:2553 gui/docks/trees_dock.py:2945
+#: gui/docks/trees_dock.py:2540 gui/docks/trees_dock.py:2932
 msgid "Add child"
 msgstr "Добавить дочерний узел"
 
-#: gui/docks/trees_dock.py:2555 gui/docks/trees_dock.py:2958
+#: gui/docks/trees_dock.py:2542 gui/docks/trees_dock.py:2945
 msgid "Add sibling"
 msgstr "Добавить соседний узел"
 
-#: gui/docks/trees_dock.py:2557
+#: gui/docks/trees_dock.py:2544
 msgid "Reread current position"
 msgstr "Перечитать текущее положение"
 
-#: gui/docks/trees_dock.py:2563
+#: gui/docks/trees_dock.py:2550
 msgid "Edit node…"
 msgstr "Редактировать узел…"
 
-#: gui/docks/trees_dock.py:2567
+#: gui/docks/trees_dock.py:2554
 msgid "Rename…"
 msgstr "Переименовать…"
 
-#: gui/docks/trees_dock.py:2573 gui/docks/trees_dock.py:3587
-#: gui/docks/trees_dock.py:3951 gui/docks/trees_move_flow.py:579
+#: gui/docks/trees_dock.py:2560 gui/docks/trees_dock.py:3580
+#: gui/docks/trees_dock.py:3944 gui/docks/trees_move_flow.py:579
 #: gui/docks/trees_move_flow.py:648
 msgid "Move to…"
 msgstr "Переместить в…"
 
-#: gui/docks/trees_dock.py:2580 gui/docks/trees_mount_rebase.py:401
+#: gui/docks/trees_dock.py:2567 gui/docks/trees_mount_rebase.py:401
 msgid "Change anchor from selection…"
 msgstr "Сменить опору по выделению…"
 
-#: gui/docks/trees_dock.py:2592
+#: gui/docks/trees_dock.py:2579
 msgid "Move up"
 msgstr "Поднять"
 
-#: gui/docks/trees_dock.py:2595
+#: gui/docks/trees_dock.py:2582
 msgid "Move down"
 msgstr "Опустить"
 
-#: gui/docks/trees_dock.py:2610 gui/docks/trees_dock.py:2973
-#: gui/docks/trees_dock.py:5532 gui/docks/trees_dock.py:5545
-#: gui/docks/trees_dock.py:5553 gui/docks/trees_dock.py:5575
-#: gui/docks/trees_dock.py:5598 gui/docks/trees_dock.py:5614
-#: gui/docks/trees_dock.py:5625 gui/docks/trees_dock.py:5630
+#: gui/docks/trees_dock.py:2597 gui/docks/trees_dock.py:2960
+#: gui/docks/trees_dock.py:5524 gui/docks/trees_dock.py:5537
+#: gui/docks/trees_dock.py:5545 gui/docks/trees_dock.py:5567
+#: gui/docks/trees_dock.py:5590 gui/docks/trees_dock.py:5606
+#: gui/docks/trees_dock.py:5617 gui/docks/trees_dock.py:5622
 msgid "Add node"
 msgstr "Добавить узел"
 
-#: gui/docks/trees_dock.py:2612
+#: gui/docks/trees_dock.py:2599
 msgid "Set anchor…"
 msgstr "Назначить якорь…"
 
-#: gui/docks/trees_dock.py:3006
+#: gui/docks/trees_dock.py:2993
 msgid "Rename node"
 msgstr "Переименовать узел"
 
-#: gui/docks/trees_dock.py:3006
+#: gui/docks/trees_dock.py:2993
 msgid "Display name (label, not the ref identity):"
 msgstr ""
 
-#: gui/docks/trees_dock.py:3105
+#: gui/docks/trees_dock.py:3092
 #, python-brace-format
 msgid "Reread current position failed: {error}"
 msgstr "Не удалось прочитать текущую позицию: {error}"
 
-#: gui/docks/trees_dock.py:3159
+#: gui/docks/trees_dock.py:3146
 msgid "re-reading copper"
 msgstr "перечитывание меди"
 
-#: gui/docks/trees_dock.py:3163
+#: gui/docks/trees_dock.py:3150
 #, python-brace-format
 msgid "Reread inter-node copper failed: {error}"
 msgstr "Перечитывание межузловой меди не удалось: {error}"
 
-#: gui/docks/trees_dock.py:3216
+#: gui/docks/trees_dock.py:3203
 #, python-brace-format
 msgid ""
 "Inter-node copper re-read: {added} added, {updated} updated, {missing} "
@@ -6556,30 +6731,30 @@ msgstr ""
 "Межузловая медь перечитана: добавлено {added}, обновлено {updated}, не "
 "найдено {missing} ({narrowed})."
 
-#: gui/docks/trees_dock.py:3220
+#: gui/docks/trees_dock.py:3207
 msgid "selection"
 msgstr "выделение"
 
-#: gui/docks/trees_dock.py:3221
+#: gui/docks/trees_dock.py:3208
 msgid "whole board"
 msgstr "вся плата"
 
-#: gui/docks/trees_dock.py:3289
+#: gui/docks/trees_dock.py:3276
 #, python-brace-format
 msgid "Select copper on board failed: {error}"
 msgstr "Не удалось выделить медь на плате: {error}"
 
-#: gui/docks/trees_dock.py:3298
+#: gui/docks/trees_dock.py:3285
 #, python-brace-format
 msgid "Selected {found} copper piece(s) for {name!r}."
 msgstr "Выделено {found} кусков меди для {name!r}."
 
-#: gui/docks/trees_dock.py:3338
+#: gui/docks/trees_dock.py:3325
 #, python-brace-format
 msgid "Whose copper is this? failed: {error}"
 msgstr "«Чья эта медь?» не сработало: {error}"
 
-#: gui/docks/trees_dock.py:3582
+#: gui/docks/trees_dock.py:3575
 #, python-brace-format
 msgid ""
 "Node {ref!r}: the offset can NOT be recalculated and was not read from "
@@ -6589,7 +6764,7 @@ msgstr ""
 "Узел {ref!r}: смещение не удалось ни пересчитать, ни прочитать с платы — "
 "база нового родителя не разрешилась на живой плате."
 
-#: gui/docks/trees_dock.py:3588 gui/docks/trees_dock.py:4682
+#: gui/docks/trees_dock.py:3581 gui/docks/trees_dock.py:4680
 #, python-brace-format
 msgid ""
 "Re-hang {ref!r} WITHOUT recalculating its offset? It keeps the stored "
@@ -6598,120 +6773,120 @@ msgstr ""
 "Перевесить {ref!r} БЕЗ пересчёта смещения? Останутся сохранённые "
 "координаты, которые теперь означают другое место."
 
-#: gui/docks/trees_dock.py:3711 gui/docks/trees_move_flow.py:155
+#: gui/docks/trees_dock.py:3704 gui/docks/trees_move_flow.py:155
 #: gui/docks/trees_move_flow.py:536 gui/docks/trees_move_flow.py:571
 msgid "(top level)"
 msgstr ""
 
-#: gui/docks/trees_dock.py:3716 gui/docks/trees_dock.py:4333
+#: gui/docks/trees_dock.py:3709 gui/docks/trees_dock.py:4326
 #, python-brace-format
 msgid "{ref} (current parent)"
 msgstr "{ref} (текущий родитель)"
 
-#: gui/docks/trees_dock.py:3924 gui/docks/trees_dock.py:3929
+#: gui/docks/trees_dock.py:3917 gui/docks/trees_dock.py:3922
 msgid "Create tree"
 msgstr "Создать дерево"
 
-#: gui/docks/trees_dock.py:3962 gui/docks/trees_dock.py:3968
+#: gui/docks/trees_dock.py:3955 gui/docks/trees_dock.py:3961
 msgid "Rename tree"
 msgstr "Переименовать"
 
-#: gui/docks/trees_dock.py:3996 gui/docks/trees_dock.py:4015
+#: gui/docks/trees_dock.py:3989 gui/docks/trees_dock.py:4008
 msgid "Delete tree"
 msgstr "Удалить дерево"
 
-#: gui/docks/trees_dock.py:3997
+#: gui/docks/trees_dock.py:3990
 #, python-brace-format
 msgid "Delete tree {name!r}? This cannot be undone (until you Save)."
 msgstr ""
 "Удалить дерево {name!r}? Это действие нельзя отменить (пока не нажмёте "
 "Save)."
 
-#: gui/docks/trees_dock.py:4016
+#: gui/docks/trees_dock.py:4009
 #, python-brace-format
 msgid "Also delete the net traces now only referenced by this tree: {nets}?"
 msgstr ""
 "Удалить также записи дорожек, на которые теперь ссылается только это "
 "дерево: {nets}?"
 
-#: gui/docks/trees_dock.py:4079
+#: gui/docks/trees_dock.py:4072
 msgid "Nothing selected — check some nodes first."
 msgstr ""
 
-#: gui/docks/trees_dock.py:4151 gui/docks/trees_dock.py:4154
+#: gui/docks/trees_dock.py:4144 gui/docks/trees_dock.py:4147
 msgid "Nothing to redraw."
 msgstr "Нечего перерисовывать."
 
-#: gui/docks/trees_dock.py:4177 gui/docks/trees_dock.py:4184
+#: gui/docks/trees_dock.py:4170 gui/docks/trees_dock.py:4177
 #, python-brace-format
 msgid "Redraw: {ok}/{total} ok"
 msgstr ""
 
-#: gui/docks/trees_dock.py:4179
+#: gui/docks/trees_dock.py:4172
 #, python-brace-format
 msgid "Redraw: {failed} record(s) failed — see the log above"
 msgstr "Redraw: не удалось {failed} записей — см. лог выше"
 
-#: gui/docks/trees_dock.py:4182
+#: gui/docks/trees_dock.py:4175
 #, python-brace-format
 msgid "{count} warning(s) — see log"
 msgstr ""
 
-#: gui/docks/trees_dock.py:4187
+#: gui/docks/trees_dock.py:4180
 #, python-brace-format
 msgid "Redraw failed: {error}"
 msgstr "Redraw не удался: {error}"
 
-#: gui/docks/trees_dock.py:4188
+#: gui/docks/trees_dock.py:4181
 msgid "Redraw failed — see log"
 msgstr ""
 
 # ── Node form: the Parent combo re-hangs a node
 # (plan_2026_09_12_node_dialog_usability) ──
-#: gui/docks/trees_dock.py:4337
+#: gui/docks/trees_dock.py:4330
 msgid "Parent:"
 msgstr "Родитель:"
 
-#: gui/docks/trees_dock.py:4355
+#: gui/docks/trees_dock.py:4348
 msgid "Offset (board frame):"
 msgstr "Смещение (СК платы):"
 
-#: gui/docks/trees_dock.py:4371 gui/docks/trees_dock.py:6050
+#: gui/docks/trees_dock.py:4364 gui/docks/trees_dock.py:6043
 msgid "0"
 msgstr ""
 
-#: gui/docks/trees_dock.py:4382 gui/docks/trees_dock.py:5156
-#: gui/docks/trees_dock.py:5171 gui/docks/trees_dock.py:5181
-#: gui/docks/trees_dock.py:5186 gui/docks/trees_dock.py:5207
+#: gui/docks/trees_dock.py:4375 gui/docks/trees_dock.py:5148
+#: gui/docks/trees_dock.py:5163 gui/docks/trees_dock.py:5173
+#: gui/docks/trees_dock.py:5178 gui/docks/trees_dock.py:5199
 msgid "Read current position"
 msgstr "Считать текущее положение"
 
-#: gui/docks/trees_dock.py:4390
+#: gui/docks/trees_dock.py:4383
 msgid "Name (optional):"
 msgstr "Имя (необязательно):"
 
-#: gui/docks/trees_dock.py:4392
+#: gui/docks/trees_dock.py:4385
 msgid "Group (optional):"
 msgstr "Группа (необязательно):"
 
-#: gui/docks/trees_dock.py:4406
+#: gui/docks/trees_dock.py:4399
 msgid "Mount anchor (role)"
 msgstr "Якорь mount-узла (роль)"
 
-#: gui/docks/trees_dock.py:4419
+#: gui/docks/trees_dock.py:4412
 msgid "Component address (ref or role)"
 msgstr "Адрес компонента (ref или role)"
 
 # ── Mount node's point marker (plan_2026_09_16_mount_point_marker) ──
-#: gui/docks/trees_dock.py:4442
+#: gui/docks/trees_dock.py:4435
 msgid "Show point on board"
 msgstr "Показать точку на плате"
 
-#: gui/docks/trees_dock.py:4446
+#: gui/docks/trees_dock.py:4439
 msgid "Remove from board"
 msgstr "Убрать с платы"
 
-#: gui/docks/trees_dock.py:4676
+#: gui/docks/trees_dock.py:4674
 #, python-brace-format
 msgid ""
 "Node {ref!r}: the base of the new parent did not resolve on the live "
@@ -6720,26 +6895,18 @@ msgstr ""
 "Узел {ref!r}: база нового родителя не разрешилась на живой плате — "
 "смещение НЕ может быть пересчитано."
 
-#: gui/docks/trees_dock.py:4681
+#: gui/docks/trees_dock.py:4679
 msgid "Parent"
 msgstr "Родитель"
 
-#: gui/docks/trees_dock.py:4713
-msgid "Applied — Redraw started."
-msgstr "Применено — Redraw запущен."
-
-#: gui/docks/trees_dock.py:4716
-msgid "Applied — no live board Redraw available."
-msgstr "Применено — живой Redraw недоступен."
-
 # ── Node form: an honest reason for a missing base
 # (plan_2026_09_12_node_form_mount_parent_base) ──
-#: gui/docks/trees_dock.py:4769
+#: gui/docks/trees_dock.py:4761
 #, python-brace-format
 msgid "Node form: the base of {ref!r} did not resolve on the live board ({error})"
 msgstr "Форма узла: база {ref!r} не разрешилась на живой плате ({error})"
 
-#: gui/docks/trees_dock.py:4799
+#: gui/docks/trees_dock.py:4791
 msgid ""
 "No live board connection — showing the STORED values in the base's own "
 "frame; editing the offset and rotation is disabled until KiCad is "
@@ -6748,7 +6915,7 @@ msgstr ""
 "Нет подключения к плате — показаны СОХРАНЁННЫЕ значения в СК базы; "
 "редактирование смещения и поворота заблокировано до подключения KiCad."
 
-#: gui/docks/trees_dock.py:4803
+#: gui/docks/trees_dock.py:4795
 #, python-brace-format
 msgid ""
 "The node's base did not resolve on the live board: {error}. Showing the "
@@ -6759,7 +6926,7 @@ msgstr ""
 "значения в собственном кадре базы; редактирование смещения и угла "
 "отключено, пока она не разрешится."
 
-#: gui/docks/trees_dock.py:4807
+#: gui/docks/trees_dock.py:4799
 msgid ""
 "The selected anchor does not resolve on the live board — showing the "
 "STORED values in the anchor's own frame; editing the offset and rotation "
@@ -6769,33 +6936,33 @@ msgstr ""
 "значения в СК якоря; редактирование смещения и поворота заблокировано, "
 "пока он не резолвится."
 
-#: gui/docks/trees_dock.py:5157
+#: gui/docks/trees_dock.py:5149
 msgid "No root config loaded — cannot resolve the record."
 msgstr "Не загружен корневой конфиг — не могу разрешить запись."
 
-#: gui/docks/trees_dock.py:5172
+#: gui/docks/trees_dock.py:5164
 msgid "Mount anchor: Role is required."
 msgstr "Якорь mount-узла: требуется роль."
 
-#: gui/docks/trees_dock.py:5187 gui/docks/trees_dock.py:5631
+#: gui/docks/trees_dock.py:5179 gui/docks/trees_dock.py:5623
 msgid "A component node needs an address — Ref or Role."
 msgstr "Узлу-компоненту нужен адрес — Ref или Role."
 
-#: gui/docks/trees_dock.py:5223
+#: gui/docks/trees_dock.py:5215
 msgid "rotation not available for this record kind"
 msgstr "поворот недоступен для этого рода записи"
 
-#: gui/docks/trees_dock.py:5297
+#: gui/docks/trees_dock.py:5289
 #, python-brace-format
 msgid "Mount point: the figures could not be removed from the board ({error})"
 msgstr "Точка mount: фигуры не удалось убрать с платы ({error})"
 
 # anchor source tabs (S-D, 2026-09-05)
-#: gui/docks/trees_dock.py:5436 kicadstamp/trees.py:152
+#: gui/docks/trees_dock.py:5428 kicadstamp/trees.py:152
 msgid "Component"
 msgstr "Компонент"
 
-#: gui/docks/trees_dock.py:5512
+#: gui/docks/trees_dock.py:5504
 #, python-brace-format
 msgid ""
 "Tree {name!r} is a tree_instances template — a node of kind (tree) inside"
@@ -6806,7 +6973,7 @@ msgstr ""
 "не разворачивается, на следующей загрузке это фатал. Встраивайте дерево в"
 " дерево, которое шаблоном не является."
 
-#: gui/docks/trees_dock.py:5522
+#: gui/docks/trees_dock.py:5514
 #, python-brace-format
 msgid ""
 "Tree {ref!r} cannot be embedded in tree {name!r}: it is not a tree of "
@@ -6817,72 +6984,72 @@ msgstr ""
 "конфиге, оно уже встроено туда, либо встраивание замкнёт цикл (дерево не "
 "может встраивать свой шаблон или дерево, которое уже встраивает его)."
 
-#: gui/docks/trees_dock.py:5532 gui/docks/trees_dock.py:6834
+#: gui/docks/trees_dock.py:5524 gui/docks/trees_dock.py:6833
 msgid "Ref is required."
 msgstr "Требуется Ref."
 
-#: gui/docks/trees_dock.py:5615
+#: gui/docks/trees_dock.py:5607
 msgid "A mount node needs a Role anchor."
 msgstr "Mount-узлу нужен якорь с ролью."
 
-#: gui/docks/trees_dock.py:5822
+#: gui/docks/trees_dock.py:5815
 msgid "Origin (board 0,0)"
 msgstr ""
 
-#: gui/docks/trees_dock.py:5823
+#: gui/docks/trees_dock.py:5816
 msgid "Config record"
 msgstr "Запись конфигурации"
 
-#: gui/docks/trees_dock.py:5824
+#: gui/docks/trees_dock.py:5817
 msgid "External refdes"
 msgstr "Внешний refdes"
 
-#: gui/docks/trees_dock.py:5825
+#: gui/docks/trees_dock.py:5818
 msgid "Self (component this tree places)"
 msgstr "Self (компонент, который размещает это дерево)"
 
-#: gui/docks/trees_dock.py:5930
+#: gui/docks/trees_dock.py:5923
 msgid "All kinds"
 msgstr "Все типы"
 
-#: gui/docks/trees_dock.py:5936 gui/docks/trees_dock.py:6209
+#: gui/docks/trees_dock.py:5929 gui/docks/trees_dock.py:6208
 #: gui/docks/trees_node_form.py:109 gui/docks/trees_node_form.py:111
 msgid "record name (from config)"
 msgstr ""
 
-#: gui/docks/trees_dock.py:5987
+#: gui/docks/trees_dock.py:5980
 msgid "node of this tree (optional)"
 msgstr "узел этого дерева (необязательно)"
 
-#: gui/docks/trees_dock.py:5989 gui/docks/trees_dock.py:6048
+#: gui/docks/trees_dock.py:5982 gui/docks/trees_dock.py:6041
 msgid "Node:"
 msgstr "Узел:"
 
-#: gui/docks/trees_dock.py:6029
+#: gui/docks/trees_dock.py:6022
 msgid "Tree settings"
 msgstr "Настройки дерева"
 
-#: gui/docks/trees_dock.py:6032
+#: gui/docks/trees_dock.py:6025
 msgid "Tree origin (0,0)"
 msgstr "Начало дерева (0,0)"
 
-#: gui/docks/trees_dock.py:6033
+#: gui/docks/trees_dock.py:6026
 msgid "Coordinate (xy/polar)"
 msgstr "Координата (xy/полярная)"
 
-#: gui/docks/trees_dock.py:6034
+#: gui/docks/trees_dock.py:6027
 msgid "Node of this tree"
 msgstr "Узел этого дерева"
 
-#: gui/docks/trees_dock.py:6035
+#: gui/docks/trees_dock.py:6028
 msgid "Suspension point:"
 msgstr "Точка подвеса:"
 
-#: gui/docks/trees_dock.py:6041
+#: gui/docks/trees_dock.py:6034
 msgid "Use node's offset..."
 msgstr "Взять смещение узла..."
 
-#: gui/docks/trees_dock.py:6043
+#: gui/docks/trees_dock.py:6036
 msgid ""
 "Fill the coordinate with the LOCAL offset of the selected node — a static"
 " snapshot of this tree's own layout."
@@ -6890,17 +7057,17 @@ msgstr ""
 "Заполнить координату ЛОКАЛЬНЫМ смещением выбранного узла — статичный "
 "снимок собственной раскладки этого дерева."
 
-#: gui/docks/trees_dock.py:6051
+#: gui/docks/trees_dock.py:6044
 msgid "Angle (board deg):"
 msgstr "Угол (град. платы):"
 
 # ── Trees dock: anchor/base overlay circles
 # (plan_2026_09_12_tree_point_markers) ──
-#: gui/docks/trees_dock.py:6069 gui/docks/trees_dock.py:6908
+#: gui/docks/trees_dock.py:6062 gui/docks/trees_dock.py:6907
 msgid "Show tree markers"
 msgstr "Показать маркеры дерева"
 
-#: gui/docks/trees_dock.py:6071
+#: gui/docks/trees_dock.py:6064
 msgid ""
 "Draw the tree's anchor (where it hangs) and the origin of its local frame"
 " on the board overlay — the vector between the two circles is the "
@@ -6909,22 +7076,22 @@ msgstr ""
 "Нарисовать якорь дерева (где оно висит) и начало его локального кадра на "
 "слое оверлея — вектор между двумя кружками и есть точка подвеса."
 
-#: gui/docks/trees_dock.py:6192 gui/docks/trees_node_form.py:91
+#: gui/docks/trees_dock.py:6191 gui/docks/trees_node_form.py:91
 msgid "external refdes (live board)"
 msgstr ""
 
-#: gui/docks/trees_dock.py:6225
+#: gui/docks/trees_dock.py:6224
 #, python-brace-format
 msgid "This tree's own root Entity {ref!r} can't anchor itself — use Self."
 msgstr ""
 "Собственный корневой Entity {ref!r} этого дерева не может быть сам себе "
 "якорем — используйте Self."
 
-#: gui/docks/trees_dock.py:6541
+#: gui/docks/trees_dock.py:6540
 msgid "(no node can be a handle)"
 msgstr "(нет узла, годного в ручку)"
 
-#: gui/docks/trees_dock.py:6551
+#: gui/docks/trees_dock.py:6550
 msgid ""
 "No node of this tree can be a suspension point: every positioned node "
 "hangs from a live component through a mount node. Use a coordinate "
@@ -6934,7 +7101,7 @@ msgstr ""
 "позиционируемый узел висит на живом компоненте через mount-узел. "
 "Используй координату."
 
-#: gui/docks/trees_dock.py:6616
+#: gui/docks/trees_dock.py:6615
 msgid ""
 "The selected anchor does not resolve on the live board — the suspension "
 "point and angle are shown disabled until it resolves."
@@ -6942,7 +7109,7 @@ msgstr ""
 "Выбранный якорь не резолвится на живой плате — точка подвеса и угол "
 "показаны отключёнными, пока он не зарезолвится."
 
-#: gui/docks/trees_dock.py:6620
+#: gui/docks/trees_dock.py:6619
 msgid ""
 "The selected anchor does not resolve on the live board — the shift is "
 "shown as the raw config value and disabled until it resolves."
@@ -6950,58 +7117,54 @@ msgstr ""
 "Выбранная привязка не резолвится на живой плате — сдвиг показан сырым "
 "значением конфига и отключён, пока она не зарезолвится."
 
-#: gui/docks/trees_dock.py:6667
+#: gui/docks/trees_dock.py:6666
 msgid "The anchor shift is stored on an existing tree — create the tree first."
 msgstr "Сдвиг привязки хранится на существующем дереве — сначала создайте дерево."
 
-#: gui/docks/trees_dock.py:6708
+#: gui/docks/trees_dock.py:6707
 msgid "Suspension point: choose a node of this tree, or switch to a coordinate."
 msgstr "Точка подвеса: выбери узел этого дерева или переключись на координату."
 
-#: gui/docks/trees_dock.py:6712
+#: gui/docks/trees_dock.py:6711
 #, python-brace-format
 msgid "Suspension point: {ref!r} cannot be a handle of this tree."
 msgstr "Точка подвеса: {ref!r} не может быть ручкой этого дерева."
 
-#: gui/docks/trees_dock.py:6720
+#: gui/docks/trees_dock.py:6719
 msgid "The anchor does not resolve — cannot convert the suspension point."
 msgstr "Якорь не резолвится — невозможно пересчитать точку подвеса."
 
-#: gui/docks/trees_dock.py:6740
+#: gui/docks/trees_dock.py:6739
 msgid "The anchor does not resolve — cannot convert the angle."
 msgstr "Якорь не резолвится — невозможно пересчитать угол."
 
-#: gui/docks/trees_dock.py:6749
+#: gui/docks/trees_dock.py:6748
 #, python-brace-format
 msgid "Angle: {text!r} is not a number."
 msgstr ""
 
-#: gui/docks/trees_dock.py:6775
+#: gui/docks/trees_dock.py:6774
 msgid "Shift: X and Y must be numbers."
 msgstr "Сдвиг: X и Y должны быть числами."
 
-#: gui/docks/trees_dock.py:6829
+#: gui/docks/trees_dock.py:6828
 msgid "Point name is required."
 msgstr "Требуется имя точки."
 
-#: gui/docks/trees_dock.py:6885 gui/docks/trees_node_row.py:291
+#: gui/docks/trees_dock.py:6884 gui/docks/trees_node_row.py:291
 msgid "Applied — keep editing or Redraw."
 msgstr "Применено — можно править дальше или Redraw."
 
-#: gui/docks/trees_dock.py:6907
+#: gui/docks/trees_dock.py:6906
 msgid "Hide tree markers"
 msgstr "Скрыть маркеры дерева"
 
-#: gui/docks/trees_dock.py:6996
+#: gui/docks/trees_dock.py:6995
 #, python-brace-format
 msgid "Show tree markers failed: {error}"
 msgstr "Показ маркеров дерева не удался: {error}"
 
-#: gui/docks/trees_dock.py:7060
-msgid "Applied — whole-tree redraw started."
-msgstr "Применено — запущен redraw всего дерева."
-
-#: gui/docks/trees_dock.py:7079 gui/docks/trees_dock.py:7113
+#: gui/docks/trees_dock.py:7075 gui/docks/trees_dock.py:7109
 msgid "Set anchor"
 msgstr "Назначить якорь"
 
@@ -7215,22 +7378,22 @@ msgstr "{old!r} → {new!r}: за узлом следует точка подв�
 msgid "{old!r} → {new!r}: the tree's self anchor follows."
 msgstr "{old!r} → {new!r}: за узлом следует якорь дерева (self)."
 
-#: gui/docks/trees_selection.py:69 gui/docks/trees_selection.py:116
+#: gui/docks/trees_selection.py:75 gui/docks/trees_selection.py:122
 #, python-brace-format
 msgid "{n} nodes selected"
 msgstr "Выделено узлов: {n}"
 
-#: gui/docks/trees_selection.py:89
+#: gui/docks/trees_selection.py:95
 #, python-brace-format
 msgid "{ref}: xy=({x:.3f}, {y:.3f}) mm"
 msgstr "{ref}: xy=({x:.3f}, {y:.3f}) мм"
 
-#: gui/docks/trees_selection.py:92
+#: gui/docks/trees_selection.py:98
 #, python-brace-format
 msgid "{ref}: r={r:.3f} mm, angle={a:.3f}°"
 msgstr ""
 
-#: gui/docks/trees_selection.py:94
+#: gui/docks/trees_selection.py:100
 #, python-brace-format
 msgid "{ref}: no offset"
 msgstr "У {ref} нет смещения"
@@ -10631,7 +10794,7 @@ msgstr ""
 "у отпечатка нет кластера — ячейка клонируется по своему кластеру, поэтому"
 " нужен один кластер на отпечаток"
 
-#: kicadstamp/internode_capture.py:312
+#: kicadstamp/internode_capture.py:316
 #, python-brace-format
 msgid ""
 "skipped a piece of copper between pads {pads}: the pad {pad} has no Role "
@@ -10640,7 +10803,7 @@ msgstr ""
 "пропущен кусок меди между падами {pads}: у пада {pad} на плате нет поля "
 "Role, поэтому запись нечем заякорить"
 
-#: kicadstamp/internode_capture.py:318
+#: kicadstamp/internode_capture.py:322
 #, python-brace-format
 msgid ""
 "skipped a piece of copper between pads {pads}: the anchor pad {pad} "
@@ -10650,7 +10813,7 @@ msgstr ""
 "пропущен кусок меди между падами {pads}: якорный пад {pad} не принадлежит"
 " ни одному узлу этого дерева, поэтому записи нечем сузить роль якоря"
 
-#: kicadstamp/internode_capture.py:324
+#: kicadstamp/internode_capture.py:328
 #, python-brace-format
 msgid ""
 "skipped a piece of copper between pads {pads}: no pad of the piece "
@@ -10660,14 +10823,14 @@ msgstr ""
 "пропущен кусок меди между падами {pads}: ни один пад куска не якорит "
 "запись — роль(и) {roles} не сужаются до куска при листе и кластере узла"
 
-#: kicadstamp/internode_capture.py:362
+#: kicadstamp/internode_capture.py:366
 #, python-brace-format
 msgid ""
 "skipped a piece of copper between pads {pads}: it carries no net name on "
 "the board"
 msgstr "пропущен кусок меди между падами {pads}: на плате у него нет имени сети"
 
-#: kicadstamp/internode_capture.py:395
+#: kicadstamp/internode_capture.py:399
 #, python-brace-format
 msgid ""
 "record {ref!r}: its anchor could not be resolved live ({err}) — left "
@@ -10676,7 +10839,7 @@ msgstr ""
 "запись {ref!r}: её якорь не разрешился на живой плате ({err}) — оставлена"
 " без изменений"
 
-#: kicadstamp/internode_capture.py:532
+#: kicadstamp/internode_capture.py:547
 #, python-brace-format
 msgid ""
 "component {ref!r} (Cluster {cluster!r}, sheet path {path}) matches "
@@ -10687,7 +10850,7 @@ msgstr ""
 "с {count} узлами дерева {tree!r}: {nodes} — компонент в дерево не берём, "
 "угадывать не будем"
 
-#: kicadstamp/internode_capture.py:623
+#: kicadstamp/internode_capture.py:650
 msgid ""
 "zones are not read (see the Z1 work): only tracks and vias count as "
 "copper, so a pour never appears in the capture"
@@ -10695,7 +10858,7 @@ msgstr ""
 "зоны не читаются (см. работу Z1): медью считаются только дорожки и виа, "
 "поэтому заливка в захват не попадает"
 
-#: kicadstamp/internode_capture.py:644
+#: kicadstamp/internode_capture.py:671
 #, python-brace-format
 msgid "tree {tree!r}: node {ref!r} references no net_traces: record — skipped"
 msgstr ""
@@ -10703,17 +10866,17 @@ msgstr ""
 "— пропущен"
 
 # ── Inter-node copper re-read (plan_2026_09_12_internode_copper_core, Э4) ──
-#: kicadstamp/internode_capture.py:729
+#: kicadstamp/internode_capture.py:770
 #, python-brace-format
 msgid "Tree {name!r}: inter-node copper re-read."
 msgstr "Дерево {name!r}: межузловая медь перечитана."
 
-#: kicadstamp/internode_capture.py:731
+#: kicadstamp/internode_capture.py:772
 #, python-brace-format
 msgid "  added:      {names}"
 msgstr "  добавлено:    {names}"
 
-#: kicadstamp/internode_capture.py:735
+#: kicadstamp/internode_capture.py:776
 #, python-brace-format
 msgid ""
 "{name} (was {old_tracks} tracks / {old_vias} via, now {new_tracks} / "
@@ -10722,24 +10885,24 @@ msgstr ""
 "{name} (было {old_tracks} дорожки / {old_vias} виа, стало {new_tracks} / "
 "{new_vias})"
 
-#: kicadstamp/internode_capture.py:739
+#: kicadstamp/internode_capture.py:780
 #, python-brace-format
 msgid "  updated:    {names}"
 msgstr "  обновлено:    {names}"
 
-#: kicadstamp/internode_capture.py:742
+#: kicadstamp/internode_capture.py:783
 #, python-brace-format
 msgid ""
 "  not found:  {name} — the copper is no longer on the board, the record "
 "is kept"
 msgstr "  не найдено:   {name} — меди на плате больше нет, запись оставлена"
 
-#: kicadstamp/internode_capture.py:744
+#: kicadstamp/internode_capture.py:785
 #, python-brace-format
 msgid "  unchanged:  {count}"
 msgstr "  без изменений: {count}"
 
-#: kicadstamp/internode_capture.py:754
+#: kicadstamp/internode_capture.py:795
 #, python-brace-format
 msgid ""
 "  no component of the area matched any node of tree {tree!r} by (Cluster,"
@@ -10747,6 +10910,48 @@ msgid ""
 msgstr ""
 "  ни один компонент области не совпал ни с одним узлом дерева {tree!r} по"
 " (Cluster, листу) — узлы дерева ждут: {keys}"
+
+#: kicadstamp/internode_cell_copper.py:120
+msgid ""
+"the profile is not known — cell copper is NOT subtracted: copper that "
+"belongs to a cell's record is taken as inter-node copper"
+msgstr ""
+"профиль не известен — медь ячеек НЕ вычитается: медь, принадлежащая "
+"записи ячейки, берётся как межнодовая"
+
+#: kicadstamp/internode_cell_copper.py:140
+#, python-brace-format
+msgid "cell copper could not be read ({err}) — nothing is given back to cells"
+msgstr "медь ячеек не прочитать ({err}) — ячейкам ничего не возвращается"
+
+#: kicadstamp/internode_cell_copper.py:161
+#, python-brace-format
+msgid ""
+"cell {cell!r}: its copper could not be asked ({err}) — it is not given "
+"back to the cell"
+msgstr ""
+"ячейка {cell!r}: её медь не удалось спросить ({err}) — ячейке она не "
+"возвращается"
+
+#: kicadstamp/internode_cell_copper.py:262
+#, python-brace-format
+msgid ""
+"net_traces entry (net {net!r}) duplicates cell copper — that copper now "
+"belongs to a cell's record; delete the entry if it is not needed"
+msgstr ""
+"запись net_traces (сеть {net!r}) дублирует медь ячейки — эта медь теперь "
+"принадлежит записи ячейки; удали запись, если она не нужна"
+
+#: kicadstamp/internode_cell_copper.py:278
+#, python-brace-format
+msgid ""
+"cell copper left to cells: {tracks} tracks, {vias} vias across {cells} "
+"cell(s); {whole} piece(s) are cell copper entirely; {nokey} cell "
+"record(s) have no registry key, so their copper is not given back"
+msgstr ""
+"медь ячеек оставлена ячейкам: {tracks} дорожек, {vias} переходных у "
+"{cells} ячеек; {whole} кусков целиком принадлежат ячейкам; у {nokey} "
+"записей ячеек нет ключа реестра — их медь не возвращается"
 
 # ── Inter-node copper core (plan_2026_09_12_internode_copper_core, Э1) ──
 #: kicadstamp/internode_copper.py:348
@@ -18439,99 +18644,6 @@ msgstr "KiCad отклонил перемещение {ref!r} — плата н�
 msgid "footprint {ref!r} not found on the board"
 msgstr "футпринт {ref!r} не найден на плате"
 
-#: gui/docks/checks.py:139
-msgid "Check"
-msgstr "Проверка"
-
-#: gui/docks/checks.py:140
-msgid "Last run"
-msgstr "Последний прогон"
-
-#: gui/docks/checks.py:145
-msgid "Run"
-msgstr "Запустить"
-
-#: gui/docks/checks.py:150
-msgid "Run all"
-msgstr "Запустить все"
-
-#: gui/docks/checks.py:151
-msgid "Run the SELECTED check"
-msgstr "Запустить ВЫБРАННУЮ проверку"
-
-#: gui/checks_menu.py:44
-msgid "Run every check, one after another"
-msgstr "Запустить все проверки по очереди"
-
-#: gui/docks/checks.py:157
-msgid "Copy the SELECTED check's report exactly as the script printed it"
-msgstr "Скопировать отчёт ВЫБРАННОЙ проверки ровно так, как его напечатал скрипт"
-
-#: gui/docks/checks.py:222
-msgid "running…"
-msgstr "выполняется…"
-
-#: gui/docks/checks.py:212
-#, python-brace-format
-msgid "{seconds:.0f} s"
-msgstr "{{seconds:.0f}} с"
-
-#: gui/docks/checks.py:471
-#, python-brace-format
-msgid ""
-"{name}: stopped after {seconds:.1f} s — the rest of the run is "
-"cancelled"
-msgstr "{name}: остановлено через {seconds:.1f} с — остаток очереди отменён"
-
-#: gui/checks_registry.py:62
-msgid "Duplicate mounts"
-msgstr "Дубли опор mount"
-
-#: gui/checks_registry.py:63
-msgid ""
-"Does any tree carry two mount nodes on the same anchor? Reads the profile's "
-"config and writes NOTHING — a dry run."
-msgstr "Есть ли в каком-то дереве два узла mount на одном якоре? Читает конфиг профиля и НИЧЕГО не пишет — сухой прогон."
-
-
-#: gui/docks/checks.py:353
-msgid "The rest of the run is cancelled."
-msgstr "Остаток очереди отменён."
-
-#: kicadstamp/internode_cell_copper.py:188
-#, python-brace-format
-msgid ""
-"cell copper left to cells: {tracks} tracks, {vias} vias across {cells} cell(s); "
-"{whole} piece(s) are cell copper entirely; {nokey} cell record(s) have no "
-"registry key, so their copper is not given back"
-msgstr "медь ячеек оставлена ячейкам: {tracks} дорожек, {vias} переходных у {cells} ячеек; {whole} кусков целиком принадлежат ячейкам; у {nokey} записей ячеек нет ключа реестра — их медь не возвращается"
-
-#: kicadstamp/internode_cell_copper.py:113
-msgid ""
-"the profile is not known — cell copper is NOT subtracted: copper that "
-"belongs to a cell's record is taken as inter-node copper"
-msgstr "профиль не известен — медь ячеек НЕ вычитается: медь, принадлежащая записи ячейки, берётся как межнодовая"
-
-#: kicadstamp/internode_cell_copper.py:146
-#, python-brace-format
-msgid ""
-"cell copper could not be read ({err}) — nothing is given back to cells"
-msgstr "медь ячеек не прочитать ({err}) — ячейкам ничего не возвращается"
-
-#: kicadstamp/internode_cell_copper.py:175
-#, python-brace-format
-msgid ""
-"cell {cell!r}: its copper could not be asked ({err}) — it is not given "
-"back to the cell"
-msgstr "ячейка {cell!r}: её медь не удалось спросить ({err}) — ячейке она не возвращается"
-
-#: kicadstamp/internode_cell_copper.py:262
-#, python-brace-format
-msgid ""
-"net_traces entry (net {net!r}) duplicates cell copper — that copper now "
-"belongs to a cell's record; delete the entry if it is not needed"
-msgstr "запись net_traces (сеть {net!r}) дублирует медь ячейки — эта медь теперь принадлежит записи ячейки; удали запись, если она не нужна"
-
 #~ msgid ""
 #~ "role {role!r} occurs {count} times in"
 #~ " cluster {cluster!r} — this is a "
@@ -18715,63 +18827,9 @@ msgstr "запись net_traces (сеть {net!r}) дублирует медь �
 #~ msgid "footprint {ref!r} ({label}) not found in the selection"
 #~ msgstr "футпринт {ref!r} ({label}) не найден в выделении"
 
-# Ч1 of plan_2026_10_23_node_form_without_apply — one Apply button, form accepted on the way out
+#~ msgid "Copy the report exactly as the script printed it"
+#~ msgstr "Скопировать отчёт ровно так, как его напечатал скрипт"
 
-msgid "Applied — nothing to redraw on this node."
-msgstr "Применено — на этой ноде нечего перерисовывать."
+#~ msgid "Unapplied changes were discarded."
+#~ msgstr "Неприменённые изменения были отброшены."
 
-msgid "Node {ref}: the edit was not applied ({reason}) — nothing was written and the form is unchanged."
-msgstr "Нода {ref}: правка не применена ({reason}) — ничего не записано, форма не изменена."
-
-msgid "Save refused — the node form was not applied: {names}"
-msgstr "Сохранение отменено — форма ноды не применена: {names}"
-
-msgid "Unapplied node edit {ref} was discarded with the working set."
-msgstr "Непринятая правка ноды {ref} отброшена вместе с изменениями."
-
-msgid "the open form"
-msgstr "открытая форма"
-
-msgid "the form did not validate"
-msgstr "форма не прошла проверку"
-# Ч1б of plan_2026_10_23_checks_tab_top_level — the copper duplicates row
-
-msgid "Clear copper duplicates"
-msgstr "Очистить дубли меди"
-
-msgid "Duplicate vias/tracks on the live board — find them, copy the report, or clear the extra copies"
-msgstr "Дубли переходных/дорожек на живой плате — найти их, скопировать отчёт или убрать лишние копии"
-
-msgid "Find duplicate vias/tracks on the live board"
-msgstr "Найти дубли переходных/дорожек на живой плате"
-
-msgid "Remove the extra copies the last search found — the same door the panel's Clear button uses"
-msgstr "Убрать лишние копии, найденные последним поиском — та же дверь, что у кнопки Clear панели"
-
-msgid "{n} groups"
-msgstr "Групп: {n}"
-# Ч2а of plan_2026_10_23_checks_tab_top_level — duplicate groups as tree nodes
-
-msgid "Highlight on board"
-msgstr "Подсветить на плате"
-
-msgid "Clear this group"
-msgstr "Очистить эту группу"
-
-msgid "Mark this group's copper on the board's overlay layer — your own board selection is left alone"
-msgstr "Отметить медь этой группы на слое оверлея платы — ваше собственное выделение на плате не трогается"
-
-msgid "Remove this group's extra copies — the same journal and the same refusals as Clear all"
-msgstr "Убрать лишние копии этой группы — тот же журнал и те же запреты, что у «Очистить всё»"
-
-msgid "Click to see this group's UUIDs"
-msgstr "Нажмите, чтобы увидеть UUID этой группы"
-
-msgid "That group is no longer on the board — run Find again."
-msgstr "Этой группы больше нет на плате — запустите «Найти» снова."
-
-msgid "Marked {drawn} of {total} duplicate item(s) on the board."
-msgstr "Отмечено {drawn} из {total} дублей на плате."
-
-msgid "marking the board"
-msgstr "отметка на плате"

@@ -1,13 +1,21 @@
 # gui/docks/dedupe.py
 """DedupePage — "Copper duplicates": duplicate vias/tracks on the live board,
-listed as a TREE OF GROUPS and (optionally) cleaned.
+listed as GROUP NODES and (optionally) cleaned.
 
 Plan: plan_2026_10_01_dedupe_into_kicadstamp.md §2.3; moved into the Checks tab
-by plan_2026_10_23_checks_tab_top_level.md (Ч1б, 23.10) and turned into a tree by
-its Ч2а (25.10): the flat table is GONE — its rows are the tree's group nodes, and
-the detail of ONE group (every field, plus "Highlight on board" and "Clear this
-group") lives in the QView below the tree. The row "Copper duplicates" keeps the
-four page-level doors: Find, Copy, Clear all and the summary.
+by plan_2026_10_23_checks_tab_top_level.md (Ч1б, 23.10) and turned into group
+nodes by its Ч2а (25.10, laid out by Д-1 of that acceptance): the flat table is
+GONE and so is this panel's own tree. The group nodes are CHILDREN of the
+"Copper duplicates" row in the PAGE's tree (gui/docks/checks.py), and this panel
+owns only the QView on the right — a stack of two pages:
+
+  * the ROW is selected -> Find, Copy, "Clear all" and the summary;
+  * a GROUP node is selected -> that group's every field, "Highlight on board"
+    and "Clear this group".
+
+The page builds the nodes from `groups()` and calls `show_row()` / `show_group(i)`
+on every selection change, so the two sides can never disagree about which group
+is showing.
 
 The data comes from the SAME core as the CLI (kicadstamp/board_dedupe.py): one
 group per duplicate set, with type, net, position, layer, copy count, the UUID
@@ -39,6 +47,12 @@ overlay layer (gui/overlay_markers.py, namespace `dedupe`): the operator's own
 SELECTION on the board is never touched, and pressing it again replaces the same
 markers instead of stacking new ones (the owner's key is the member's uuid).
 
+EVERY door that changes the list — Highlight, Find, "Clear this group" and
+"Clear all" — first drops the WHOLE `dedupe` namespace (`_forget_marks`, Д-2 of
+the Ч2а acceptance): a mark must never outlive the scan that drew it. Only that
+namespace is touched — a cell anchor or a point marker on the same overlay layer
+belongs to somebody else and stays exactly where it was.
+
 WHAT THE PAGE TELLS ITS HOST (`gui/docks/checks.py`, which owns the tree row and
 the menu item): `changed` after anything a row glyph, a menu enablement or a
 button depends on (a scan, a clear, a root, an op starting/ending), and
@@ -49,9 +63,8 @@ page's ONE "is anything running?" answer (Д-1 of the Ч1б acceptance).
 import logging
 
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal
-from PyQt6.QtWidgets import (QAbstractItemView, QApplication, QFormLayout,
-                             QHBoxLayout, QLabel, QPushButton, QSplitter,
-                             QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget)
+from PyQt6.QtWidgets import (QApplication, QFormLayout, QHBoxLayout, QLabel,
+                             QPushButton, QStackedWidget, QVBoxLayout, QWidget)
 
 from kicadstamp.board_dedupe import (apply_dedupe, apply_summary, format_report,
                                      scan_copper_duplicates, track_position_text,
@@ -66,12 +79,20 @@ from ._common import ERROR_STYLE, SUCCESS_STYLE, show_message
 
 logger = logging.getLogger(__name__)
 
-#: The group node's columns. Each header is its OWN literal `_()` call, NOT
-#: `_(c)` over a tuple of bare strings: pybabel extracts literals, so the `_(c)`
-#: form was invisible to it and headers stayed English in the Russian UI
-#: (acceptance finding, plan_2026_10_01 §5.2). The kept/deleted UUIDs moved to the
-#: group's QView (Ч2а) — a tree node shows what tells groups apart.
-_COLUMNS = (_("Type"), _("Net"), _("Position"), _("Copies"), _("Warning"))
+def group_label(fields: dict) -> str:
+    """ONE line for a group NODE of the page's tree: type, net and position in the
+    CORE's own words, the copy count, and the drill/diameter warning when the
+    group's members differ (a mismatch does NOT split a group).
+
+    The kept/deleted UUIDs are NOT here — they belong to the group's QView, which
+    shows every field. The node and the copied report name the same copper in the
+    same order because both read the core's builders through `_group_fields`
+    (§5.1 of the 01.10 plan)."""
+    label = (f"{fields['kind']}  {fields['net']}  {fields['position']}  "
+             f"×{fields['copies']}")
+    if fields["warning"]:
+        label = f"{label}  ⚠ {fields['warning']}"
+    return label
 
 
 def _group_fields(kind: str, group) -> dict:
@@ -105,6 +126,9 @@ class DedupePage(QWidget):
     #: This row's operation is over (a scan or a clear, succeeded or refused) —
     #: what "Run all" waits for.
     finished_op = pyqtSignal()
+    #: A scan replaced the group list: the PAGE rebuilds its child nodes from
+    #: `groups()` (Д-1 — the nodes live in the page's tree, not in this panel).
+    groups_changed = pyqtSignal()
 
     def __init__(self, main_window, connection=None):
         super().__init__()
@@ -130,10 +154,28 @@ class DedupePage(QWidget):
         #: The scan's OWN group objects, index-aligned with `_groups` — what the
         #: highlight needs for coordinates (vias first, then tracks).
         self._raw: tuple = ()
+        #: The index of the group whose QView is showing — the panel's half of the
+        #: ONE selection fact (the page's tree owns the other half, Д-1).
+        self._selected = None
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(4, 4, 4, 4)
+        # TWO QViews, one per kind of selection in the page's tree: the row (its
+        # page-level doors) and one group (its fields and its two doors).
+        self.stack = QStackedWidget()
+        self.row_page = self._build_row_page()
+        self.group_page = self._build_group_page()
+        self.stack.addWidget(self.row_page)
+        self.stack.addWidget(self.group_page)
+        layout.addWidget(self.stack, 1)
+        self.show_row()
 
+    def _build_row_page(self) -> QWidget:
+        """The "Copper duplicates" ROW's QView: the page-level doors and the
+        summary — what the panel offered before it knew about groups."""
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(0, 0, 0, 0)
         row = QHBoxLayout()
         self.find_button = QPushButton(_("Find"))
         self.find_button.clicked.connect(self._on_find)
@@ -147,34 +189,14 @@ class DedupePage(QWidget):
         self.summary_label = QLabel("")
         row.addWidget(self.summary_label, 1)
         layout.addLayout(row)
+        hint = QLabel(_("Select a group under this row to see its fields, mark it "
+                        "on the board or clear just it."))
+        hint.setWordWrap(True)
+        layout.addWidget(hint)
+        layout.addStretch(1)
+        return page
 
-        splitter = QSplitter(Qt.Orientation.Vertical, self)
-        # 1, not 0 — Qt treats an explicit 0 as "unset" (gui/docks/log_panel.py:157).
-        splitter.setMinimumHeight(1)
-
-        self.tree = QTreeWidget()
-        self.tree.setColumnCount(len(_COLUMNS))
-        self.tree.setHeaderLabels(list(_COLUMNS))
-        self.tree.setRootIsDecorated(False)
-        self.tree.setUniformRowHeights(True)
-        self.tree.setMinimumWidth(1)
-        self.tree.setMinimumHeight(1)
-        self.tree.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        self.tree.setSelectionBehavior(
-            QAbstractItemView.SelectionBehavior.SelectRows)
-        self.tree.setSelectionMode(
-            QAbstractItemView.SelectionMode.SingleSelection)
-        self.tree.currentItemChanged.connect(self._on_group_selected)
-        splitter.addWidget(self.tree)
-
-        splitter.addWidget(self._build_detail())
-        splitter.setStretchFactor(0, 3)
-        splitter.setStretchFactor(1, 1)
-        layout.addWidget(splitter, 1)
-
-        self._update_buttons()
-
-    def _build_detail(self) -> QWidget:
+    def _build_group_page(self) -> QWidget:
         """The QView of ONE group: every field the core knows, and the two doors
         that act on that group alone."""
         page = QWidget()
@@ -271,17 +293,39 @@ class DedupePage(QWidget):
         run starts or ends, so the panel cannot keep stale enabled buttons."""
         self._update_buttons()
 
-    def _selected_index(self):
-        item = self.tree.currentItem()
-        if item is None:
-            return None
-        index = item.data(0, Qt.ItemDataRole.UserRole)
-        return index if isinstance(index, int) and index < len(self._groups) else None
+    def groups(self) -> tuple:
+        """The last scan, ONE dict per group in the core's own order (vias, then
+        tracks) — what the page builds its child nodes from (`group_label`)."""
+        return tuple(self._groups)
 
     def selected_group(self):
-        """The last scan's dict for the selected node, or None."""
-        index = self._selected_index()
-        return None if index is None else self._groups[index]
+        """The last scan's dict for the group whose QView is showing, or None."""
+        if self._selected is None or self._selected >= len(self._groups):
+            return None
+        return self._groups[self._selected]
+
+    def show_row(self) -> None:
+        """The page selected the ROW: show the page-level doors and forget which
+        group was being looked at (an idempotent call — the page also makes it
+        when a rescan took the selected group away)."""
+        self._selected = None
+        self._show_group(None)
+        self.stack.setCurrentWidget(self.row_page)
+        self._update_buttons()
+
+    def show_group(self, index) -> None:
+        """The page selected the group node at `index`: show that group's fields
+        and its two doors.
+
+        An index that no longer exists falls back to the ROW — a stale node must
+        never show the fields of some OTHER group."""
+        if not isinstance(index, int) or not 0 <= index < len(self._groups):
+            self.show_row()
+            return
+        self._selected = index
+        self._show_group(self._groups[index])
+        self.stack.setCurrentWidget(self.group_page)
+        self._update_buttons()
 
     def _update_buttons(self) -> None:
         interactive = not self.is_blocked()
@@ -303,7 +347,7 @@ class DedupePage(QWidget):
         self.changed.emit()
         self.finished_op.emit()
 
-    # ── the tree ────────────────────────────────────────────────────────────
+    # ── the two QViews ──────────────────────────────────────────────────────
 
     def _show_group(self, fields) -> None:
         """Fill the group QView from ONE dict of `_group_fields`, or blank it."""
@@ -317,33 +361,6 @@ class DedupePage(QWidget):
         self.detail_keep.setText(values.get("keep", ""))
         self.detail_delete.setText(values.get("delete", ""))
         self.detail_warning.setText(values.get("warning", ""))
-
-    def _on_group_selected(self, _current, _previous) -> None:
-        """Another group node selected: show ITS fields — never re-scan anything."""
-        self._show_group(self.selected_group())
-        self._update_buttons()
-
-    def _fill_tree(self, via_groups, track_groups) -> None:
-        """One node per group, in the core's own order (vias, then tracks)."""
-        self._groups = ([_group_fields("via", group) for group in via_groups]
-                        + [_group_fields("track", group) for group in track_groups])
-        self.tree.clear()
-        for index, fields in enumerate(self._groups):
-            item = QTreeWidgetItem([
-                fields["kind"], fields["net"], fields["position"],
-                str(fields["copies"]), fields["warning"]])
-            item.setData(0, Qt.ItemDataRole.UserRole, index)
-            item.setToolTip(0, _("Click to see this group's UUIDs"))
-            self.tree.addTopLevelItem(item)
-        extra = sum(group["copies"] - 1 for group in self._groups)
-        self.summary_label.setText(
-            _("Duplicate groups: {groups}; extra copies: {extra}").format(
-                groups=len(self._groups), extra=extra))
-        if self._groups:
-            self.tree.setCurrentItem(self.tree.topLevelItem(0))
-        else:
-            self._show_group(None)
-        self._update_buttons()
 
     # ── buttons ─────────────────────────────────────────────────────────────
 
@@ -418,7 +435,7 @@ class DedupePage(QWidget):
         if not getattr(self._connection, "is_connected", False):
             show_message(_("Connect to KiCad first."), ERROR_STYLE, logger)
             return
-        index = self._selected_index()
+        index = self._selected
         group = (self._raw[index]
                  if index is not None and index < len(self._raw) else None)
         if group is None:
@@ -463,11 +480,33 @@ class DedupePage(QWidget):
         return adapter, None
 
     @staticmethod
+    def _forget_marks(adapter) -> None:
+        """Take THIS panel's overlay marks off the board and out of the map.
+
+        ONE place for the rule (Д-2 of the Ч2а acceptance): a mark describes a
+        scan, so every door that changes the list — Highlight, Find, "Clear this
+        group", "Clear all" — drops the WHOLE `dedupe` namespace FIRST, or a
+        deleted track keeps a circle nobody will ever remove.
+
+        Only that namespace: a cell anchor or a point marker on the same overlay
+        layer belongs to another consumer (E.2.1) and stays exactly where it was.
+        Without a live board the owner still forgets the keys, and a
+        visualisation must never fail the scan."""
+        try:
+            overlay_markers.OverlayMarkerOwner().remove_namespace(
+                adapter, overlay_markers.NS_DEDUPE)
+        except Exception:  # noqa: BLE001 — a visualisation must never raise
+            logger.debug("the duplicate marks could not be removed", exc_info=True)
+
+    @staticmethod
     def _scan_worker(payload):
         adapter, error = DedupePage._worker_adapter(payload.get("connection"))
         if error:
             return {"error": error}
         via_groups, track_groups, short_tracks = scan_copper_duplicates(adapter)
+        # The list the old marks described is being replaced — including the case
+        # where the new list is EMPTY: a clean board has nothing left to mark.
+        DedupePage._forget_marks(adapter)
         return {"report": format_report(via_groups, track_groups, short_tracks),
                 "via_groups": via_groups, "track_groups": track_groups,
                 "short_tracks": short_tracks}
@@ -477,6 +516,8 @@ class DedupePage(QWidget):
         adapter, error = DedupePage._worker_adapter(payload.get("connection"))
         if error:
             return {"error": error}
+        # The marks point at copper that is about to be deleted (Д-2).
+        DedupePage._forget_marks(adapter)
         # Re-scan inside the worker: the displayed list may be stale by the time
         # Clear is clicked, and the count must describe what was actually
         # deleted, not what was shown a minute ago.
@@ -494,6 +535,7 @@ class DedupePage(QWidget):
         adapter, error = DedupePage._worker_adapter(payload.get("connection"))
         if error:
             return {"error": error}
+        DedupePage._forget_marks(adapter)
         via_groups, track_groups, _short = scan_copper_duplicates(adapter)
         kind, keep = payload.get("kind"), payload.get("keep")
         pool = via_groups if kind == "via" else track_groups
@@ -511,6 +553,9 @@ class DedupePage(QWidget):
         adapter, error = DedupePage._worker_adapter(payload.get("connection"))
         if error:
             return {"error": error}
+        # Highlight B AFTER A: A's circles go first (Д-2). "Replace, never stack"
+        # has to hold across GROUPS, not only across presses of the same group.
+        DedupePage._forget_marks(adapter)
         owner = overlay_markers.OverlayMarkerOwner()
         markers = payload.get("markers", ())
         drawn = 0
@@ -535,7 +580,16 @@ class DedupePage(QWidget):
         via_groups = result.get("via_groups", ())
         track_groups = result.get("track_groups", ())
         self._raw = tuple(via_groups) + tuple(track_groups)
-        self._fill_tree(via_groups, track_groups)
+        self._groups = ([_group_fields("via", group) for group in via_groups]
+                        + [_group_fields("track", group) for group in track_groups])
+        extra = sum(group["copies"] - 1 for group in self._groups)
+        self.summary_label.setText(
+            _("Duplicate groups: {groups}; extra copies: {extra}").format(
+                groups=len(self._groups), extra=extra))
+        # The PAGE owns the nodes (Д-1): it rebuilds them from `groups()` and
+        # decides where the selection lands (by the kept uuid). This panel only
+        # fills the QView it is asked for.
+        self.groups_changed.emit()
         self._op_ended()
 
     def _finish_clear(self, result) -> None:

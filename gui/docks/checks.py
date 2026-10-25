@@ -9,6 +9,11 @@ QView on the right:
     run (never run / clean / problems / refused-or-crashed, by the exit code, the same vocabulary
     `exit_level` owns) and how long that run took. Error kinds and single errors are Ч2 (they
     need the scripts' `--json`); this page must not pretend to know them.
+  * the LAST row is the copper-duplicates panel (Ч1б) and, since Д-1 of the Ч2а acceptance, the
+    duplicate GROUPS are that row's CHILDREN: the tree is the one place the two kinds share, and
+    the right side is the QView of WHATEVER is selected — the row (Find / Copy / "Clear all" /
+    summary) or one group (all of its fields, "Highlight on board", "Clear this group"). The
+    panel owns no tree of its own; it is asked for the QView it should show.
   * EVERY check keeps its OWN last output and status: selecting another row shows that check's
     report without re-running anything, and "Copy" hands over the SELECTED check's own bytes.
   * one process at a time — "Run" runs the SELECTED check, "Run all" queues every check in
@@ -38,7 +43,7 @@ from kicadstamp.i18n import _
 from ..checks_registry import CHECKS, DEDUPE_ROW, command_for, exit_level
 from ..worker import defer_while_socket_busy, socket_busy
 from ._common import style_for_level
-from .dedupe import DedupePage
+from .dedupe import DedupePage, group_label
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +52,14 @@ logger = logging.getLogger(__name__)
 #: `exit_level`, which is also what colours the status line.
 _GLYPHS = {"success": "✔", "warn": "⚠", "error": "✖"}
 _NOT_RUN = "·"
+
+#: The `UserRole` data of a GROUP node: `(this marker, index into the panel's last scan, the
+#: group's KEPT uuid)`. A check row carries its script STRING there, so the two can never be
+#: confused — and the kept uuid is what lets a rescan keep the operator on the same group.
+DEDUPE_GROUP_ROLE = "dedupe-group"
+
+#: "No item was passed" — the ONE way `_role` tells "ask the tree" from "the tree has none".
+_NO_ITEM = object()
 
 
 @dataclass
@@ -120,6 +133,9 @@ class ChecksPage(QWidget):
         self.dedupe = DedupePage(main_window, connection=self._connection)
         self.dedupe.changed.connect(self._on_dedupe_changed)
         self.dedupe.finished_op.connect(self._on_dedupe_finished)
+        # The panel owns the DATA, this page owns the NODES (Д-1 of the Ч2а
+        # acceptance): every scan tells us to rebuild the row's children.
+        self.dedupe.groups_changed.connect(self._rebuild_dedupe_groups)
         # ONE "is anything running?" for the whole page, asked BOTH ways: the page reads the
         # panel in `is_running()` and the panel reads the page through this provider. Without
         # the second half its Find/Clear stayed live during a check run (Д-1 of the Ч1б
@@ -134,8 +150,10 @@ class ChecksPage(QWidget):
         self.tree = QTreeWidget()
         self.tree.setColumnCount(2)
         self.tree.setHeaderLabels([_("Check"), _("Last run")])
-        self.tree.setRootIsDecorated(False)
+        # Decorated since the copper row carries the duplicate groups as CHILDREN.
+        self.tree.setRootIsDecorated(True)
         self.tree.setUniformRowHeights(True)
+        self.tree.setExpandsOnDoubleClick(True)
         # 1, not 0 — Qt treats an explicit 0 as "unset" (gui/docks/log_panel.py:157).
         self.tree.setMinimumWidth(1)
         self._items = {}
@@ -230,14 +248,40 @@ class ChecksPage(QWidget):
     def state_of(self, script: str) -> CheckState:
         return self._states[script]
 
+    def _role(self, item=_NO_ITEM):
+        """The `UserRole` payload of the current (or given) item: a script string for a check
+        row, `DEDUPE_ROW` for the panel row, a `DEDUPE_GROUP_ROLE` tuple for a group node.
+
+        `item=None` means "nothing is selected" (an explicit None arrives from
+        `currentItemChanged` when the last item goes away) — it must NOT fall back to the
+        current item, or a cleared selection would read as a live one."""
+        item = self.tree.currentItem() if item is _NO_ITEM else item
+        return None if item is None else item.data(0, Qt.ItemDataRole.UserRole)
+
     def selected_script(self) -> Optional[str]:
-        item = self.tree.currentItem()
-        return item.data(0, Qt.ItemDataRole.UserRole) if item is not None else None
+        """The selected ROW's script (or `DEDUPE_ROW`); None for a group node — a group is not
+        something a check process or a clipboard write can act on."""
+        role = self._role()
+        return role if isinstance(role, str) else None
+
+    def selected_group_index(self) -> Optional[int]:
+        """The index into the panel's last scan when a GROUP node is selected, else None."""
+        role = self._role()
+        return role[1] if isinstance(role, tuple) else None
 
     def select(self, script: str) -> None:
         """Make `script` the selected row — the menu's door and the tests' handle."""
         item = self._items.get(script)
         if item is not None:
+            self.tree.setCurrentItem(item)
+
+    def select_dedupe_group(self, index: int) -> None:
+        """Make the group node at `index` of the last scan current — the tests' handle and the
+        one way a caller can land on a group without clicking it."""
+        row = self._items[DEDUPE_ROW]
+        item = row.child(index) if 0 <= index < row.childCount() else None
+        if item is not None:
+            row.setExpanded(True)
             self.tree.setCurrentItem(item)
 
     def run_from_menu(self, script: str) -> None:
@@ -277,8 +321,10 @@ class ChecksPage(QWidget):
         runnable = self.can_run()
         # "Run"/"Copy" mean a CLI check's own process and bytes: on the panel row the
         # panel carries its own Find/Copy/Clear, so these two stay off there rather than
-        # running some other check behind the user's back.
-        cli_row = self.selected_script() != DEDUPE_ROW
+        # running some other check behind the user's back — and a GROUP node is not a
+        # script at all, so it is off there for the same reason.
+        role = self._role()
+        cli_row = isinstance(role, str) and role != DEDUPE_ROW
         self.run_button.setEnabled(runnable and cli_row)
         self.run_all_button.setEnabled(runnable)
         self.stop_button.setEnabled(self._process is not None)
@@ -327,11 +373,19 @@ class ChecksPage(QWidget):
             panel.setText(1, _("{n} groups").format(n=self.dedupe.group_count()))
 
     def _on_current_changed(self, _current, _previous) -> None:
-        """Another row selected: show ITS last report and status — never re-run anything.
-        The panel row shows the copper-duplicates panel itself."""
-        script = self.selected_script()
+        """Another row selected: show ITS own view — never re-run anything.
+
+        THREE kinds of selection live in one tree (Д-1 of the Ч2а acceptance): a check row
+        shows its last report and status, the copper row shows the panel's page-level doors,
+        and a GROUP node shows that group's QView."""
+        role = self._role(_current)
+        if isinstance(role, tuple) and role[0] == DEDUPE_GROUP_ROLE:
+            self._show_dedupe_group(role[1])
+            return
+        script = role if isinstance(role, str) else None
         if script == DEDUPE_ROW:
             self.pane.setCurrentWidget(self.dedupe)
+            self.dedupe.show_row()
             self._show_status("", None)
             self._update_buttons()
             return
@@ -339,6 +393,13 @@ class ChecksPage(QWidget):
         state = self._states[script] if script is not None else CheckState()
         self._show_status(state.message, state.level)
         self._render_pane(state)
+        self._update_buttons()
+
+    def _show_dedupe_group(self, index) -> None:
+        """The pane shows the PANEL, and the panel shows THAT group's QView."""
+        self.pane.setCurrentWidget(self.dedupe)
+        self.dedupe.show_group(index)
+        self._show_status("", None)
         self._update_buttons()
 
     def _render_pane(self, state: CheckState) -> None:
@@ -376,6 +437,43 @@ class ChecksPage(QWidget):
         self._dedupe_scanned = True
         self._update_rows()
         self._start_next()
+
+    def _rebuild_dedupe_groups(self) -> None:
+        """One CHILD node per duplicate group under the "Copper duplicates" row.
+
+        Д-1 of the Ч2а acceptance: the groups belong in the PAGE's tree — the panel owns the
+        data and the QViews, this page owns the nodes. The selection survives by the group's
+        KEPT uuid (the core's own identity in the words of the report), so a rescan that
+        changed nothing keeps the operator on the group they were reading; a group that is
+        gone drops them back on the row rather than onto another group's fields."""
+        row = self._items[DEDUPE_ROW]
+        keep = None
+        role = self._role()
+        if isinstance(role, tuple) and role[0] == DEDUPE_GROUP_ROLE:
+            keep = role[2]
+        row.takeChildren()
+        for index, fields in enumerate(self.dedupe.groups()):
+            item = QTreeWidgetItem([group_label(fields), ""])
+            item.setToolTip(0, _("Click to see this group's UUIDs"))
+            item.setData(0, Qt.ItemDataRole.UserRole,
+                         (DEDUPE_GROUP_ROLE, index, fields["keep"]))
+            row.addChild(item)
+        row.setExpanded(row.childCount() > 0)
+        target = None
+        if keep is not None:
+            for position in range(row.childCount()):
+                child = row.child(position)
+                if child.data(0, Qt.ItemDataRole.UserRole)[2] == keep:
+                    target = child
+                    break
+        if target is not None:
+            self.tree.setCurrentItem(target)
+        else:
+            # The row may ALREADY be current (a scan started from it): Qt then emits
+            # nothing, so the QView is told directly — it must not keep a vanished group.
+            self.tree.setCurrentItem(row)
+            self.dedupe.show_row()
+        self._update_buttons()
 
     # ── buttons ─────────────────────────────────────────────────────────────
 

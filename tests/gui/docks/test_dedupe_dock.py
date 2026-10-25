@@ -1,7 +1,7 @@
 # tests/gui/docks/test_dedupe_dock.py
 """Cells for gui/docks/dedupe.py — the "Дубли меди" panel (plan_2026_10_01_
-dedupe_into_kicadstamp §2.3; a page of the Checks tab since Ч1б and a TREE OF
-GROUPS since Ч2а of plan_2026_10_23_checks_tab_top_level).
+dedupe_into_kicadstamp §2.3; a page of the Checks tab since Ч1б and GROUP NODES
+since Ч2а of plan_2026_10_23_checks_tab_top_level).
 
 What each cell is for:
   * (Ч1б, 23.10) the panel is the FIFTH row of the Checks page — the bottom
@@ -9,12 +9,16 @@ What each cell is for:
     cell REPLACES `test_panel_is_tabified_with_the_log_and_has_its_view_menu_action`,
     whose property (a tabified bottom dock with a toggleViewAction) is the one
     Denis's decision removes;
-  * (Ч2а, 25.10) the flat TABLE is gone: one tree node per duplicate group, the
-    group's own fields in the QView below it, and two doors that act on ONE group
-    — "Highlight on board" (overlay markers, the operator's board selection is
-    never touched) and "Clear this group" (the same core call, journal and
-    refusals as "Clear all"). The cells that used to read the table now read the
-    tree — every assertion kept, the helpers renamed;
+  * (Ч2а, 25.10 + Д-1 of its acceptance) the flat TABLE is gone and so is the
+    panel's own tree: the duplicate GROUPS are CHILDREN of the "Copper
+    duplicates" row in the PAGE's tree, and the right side shows the QView of
+    whatever is selected — the row (Find / Copy / "Clear all" / summary) or ONE
+    group (its fields, "Highlight on board", "Clear this group"). The cells that
+    used to read the table now read those nodes; every assertion kept;
+  * (Д-2) every door that changes the list — Highlight, Find, "Clear this group"
+    and "Clear all" — first drops the WHOLE `dedupe` namespace of the overlay
+    owner, and only that one: a mark must never outlive the scan that drew it,
+    and a cell anchor or a point marker is somebody else's;
   * "Очистить" is disabled until BOTH a project root is open (the journal needs
     its actions.log) AND the list is non-empty, and the handlers re-check it, so
     a programmatic call cannot delete unjournaled copper;
@@ -30,23 +34,27 @@ remove_by_id really removes and records), driven through the same
 start_long_op path production uses. The overlay itself is gui/board_overlay's
 business (its own cells cover the drawing) — HERE the owner's `ensure_marker` is
 replaced by a recorder, so what is pinned is WHICH points and keys this panel
-asks for and that it selects nothing on the board.
+asks for, that it selects nothing on the board, and that it clears its OWN marks
+before every list change.
 """
 import logging
 from types import SimpleNamespace
 
+import pytest
 from PyQt6.QtWidgets import QApplication
 
 from gui import connection as connection_mod
-from gui import overlay_markers
+from gui import overlay_markers, settings
 from gui.connection import UI_READ_RAISE, BoardConnection
 
-from kicadstamp.board_dedupe import (track_position_text, via_position_text)
-from gui.docks.dedupe import DedupePage
+from gui.checks_registry import DEDUPE_ROW
+from gui.docks.checks import ChecksPage, DEDUPE_GROUP_ROLE
+from gui.docks.dedupe import DedupePage, group_label
 from gui.worker import is_ui_thread
 from kicadstamp.board_dedupe import (ACTION_LOGGER_NAME, apply_summary,
                                      find_track_duplicate_groups,
-                                     find_via_duplicate_groups, format_report)
+                                     find_via_duplicate_groups, format_report,
+                                     track_position_text, via_position_text)
 from kicadstamp.domain.board import Track, Via
 from kicadstamp.domain.geometry import BoardLayer, Vector2
 from kicadstamp.utils.units import MM
@@ -87,8 +95,16 @@ def _board(duplicates: bool = True) -> FakeAdapter:
 
 
 def _panel(main_window, adapter) -> DedupePage:
+    """The panel ALONE — for the cells about its own doors and QViews."""
     main_window.connection.board = SimpleNamespace(adapter=adapter)
     return DedupePage(main_window, connection=main_window.connection)
+
+
+def _page(main_window, adapter) -> ChecksPage:
+    """The CHECKS PAGE over the same fake board — the tree that owns the row AND
+    (since Д-1) the group nodes, which is where the operator sees them."""
+    main_window.connection.board = SimpleNamespace(adapter=adapter)
+    return ChecksPage(main_window, connection=main_window.connection)
 
 
 def _scan(panel, qapp) -> None:
@@ -99,17 +115,24 @@ def _scan(panel, qapp) -> None:
                          and not panel.is_running()))
 
 
-def _nodes(panel):
-    return [panel.tree.topLevelItem(i)
-            for i in range(panel.tree.topLevelItemCount())]
-
-
-def _cell(panel, row: int, column: int) -> str:
-    return panel.tree.topLevelItem(row).text(column)
+def _nodes(page) -> list:
+    """The duplicate GROUP nodes — the children of the "Copper duplicates" row."""
+    row = page._items[DEDUPE_ROW]
+    return [row.child(i) for i in range(row.childCount())]
 
 
 def _detail(panel, name: str) -> str:
     return getattr(panel, f"detail_{name}").text()
+
+
+def _seed_marks(mapping: dict) -> None:
+    """Put `{key: uuid}` into the overlay owner's own state — how the panel finds
+    the marks it drew last time (a real highlight writes here through the owner)."""
+    settings.state.set(overlay_markers.OVERLAY_MARKERS_KEY, dict(mapping))
+
+
+def _owner_keys() -> set:
+    return set(overlay_markers.OverlayMarkerOwner().keys())
 
 
 # ── the panel lives in the Checks tree; the bottom area is the Log alone ──────
@@ -126,8 +149,8 @@ def test_the_panel_is_the_fifth_row_of_the_checks_page_and_not_a_bottom_dock(
     * the bottom area holds the Log and nothing else (`DockHub.docks` has ONE
       entry, so the View menu has ONE item);
     * the copper-duplicates panel is the LAST row of the Checks tree, its QView is
-      that very page, and it stays reachable from the "Checks" menu — so nothing
-      the old dock offered is lost."""
+      that very page (the ROW page of the panel's own stack, Д-1), and it stays
+      reachable from the "Checks" menu — so nothing the old dock offered is lost."""
     from kicadstamp.i18n import _
     from gui.checks_registry import CHECKS, DEDUPE_ROW
 
@@ -146,6 +169,7 @@ def test_the_panel_is_the_fifth_row_of_the_checks_page_and_not_a_bottom_dock(
     assert titles[-1].endswith(_("Copper duplicates"))
     page.select(DEDUPE_ROW)
     assert page.pane.currentWidget() is page.dedupe
+    assert page.dedupe.stack.currentWidget() is page.dedupe.row_page
     assert page.dedupe.find_button.isVisibleTo(page) is True
 
     checks_menu = next(action.menu()
@@ -156,14 +180,76 @@ def test_the_panel_is_the_fifth_row_of_the_checks_page_and_not_a_bottom_dock(
     assert _("Clear copper duplicates") in texts
 
 
+# ── Д-1: the row and a group are two different QViews ────────────────────────
+
+def test_the_row_shows_the_page_doors_and_a_group_shows_its_fields(
+        main_window, qapp):
+    """Д-1 of the Ч2а acceptance: ONE tree, TWO QViews.
+
+    * the ROW "Copper duplicates" -> Find / Copy / "Clear all" / summary, and no
+      group fields at all;
+    * a GROUP node -> that group's every field and the two doors that act on it
+      alone. Both live in the SAME panel widget, so the right pane never shows a
+      check's bytes next to a duplicate group."""
+    page = _page(main_window, _board())
+    panel = page.dedupe
+    _scan(panel, qapp)
+
+    page.select(DEDUPE_ROW)
+    assert page.pane.currentWidget() is panel
+    assert panel.stack.currentWidget() is panel.row_page
+    assert panel.find_button.isVisibleTo(page) is True
+    assert panel.highlight_button.isVisibleTo(page) is False
+    assert _detail(panel, "kind") == ""
+
+    page.select_dedupe_group(1)
+    assert page.pane.currentWidget() is panel
+    assert panel.stack.currentWidget() is panel.group_page
+    assert panel.highlight_button.isVisibleTo(page) is True
+    assert panel.clear_group_button.isVisibleTo(page) is True
+    assert _detail(panel, "kind") == "track"
+    assert _detail(panel, "keep") == "t1"
+
+
+def test_a_rescan_keeps_the_selected_group_by_its_kept_uuid(
+        main_window, qapp):
+    """Д-1: the child nodes are REBUILT after every scan, so the selection has to
+    survive it by something stable — the group's KEPT uuid (the core's own
+    identity in the report's words), never the row index.
+
+    And when that group is gone the selection falls back to the ROW: showing the
+    fields of whichever group took its index would be a lie about what was
+    cleared."""
+    adapter = _board()
+    page = _page(main_window, adapter)
+    _scan(page.dedupe, qapp)
+    assert [node.text(0).split("  ")[0] for node in _nodes(page)] == ["via", "track"]
+
+    page.select_dedupe_group(1)                       # the track group, keep t1
+    assert _detail(page.dedupe, "keep") == "t1"
+
+    _scan(page.dedupe, qapp)                          # the same board: nothing moved
+    assert page.selected_group_index() == 1
+    assert _detail(page.dedupe, "keep") == "t1"
+
+    main_window.connection.board = SimpleNamespace(adapter=_board(duplicates=False))
+    _scan(page.dedupe, qapp)
+    assert _nodes(page) == []
+    assert page.selected_group_index() is None
+    assert page.dedupe.stack.currentWidget() is page.dedupe.row_page
+    assert _detail(page.dedupe, "keep") == ""
+
+
 # ── "Очистить" gating ────────────────────────────────────────────────────────
 
 def test_clear_needs_both_a_root_and_a_found_list(main_window, qapp, tmp_path):
     """К3 (§2.3) — the button is inactive while the list is empty OR no root
     config is open: the journal is the root config's actions.log, so a removal
-    with nowhere to journal it must not be offered. Ч2а: "Clear this group" follows
-    the SAME rule."""
-    panel = _panel(main_window, _board())
+    with nowhere to journal it must not be offered. "Clear this group" follows
+    the SAME rule AND needs a selected GROUP (Д-1: after a scan the ROW is
+    selected, so the group door stays off until a group is picked)."""
+    page = _page(main_window, _board())
+    panel = page.dedupe
     assert panel.clear_button.isEnabled() is False     # nothing found, no root
     assert panel.clear_group_button.isEnabled() is False
 
@@ -172,16 +258,19 @@ def test_clear_needs_both_a_root_and_a_found_list(main_window, qapp, tmp_path):
     assert panel.clear_group_button.isEnabled() is False
 
     _scan(panel, qapp)
-    assert panel.tree.topLevelItemCount() == 2
+    assert len(_nodes(page)) == 2
     assert panel.clear_button.isEnabled() is True
-    assert panel.clear_group_button.isEnabled() is True   # a node is selected
+    assert panel.clear_group_button.isEnabled() is False   # the ROW is selected
+    page.select_dedupe_group(0)
+    assert panel.clear_group_button.isEnabled() is True    # a group node is now
 
     # The other half: groups exist but no root is open -> still disabled.
-    other = _panel(main_window, _board())
-    _scan(other, qapp)
-    assert other.tree.topLevelItemCount() == 2
-    assert other.clear_button.isEnabled() is False
-    assert other.clear_group_button.isEnabled() is False
+    other = _page(main_window, _board())
+    _scan(other.dedupe, qapp)
+    assert len(_nodes(other)) == 2
+    other.select_dedupe_group(0)
+    assert other.dedupe.clear_button.isEnabled() is False
+    assert other.dedupe.clear_group_button.isEnabled() is False
 
 
 def test_clear_does_nothing_when_programmatically_called_without_a_root(
@@ -195,15 +284,16 @@ def test_clear_does_nothing_when_programmatically_called_without_a_root(
     cell still passed, because the worker had not run yet. Hence the identity
     check, which is the half that actually fails when the guard goes."""
     adapter = _board()
-    panel = _panel(main_window, adapter)
-    _scan(panel, qapp)
-    assert panel.tree.topLevelItemCount() > 0
+    page = _page(main_window, adapter)
+    _scan(page.dedupe, qapp)
+    page.select_dedupe_group(0)
+    assert page.dedupe.has_groups() is True
 
-    before = panel._active_op
-    panel._on_clear()          # no root_path
-    panel._on_clear_group()    # no root_path either
+    before = page.dedupe._active_op
+    page.dedupe._on_clear()          # no root_path
+    page.dedupe._on_clear_group()    # no root_path either
 
-    assert panel._active_op is before, \
+    assert page.dedupe._active_op is before, \
         "Clear started an operation while it had nowhere to journal the removal"
     qapp.processEvents()
     assert adapter.removed == []
@@ -213,29 +303,38 @@ def test_clear_does_nothing_when_programmatically_called_without_a_root(
 
 def test_find_fills_the_group_nodes_with_the_core_groups_and_report(
         main_window, qapp):
-    """К3 (§2.3) — one NODE per group, and the node says what tells groups apart:
-    type, net, position, copy count and a drill mismatch (which does NOT split the
-    group). The kept/deleted UUIDs live in that group's QView (Ч2а).
+    """К3 (§2.3) — one CHILD NODE per group under the "Copper duplicates" row,
+    and the node says what tells groups apart: type, net, position, copy count
+    and a drill mismatch (which does NOT split the group). The kept/deleted UUIDs
+    live in that group's QView; the node is the summary line.
 
-    REPLACED (Ч2а) `test_find_fills_the_table_with_the_core_groups_and_report`: the
-    table went, every field it showed is still asserted — five of them on the node,
-    the two UUID columns in the detail."""
+    REPLACED (Ч2а) `test_find_fills_the_table_with_the_core_groups_and_report` and
+    re-aimed at the PAGE's tree (Д-1 of that acceptance): the table went, every
+    field it showed is still asserted — five of them on the node, the two UUID
+    columns in the detail."""
     adapter = _board()
-    panel = _panel(main_window, adapter)
+    page = _page(main_window, adapter)
 
-    _scan(panel, qapp)
+    _scan(page.dedupe, qapp)
 
     expected_report = format_report(
         find_via_duplicate_groups(adapter.get_vias()),
         find_track_duplicate_groups(adapter.get_tracks()))
-    assert panel._report_text == expected_report
-    assert panel.tree.topLevelItemCount() == 2
+    assert page.dedupe._report_text == expected_report
 
-    assert [_cell(panel, 0, c) for c in range(5)] == [
-        "via", "GND", "(1.0000, 2.0000)", "2",
-        "drill/diameter: [(0.3, 0.6), (0.4, 0.8)]"]
-    assert [_cell(panel, 1, c) for c in range(5)] == [
-        "track", "SIG", "(0.0000,0.0000) -> (1.0000,1.0000)", "2", ""]
+    nodes = _nodes(page)
+    assert [node.text(0) for node in nodes] == [
+        "via  GND  (1.0000, 2.0000)  ×2  "
+        "⚠ drill/diameter: [(0.3, 0.6), (0.4, 0.8)]",
+        "track  SIG  (0.0000,0.0000) -> (1.0000,1.0000)  ×2",
+    ]
+    # The node IS the core's dict rendered by ONE function, not a second format.
+    assert [node.text(0) for node in nodes] == [
+        group_label(fields) for fields in page.dedupe.groups()]
+    # The kept uuid travels in the node's data: it is what a rescan selects by.
+    assert [node.data(0, 0x0100) for node in nodes] == [
+        (DEDUPE_GROUP_ROLE, 0, "v1"), (DEDUPE_GROUP_ROLE, 1, "t1")]
+    assert page._items[DEDUPE_ROW].isExpanded() is True
 
 
 def test_the_group_detail_shows_every_field_of_the_core_group(
@@ -243,11 +342,11 @@ def test_the_group_detail_shows_every_field_of_the_core_group(
     """Ч2а: the group's QView carries ALL of it — type, net, position, layer,
     copies, the UUID kept, the UUIDs deleted and the warning — for the SELECTED
     node, and it follows the selection."""
-    adapter = _board()
-    panel = _panel(main_window, adapter)
+    page = _page(main_window, _board())
+    panel = page.dedupe
     _scan(panel, qapp)
 
-    panel.tree.setCurrentItem(panel.tree.topLevelItem(0))
+    page.select_dedupe_group(0)
     assert _detail(panel, "kind") == "via"
     assert _detail(panel, "net") == "GND"
     assert _detail(panel, "position") == "(1.0000, 2.0000)"
@@ -255,10 +354,9 @@ def test_the_group_detail_shows_every_field_of_the_core_group(
     assert _detail(panel, "copies") == "2"
     assert _detail(panel, "keep") == "v1"
     assert _detail(panel, "delete") == "v2"
-    assert _detail(panel, "warning") == \
-        "drill/diameter: [(0.3, 0.6), (0.4, 0.8)]"
+    assert _detail(panel, "warning") == "drill/diameter: [(0.3, 0.6), (0.4, 0.8)]"
 
-    panel.tree.setCurrentItem(panel.tree.topLevelItem(1))
+    page.select_dedupe_group(1)
     assert _detail(panel, "kind") == "track"
     assert _detail(panel, "layer") == "F.Cu"
     assert _detail(panel, "keep") == "t1"
@@ -279,35 +377,37 @@ def test_tree_node_and_report_line_name_the_same_coordinates_in_the_same_order(
     is what makes "same coordinates, same order" a property rather than a
     coincidence.
 
-    REPLACED (Ч2а) `test_table_row_and_report_line_...`: the row became a node; the
-    assertions are the same."""
+    REPLACED (Ч2а) `test_table_row_and_report_line_...`: the row became a node;
+    the assertions are the same."""
     track = _track("t1", "SIG", BoardLayer.BL_F_Cu, (5.0, 0.0), (1.0, 0.0))
     twin = _track("t2", "SIG", BoardLayer.BL_F_Cu, (5.0, 0.0), (1.0, 0.0))
     via = _via("v1", "GND", 1.0, 2.0)
     twin_via = _via("v2", "GND", 1.0, 2.0)
     adapter = FakeAdapter(vias=[via, twin_via], tracks=[track, twin])
-    panel = _panel(main_window, adapter)
+    page = _page(main_window, adapter)
 
-    _scan(panel, qapp)
+    _scan(page.dedupe, qapp)
 
     # The literal text first (this is what pins the NORMALISED order, and what
     # the pre-fix row failed), then the shared-builder property for both kinds.
-    assert _cell(panel, 1, 2) == "(1.0000,0.0000) -> (5.0000,0.0000)"
-    for row, position in ((0, via_position_text(via)),
-                          (1, track_position_text(track))):
-        assert _cell(panel, row, 2) == position
-        assert f"@ {position} mm" in panel._report_text
+    texts = [node.text(0) for node in _nodes(page)]
+    assert "track  SIG  (1.0000,0.0000) -> (5.0000,0.0000)  ×2" == texts[1]
+    for text, position in ((texts[0], via_position_text(via)),
+                           (texts[1], track_position_text(track))):
+        assert position in text
+        assert f"@ {position} mm" in page.dedupe._report_text
 
 
 def test_find_with_no_board_tells_the_user_and_touches_nothing(
         main_window, qapp, caplog):
     """К3 — no connection is a message in the Log, not a crash and not a scan."""
     main_window.connection.board = None
-    panel = DedupePage(main_window, connection=main_window.connection)
+    page = ChecksPage(main_window, connection=main_window.connection)
 
-    _scan(panel, qapp)
+    _scan(page.dedupe, qapp)
 
-    assert panel.tree.topLevelItemCount() == 0
+    assert page.dedupe.group_count() == 0
+    assert _nodes(page) == []
     assert any("Connect to KiCad first." in r.getMessage()
                for r in caplog.records)
 
@@ -344,18 +444,19 @@ def test_find_reads_the_board_on_the_worker_not_the_ui_thread(
     With the guard armed to RAISE, the scan still completes — possible only
     because the payload carries the CONNECTION and the worker reads
     connection.board on its own thread. A UI-thread read would raise inside the
-    slot and leave the tree empty."""
+    slot and leave the list empty."""
     adapter = _board()
     connection = BoardConnection(timeout_ms=10)
     connection.board = SimpleNamespace(adapter=adapter)
-    panel = DedupePage(main_window, connection=connection)
+    page = ChecksPage(main_window, connection=connection)
     monkeypatch.setattr(connection_mod, "ui_thread_predicate", is_ui_thread)
     monkeypatch.setattr(connection_mod, "ui_thread_read_refusal", UI_READ_RAISE)
 
-    _scan(panel, qapp)
+    _scan(page.dedupe, qapp)
 
     assert adapter.refresh_count == 1
-    assert panel.tree.topLevelItemCount() == 2
+    assert page.dedupe.group_count() == 2
+    assert len(_nodes(page)) == 2
 
 
 # ── "Очистить" ───────────────────────────────────────────────────────────────
@@ -364,22 +465,22 @@ def test_clear_deletes_the_extras_journals_and_rescans(
         main_window, qapp, tmp_path, caplog):
     """К3 (§2.3/§2.4) — Clear removes only the extras, journals each deletion,
     logs the one summary, and automatically re-scans: after the rescan the board
-    has no duplicates left, so the tree is empty."""
+    has no duplicates left, so the row has no children left."""
     adapter = _board()
-    panel = _panel(main_window, adapter)
-    panel.set_root_path(tmp_path / "root.sexp")
-    _scan(panel, qapp)
+    page = _page(main_window, adapter)
+    page.dedupe.set_root_path(tmp_path / "root.sexp")
+    _scan(page.dedupe, qapp)
 
     with caplog.at_level(logging.INFO, logger=ACTION_LOGGER_NAME):
-        panel._on_clear()
+        page.dedupe._on_clear()
         # Two operations in a row: the clear, then the deferred auto-rescan.
-        # The tree only empties at the END of the rescan, so this cannot
-        # return in the gap between the two.
+        # The nodes only go at the END of the rescan, so this cannot return in
+        # the gap between the two.
         _pump(qapp, lambda: (not main_window.connection.long_op_active
-                             and panel.tree.topLevelItemCount() == 0))
+                             and page.dedupe.group_count() == 0))
 
     assert adapter.removed == ["v2", "t2"]
-    assert panel.tree.topLevelItemCount() == 0
+    assert _nodes(page) == []
 
     journal = [r.getMessage() for r in caplog.records
                if r.name == ACTION_LOGGER_NAME]
@@ -392,13 +493,13 @@ def test_clear_keeps_the_lone_items(main_window, qapp, tmp_path, caplog):
     """К3 — the survivor set is exactly "one per group": the lone v3 and t4 are
     never named to remove_by_id (they were never a duplicate of anything)."""
     adapter = _board()
-    panel = _panel(main_window, adapter)
-    panel.set_root_path(tmp_path / "root.sexp")
-    _scan(panel, qapp)
+    page = _page(main_window, adapter)
+    page.dedupe.set_root_path(tmp_path / "root.sexp")
+    _scan(page.dedupe, qapp)
 
-    panel._on_clear()
+    page.dedupe._on_clear()
     _pump(qapp, lambda: (not main_window.connection.long_op_active
-                         and panel.tree.topLevelItemCount() == 0))
+                         and page.dedupe.group_count() == 0))
 
     assert {v.uuid for v in adapter.get_vias()} == {"v1", "v3"}
     assert {t.uuid for t in adapter.get_tracks()} == {"t1", "t4"}
@@ -412,24 +513,23 @@ def test_clear_this_group_removes_only_that_groups_extras(
     them like any other removal, leaves the other group untouched, and the group
     leaves the tree after the auto-rescan."""
     adapter = _board()
-    panel = _panel(main_window, adapter)
-    panel.set_root_path(tmp_path / "root.sexp")
-    _scan(panel, qapp)
-    assert panel.tree.topLevelItemCount() == 2
+    page = _page(main_window, adapter)
+    page.dedupe.set_root_path(tmp_path / "root.sexp")
+    _scan(page.dedupe, qapp)
+    assert len(_nodes(page)) == 2
 
-    panel.tree.setCurrentItem(panel.tree.topLevelItem(0))     # the via group
+    page.select_dedupe_group(0)                                # the via group
     with caplog.at_level(logging.INFO, logger=ACTION_LOGGER_NAME):
-        panel._on_clear_group()
+        page.dedupe._on_clear_group()
         _pump(qapp, lambda: (not main_window.connection.long_op_active
-                             and panel.tree.topLevelItemCount() == 1))
+                             and page.dedupe.group_count() == 1))
 
     assert adapter.removed == ["v2"], "only the selected group's extra went"
     journal = [r.getMessage() for r in caplog.records
                if r.name == ACTION_LOGGER_NAME]
     assert any("removed via uuid=v2" in line for line in journal)
     # The track pair is still there — the other group was not touched.
-    assert panel.tree.topLevelItemCount() == 1
-    assert _cell(panel, 0, 0) == "track"
+    assert [node.text(0).split("  ")[0] for node in _nodes(page)] == ["track"]
     assert {t.uuid for t in adapter.get_tracks()} == {"t1", "t2", "t4"}
 
 
@@ -438,19 +538,20 @@ def test_clear_this_group_does_nothing_while_a_check_runs(
     """Д-1 applies to the group's door too: while the PAGE is busy the button is
     off and the door refuses, so a check run cannot be interleaved with a removal."""
     adapter = _board()
-    panel = _panel(main_window, adapter)
-    panel.set_root_path(tmp_path / "root.sexp")
-    _scan(panel, qapp)
-    panel.set_page_busy_provider(lambda: True)
+    page = _page(main_window, adapter)
+    page.dedupe.set_root_path(tmp_path / "root.sexp")
+    _scan(page.dedupe, qapp)
+    page.select_dedupe_group(0)
+    page.dedupe.set_page_busy_provider(lambda: True)
     try:
-        assert panel.clear_group_button.isEnabled() is False
-        before = panel._active_op
-        panel._on_clear_group()
-        assert panel._active_op is before
+        assert page.dedupe.clear_group_button.isEnabled() is False
+        before = page.dedupe._active_op
+        page.dedupe._on_clear_group()
+        assert page.dedupe._active_op is before
         qapp.processEvents()
         assert adapter.removed == []
     finally:
-        panel.set_page_busy_provider(lambda: False)
+        page.dedupe.set_page_busy_provider(lambda: False)
 
 
 # ── Ч2а: "Highlight on board" ───────────────────────────────────────────────
@@ -467,8 +568,8 @@ def test_highlight_marks_the_groups_members_and_selects_nothing(
     the owner's `ensure_marker` is a recorder here: what this cell pins is what
     the panel asks for."""
     adapter = _board()
-    panel = _panel(main_window, adapter)
-    _scan(panel, qapp)
+    page = _page(main_window, adapter)
+    _scan(page.dedupe, qapp)
 
     asked = []
 
@@ -485,28 +586,113 @@ def test_highlight_marks_the_groups_members_and_selects_nothing(
                         lambda items: selected.append(list(items)),
                         raising=False)
 
-    panel.tree.setCurrentItem(panel.tree.topLevelItem(0))     # the via group
-    panel._on_highlight()
-    _pump(qapp, lambda: not panel.is_running())
+    page.select_dedupe_group(0)                                # the via group
+    page.dedupe._on_highlight()
+    _pump(qapp, lambda: not page.dedupe.is_running())
     assert asked == [("dedupe/v1", 1.0, 2.0), ("dedupe/v2", 1.0, 2.0)]
 
     asked.clear()
-    panel.tree.setCurrentItem(panel.tree.topLevelItem(1))     # the track group
-    panel._on_highlight()
-    _pump(qapp, lambda: not panel.is_running())
+    page.select_dedupe_group(1)                                # the track group
+    page.dedupe._on_highlight()
+    _pump(qapp, lambda: not page.dedupe.is_running())
     assert asked == [("dedupe/t1", 0.5, 0.5), ("dedupe/t2", 0.5, 0.5)]
 
     assert selected == [], "the panel must never select copper on the board"
 
 
 def test_highlight_does_nothing_without_a_selected_group(main_window, qapp):
-    """The button is off when no group node is selected (an empty scan), and the
-    door refuses from code as well."""
+    """The button is off when no group node is selected (an empty scan or the
+    ROW), and the door refuses from code as well."""
     adapter = _board(duplicates=False)
-    panel = _panel(main_window, adapter)
-    _scan(panel, qapp)
-    assert panel.tree.topLevelItemCount() == 0
-    assert panel.highlight_button.isEnabled() is False
-    before = panel._active_op
-    panel._on_highlight()
-    assert panel._active_op is before
+    page = _page(main_window, adapter)
+    _scan(page.dedupe, qapp)
+    assert _nodes(page) == []
+    assert page.dedupe.highlight_button.isEnabled() is False
+    before = page.dedupe._active_op
+    page.dedupe._on_highlight()
+    assert page.dedupe._active_op is before
+
+
+# ── Д-2: the panel's own marks never outlive the scan that drew them ─────────
+
+def test_find_takes_the_previous_highlight_off_and_spares_other_spaces(
+        main_window, qapp, monkeypatch):
+    """Д-2 of the Ч2а acceptance: `NS_DEDUPE` was created and never cleared, so a
+    mark stayed on the overlay layer (and in gui_state.json) after the copper it
+    described was gone. Find now drops the WHOLE `dedupe` namespace first — and
+    ONLY it: a cell anchor's marker and a point's marker on the same layer are
+    other consumers' keys (E.2.1) and must survive."""
+    adapter = _board()
+    removed = []
+    monkeypatch.setattr(adapter, "remove_by_ids",
+                        lambda uuids: removed.extend(uuids), raising=False)
+    monkeypatch.setattr(adapter, "select_items", lambda items: None, raising=False)
+    page = _page(main_window, adapter)
+    _seed_marks({"dedupe/v1": "marker-v1",
+                 "dedupe/v2": "marker-v2",
+                 "cell-anchor/root/cell/marker": "marker-cell",
+                 "point/p1": "marker-point"})
+
+    _scan(page.dedupe, qapp)
+
+    assert removed == ["marker-v1", "marker-v2"], \
+        "the panel's own marks go (and they go to the board, not only the map)"
+    assert _owner_keys() == {"cell-anchor/root/cell/marker", "point/p1"}
+
+
+def test_highlight_replaces_the_previous_groups_marks_before_drawing(
+        main_window, qapp, monkeypatch):
+    """Д-2: "Highlight" A, then B — A's circles must be OFF the board before B's
+    go on. Pinned by ONE event list, so the ORDER is a property too: a "remove
+    after draw" would leave both groups marked until the next press."""
+    adapter = _board()
+    events = []
+    monkeypatch.setattr(adapter, "remove_by_ids",
+                        lambda uuids: events.append(("remove", tuple(uuids))),
+                        raising=False)
+    monkeypatch.setattr(adapter, "select_items", lambda items: None, raising=False)
+
+    def fake_ensure_marker(self, adapter_, key, x_mm, y_mm, **_kwargs):
+        events.append(("draw", key))
+        return "overlay-" + key
+
+    monkeypatch.setattr(overlay_markers.OverlayMarkerOwner, "ensure_marker",
+                        fake_ensure_marker)
+    page = _page(main_window, adapter)
+    _scan(page.dedupe, qapp)
+    _seed_marks({"dedupe/v1": "marker-v1", "cell-anchor/root/cell/marker": "marker-cell"})
+    events.clear()
+
+    page.select_dedupe_group(1)                                # the track group
+    page.dedupe._on_highlight()
+    _pump(qapp, lambda: not page.dedupe.is_running())
+
+    assert events[0] == ("remove", ("marker-v1",))
+    assert events[1:] == [("draw", "dedupe/t1"), ("draw", "dedupe/t2")]
+    assert "cell-anchor/root/cell/marker" in _owner_keys()
+
+
+@pytest.mark.parametrize("door", ["clear", "clear_group"])
+def test_both_clears_take_the_marks_off(main_window, qapp, tmp_path, monkeypatch,
+                                        door):
+    """Д-2: a removal makes every mark of the OLD list a lie — the copper under it
+    is gone. Both clearing doors drop the `dedupe` namespace, and again only it."""
+    adapter = _board()
+    removed = []
+    monkeypatch.setattr(adapter, "remove_by_ids",
+                        lambda uuids: removed.extend(uuids), raising=False)
+    monkeypatch.setattr(adapter, "select_items", lambda items: None, raising=False)
+    page = _page(main_window, adapter)
+    page.dedupe.set_root_path(tmp_path / "root.sexp")
+    _scan(page.dedupe, qapp)
+
+    # Seeded AFTER the scan: the scan's own clear would have taken them already.
+    _seed_marks({"dedupe/v1": "marker-v1", "point/p1": "marker-point"})
+    page.select_dedupe_group(0)
+    getattr(page.dedupe, f"_on_{door}")()
+    _pump(qapp, lambda: (not main_window.connection.long_op_active
+                         and not page.dedupe.is_running()))
+
+    assert "marker-v1" in removed
+    assert "point/p1" not in removed
+    assert _owner_keys() == {"point/p1"}
