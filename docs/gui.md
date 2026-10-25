@@ -2828,14 +2828,26 @@ writes) plus the redraw chain's per-record failures. `_mutating_call` (the adapt
 also finally RETRIES a write when KiCad answers AS_BUSY — it used to match the text `not ready`,
 which the real message never contains, so the retry silently never fired (2026-09-11).
 
-## Copper duplicates (2026-10-01, moved 2026-10-23)
+## Copper duplicates (2026-10-01, moved 2026-10-23, tree since 2026-10-25)
 
 The **fifth row of the Checks page** (23.10: the bottom-right dock is gone — the bottom area is
 the Log alone, so the View menu has one item). Select that row and its QView IS this panel: it
 lists the duplicate vias/tracks on the live board — the same groups `kicadstamp dedupe` reports.
-One row per group — type, net, position, layer, copy count, the UUID kept and the UUIDs deleted —
-plus a warning when a group's drill/diameter differs (a mismatch does NOT split the group). The
-row's own verdict is its last scan: `·` not searched yet, `…` searching, `⚠ N groups`, `✔` none.
+The row's own verdict is its last scan: `·` not searched yet, `…` searching, `⚠ N groups`, `✔`
+none.
+
+Since 25.10 the list is a **tree of the groups** (the flat table is gone): one node per group with
+type, net, position, number of copies and the drill/diameter warning (a mismatch does NOT split a
+group). Selecting a node shows that group's whole detail below the tree — type, net, position,
+layer, copies, the UUID kept, the UUIDs deleted, the warning — and two doors that act on that
+group alone:
+
+- **Highlight on board** marks the group's members as overlay circles on the user's overlay layer
+  (a via at its position, a track at its middle). Your own board selection is never touched, and
+  pressing it again replaces its markers instead of stacking them.
+- **Clear this group** removes just that group's extra copies — the same core call, the same
+  `actions.log` journal and the same refusals as **Clear all** (a root must be open, the list must
+  not be empty, nothing may be running).
 
 - **Find** re-scans the board. The read runs on a worker (`gui/worker.py`), never
   on the UI thread, so the window cannot freeze and the shared IPC socket has one
@@ -2844,7 +2856,7 @@ row's own verdict is its last scan: `·` not searched yet, `…` searching, `⚠
   `techdocs/me/door.md`).
 - **Copy** puts the report on the clipboard: byte for byte the text
   `kicadstamp dedupe` prints, so it can be pasted into a bug report as is.
-- **Clear** removes the extra copies (one per group survives), writes one
+- **Clear all** removes the extra copies of EVERY group (one per group survives), writes one
   `actions.log` line per deletion through the `kicadstamp.actions` logger,
   reports the summary in the Log and re-scans automatically. It is **disabled
   while the list is empty OR no project root is open**: the journal of a removal

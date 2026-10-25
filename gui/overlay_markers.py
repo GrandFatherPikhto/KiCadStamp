@@ -58,6 +58,10 @@ OVERLAY_MARKERS_KEY = "overlay_markers"
 NS_CELL_ANCHOR = "cell-anchor"
 NS_POINT = "point"
 NS_TREE_INNER = "tree-inner"
+#: The copper-duplicates panel's "Highlight on board" (Ч2а of
+#: plan_2026_10_23_checks_tab_top_level): one marker per MEMBER of a group, keyed by
+#: that member's uuid, so pressing the button twice replaces rather than stacks.
+NS_DEDUPE = "dedupe"
 NS_TREE_OUTER = "tree-outer"
 
 _SLOT_MARKER = "marker"
@@ -70,6 +74,11 @@ def orphan_tolerance_mm() -> float:
     to count as a leftover of that same shape. E.1: half the marker radius,
     read through the settings accessor — never a magic number at a call site."""
     return board_overlay.overlay_marker_radius_mm() / 2.0
+
+
+def dedupe_marker_key(member_uuid: str) -> str:
+    """The key of ONE highlighted duplicate (`dedupe/<member uuid>`)."""
+    return f"{NS_DEDUPE}/{member_uuid}"
 
 
 def cell_anchor_key(root: Any, cell: Any, slot: str) -> str:

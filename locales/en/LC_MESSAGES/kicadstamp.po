@@ -17770,3 +17770,28 @@ msgstr "Remove the extra copies the last search found — the same door the pane
 
 msgid "{n} groups"
 msgstr "{n} groups"
+# Ч2а of plan_2026_10_23_checks_tab_top_level — duplicate groups as tree nodes
+
+msgid "Highlight on board"
+msgstr "Highlight on board"
+
+msgid "Clear this group"
+msgstr "Clear this group"
+
+msgid "Mark this group's copper on the board's overlay layer — your own board selection is left alone"
+msgstr "Mark this group's copper on the board's overlay layer — your own board selection is left alone"
+
+msgid "Remove this group's extra copies — the same journal and the same refusals as Clear all"
+msgstr "Remove this group's extra copies — the same journal and the same refusals as Clear all"
+
+msgid "Click to see this group's UUIDs"
+msgstr "Click to see this group's UUIDs"
+
+msgid "That group is no longer on the board — run Find again."
+msgstr "That group is no longer on the board — run Find again."
+
+msgid "Marked {drawn} of {total} duplicate item(s) on the board."
+msgstr "Marked {drawn} of {total} duplicate item(s) on the board."
+
+msgid "marking the board"
+msgstr "marking the board"

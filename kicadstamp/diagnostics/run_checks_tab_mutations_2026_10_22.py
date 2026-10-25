@@ -31,14 +31,19 @@ those decisions and must turn a named cell red:
   M23 the menu's Clear is on with nothing found          (gui/checks_menu.py, Ч1б)
   M25 the page's "is anything running?" ignores the panel (gui/docks/checks.py `is_running`)
   M26 the panel ignores a running CHECK                  (gui/docks/dedupe.py `_update_buttons`)
-  M27 cosmetic control (a comment must change nothing)
+  M28 every group node shows the FIRST group's texts     (gui/docks/dedupe.py `_fill_tree`)
+  M29 "Clear this group" clears EVERYTHING               (gui/docks/dedupe.py `_clear_one_worker`)
+  M30 "Clear this group" ignores a busy page             (gui/docks/dedupe.py `clear_selected_group`)
+  M31 "Highlight on board" marks only the first member    (gui/docks/dedupe.py `_marker_points`)
+  M32 cosmetic control (a comment must change nothing)
 
 M6 and M7 arrived with acceptance Д-3 (23.10.2026); M8–M16 with the page move (Ч1 of
 plan_2026_10_23_checks_tab_top_level, 23.10); M21–M23 with Ч1б of the same plan (the
 copper-duplicates panel moving into the page); M25/M26 with Д-1 of the Ч1б acceptance (one
-"something runs" answer, asked in BOTH directions). The control row has been renumbered four
-times and is always LAST: M6 -> M8 (Д-3) -> M17 (page move) -> M20 (Д-1/Д-2) -> M24 (Ч1б) ->
-M27 (Д-1 Ч1б).
+"something runs" answer, asked in BOTH directions); M28–M31 with Ч2а (the duplicate GROUPS as
+tree nodes, with "Clear this group" and "Highlight on board"). The control row has been
+renumbered five times and is always LAST: M6 -> M8 (Д-3) -> M17 (page move) -> M20 (Д-1/Д-2) ->
+M24 (Ч1б) -> M27 (Д-1 Ч1б) -> M32 (Ч2а).
 
 Safeguards, the same as every harness in this package: a template that matches more than once
 is refused (a silent miss is indistinguishable from a healthy guard — rule 38); a row that
@@ -231,7 +236,34 @@ MUTATIONS = [
      "        interactive = not self._running  # MUTATION: a check run is invisible here\n",
      ["test_a_running_check_turns_the_panels_doors_off"]),
 
-    ("M27 cosmetic control (a comment must change nothing)", CHECKS,
+    # Ч2а (25.10): the groups are tree nodes; the group's own two doors act on ONE group.
+    ("M28 every group node shows the FIRST group's texts", "gui/docks/dedupe.py",
+     "        for index, fields in enumerate(self._groups):\n",
+     "        for index, fields in enumerate(  # MUTATION: every node is the first group\n"
+     "                [self._groups[0]] * len(self._groups) if self._groups else []):\n",
+     ["test_find_fills_the_group_nodes_with_the_core_groups_and_report"]),
+
+    ("M29 \"Clear this group\" clears EVERYTHING", "gui/docks/dedupe.py",
+     "        removed = apply_dedupe(adapter,\n"
+     "                               [group] if kind == \"via\" else [],\n"
+     "                               [group] if kind == \"track\" else [])\n",
+     "        removed = apply_dedupe(adapter, via_groups, track_groups)  "
+     "# MUTATION: the whole board\n",
+     ["test_clear_this_group_removes_only_that_groups_extras"]),
+
+    ("M30 \"Clear this group\" ignores a busy page", "gui/docks/dedupe.py",
+     "        fields = self.selected_group()\n"
+     "        if fields is None or not self.can_clear():\n",
+     "        fields = self.selected_group()\n"
+     "        if fields is None:  # MUTATION: a check run does not stop a removal\n",
+     ["test_clear_this_group_does_nothing_while_a_check_runs"]),
+
+    ("M31 \"Highlight on board\" marks only the first member", "gui/docks/dedupe.py",
+     "    for member in group:\n",
+     "    for member in group[:1]:  # MUTATION: the rest of the group stays unmarked\n",
+     ["test_highlight_marks_the_groups_members_and_selects_nothing"]),
+
+    ("M32 cosmetic control (a comment must change nothing)", CHECKS,
      "        runnable = self.can_run()\n",
      "        runnable = self.can_run()  # MUTATION: cosmetic\n",
      "survive"),

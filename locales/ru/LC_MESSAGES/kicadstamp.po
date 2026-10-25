@@ -18750,3 +18750,28 @@ msgstr "Убрать лишние копии, найденные последн�
 
 msgid "{n} groups"
 msgstr "Групп: {n}"
+# Ч2а of plan_2026_10_23_checks_tab_top_level — duplicate groups as tree nodes
+
+msgid "Highlight on board"
+msgstr "Подсветить на плате"
+
+msgid "Clear this group"
+msgstr "Очистить эту группу"
+
+msgid "Mark this group's copper on the board's overlay layer — your own board selection is left alone"
+msgstr "Отметить медь этой группы на слое оверлея платы — ваше собственное выделение на плате не трогается"
+
+msgid "Remove this group's extra copies — the same journal and the same refusals as Clear all"
+msgstr "Убрать лишние копии этой группы — тот же журнал и те же запреты, что у «Очистить всё»"
+
+msgid "Click to see this group's UUIDs"
+msgstr "Нажмите, чтобы увидеть UUID этой группы"
+
+msgid "That group is no longer on the board — run Find again."
+msgstr "Этой группы больше нет на плате — запустите «Найти» снова."
+
+msgid "Marked {drawn} of {total} duplicate item(s) on the board."
+msgstr "Отмечено {drawn} из {total} дублей на плате."
+
+msgid "marking the board"
+msgstr "отметка на плате"

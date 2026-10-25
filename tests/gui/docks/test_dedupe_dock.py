@@ -1,6 +1,7 @@
 # tests/gui/docks/test_dedupe_dock.py
 """Cells for gui/docks/dedupe.py — the "Дубли меди" panel (plan_2026_10_01_
-dedupe_into_kicadstamp §2.3).
+dedupe_into_kicadstamp §2.3; a page of the Checks tab since Ч1б and a TREE OF
+GROUPS since Ч2а of plan_2026_10_23_checks_tab_top_level).
 
 What each cell is for:
   * (Ч1б, 23.10) the panel is the FIFTH row of the Checks page — the bottom
@@ -8,19 +9,28 @@ What each cell is for:
     cell REPLACES `test_panel_is_tabified_with_the_log_and_has_its_view_menu_action`,
     whose property (a tabified bottom dock with a toggleViewAction) is the one
     Denis's decision removes;
+  * (Ч2а, 25.10) the flat TABLE is gone: one tree node per duplicate group, the
+    group's own fields in the QView below it, and two doors that act on ONE group
+    — "Highlight on board" (overlay markers, the operator's board selection is
+    never touched) and "Clear this group" (the same core call, journal and
+    refusals as "Clear all"). The cells that used to read the table now read the
+    tree — every assertion kept, the helpers renamed;
   * "Очистить" is disabled until BOTH a project root is open (the journal needs
-    its actions.log) AND the list is non-empty, and the handler re-checks it, so
+    its actions.log) AND the list is non-empty, and the handlers re-check it, so
     a programmatic call cannot delete unjournaled copper;
   * "Копировать" puts the CORE report text on the clipboard byte for byte;
   * the board is read on the WORKER: the door is armed with refusal="raise"
     (gui.connection) and the scan still succeeds, which is only possible if
     nothing reads connection.board on the UI thread;
-  * "Очистить" deletes the extras, journals each to kicadstamp.actions, logs the
+  * clearing deletes the extras, journals each to kicadstamp.actions, logs the
     one summary and automatically re-scans.
 
 The board stand-in is the shared tests/fakes/adapter.FakeAdapter (its
 remove_by_id really removes and records), driven through the same
-start_long_op path production uses.
+start_long_op path production uses. The overlay itself is gui/board_overlay's
+business (its own cells cover the drawing) — HERE the owner's `ensure_marker` is
+replaced by a recorder, so what is pinned is WHICH points and keys this panel
+asks for and that it selects nothing on the board.
 """
 import logging
 from types import SimpleNamespace
@@ -28,6 +38,7 @@ from types import SimpleNamespace
 from PyQt6.QtWidgets import QApplication
 
 from gui import connection as connection_mod
+from gui import overlay_markers
 from gui.connection import UI_READ_RAISE, BoardConnection
 
 from kicadstamp.board_dedupe import (track_position_text, via_position_text)
@@ -88,8 +99,17 @@ def _scan(panel, qapp) -> None:
                          and not panel.is_running()))
 
 
+def _nodes(panel):
+    return [panel.tree.topLevelItem(i)
+            for i in range(panel.tree.topLevelItemCount())]
+
+
 def _cell(panel, row: int, column: int) -> str:
-    return panel.table.item(row, column).text()
+    return panel.tree.topLevelItem(row).text(column)
+
+
+def _detail(panel, name: str) -> str:
+    return getattr(panel, f"detail_{name}").text()
 
 
 # ── the panel lives in the Checks tree; the bottom area is the Log alone ──────
@@ -141,27 +161,32 @@ def test_the_panel_is_the_fifth_row_of_the_checks_page_and_not_a_bottom_dock(
 def test_clear_needs_both_a_root_and_a_found_list(main_window, qapp, tmp_path):
     """К3 (§2.3) — the button is inactive while the list is empty OR no root
     config is open: the journal is the root config's actions.log, so a removal
-    with nowhere to journal it must not be offered."""
+    with nowhere to journal it must not be offered. Ч2а: "Clear this group" follows
+    the SAME rule."""
     panel = _panel(main_window, _board())
     assert panel.clear_button.isEnabled() is False     # nothing found, no root
+    assert panel.clear_group_button.isEnabled() is False
 
     panel.set_root_path(tmp_path / "root.sexp")
     assert panel.clear_button.isEnabled() is False     # root, still nothing found
+    assert panel.clear_group_button.isEnabled() is False
 
     _scan(panel, qapp)
-    assert panel.table.rowCount() == 2
+    assert panel.tree.topLevelItemCount() == 2
     assert panel.clear_button.isEnabled() is True
+    assert panel.clear_group_button.isEnabled() is True   # a node is selected
 
-    # The other half: rows exist but no root is open -> still disabled.
+    # The other half: groups exist but no root is open -> still disabled.
     other = _panel(main_window, _board())
     _scan(other, qapp)
-    assert other.table.rowCount() == 2
+    assert other.tree.topLevelItemCount() == 2
     assert other.clear_button.isEnabled() is False
+    assert other.clear_group_button.isEnabled() is False
 
 
 def test_clear_does_nothing_when_programmatically_called_without_a_root(
         main_window, qapp):
-    """К3 — the disabled button is not the only guard: the handler refuses too,
+    """К3 — the disabled button is not the only guard: the handlers refuse too,
     so a programmatic call cannot delete copper that cannot be journaled.
 
     The assertion pins that NO NEW OPERATION was started (`_active_op` is the
@@ -172,10 +197,11 @@ def test_clear_does_nothing_when_programmatically_called_without_a_root(
     adapter = _board()
     panel = _panel(main_window, adapter)
     _scan(panel, qapp)
-    assert panel.table.rowCount() > 0
+    assert panel.tree.topLevelItemCount() > 0
 
     before = panel._active_op
     panel._on_clear()          # no root_path
+    panel._on_clear_group()    # no root_path either
 
     assert panel._active_op is before, \
         "Clear started an operation while it had nowhere to journal the removal"
@@ -183,13 +209,17 @@ def test_clear_does_nothing_when_programmatically_called_without_a_root(
     assert adapter.removed == []
 
 
-# ── "Найти" fills the table from the core ────────────────────────────────────
+# ── "Найти" fills the group nodes from the core ──────────────────────────────
 
-def test_find_fills_the_table_with_the_core_groups_and_report(
+def test_find_fills_the_group_nodes_with_the_core_groups_and_report(
         main_window, qapp):
-    """К3 (§2.3) — the list shows type, net, position, layer, copy count, the
-    UUID kept and the UUIDs deleted, and a drill mismatch is visible in the row
-    (it does NOT split the group)."""
+    """К3 (§2.3) — one NODE per group, and the node says what tells groups apart:
+    type, net, position, copy count and a drill mismatch (which does NOT split the
+    group). The kept/deleted UUIDs live in that group's QView (Ч2а).
+
+    REPLACED (Ч2а) `test_find_fills_the_table_with_the_core_groups_and_report`: the
+    table went, every field it showed is still asserted — five of them on the node,
+    the two UUID columns in the detail."""
     adapter = _board()
     panel = _panel(main_window, adapter)
 
@@ -199,28 +229,58 @@ def test_find_fills_the_table_with_the_core_groups_and_report(
         find_via_duplicate_groups(adapter.get_vias()),
         find_track_duplicate_groups(adapter.get_tracks()))
     assert panel._report_text == expected_report
-    assert panel.table.rowCount() == 2
+    assert panel.tree.topLevelItemCount() == 2
 
-    assert [_cell(panel, 0, c) for c in range(8)] == [
-        "via", "GND", "(1.0000, 2.0000)", "", "2", "v1", "v2",
+    assert [_cell(panel, 0, c) for c in range(5)] == [
+        "via", "GND", "(1.0000, 2.0000)", "2",
         "drill/diameter: [(0.3, 0.6), (0.4, 0.8)]"]
-    assert [_cell(panel, 1, c) for c in range(8)] == [
-        "track", "SIG", "(0.0000,0.0000) -> (1.0000,1.0000)", "F.Cu",
-        "2", "t1", "t2", ""]
+    assert [_cell(panel, 1, c) for c in range(5)] == [
+        "track", "SIG", "(0.0000,0.0000) -> (1.0000,1.0000)", "2", ""]
 
 
-def test_table_row_and_report_line_name_the_same_coordinates_in_the_same_order(
+def test_the_group_detail_shows_every_field_of_the_core_group(
+        main_window, qapp):
+    """Ч2а: the group's QView carries ALL of it — type, net, position, layer,
+    copies, the UUID kept, the UUIDs deleted and the warning — for the SELECTED
+    node, and it follows the selection."""
+    adapter = _board()
+    panel = _panel(main_window, adapter)
+    _scan(panel, qapp)
+
+    panel.tree.setCurrentItem(panel.tree.topLevelItem(0))
+    assert _detail(panel, "kind") == "via"
+    assert _detail(panel, "net") == "GND"
+    assert _detail(panel, "position") == "(1.0000, 2.0000)"
+    assert _detail(panel, "layer") == ""
+    assert _detail(panel, "copies") == "2"
+    assert _detail(panel, "keep") == "v1"
+    assert _detail(panel, "delete") == "v2"
+    assert _detail(panel, "warning") == \
+        "drill/diameter: [(0.3, 0.6), (0.4, 0.8)]"
+
+    panel.tree.setCurrentItem(panel.tree.topLevelItem(1))
+    assert _detail(panel, "kind") == "track"
+    assert _detail(panel, "layer") == "F.Cu"
+    assert _detail(panel, "keep") == "t1"
+    assert _detail(panel, "delete") == "t2"
+    assert _detail(panel, "warning") == ""
+
+
+def test_tree_node_and_report_line_name_the_same_coordinates_in_the_same_order(
         main_window, qapp):
     """К3/§5.1 (acceptance) — ONE group, two views, identical words.
 
     The track is stored (5,0)->(1,0) ON PURPOSE: the pair is unordered, so the
-    report normalises it, and the panel's row must say exactly the same thing.
-    Before the fix the row printed the RAW ends with a space after each comma
+    report normalises it, and the panel's node must say exactly the same thing.
+    Before the fix the panel printed the RAW ends with a space after each comma
     ("(5.0000, 0.0000) -> (1.0000, 0.0000)") while the copied text said
     "(1.0000,0.0000) -> (5.0000,0.0000)" — and the panel's own docstring promised
     the two read as one. The positions now come from the core's builders, which
     is what makes "same coordinates, same order" a property rather than a
-    coincidence."""
+    coincidence.
+
+    REPLACED (Ч2а) `test_table_row_and_report_line_...`: the row became a node; the
+    assertions are the same."""
     track = _track("t1", "SIG", BoardLayer.BL_F_Cu, (5.0, 0.0), (1.0, 0.0))
     twin = _track("t2", "SIG", BoardLayer.BL_F_Cu, (5.0, 0.0), (1.0, 0.0))
     via = _via("v1", "GND", 1.0, 2.0)
@@ -247,7 +307,7 @@ def test_find_with_no_board_tells_the_user_and_touches_nothing(
 
     _scan(panel, qapp)
 
-    assert panel.table.rowCount() == 0
+    assert panel.tree.topLevelItemCount() == 0
     assert any("Connect to KiCad first." in r.getMessage()
                for r in caplog.records)
 
@@ -284,7 +344,7 @@ def test_find_reads_the_board_on_the_worker_not_the_ui_thread(
     With the guard armed to RAISE, the scan still completes — possible only
     because the payload carries the CONNECTION and the worker reads
     connection.board on its own thread. A UI-thread read would raise inside the
-    slot and leave the table empty."""
+    slot and leave the tree empty."""
     adapter = _board()
     connection = BoardConnection(timeout_ms=10)
     connection.board = SimpleNamespace(adapter=adapter)
@@ -295,7 +355,7 @@ def test_find_reads_the_board_on_the_worker_not_the_ui_thread(
     _scan(panel, qapp)
 
     assert adapter.refresh_count == 1
-    assert panel.table.rowCount() == 2
+    assert panel.tree.topLevelItemCount() == 2
 
 
 # ── "Очистить" ───────────────────────────────────────────────────────────────
@@ -304,7 +364,7 @@ def test_clear_deletes_the_extras_journals_and_rescans(
         main_window, qapp, tmp_path, caplog):
     """К3 (§2.3/§2.4) — Clear removes only the extras, journals each deletion,
     logs the one summary, and automatically re-scans: after the rescan the board
-    has no duplicates left, so the table is empty."""
+    has no duplicates left, so the tree is empty."""
     adapter = _board()
     panel = _panel(main_window, adapter)
     panel.set_root_path(tmp_path / "root.sexp")
@@ -313,13 +373,13 @@ def test_clear_deletes_the_extras_journals_and_rescans(
     with caplog.at_level(logging.INFO, logger=ACTION_LOGGER_NAME):
         panel._on_clear()
         # Two operations in a row: the clear, then the deferred auto-rescan.
-        # The table only empties at the END of the rescan, so this cannot
+        # The tree only empties at the END of the rescan, so this cannot
         # return in the gap between the two.
         _pump(qapp, lambda: (not main_window.connection.long_op_active
-                             and panel.table.rowCount() == 0))
+                             and panel.tree.topLevelItemCount() == 0))
 
     assert adapter.removed == ["v2", "t2"]
-    assert panel.table.rowCount() == 0
+    assert panel.tree.topLevelItemCount() == 0
 
     journal = [r.getMessage() for r in caplog.records
                if r.name == ACTION_LOGGER_NAME]
@@ -338,7 +398,115 @@ def test_clear_keeps_the_lone_items(main_window, qapp, tmp_path, caplog):
 
     panel._on_clear()
     _pump(qapp, lambda: (not main_window.connection.long_op_active
-                         and panel.table.rowCount() == 0))
+                         and panel.tree.topLevelItemCount() == 0))
 
     assert {v.uuid for v in adapter.get_vias()} == {"v1", "v3"}
     assert {t.uuid for t in adapter.get_tracks()} == {"t1", "t4"}
+
+
+# ── Ч2а: "Clear this group" ─────────────────────────────────────────────────
+
+def test_clear_this_group_removes_only_that_groups_extras(
+        main_window, qapp, tmp_path, caplog):
+    """Ч2а: the group's own door removes the SELECTED group's extras, journals
+    them like any other removal, leaves the other group untouched, and the group
+    leaves the tree after the auto-rescan."""
+    adapter = _board()
+    panel = _panel(main_window, adapter)
+    panel.set_root_path(tmp_path / "root.sexp")
+    _scan(panel, qapp)
+    assert panel.tree.topLevelItemCount() == 2
+
+    panel.tree.setCurrentItem(panel.tree.topLevelItem(0))     # the via group
+    with caplog.at_level(logging.INFO, logger=ACTION_LOGGER_NAME):
+        panel._on_clear_group()
+        _pump(qapp, lambda: (not main_window.connection.long_op_active
+                             and panel.tree.topLevelItemCount() == 1))
+
+    assert adapter.removed == ["v2"], "only the selected group's extra went"
+    journal = [r.getMessage() for r in caplog.records
+               if r.name == ACTION_LOGGER_NAME]
+    assert any("removed via uuid=v2" in line for line in journal)
+    # The track pair is still there — the other group was not touched.
+    assert panel.tree.topLevelItemCount() == 1
+    assert _cell(panel, 0, 0) == "track"
+    assert {t.uuid for t in adapter.get_tracks()} == {"t1", "t2", "t4"}
+
+
+def test_clear_this_group_does_nothing_while_a_check_runs(
+        main_window, qapp, tmp_path, monkeypatch):
+    """Д-1 applies to the group's door too: while the PAGE is busy the button is
+    off and the door refuses, so a check run cannot be interleaved with a removal."""
+    adapter = _board()
+    panel = _panel(main_window, adapter)
+    panel.set_root_path(tmp_path / "root.sexp")
+    _scan(panel, qapp)
+    panel.set_page_busy_provider(lambda: True)
+    try:
+        assert panel.clear_group_button.isEnabled() is False
+        before = panel._active_op
+        panel._on_clear_group()
+        assert panel._active_op is before
+        qapp.processEvents()
+        assert adapter.removed == []
+    finally:
+        panel.set_page_busy_provider(lambda: False)
+
+
+# ── Ч2а: "Highlight on board" ───────────────────────────────────────────────
+
+def test_highlight_marks_the_groups_members_and_selects_nothing(
+        main_window, qapp, monkeypatch):
+    """Ч2а: "Highlight on board" asks the overlay owner for ONE marker per MEMBER
+    of the selected group, at that member's own place (a via's position, a track's
+    MIDDLE), keyed by the member's uuid so a second press replaces instead of
+    stacking — and it never selects the group's copper on the board (the
+    operator's own selection is not ours to move).
+
+    The overlay DRAWING belongs to gui/board_overlay (its own cells cover it), so
+    the owner's `ensure_marker` is a recorder here: what this cell pins is what
+    the panel asks for."""
+    adapter = _board()
+    panel = _panel(main_window, adapter)
+    _scan(panel, qapp)
+
+    asked = []
+
+    def fake_ensure_marker(self, adapter_, key, x_mm, y_mm, **_kwargs):
+        asked.append((key, round(x_mm, 4), round(y_mm, 4)))
+        return "overlay-" + key
+
+    monkeypatch.setattr(overlay_markers.OverlayMarkerOwner, "ensure_marker",
+                        fake_ensure_marker)
+    selected = []
+    # `raising=False`: FakeAdapter has no selection surface at all, and the point is
+    # that our door would USE one if it had it — a recorder proves it never asks.
+    monkeypatch.setattr(adapter, "select_items",
+                        lambda items: selected.append(list(items)),
+                        raising=False)
+
+    panel.tree.setCurrentItem(panel.tree.topLevelItem(0))     # the via group
+    panel._on_highlight()
+    _pump(qapp, lambda: not panel.is_running())
+    assert asked == [("dedupe/v1", 1.0, 2.0), ("dedupe/v2", 1.0, 2.0)]
+
+    asked.clear()
+    panel.tree.setCurrentItem(panel.tree.topLevelItem(1))     # the track group
+    panel._on_highlight()
+    _pump(qapp, lambda: not panel.is_running())
+    assert asked == [("dedupe/t1", 0.5, 0.5), ("dedupe/t2", 0.5, 0.5)]
+
+    assert selected == [], "the panel must never select copper on the board"
+
+
+def test_highlight_does_nothing_without_a_selected_group(main_window, qapp):
+    """The button is off when no group node is selected (an empty scan), and the
+    door refuses from code as well."""
+    adapter = _board(duplicates=False)
+    panel = _panel(main_window, adapter)
+    _scan(panel, qapp)
+    assert panel.tree.topLevelItemCount() == 0
+    assert panel.highlight_button.isEnabled() is False
+    before = panel._active_op
+    panel._on_highlight()
+    assert panel._active_op is before
