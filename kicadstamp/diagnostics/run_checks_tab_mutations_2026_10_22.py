@@ -29,12 +29,16 @@ those decisions and must turn a named cell red:
   M21 the page is announced as a bottom dock again       (gui/dock_hub.py `__init__`, Ч1б)
   M22 "Run all" CLEARS copper before it runs             (gui/docks/checks.py `run_all`, Ч1б)
   M23 the menu's Clear is on with nothing found          (gui/checks_menu.py, Ч1б)
-  M24 cosmetic control (a comment must change nothing)
+  M25 the page's "is anything running?" ignores the panel (gui/docks/checks.py `is_running`)
+  M26 the panel ignores a running CHECK                  (gui/docks/dedupe.py `_update_buttons`)
+  M27 cosmetic control (a comment must change nothing)
 
 M6 and M7 arrived with acceptance Д-3 (23.10.2026); M8–M16 with the page move (Ч1 of
 plan_2026_10_23_checks_tab_top_level, 23.10); M21–M23 with Ч1б of the same plan (the
-copper-duplicates panel moving into the page). The control row has been renumbered three times
-and is always LAST: M6 -> M8 (Д-3) -> M17 (page move) -> M20 (Д-1/Д-2) -> M24 (Ч1б).
+copper-duplicates panel moving into the page); M25/M26 with Д-1 of the Ч1б acceptance (one
+"something runs" answer, asked in BOTH directions). The control row has been renumbered four
+times and is always LAST: M6 -> M8 (Д-3) -> M17 (page move) -> M20 (Д-1/Д-2) -> M24 (Ч1б) ->
+M27 (Д-1 Ч1б).
 
 Safeguards, the same as every harness in this package: a template that matches more than once
 is refused (a silent miss is indistinguishable from a healthy guard — rule 38); a row that
@@ -208,12 +212,26 @@ MUTATIONS = [
      "        self._queue = [check.script for check in CHECKS] + [DEDUPE_ROW]\n",
      ["test_run_all_searches_for_duplicates_and_never_clears"]),
 
+    # Д-1 made the menu reuse the PANEL's own rule (`can_clear` already asks the page), so the
+    # template is that ONE call — a second, hand-written condition here was the drift.
     ("M23 the menu's Clear is on with nothing found", "gui/checks_menu.py",
-     "        clear_dedupe.setEnabled(not page.is_running() and page.dedupe.can_clear())\n",
+     "        clear_dedupe.setEnabled(page.dedupe.can_clear())\n",
      "        clear_dedupe.setEnabled(True)  # MUTATION: offered with nothing to clear\n",
      ["test_the_menu_follows_the_page_and_the_clear_follows_the_panel"]),
 
-    ("M24 cosmetic control (a comment must change nothing)", CHECKS,
+    # Д-1 of the Ч1б acceptance (25.10): ONE "something runs on the page", asked both ways.
+    # Each row silences ONE half, so the half left undone names itself in the failure.
+    ("M25 the page's \"is anything running?\" ignores the panel", CHECKS,
+     "        return self._process is not None or self.dedupe.is_running()\n",
+     "        return self._process is not None  # MUTATION: the panel's work is invisible\n",
+     ["test_a_running_panel_turns_the_check_doors_off"]),
+
+    ("M26 the panel ignores a running CHECK", "gui/docks/dedupe.py",
+     "        interactive = not self.is_blocked()\n",
+     "        interactive = not self._running  # MUTATION: a check run is invisible here\n",
+     ["test_a_running_check_turns_the_panels_doors_off"]),
+
+    ("M27 cosmetic control (a comment must change nothing)", CHECKS,
      "        runnable = self.can_run()\n",
      "        runnable = self.can_run()  # MUTATION: cosmetic\n",
      "survive"),

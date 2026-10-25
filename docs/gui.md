@@ -2870,9 +2870,11 @@ right half is the SELECTED check's view. The checks themselves stay CLI scripts 
 is byte for byte what the terminal prints.
 
 - **Run** runs the SELECTED check, **Run all** queues every check in registry order (the next one
-  starts only after the previous finished). One process at a time: while a check runs, Run, Run
-  all and the menu items are disabled. **Stop** kills the running check and drops whatever the
-  queue had not started yet — the status line says the rest was cancelled;
+  starts only after the previous finished). **One thing at a time on the whole page, in both
+  directions**: while a check runs, Run, Run all, the menu items AND the copper-duplicates
+  panel's Find/Clear are disabled; while that panel searches or clears, the check doors are
+  disabled too (one board, one socket owner, one operator). **Stop** kills the running check and
+  drops whatever the queue had not started yet — the status line says the rest was cancelled;
 - every check keeps its OWN last output and status: selecting another row shows THAT check's
   report without re-running anything, and **Copy** copies the SELECTED check's own output;
 - the row says what the last run said: `·` never run, `✔` clean, `⚠` problems found, `✖`

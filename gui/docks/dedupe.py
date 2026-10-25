@@ -93,9 +93,15 @@ class DedupePage(QWidget):
         self._report_text = ""
         self._active_op = None
         #: True from the moment an operation is started until its UI half runs —
-        #: the panel's own answer to "is something running?" (`can_clear` and the
-        #: menu's Clear item both read it).
+        #: the panel's own answer to "is something running?".
         self._running = False
+        #: "Is anything running on the CHECKS PAGE?" — injected by the page
+        #: (`ChecksPage.__init__`) so the panel can stand down while a check
+        #: process is alive. ONE rule, both directions: the page asks the panel
+        #: (`ChecksPage.is_running`) and the panel asks the page (this provider);
+        #: without it the panel's buttons stayed live during a check run — the
+        #: finding of the Ч1б acceptance (Д-1).
+        self._page_busy = lambda: False
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(4, 4, 4, 4)
@@ -146,14 +152,35 @@ class DedupePage(QWidget):
         """True while a scan or a clear of THIS panel is in flight."""
         return self._running
 
+    def set_page_busy_provider(self, provider) -> None:
+        """Tell the panel how to ask "is anything running on the page?".
+
+        The page owns ONE such question (`ChecksPage.is_running`) and this is the
+        panel's half of it: while a CHECK runs there is one KiCad/socket owner and
+        one operator, so the panel's doors stand down exactly like the page's do
+        during a scan (Д-1 of the Ч1б acceptance)."""
+        self._page_busy = provider
+        self._update_buttons()
+
+    def is_blocked(self) -> bool:
+        """True when the panel must not start anything: its own operation or the
+        page's (a running check)."""
+        return self._running or bool(self._page_busy())
+
     def can_clear(self) -> bool:
         """Everything "Clear" needs — the ONE rule the button and the menu item
-        share: no operation in flight, a root to journal into, and a found list."""
-        return (not self._running) and self.has_groups() \
+        share: nothing in flight (either side), a root to journal into, and a
+        found list."""
+        return (not self.is_blocked()) and self.has_groups() \
             and self._root_path is not None
 
+    def refresh_buttons(self) -> None:
+        """Re-read the page's busy state — the page calls it whenever ITS own
+        run starts or ends, so the panel cannot keep stale enabled buttons."""
+        self._update_buttons()
+
     def _update_buttons(self) -> None:
-        interactive = not self._running
+        interactive = not self.is_blocked()
         self.find_button.setEnabled(interactive)
         self.copy_button.setEnabled(interactive and bool(self._report_text))
         self.clear_button.setEnabled(self.can_clear())
@@ -173,8 +200,9 @@ class DedupePage(QWidget):
 
     def find(self) -> None:
         """THE door every caller uses: the Find button, the Checks menu item and
-        "Run all". A refused start (no board) starts nothing and says so."""
-        if self._running:
+        "Run all". A refused start (no board) starts nothing and says so; a page
+        that is busy (a check running) refuses too, just as its buttons do."""
+        if self.is_blocked():
             return
         if not getattr(self._connection, "is_connected", False):
             show_message(_("Connect to KiCad first."), ERROR_STYLE, logger)
@@ -196,7 +224,7 @@ class DedupePage(QWidget):
         """THE door every caller uses (the Clear button and the menu's "Clear
         copper duplicates"). Belt and braces: the button is disabled in both
         refused states, and a programmatic call must not be able to delete
-        unjournaled copper."""
+        unjournaled copper — or to start while a check runs (Д-1)."""
         if not self.can_clear():
             return
         if not getattr(self._connection, "is_connected", False):

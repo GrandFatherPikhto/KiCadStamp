@@ -120,6 +120,11 @@ class ChecksPage(QWidget):
         self.dedupe = DedupePage(main_window, connection=self._connection)
         self.dedupe.changed.connect(self._on_dedupe_changed)
         self.dedupe.finished_op.connect(self._on_dedupe_finished)
+        # ONE "is anything running?" for the whole page, asked BOTH ways: the page reads the
+        # panel in `is_running()` and the panel reads the page through this provider. Without
+        # the second half its Find/Clear stayed live during a check run (Д-1 of the Ч1б
+        # acceptance: one socket owner, one operator).
+        self.dedupe.set_page_busy_provider(self.is_running)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(4, 4, 4, 4)
@@ -277,6 +282,10 @@ class ChecksPage(QWidget):
         self.run_button.setEnabled(runnable and cli_row)
         self.run_all_button.setEnabled(runnable)
         self.stop_button.setEnabled(self._process is not None)
+        # The panel's own buttons follow the SAME answer: while a check runs they stand down
+        # (its provider asks `is_running`), and this call is what re-reads it on every start
+        # and end of a run.
+        self.dedupe.refresh_buttons()
         self._update_copy()
 
     def _update_copy(self) -> None:

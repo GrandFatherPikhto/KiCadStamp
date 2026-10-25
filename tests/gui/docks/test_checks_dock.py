@@ -690,6 +690,64 @@ def test_the_menu_clear_is_the_panels_own_door_and_appears_only_when_usable(
     assert clear.isEnabled() is False
 
 
+def test_a_running_panel_turns_the_check_doors_off(main_window, qtbot, tmp_path):
+    """Д-1 of the Ч1б acceptance, direction ONE: "something runs on the page" is ONE
+    answer. While the copper panel searches (or clears), Run, Run all and `run()`
+    itself are off — the check doors do not stay live next to a live board read."""
+    from tests.gui.docks.test_dedupe_dock import _board as _duplicate_board
+
+    main_window.connection.board = SimpleNamespace(adapter=_duplicate_board())
+    page = _make_page(main_window, tmp_path)
+    page.set_root_path(_profile(tmp_path, 0))
+    page.dedupe.set_root_path(tmp_path / "root.sexp")
+
+    page.dedupe.find()                  # started, NOT awaited: the panel is busy now
+    assert page.dedupe.is_running() is True
+    assert page.is_running() is True
+    assert page.run_button.isEnabled() is False
+    assert page.run_all_button.isEnabled() is False
+    assert page.can_run() is False
+    page.run(SCRIPT)                    # programmatic: must start NOTHING
+    assert page._process is None
+    assert page._items[DEDUPE_ROW].text(1) == "running…"
+
+    qtbot.waitUntil(lambda: not page.dedupe.is_running(), timeout=20000)
+    assert page.run_button.isEnabled() is True
+    assert page.run_all_button.isEnabled() is True
+
+
+def test_a_running_check_turns_the_panels_doors_off(main_window, qtbot, tmp_path):
+    """Д-1, direction TWO: while a CHECK process is alive the panel's Find and Clear
+    are off and `clear()` does nothing — one socket owner, one operator. The panel
+    keeps a found list across the run, so its Clear comes back when the check ends."""
+    from tests.gui.docks.test_dedupe_dock import _board as _duplicate_board
+
+    main_window.connection.board = SimpleNamespace(adapter=_duplicate_board())
+    page = _make_page(main_window, tmp_path)
+    page.set_root_path(_profile(tmp_path, 99))       # the check that hangs
+    page.dedupe.set_root_path(tmp_path / "root.sexp")
+    with qtbot.waitSignal(page.dedupe.finished_op, timeout=20000):
+        page.dedupe.find()
+    assert page.dedupe.has_groups() is True
+    assert page.dedupe.clear_button.isEnabled() is True
+
+    page.select(SCRIPT)
+    page.run(SCRIPT)
+    qtbot.waitUntil(lambda: page.is_running(), timeout=20000)
+    assert page.dedupe.find_button.isEnabled() is False
+    assert page.dedupe.clear_button.isEnabled() is False
+    assert page.dedupe.can_clear() is False
+    before = page.dedupe._active_op
+    page.dedupe.clear()                 # programmatic: must start NOTHING
+    assert page.dedupe._active_op is before
+
+    with qtbot.waitSignal(page.finished, timeout=15000):
+        page.stop()
+    qtbot.waitUntil(lambda: not page.is_running(), timeout=5000)
+    assert page.dedupe.find_button.isEnabled() is True
+    assert page.dedupe.clear_button.isEnabled() is True
+
+
 def test_the_panel_row_shows_its_own_verdict(main_window, qtbot, tmp_path):
     """The row's glyph is the PANEL's last scan: `·` before it, `⚠ N groups` with duplicates,
     `✔` on a clean board — never a CLI exit code."""

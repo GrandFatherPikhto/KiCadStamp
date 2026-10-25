@@ -64,12 +64,14 @@ def build_checks_menu(main_window, page):
 
     def sync(*_args) -> None:
         """Two rules (see the module docstring): the runs follow the PAGE, the clear
-        follows the PANEL."""
+        follows the PANEL — and the PANEL's own rule already includes "nothing runs on
+        the page" (`DedupePage.can_clear` asks the page through its busy provider), so
+        the menu item and the panel's Clear button can never disagree (Д-1)."""
         runnable = page.can_run()
         for action in items.values():
             action.setEnabled(runnable)
         run_all.setEnabled(runnable)
-        clear_dedupe.setEnabled(not page.is_running() and page.dedupe.can_clear())
+        clear_dedupe.setEnabled(page.dedupe.can_clear())
 
     page.state_changed.connect(sync)
     page.dedupe.changed.connect(sync)
