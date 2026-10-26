@@ -47,7 +47,8 @@ those decisions and must turn a named cell red:
   M42 a rescan steals another row's selection             (gui/docks/checks.py `_rebuild_dedupe_groups`)
   M43 the pipe decoder is not wrapped for newlines        (gui/docks/checks.py `new_output_decoder`)
   M44 the page arms a bare decoder                        (gui/docks/checks.py `_launch`)
-  M45 cosmetic control (a comment must change nothing)
+  M46 kicad_common.json is written at the Linux literal   (tests/checks/test_check_footprints_lib_dir.py)
+  M47 cosmetic control (a comment must change nothing)
 
 M6 and M7 arrived with acceptance Д-3 (23.10.2026); M8–M16 with the page move (Ч1 of
 plan_2026_10_23_checks_tab_top_level, 23.10); M21–M23 with Ч1б of the same plan (the
@@ -61,10 +62,11 @@ each (Д-3: "remove the namespace call from BOTH clearing workers must die"). M3
 rows Д-4 of the same acceptance asked for — mutants that SURVIVED the Д-1/Д-2 cells because the
 Д-3 race hid them (a 1-error run counted as "killed") — plus one row for the "a rescan must not
 steal another row's selection" rule that replaced the dead `show_row()` call. M43/M44 are Д-5(b):
-the newline-translating decoder and the fact that `_launch` arms IT. The control row has been
-renumbered eight times and is always LAST: M6 -> M8 (Д-3) -> M17 (page move) ->
-M20 (Д-1/Д-2) -> M24 (Ч1б) -> M27 (Д-1 Ч1б) -> M32 (Ч2а) -> M36 (Д-1/Д-2 Ч2а) ->
-M37 (Д-3 Ч2а) -> M45 (Д-4/Д-5 Ч2а).
+the newline-translating decoder and the fact that `_launch` arms IT. M46 is Д-6: that row lives in
+`tests/checks/test_check_footprints_lib_dir.py` because the CELL does — the file is in GUARDS for
+its sake alone. The control row has been renumbered nine times and is always LAST:
+M6 -> M8 (Д-3) -> M17 (page move) -> M20 (Д-1/Д-2) -> M24 (Ч1б) -> M27 (Д-1 Ч1б) ->
+M32 (Ч2а) -> M36 (Д-1/Д-2 Ч2а) -> M37 (Д-3 Ч2а) -> M45 (Д-4/Д-5 Ч2а) -> M47 (Д-6).
 
 Safeguards, the same as every harness in this package: a template that matches more than once
 is refused (a silent miss is indistinguishable from a healthy guard — rule 38); a row that
@@ -87,7 +89,8 @@ CHECKS = "gui/docks/checks.py"
 REGISTRY = "gui/checks_registry.py"
 
 GUARDS = ("tests/gui/docks/test_checks_dock.py tests/gui/test_checks_registry.py "
-          "tests/gui/docks/test_dedupe_dock.py")
+          "tests/gui/docks/test_dedupe_dock.py "
+          "tests/checks/test_check_footprints_lib_dir.py")
 
 MUTATIONS = [
     ("M1 every exit code looks clean", CHECKS,
@@ -373,7 +376,15 @@ MUTATIONS = [
      "  # MUTATION: the wrapper is never used\n",
      ["test_a_script_that_prints_crlf_reaches_the_pane_and_copy_as_lf"]),
 
-    ("M45 cosmetic control (a comment must change nothing)", CHECKS,
+    # Д-6 (26.10): the check's OWN cells must write kicad_common.json where KiCad reads it.
+    ("M46 the common json is written at the Linux literal",
+     "tests/checks/test_check_footprints_lib_dir.py",
+     "    directory = check._kicad_settings_dir()\n",
+     "    directory = Path.home() / \".config\" / \"kicad\" / \"10.0\""
+     "  # MUTATION: the Linux shape always\n",
+     ["test_the_kicad_common_json_variable_is_used_when_the_environment_has_none"]),
+
+    ("M47 cosmetic control (a comment must change nothing)", CHECKS,
      "        runnable = self.can_run()\n",
      "        runnable = self.can_run()  # MUTATION: cosmetic\n",
      "survive"),

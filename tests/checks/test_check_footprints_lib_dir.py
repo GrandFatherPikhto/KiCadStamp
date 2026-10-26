@@ -13,8 +13,10 @@ reach ANY library must refuse out loud instead of reporting nothing:
   4. none of the above → exit 2 and ONE line naming every place that was looked at.
 
 No KiCad and no library tree is needed: the cells build the directories they need under
-`tmp_path`, and an autouse fixture points `HOME` at `tmp_path` and unsets the variable, so a
-developer's own environment or `kicad_common.json` can never decide a cell.
+`tmp_path`, and an autouse fixture isolates EVERY place KiCad's settings are looked for — the
+home directory (both of its names) and `%APPDATA%` — and unsets the variable, so a developer's
+own environment or `kicad_common.json` can never decide a cell. Where a cell writes that file it
+asks `_kicad_settings_dir()` for the directory, so it writes where KiCad would read.
 """
 import json
 import sys
@@ -28,10 +30,13 @@ from tools import check_footprints_vs_library as check
 
 @pytest.fixture(autouse=True)
 def _isolated_environment(tmp_path, monkeypatch):
-    """No ambient library may leak in: the home directory decides where kicad_common.json is
-    looked for — BOTH of its names, because `Path.home()` reads `USERPROFILE` on Windows
-    (Д-5(a) of the Ч2а acceptance: HOME alone was red on `windows-latest`)."""
+    """No ambient library may leak in. BOTH halves of "where KiCad keeps its settings" are
+    isolated: the home directory — BOTH of its names, because `Path.home()` reads
+    `USERPROFILE` on Windows (Д-5(a) of the Ч2а acceptance) — and `%APPDATA%`, which
+    `_kicad_settings_dir()` reads on win32, so the runner's real one must never decide a cell
+    (Д-6)."""
     monkeypatch.delenv("KICAD10_FOOTPRINT_DIR", raising=False)
+    monkeypatch.setenv("APPDATA", str(tmp_path / "appdata"))
     return isolate_home(monkeypatch, tmp_path / "home")
 
 
@@ -41,10 +46,16 @@ def _dir(tmp_path, name):
     return path
 
 
-def _write_common_json(home, value):
-    cfg = home / ".config" / "kicad" / "10.0"
-    cfg.mkdir(parents=True)
-    (cfg / "kicad_common.json").write_text(
+def _write_common_json(value):
+    """Put `KICAD10_FOOTPRINT_DIR` into the user's kicad_common.json — in the directory
+    `_kicad_settings_dir()` names, so the file lands where KiCad READS it on this platform.
+
+    Д-6 of the Ч2а acceptance: this used to build `home/.config/kicad/10.0` by hand, which is
+    the Linux shape only. Under win32 the settings directory is `%APPDATA%\\kicad\\10.0`, so the
+    file was written where nothing looks for it — green here, red on `windows-latest`."""
+    directory = check._kicad_settings_dir()
+    directory.mkdir(parents=True, exist_ok=True)
+    (directory / "kicad_common.json").write_text(
         json.dumps({"environment": {"vars": {"KICAD10_FOOTPRINT_DIR": str(value)}}}),
         encoding="utf-8")
 
@@ -157,15 +168,23 @@ def test_the_environment_variable_beats_the_platform_default(tmp_path, monkeypat
     assert (path, refusal) == (from_env, "")
 
 
-def test_the_kicad_common_json_variable_is_used_when_the_environment_has_none(tmp_path,
-                                                                            _isolated_environment):
-    """2b — the same variable inside kicad_common.json, which is where KiCad stores it."""
-    from_json = _dir(tmp_path, "from_json")
-    _write_common_json(_isolated_environment, from_json)
+@pytest.mark.parametrize("platform", ["linux", "win32", "darwin"])
+def test_the_kicad_common_json_variable_is_used_when_the_environment_has_none(
+        tmp_path, monkeypatch, platform):
+    """2b — the same variable inside kicad_common.json, which is where KiCad stores it — in the
+    directory KICAD ITSELF uses ON THAT PLATFORM.
+
+    Д-6 of the Ч2а acceptance: the cell used to write `home/.config/kicad/10.0`, the Linux
+    shape, while asking the win32 branch for its answer. Parametrized over all three platforms,
+    with the file written through `_kicad_settings_dir()`, a Linux literal can no longer pass
+    for a Windows answer."""
+    from_json = _dir(tmp_path, f"from_json_{platform}")
+    _settings_dir(monkeypatch, tmp_path, platform)     # platform + home + APPDATA in place
+    _write_common_json(from_json)
 
     path, refusal = check._resolve_lib_dir([], candidates=[_dir(tmp_path, "platform")])
 
-    assert (path, refusal) == (from_json, "")
+    assert (path, refusal) == (from_json, ""), platform
 
 
 def test_the_platform_default_is_the_last_resort(tmp_path):
