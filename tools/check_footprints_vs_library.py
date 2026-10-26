@@ -23,6 +23,10 @@ import os
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from kicadstamp import check_report        # noqa: E402
+
 
 def _parse(text: str):
     """Minimal s-expression reader: nested lists of str atoms (quotes stripped)."""
@@ -242,6 +246,7 @@ def _board_of(target: Path):
 
 
 def main(argv):
+    json_path = check_report.pop_option(argv, "--json")
     if not argv:
         print(__doc__)
         return 2
@@ -251,6 +256,11 @@ def main(argv):
     lib_dir, refusal = _resolve_lib_dir(argv)
     if lib_dir is None:
         print(refusal)
+        if json_path:
+            check_report.write(json_path, check_report.report(
+                "check_footprints_vs_library.py",
+                result={"exit": 2, "problems": 0, "ok": 0, "skipped": 0, "not_checked": 0},
+                sections=[], refusal=refusal))
         return 2
     show_all = "--all" in argv
     libs = _lib_dirs(board_path, lib_dir)
@@ -258,6 +268,8 @@ def main(argv):
     fps = _children(board, "footprint")
     print(f"board {board_path.name}: {len(fps)} footprint(s); library {lib_dir}")
     bad = missing = 0
+    found = {"footprints": [], "fields": []}
+    notes = []
     cache = {}
     generators = {}   # ref -> the library's KiLib_Generator value
     for fp in fps:
@@ -266,8 +278,12 @@ def main(argv):
         lib, _, name = lib_id.partition(":")
         mod = libs.get(lib, lib_dir / f"{lib}.pretty") / f"{name}.kicad_mod"
         if not mod.is_file():
-            print(f"  {ref:6} {lib_id}: library copy not found — not checked")
+            line = f"  {ref:6} {lib_id}: library copy not found — not checked"
+            print(line)
             missing += 1
+            found["footprints"].append(check_report.problem(
+                "LIB_MISSING", line, key=f"LIB|{ref}|{lib_id}", refs=[ref],
+                where={"ref": ref, "library": lib_id}))
             continue
         if mod not in cache:
             lib_fp = _parse(mod.read_text(encoding="utf-8"))
@@ -281,9 +297,16 @@ def main(argv):
             problems.append(f"fp_poly points {got[1]} vs library {want[1]}")
         if problems:
             bad += 1
-            print(f"  {ref:6} {lib_id}: " + "; ".join(problems))
+            line = f"  {ref:6} {lib_id}: " + "; ".join(problems)
+            print(line)
+            found["footprints"].append(check_report.problem(
+                "MODELS" if got[0] < want[0] else "POLY", line,
+                key=f"DMG|{ref}|" + ("|".join(problems)), refs=[ref],
+                where={"ref": ref, "library": lib_id}))
         elif show_all:
-            print(f"  {ref:6} {lib_id}: ok (models {got[0]}, fp_poly {got[1]})")
+            line = f"  {ref:6} {lib_id}: ok (models {got[0]}, fp_poly {got[1]})"
+            print(line)
+            notes.append(check_report.note("INFO", line))
     # Bug 4: "Update Footprints from Library" renames a user field to the library's
     # KiLib_Generator (keeping our value). What matters to KiCadStamp is a Role/Cluster that is
     # GONE; a KiLib_Generator next to intact Role/Cluster is only the trace of such an update.
@@ -306,21 +329,44 @@ def main(argv):
               f"wrong; run F8 (update fields from schematic) BEFORE any placement:")
         for r in sorted(lost):
             p = props[r]
-            print(f"  {r:6} Role={p.get('Role', '—')!s:16} Cluster={p.get('Cluster', '—')!s:22} "
-                  f"KiLib_Generator={p.get('KiLib_Generator', '—')}")
+            line = (f"  {r:6} Role={p.get('Role', '—')!s:16} Cluster={p.get('Cluster', '—')!s:22} "
+                    f"KiLib_Generator={p.get('KiLib_Generator', '—')}")
+            print(line)
+            found["fields"].append(check_report.problem(
+                "FIELDS_LOST", line, key=f"LOST|{r}", refs=[r],
+                where={"ref": r, "role": p.get("Role"), "cluster": p.get("Cluster")}))
         bad += len(lost)
     if renamed:
         print(f"FIELD RENAMED: {len(renamed)} footprint(s) carry KiLib_Generator with a value that is not the "
               f"library's — some other field of ours was renamed; run F8:")
         for r in sorted(renamed):
-            print(f"  {r:6} KiLib_Generator={props[r]['KiLib_Generator']!s:22} library has {generators[r]}")
+            line = (f"  {r:6} KiLib_Generator={props[r]['KiLib_Generator']!s:22} "
+                    f"library has {generators[r]}")
+            print(line)
+            found["fields"].append(check_report.problem(
+                "FIELD_RENAMED", line, key=f"RENAMED|{r}", refs=[r],
+                where={"ref": r, "library": generators[r]}))
         bad += len(renamed)
     if not lost:
-        print(f"fields: ok ({len(with_rc)} footprint(s) with Role and Cluster)"
-              + (f"; {len(traced)} also carry KiLib_Generator — a trace of Update Footprints from "
-                 f"Library, harmless while Role/Cluster are intact" if traced else ""))
+        line = (f"fields: ok ({len(with_rc)} footprint(s) with Role and Cluster)"
+                + (f"; {len(traced)} also carry KiLib_Generator — a trace of Update Footprints from "
+                   f"Library, harmless while Role/Cluster are intact" if traced else ""))
+        print(line)
+        notes.append(check_report.note("INFO", line))
     print(f"result: {len(fps) - bad - missing} ok, {bad} damaged, {missing} not checked")
-    return 1 if bad else 0
+    exit_code = 1 if bad else 0
+    if json_path:
+        every = [entry for entries in found.values() for entry in entries]
+        check_report.write(json_path, check_report.report(
+            "check_footprints_vs_library.py",
+            result={"exit": exit_code, "problems": bad,
+                    "ok": len(fps) - bad - missing, "skipped": 0, "not_checked": missing},
+            sections=[check_report.section("footprints", "Footprints", found["footprints"]),
+                      check_report.section("fields", "Fields", found["fields"])],
+            changes_=check_report.changes("check_footprints_vs_library.py",
+                                          board_path.stem, every),
+            profile=None, board=board_path.name, notes=notes))
+    return exit_code
 
 
 if __name__ == "__main__":

@@ -268,6 +268,37 @@ result: 3 ok, 9 damaged, 0 not checked
 
 ---
 
+## `--json PATH`: тот же прогон, для машины
+
+Каждая проверка принимает `--json PATH` (включая `merge_duplicate_mounts.py`). Человеческий отчёт
+на stdout не меняется ни на байт, а машинный пишется за ТОТ ЖЕ прогон — одно чтение платы, одна
+загрузка конфига (форма живёт в одном месте: `kicadstamp/check_report.py`).
+
+```bash
+.venv/bin/python tools/check_placement.py profiles/3ch-awg-tia-v103 --json /tmp/r.json
+```
+
+* `schema` — версия формы; читатель, который этого числа не знает, обязан сказать об этом;
+* `script`, `when`, `profile`, `board`;
+* `result` — `exit` (ровно тот код, что вернула команда), `problems`, `ok`, `skipped`,
+  `not_checked` (`ok` = `null` там, где проверка его не считает);
+* `sections[]` — все разделы, которые прогон выполнил, в порядке печати, у каждого `problems[]`
+  (пустой = «проверено, чисто»); панель пустые разделы не показывает, сводка их перечисляет;
+* проблема — `{key, kind, text, refs[], where, to_node}`: `text` — та самая строка stdout,
+  `kind` — из закрытого словаря (`MISPLACED`, `TAKEN`, `SHEET`, `ABSENT`, `MODELS`, `FIELDS_LOST`,
+  `MERGE`, …), `refs` — части, которые можно подсветить, `to_node` `{tree, node, cell}` — куда
+  ведёт «К ноде в дереве», и заполняется только когда проверка это ДЕЙСТВИТЕЛЬНО знает;
+* `changes` — NEW/GONE по тому же `key` против прошлого прогона того же профиля
+  (`~/.local/state/kicadstamp/<script>_<profile>.json`, на первом прогоне `baseline: true`).
+  `check_placement.py` раньше держал `placement_check_<profile>.json` — этот файл всё ещё ЧИТАЕТСЯ,
+  поэтому первый прогон после переезда не объявляет всё новым. У сухого прогона merge `changes`
+  НЕТ (нечего сравнивать), зато есть `applied` — `false` для сухого прогона или отказа, `true`
+  после успешного `--write` — и `refusal` с причиной;
+* `notes[]` — строки `SKIPPED` / `NOT_CHECKED` / `INFO`, которые не являются проблемами.
+
+Правило: поменял находки проверки — поменяй её `kind` ЗДЕСЬ и в `check_report.KINDS`; вкладка
+Checks переключается по `kind`, а не по прозе.
+
 ## Связанное
 
 * `tools/kicad_bugs/` — самостоятельные скрипты на kicad-python, воспроизводящие баги KiCad и

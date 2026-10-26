@@ -267,6 +267,37 @@ footprint library directory).
 
 ---
 
+## `--json PATH`: the same run, for a machine
+
+Every check accepts `--json PATH` (`merge_duplicate_mounts.py` included). The HUMAN report on
+stdout does not change by one byte, and the machine report is written in the SAME run — one
+board read, one config load (`kicadstamp/check_report.py` is the one place the shape lives).
+
+```bash
+.venv/bin/python tools/check_placement.py profiles/3ch-awg-tia-v103 --json /tmp/r.json
+```
+
+* `schema` — the shape version; a reader that does not know the number must say so;
+* `script`, `when`, `profile`, `board`;
+* `result` — `exit` (the very code the command returned), `problems`, `ok`, `skipped`,
+  `not_checked` (`ok` is `null` where a check does not count it);
+* `sections[]` — every section the run performed, in print order, each with `problems[]`
+  (empty means "checked, clean"); the panel hides empty sections, the summary still lists them;
+* a problem is `{key, kind, text, refs[], where, to_node}`: `text` is the line stdout showed,
+  `kind` is one of a closed vocabulary (`MISPLACED`, `TAKEN`, `SHEET`, `ABSENT`, `MODELS`,
+  `FIELDS_LOST`, `MERGE`, …), `refs` are the parts the overlay may mark, `to_node`
+  `{tree, node, cell}` is where "to the node" goes — filled only when the check really knows;
+* `changes` — NEW/GONE by that same `key` against the previous run of the same profile
+  (`~/.local/state/kicadstamp/<script>_<profile>.json`, `baseline: true` on the first run).
+  `check_placement.py` used to keep `placement_check_<profile>.json`: that file is still READ,
+  so the first run after the move does not report everything as new. A dry-run merge has NO
+  `changes` (nothing to compare), and instead carries `applied` — `false` for a dry run or a
+  refusal, `true` after a successful `--write` — plus `refusal` with the reason;
+* `notes[]` — `SKIPPED` / `NOT_CHECKED` / `INFO` lines that are not problems.
+
+Rule: change a check's findings → change its `kind`s HERE and in `check_report.KINDS`; the
+Checks tab switches on `kind`, never on the prose.
+
 ## Related
 
 * `tools/kicad_bugs/` — standalone kicad-python scripts that reproduce the upstream KiCad and

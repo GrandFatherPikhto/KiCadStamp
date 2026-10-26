@@ -75,15 +75,20 @@ _COMPONENTS = [_component("A", 0.0, 0.0), _component("B", 10.0, 0.0),
                _component("C", 20.0, 0.0)]
 
 
-def _run(tmp_path, monkeypatch, capsys, footprints, board_file="Test02.kicad_pcb"):
-    """Run the real `main()` on a fake board; return (exit code, stdout)."""
+def _run(tmp_path, monkeypatch, capsys, footprints, board_file="Test02.kicad_pcb",
+         extra_args=(), home_name="home"):
+    """Run the real `main()` on a fake board; return (exit code, stdout).
+
+    `extra_args` is how the `--json` cells reuse THIS fixture instead of copying it, and
+    `home_name` is how they ask for a SECOND, empty home (two runs that must each look like
+    "the first run" — the NEW/GONE baseline lives under the home directory)."""
     profile = tmp_path / "prof"
-    profile.mkdir()
+    profile.mkdir(exist_ok=True)           # the `--json` cells run this fixture twice
     sexp = profile / "config.sexp"
     # The FILE branch of main() (a path to the profile's .sexp) is the one the GUI passes.
     sexp.write_text("(kicadstamp-config)\n", encoding="utf-8")
     copy_dir = tmp_path / "copy"           # `_load_copy`'s temp dir — main() rmtree's it, so it
-    copy_dir.mkdir()                       # must NEVER be tmp_path itself
+    copy_dir.mkdir(exist_ok=True)          # must NEVER be tmp_path itself
     cfg = SimpleNamespace(entities=[SimpleNamespace(cluster="CL", cell="cell1")],
                           cells={"cell1": SimpleNamespace(components=_COMPONENTS)})
     ctx = SimpleNamespace(sheet_names={}, root_sheet="Test02.kicad_sch")
@@ -97,14 +102,19 @@ def _run(tmp_path, monkeypatch, capsys, footprints, board_file="Test02.kicad_pcb
     # BOTH names of the home directory: `_compare_with_last` remembers itself under
     # `~/.local/state/...`, and `Path.home()` reads USERPROFILE on Windows — with HOME alone
     # this cell wrote into the runner's real profile and failed on `windows-latest` (Д-5(a)).
-    isolate_home(monkeypatch, tmp_path / "home")
+    isolate_home(monkeypatch, tmp_path / home_name)
 
-    code = check_placement.main([str(sexp)])
+    code = check_placement.main([str(sexp), *extra_args])
     return code, capsys.readouterr().out
 
 
 def test_a_clean_board_exits_zero_and_remembers_the_run(tmp_path, monkeypatch, capsys):
-    """0 — every role on its slot. The run also leaves the NEW/GONE baseline, under HOME."""
+    """0 — every role on its slot. The run also leaves the NEW/GONE baseline, under HOME.
+
+    REPLACED (Ч2б-1) the file name this cell used to expect: `placement_check_<profile>.json`
+    is now `check_placement_<profile>.json` — the four checks share ONE state directory and
+    ONE naming rule (`kicadstamp.check_report.state_path`), and the old file is still READ
+    (never written) so the first run after the move does not report everything as NEW."""
     footprints = [_Fp("R1", "A", "CL", 100.0, 100.0),
                   _Fp("R2", "B", "CL", 110.0, 100.0),
                   _Fp("R3", "C", "CL", 120.0, 100.0)]
@@ -113,7 +123,8 @@ def test_a_clean_board_exits_zero_and_remembers_the_run(tmp_path, monkeypatch, c
 
     assert code == 0, out
     assert "with problems: 0" in out, out
-    baseline = tmp_path / "home" / ".local" / "state" / "kicadstamp" / "placement_check_prof.json"
+    baseline = (tmp_path / "home" / ".local" / "state" / "kicadstamp"
+                / "check_placement_prof.json")
     assert baseline.is_file(), "a real run must remember itself (the GUI tab shares this file)"
 
 

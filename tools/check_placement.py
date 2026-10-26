@@ -35,7 +35,33 @@ from kicadstamp.cell_frame import (RIGID_TOLERANCE_MM, fit_cell_frame,  # noqa: 
 from kicadstamp.config import load_config                            # noqa: E402
 from kicadstamp.constants import DEFAULT_TIMEOUT_MS                  # noqa: E402
 from kicadstamp.sheet_names import resolve_sheet_path_names          # noqa: E402
+from kicadstamp import check_report                                  # noqa: E402
 from kicadstamp.utils.units import MM                                # noqa: E402
+
+
+def _instance_nodes(cfg) -> dict:
+    """(cluster, sheet) -> {"tree", "node", "cell"} for a tree node anchored there.
+
+    The "to the node" address of a placement problem: an INSTANCE is (Cluster, Sheet) and
+    a tree node's anchor carries the same pair. TWO nodes on one pair is not an answer —
+    the panel would send the operator to a guess — so such a pair is simply absent
+    (decision of Denis, 26.10.2026)."""
+    found = defaultdict(list)
+
+    def walk(tree_name, nodes):
+        for node in nodes:
+            anchor = getattr(node, "anchor", None)
+            if anchor is not None and getattr(anchor, "role", None):
+                cluster = getattr(anchor, "anchor_cluster", None)
+                sheet = getattr(anchor, "anchor_sheet", None)
+                if cluster:
+                    found[(cluster, sheet)].append(
+                        {"tree": tree_name, "node": node.ref, "cell": None})
+            walk(tree_name, getattr(node, "children", None) or [])
+
+    for tree in getattr(cfg, "trees", None) or []:
+        walk(tree.name, getattr(tree, "nodes", None) or [])
+    return {pair: entries[0] for pair, entries in found.items() if len(entries) == 1}
 
 
 def _config_name(profile: Path) -> str:
@@ -102,6 +128,7 @@ def _consensus(slots, fps):
 
 
 def main(argv):
+    json_path = check_report.pop_option(argv, "--json")
     target = Path(argv[0]).resolve()
     if target.is_file():                 # a path to the profile's .sexp
         profile, cfg_name = target.parent, target.name
@@ -220,12 +247,18 @@ def main(argv):
         return best
 
     issues = {}      # stable key -> one-line text: what the NEXT run is compared against
+    instance_problems, slot_problems, notes = [], [], []
+    nodes_of = _instance_nodes(cfg)
     bad = [r for r in report if r[6] or r[8] or r[9]]
     print(f"instances checked: {len(report)}; clean: {len(report) - len(bad)}; with problems: {len(bad)}; "
           f"skipped: {len(skipped)}\n")
     for inst, cell_name, n, ninl, rot, mirror, mis, missing, dups, ang, foreign, trusted in bad:
         print(f"[{inst[0]} @ {inst[1]}] cell {cell_name!r}: {ninl}/{n} roles agree "
               f"(rot {rot:+.0f}, mirror {mirror}){'' if trusted else '  — FRAME NOT TRUSTED'}")
+        where = {"cluster": inst[0], "sheet": inst[1], "cell": cell_name}
+        to_node = nodes_of.get((inst[0], inst[1]))
+        if to_node is not None:
+            to_node = dict(to_node, cell=cell_name)
         for r, ref, live, want, d in mis:
             tag = "PAIR?" if not trusted else "MISPLACED"
             line = (f"   {tag} {r} ({ref}) at ({live[0]:.3f}, {live[1]:.3f}), its slot ({want[0]:.3f}, "
@@ -236,19 +269,35 @@ def main(argv):
                 line += (f"\n      → stands on slot {orole} of [{oinst[0]} @ {oinst[1]}] ({d2:.3f} mm)"
                          f"{'' if owner is None else f', whose own part is {owner}'}")
             print(line)
-            issues[f"MIS|{ref}|{live[0]:.2f}|{live[1]:.2f}"] = (
+            key = f"MIS|{ref}|{live[0]:.2f}|{live[1]:.2f}"
+            issues[key] = (
                 f"{ref} ({r} of {inst[0]} @ {inst[1]}) at ({live[0]:.3f}, {live[1]:.3f}), {d:.3f} mm off its slot"
                 + ("" if not hit else f", on slot {hit[2]} of {hit[1][0]}"))
+            instance_problems.append(check_report.problem(
+                "MISPLACED" if trusted else "PAIR", line, key=key, refs=[ref],
+                where=where, to_node=to_node))
         for r, refs in dups:
-            print(f"   DUPLICATE role {r}: {', '.join(refs)}")
-            issues[f"DUP|{inst[0]}|{inst[1]}|{r}"] = f"duplicate role {r} in {inst[0]} @ {inst[1]}: {', '.join(refs)}"
+            line = f"   DUPLICATE role {r}: {', '.join(refs)}"
+            print(line)
+            key = f"DUP|{inst[0]}|{inst[1]}|{r}"
+            issues[key] = f"duplicate role {r} in {inst[0]} @ {inst[1]}: {', '.join(refs)}"
+            instance_problems.append(check_report.problem(
+                "DUPLICATE", line, key=key, refs=refs, where=where, to_node=to_node))
         for r, ref, d in ang:
-            print(f"   TURNED {r} ({ref}) by {d:+.1f} deg relative to the cell")
-            issues[f"TURN|{ref}|{d:.0f}"] = f"{ref} ({r} of {inst[0]}) turned {d:+.1f} deg"
+            line = f"   TURNED {r} ({ref}) by {d:+.1f} deg relative to the cell"
+            print(line)
+            key = f"TURN|{ref}|{d:.0f}"
+            issues[key] = f"{ref} ({r} of {inst[0]}) turned {d:+.1f} deg"
+            instance_problems.append(check_report.problem(
+                "TURNED", line, key=key, refs=[ref], where=where, to_node=to_node))
         if missing:
-            print(f"   (absent roles: {', '.join(missing)})")
+            line = f"   (absent roles: {', '.join(missing)})"
+            print(line)
+            notes.append(check_report.note("INFO", line))
         if foreign:
-            print(f"   (roles not in the cell: {', '.join(foreign)})")
+            line = f"   (roles not in the cell: {', '.join(foreign)})"
+            print(line)
+            notes.append(check_report.note("INFO", line))
     # parts of instances with an EMPTY slot occupied by someone else
     print("\n--- empty slots taken by another cluster's part ---")
     owners = {}
@@ -261,50 +310,69 @@ def main(argv):
         for fp in fps:
             if math.hypot(fp.position.x / MM - sx, fp.position.y / MM - sy) <= slot_mm:
                 r, c, s = info[fp.ref]
-                print(f"   slot {role} of [{inst[0]} @ {inst[1]}] is empty; {fp.ref} ({r} of {c} @ {s}) stands there")
-                issues[f"TAKEN|{inst[0]}|{inst[1]}|{role}|{fp.ref}"] = (
+                line = f"   slot {role} of [{inst[0]} @ {inst[1]}] is empty; {fp.ref} ({r} of {c} @ {s}) stands there"
+                print(line)
+                key = f"TAKEN|{inst[0]}|{inst[1]}|{role}|{fp.ref}"
+                issues[key] = (
                     f"{fp.ref} ({r} of {c}) stands on the empty slot {role} of {inst[0]} @ {inst[1]}")
+                slot_problems.append(check_report.problem(
+                    "TAKEN", line, key=key, refs=[fp.ref],
+                    where={"cluster": inst[0], "sheet": inst[1], "role": role},
+                    to_node=nodes_of.get((inst[0], inst[1]))))
                 taken += 1
     if not taken:
         print("   none")
     if skipped:
         print("\n--- skipped instances ---")
         for inst, why in skipped:
-            print(f"   [{inst[0]} @ {inst[1]}]: {why}")
+            line = f"   [{inst[0]} @ {inst[1]}]: {why}"
+            print(line)
+            notes.append(check_report.note("SKIPPED", line))
+    changes_data = None
     if "--plan" not in argv:
-        _compare_with_last(profile.name, issues)
+        changes_data = _compare_with_last(profile.name, issues)
     # The report stays the truth; the CODE only says whether there is anything in it, so a
     # caller (a shell `&&` chain, the GUI's Checks tab) can colour/act on it without parsing
     # text. Same 0/1/2 vocabulary as check_config_records.py and check_footprints_vs_library.py;
     # a --plan run reports problems the same way (it only skips the NEW/GONE comparison).
-    return 1 if issues else 0
+    exit_code = 1 if issues else 0
+    if json_path:
+        # The machine report is written in the SAME run: one board read, and the text above
+        # is not touched (Ч2б-1 of plan_2026_10_23_checks_tab_top_level).
+        check_report.write(json_path, check_report.report(
+            "check_placement.py",
+            result={"exit": exit_code, "problems": len(issues),
+                    "ok": len(report) - len(bad), "skipped": len(skipped), "not_checked": 0},
+            sections=[check_report.section("instances", "Instances", instance_problems),
+                      check_report.section("empty_slots", "Empty slots", slot_problems)],
+            changes_=changes_data, profile=profile / cfg_name, board=board, notes=notes))
+    return exit_code
 
 
 def _compare_with_last(name, issues):
     """NEW / GONE against the previous run of this profile, then remember this run.
-    Kept outside profiles/ (machine state, never Syncthing): ~/.local/state/kicadstamp/."""
-    import json
-    import time
-    state = Path.home() / ".local" / "state" / "kicadstamp" / f"placement_check_{name}.json"
+    Kept outside profiles/ (machine state, never Syncthing): ~/.local/state/kicadstamp/.
+
+    The comparison itself lives in `kicadstamp.check_report.changes()` — the ONE place the
+    four checks share (Ч2б-1) — and the SAME dict goes into the `--json` report, so the
+    panel and the terminal can never disagree about what is new. The old file name
+    (`placement_check_<profile>.json`) is still read when the new one does not exist yet."""
+    data = check_report.changes(
+        "check_placement.py", name,
+        [{"key": key, "text": text} for key, text in issues.items()])
     print("\n=== CHANGES since the last run ===")
-    if state.is_file():
-        last = json.loads(state.read_text(encoding="utf-8"))
-        old = last.get("issues", {})
-        new_keys = [k for k in issues if k not in old]
-        gone_keys = [k for k in old if k not in issues]
-        print(f"   last run: {last.get('when', '?')}")
-        if not new_keys and not gone_keys:
+    if not data["baseline"]:
+        print(f"   last run: {data['when'] or '?'}")
+        if not data["new"] and not data["gone"]:
             print("   nothing changed")
-        for k in new_keys:
-            print(f"   NEW   {issues[k]}")
-        for k in gone_keys:
-            print(f"   GONE  {old[k]}")
+        for entry in data["new"]:
+            print(f"   NEW   {entry['text']}")
+        for entry in data["gone"]:
+            print(f"   GONE  {entry['text']}")
     else:
         print("   first run — this result is the baseline")
     print(f"   now: {len(issues)} problem(s) on the board")
-    state.parent.mkdir(parents=True, exist_ok=True)
-    state.write_text(json.dumps({"when": time.strftime("%Y-%m-%d %H:%M:%S"), "issues": issues},
-                                ensure_ascii=False, indent=1), encoding="utf-8")
+    return data
 
 
 if __name__ == "__main__":

@@ -28,8 +28,12 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+# `tools/` itself too — see the same note in check_config_records.py (a cell imports this
+# module, and the sibling `check_placement` is then not on sys.path).
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from check_placement import _config_name, _load_copy          # noqa: E402
+from kicadstamp import check_report                            # noqa: E402
 from kicadstamp.config_working_set import graph_root           # noqa: E402
 from kicadstamp.config_writer import read_data, write_data    # noqa: E402
 from kicadstamp.utils.safe_write import backup_file           # noqa: E402
@@ -81,13 +85,34 @@ def _prune_empty_children(nodes: list):
             _prune_empty_children(node.get("children", []))
 
 
+def _write_json(json_path, *, exit_code, found, applied, refusal, cfg_path, notes=()):
+    """Write the machine report ONCE, at the END — the decision of Denis (26.10.2026): a
+    dry run describes what WOULD happen (`applied: false`), a successful `--write` says
+    `applied: true`, and a refusal says `false` plus the reason. No NEW/GONE here: this
+    tool is about what stands in the config right now."""
+    if not json_path:
+        return
+    every = [entry for entries in found.values() for entry in entries]
+    check_report.write(json_path, check_report.report(
+        "merge_duplicate_mounts.py",
+        result={"exit": exit_code, "problems": len(every), "ok": None,
+                "skipped": 0, "not_checked": 0},
+        sections=[check_report.section("groups", "Groups", found["groups"]),
+                  check_report.section("strays", "Strays", found["strays"])],
+        changes_=None, profile=cfg_path, board=None, notes=list(notes),
+        applied=applied, refusal=refusal))
+
+
 def main(argv):
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("target", help="profile directory or its .sexp")
     ap.add_argument("--keep", action="append", default=[], metavar="REF",
                     help="keep this node of its group instead of the first one (repeatable)")
     ap.add_argument("--write", action="store_true", help="write the merge (default: dry run)")
+    ap.add_argument("--json", metavar="PATH",
+                    help="also write a machine-readable report to PATH (same run)")
     args = ap.parse_args(argv)
+    json_path = args.json
 
     target = Path(args.target).resolve()
     if target.is_file():
@@ -101,37 +126,61 @@ def main(argv):
     trees = data.get("trees") or []
     keep = set(args.keep)
 
+    found = {"groups": [], "strays": []}
+    notes = []
     removed, total = [], 0
     for tree in trees:
         merges, strays = _scan(tree, keep)
         for siblings, kept, dups in merges:
             total += 1
-            print(f"[tree {tree.get('name')}] {_label(kept)}")
+            line = f"[tree {tree.get('name')}] {_label(kept)}"
+            print(line)
             print(f"   keep    {kept['ref']} ({len(kept['children'])} child node(s))")
+            refs = [kept["ref"]] + [dup["ref"] for dup in dups]
             for dup in dups:
                 moved = [c["ref"] for c in dup["children"]]
                 print(f"   merge   {dup['ref']} -> its children move under {kept['ref']}: {', '.join(moved) or 'none'}")
                 for field in ("name", "group"):
                     if dup.get(field) and dup.get(field) != kept.get(field):
-                        print(f"   NOTE    {dup['ref']} has {field} {dup[field]!r}, {kept['ref']} has "
-                              f"{kept.get(field)!r} — the kept node's value stays")
+                        note_line = (f"   NOTE    {dup['ref']} has {field} {dup[field]!r}, {kept['ref']} has "
+                                     f"{kept.get(field)!r} — the kept node's value stays")
+                        print(note_line)
+                        notes.append(check_report.note("INFO", note_line))
                 kept["children"].extend(dup["children"])
                 siblings.remove(dup)
                 removed.append(dup["ref"])
+            found["groups"].append(check_report.problem(
+                "MERGE", line, key=f"MERGE|{tree.get('name')}|{kept['ref']}", refs=refs,
+                where={"tree": tree.get("name"), "anchor": _label(kept)},
+                to_node={"tree": tree.get("name"), "node": kept["ref"], "cell": None}))
         for key in strays:
-            print(f"[tree {tree.get('name')}] same anchor under DIFFERENT parents — not merged, do it by hand: {key}")
+            line = (f"[tree {tree.get('name')}] same anchor under DIFFERENT parents — "
+                    f"not merged, do it by hand: {key}")
+            print(line)
+            found["strays"].append(check_report.problem(
+                "STRAY", line, key=f"STRAY|{tree.get('name')}|{key}",
+                where={"tree": tree.get("name"), "anchor": key}))
         _prune_empty_children(tree.get("nodes", []))
 
     if not total:
         print("no duplicate mount nodes")
+        _write_json(json_path, exit_code=0, found=found, applied=False, refusal=None,
+                    cfg_path=cfg_path, notes=notes)
         return 0
     rest = json.dumps(data, ensure_ascii=False)
     still = [ref for ref in removed if f'"{ref}"' in rest]
     if still:
-        print(f"\nREFUSED: the config still mentions {', '.join(still)} — rename those references first")
+        line = f"\nREFUSED: the config still mentions {', '.join(still)} — rename those references first"
+        print(line)
+        found["groups"].append(check_report.problem(
+            "REFUSED", line.strip(), key="REFUSED|" + "|".join(sorted(still)), refs=still))
+        _write_json(json_path, exit_code=1, found=found, applied=False, refusal=line.strip(),
+                    cfg_path=cfg_path, notes=notes)
         return 1
     if not args.write:
         print(f"\n{total} group(s) to merge — dry run, nothing written; add --write to merge")
+        _write_json(json_path, exit_code=1, found=found, applied=False, refusal=None,
+                    cfg_path=cfg_path, notes=notes)
         return 1
 
     backup = backup_file(cfg_path)
@@ -142,6 +191,8 @@ def main(argv):
     shutil.rmtree(tmp, ignore_errors=True)
     print("reloaded from a copy: OK. If KiCadStamp is open on this profile, reload it before saving there —"
           " its own Save would write the old trees back.")
+    _write_json(json_path, exit_code=0, found=found, applied=True, refusal=None,
+                cfg_path=cfg_path, notes=notes)
     return 0
 
 
