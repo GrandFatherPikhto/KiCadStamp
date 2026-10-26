@@ -63,6 +63,7 @@ from kicadstamp.utils.units import MM
 
 from .. import overlay_markers
 from ..worker import start_long_op
+from .trees_selection import select_tree_node
 
 logger = logging.getLogger(__name__)
 
@@ -460,17 +461,33 @@ def show_role_on_page(page, role) -> bool:
 
 
 def jump_to_node(page, tree: str, node: str) -> None:
-    """«К ноде в дереве»: ONE door onto the hub, and the page SAYS what happened."""
+    """«К ноде в дереве»: show the Trees page, then land on the node — ONE walk, and the
+    page SAYS what happened.
+
+    Two halves, each where it belongs and NEITHER in a giant (rule 45): the page switch is
+    `DockHub.show_left_page`, and the selection is `trees_selection.select_tree_node`, which
+    takes the dock as an argument instead of being a method ON it. The page never learns that
+    the Trees tab and the tree widget are two different things.
+
+    A miss is one line in the status bar, never a modal (rule 43): a jump that silently lands
+    nowhere is worse than no jump at all."""
     hub = getattr(page._main_window, "dock_hub", None)
-    select = getattr(hub, "select_tree_node", None)
-    if select is None or not select(tree, node):
-        text = _("The node {node} is not in the tree {tree}.").format(
-            node=node, tree=tree)
-        page._show_status(text, "error")
-        logger.info("Check report: %s", text)
+    dock = getattr(hub, "trees_dock", None)
+    if dock is None or not tree or not node:
+        _say_miss(page, tree, node)
+        return
+    hub.show_left_page(dock)
+    if not select_tree_node(dock, tree, node):
+        _say_miss(page, tree, node)
         return
     page._show_status(_("Selected {node} in {tree}.").format(node=node, tree=tree),
                       "success")
+
+
+def _say_miss(page, tree, node) -> None:
+    text = _("The node {node} is not in the tree {tree}.").format(node=node, tree=tree)
+    page._show_status(text, "error")
+    logger.info("Check report: %s", text)
 
 
 def highlight_refs(page, refs) -> None:

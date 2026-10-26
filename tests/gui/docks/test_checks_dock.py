@@ -35,6 +35,7 @@ from PyQt6.QtWidgets import QApplication, QDockWidget, QMainWindow
 
 from gui import overlay_markers, settings
 from gui.checks_menu import build_checks_menu
+from gui.docks import checks_report as checks_report_mod
 from gui.checks_registry import CHECKS, DEDUPE_ROW, command_for
 from gui.docks._common import style_for_level
 from gui.docks.checks import ChecksPage, new_output_decoder
@@ -1081,29 +1082,36 @@ def test_highlight_marks_the_refs_and_selects_nothing(main_window, qtbot, tmp_pa
     assert "R9" in page.status_label.text(), "the part that is not on the board is named"
 
 
-def test_the_page_asks_the_hub_for_the_node_of_the_problem(main_window, qtbot, tmp_path):
-    """C9 of Ч2б-2: "К ноде в дереве" hands BOTH halves of `to_node` to the hub and says where
-    it landed. The page knows nothing about tabs or tree widgets — one door, one argument."""
+def test_the_door_hands_the_node_to_the_tree_selection(main_window, qtbot, tmp_path,
+                                                       monkeypatch):
+    """C9 of Ч2б-2: «К ноде в дереве» hands BOTH halves of `to_node` to the ONE selection
+    function and brings the Trees page to the front. The page knows nothing about tabs or tree
+    widgets — and neither giant grows a line for the door (Д-1 of the acceptance puts the walk
+    into `trees_selection.select_tree_node`)."""
     page, profile = _report_page(main_window, tmp_path, _report(
         _section("instances", "Instances",
                  _problem("K1", "MISPLACED", "R12 is off its slot",
                           to_node={"tree": "alpha", "node": "DEEP", "cell": None}))))
     _run(page, qtbot, profile)
 
-    asked = []
-    main_window.dock_hub = SimpleNamespace(
-        select_tree_node=lambda tree, node: asked.append((tree, node)) or True)
+    asked, shown = [], []
+    monkeypatch.setattr(checks_report_mod, "select_tree_node",
+                        lambda dock, tree, node: asked.append((tree, node)) or True)
+    dock = object()
+    main_window.dock_hub = SimpleNamespace(trees_dock=dock, show_left_page=shown.append)
     page.tree.setCurrentItem(_problem_row(page, 0, 0))
     assert page.report_view.node_button.isEnabled() is True
     page.report_view.node_button.click()
 
     assert asked == [("alpha", "DEEP")]
+    assert shown == [dock], "the Trees page comes to the front"
     assert "DEEP" in page.status_label.text()
 
 
-def test_a_node_that_is_not_in_the_tree_is_said_not_guessed(main_window, qtbot, tmp_path):
-    """A jump that lands nowhere must not look like a jump: the hub's False becomes a line with
-    the tree and the node in it (never a modal — rule 43), and the hub was asked about the node
+def test_a_node_that_is_not_in_the_tree_is_said_not_guessed(main_window, qtbot, tmp_path,
+                                                            monkeypatch):
+    """A jump that lands nowhere must not look like a jump: the walk's False becomes a line with
+    the tree and the node in it (never a modal — rule 43), and the walk was asked about the node
     the REPORT named, not about something else that happens to exist."""
     page, profile = _report_page(main_window, tmp_path, _report(
         _section("instances", "Instances",
@@ -1111,8 +1119,10 @@ def test_a_node_that_is_not_in_the_tree_is_said_not_guessed(main_window, qtbot, 
                           to_node={"tree": "alpha", "node": "GONE", "cell": None}))))
     _run(page, qtbot, profile)
     asked = []
-    main_window.dock_hub = SimpleNamespace(
-        select_tree_node=lambda tree, node: asked.append((tree, node)) or False)
+    monkeypatch.setattr(checks_report_mod, "select_tree_node",
+                        lambda dock, tree, node: asked.append((tree, node)) or False)
+    main_window.dock_hub = SimpleNamespace(trees_dock=object(),
+                                           show_left_page=lambda widget: None)
 
     page.tree.setCurrentItem(_problem_row(page, 0, 0))
     page.report_view.node_button.click()
@@ -1121,16 +1131,18 @@ def test_a_node_that_is_not_in_the_tree_is_said_not_guessed(main_window, qtbot, 
     assert page.status_label.text() == "The node GONE is not in the tree alpha."
 
 
-def test_the_node_door_is_off_without_a_node(main_window, qtbot, tmp_path):
+def test_the_node_door_is_off_without_a_node(main_window, qtbot, tmp_path, monkeypatch):
     """A problem with `to_node: null` gets no door — the button is disabled, and pressing it
-    (a disabled button emits nothing) reaches no hub at all."""
+    (a disabled button emits nothing) reaches the tree selection at all."""
     page, profile = _report_page(main_window, tmp_path, _report(
         _section("instances", "Instances",
                  _problem("K1", "MISPLACED", "R12 is off its slot"))))
     _run(page, qtbot, profile)
     asked = []
-    main_window.dock_hub = SimpleNamespace(
-        select_tree_node=lambda tree, node: asked.append((tree, node)) or True)
+    monkeypatch.setattr(checks_report_mod, "select_tree_node",
+                        lambda dock, tree, node: asked.append((tree, node)) or True)
+    main_window.dock_hub = SimpleNamespace(trees_dock=object(),
+                                           show_left_page=lambda widget: None)
 
     page.tree.setCurrentItem(_problem_row(page, 0, 0))
     assert page.report_view.node_button.isEnabled() is False

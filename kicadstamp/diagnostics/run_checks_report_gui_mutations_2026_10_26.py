@@ -13,9 +13,15 @@ and must turn a NAMED cell red:
   M61 an empty section gets a node with (0)                            (gui/docks/checks_report.py)
   M62 the selection is restored by POSITION, not by the problem's key   (gui/docks/checks_report.py)
   M63 the previous marks are not dropped before drawing                (gui/docks/checks_report.py)
-  M65 `select_node` does not expand the parents of the row it lands on (gui/docks/trees_dock.py)
-  M66 the hub does not bring the Trees page to the front               (gui/dock_hub.py)
+  M65 the walk does not expand the parents of the row it lands on      (gui/docks/trees_selection.py)
+  M66 the door does not bring the Trees page to the front              (gui/docks/checks_report.py)
   M67 cosmetic control (a comment must change nothing)
+
+Д-1 of the Ч2б-2 acceptance moved both bodies OUT of the giants: the walk is
+`trees_selection.select_tree_node(dock, tree, node)` and the page switch is the hub's own
+`show_left_page`, composed by `checks_report.jump_to_node`. Rows M65/M66 followed the CODE,
+not the old file names — a row aimed at a line that no longer exists reports a MISS and
+teaches nothing.
 
 Why a second harness and not rows in `run_check_json_mutations_2026_10_26.py`: these rows are
 guarded by GUI cells under a Qt event loop, and their source is a different file (the reader and
@@ -40,8 +46,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 CHECKS_PAGE = "gui/docks/checks.py"
 REPORT_SIDE = "gui/docks/checks_report.py"
-TREES_DOCK = "gui/docks/trees_dock.py"
-HUB = "gui/dock_hub.py"
+TREES_SELECTION = "gui/docks/trees_selection.py"
 
 GUARDS = ("tests/gui/docks/test_checks_dock.py "
           "tests/gui/docks/test_trees_dock_select_node.py")
@@ -51,11 +56,11 @@ CELL_EMPTY = "test_an_empty_section_gets_no_row"
 CELL_KEEP_KEY = "test_a_rerun_keeps_the_selected_problem_by_its_key"
 CELL_STALE_FILE = "test_the_previous_reports_rows_are_gone_before_the_next_run"
 CELL_HIGHLIGHT = "test_highlight_marks_the_refs_and_selects_nothing"
-CELL_ASKS_HUB = "test_the_page_asks_the_hub_for_the_node_of_the_problem"
+CELL_ASKS_WALK = "test_the_door_hands_the_node_to_the_tree_selection"
 CELL_SAYS_MISS = "test_a_node_that_is_not_in_the_tree_is_said_not_guessed"
 CELL_MARKS_FIRST = "test_the_previous_marks_are_dropped_before_drawing"
-CELL_SELECT_NODE = "test_select_node_selects_the_row_and_expands_its_parents"
-CELL_HUB_PAGE = "test_the_hub_shows_the_trees_page_and_selects_the_node"
+CELL_SELECT_NODE = "test_select_tree_node_selects_the_row_and_expands_its_parents"
+CELL_DOOR_PAGE = "test_the_door_brings_the_trees_page_and_lands_on_the_node"
 
 MUTATIONS = [
     # The whole point of Ч2б-2: the tree is built from the MACHINE report, never parsed out of
@@ -83,9 +88,9 @@ MUTATIONS = [
     # must redden — the success one and the miss one (measured: the miss cell used to pin only
     # the WORDING of a False and stayed green, so it now asserts what the hub was ASKED too).
     ("M55 the node door opens the tree root", REPORT_SIDE,
-     '    if select is None or not select(tree, node):\n',
-     '    if select is None or not select(tree, tree):  # MUTATION: the tree root\n',
-     [CELL_ASKS_HUB, CELL_SAYS_MISS]),
+     '    if not select_tree_node(dock, tree, node):\n',
+     '    if not select_tree_node(dock, tree, tree):  # MUTATION: the tree root\n',
+     [CELL_ASKS_WALK, CELL_SAYS_MISS]),
 
     # A run that writes no report must not inherit the previous run's tree. (The first draft of
     # this row put `pass` BEFORE the removal and removed nothing — the miss it reported was the
@@ -118,22 +123,21 @@ MUTATIONS = [
      [CELL_MARKS_FIRST]),
 
     # A selected row nobody can see is not a jump.
-    ("M65 select_node leaves the parents collapsed", TREES_DOCK,
-     '        parent = item.parent()\n'
-     '        while parent is not None:\n'
-     '            parent.setExpanded(True)\n'
-     '            parent = parent.parent()\n'
-     '        select_only(widget, item)\n',
-     '        select_only(widget, item)  # MUTATION: the parents stay collapsed\n',
+    ("M65 the walk leaves the parents collapsed", TREES_SELECTION,
+     '    parent = item.parent()\n'
+     '    while parent is not None:\n'
+     '        parent.setExpanded(True)\n'
+     '        parent = parent.parent()\n'
+     '    select_only(widget, item)\n',
+     '    select_only(widget, item)  # MUTATION: the parents stay collapsed\n',
      [CELL_SELECT_NODE]),
 
-    # The page knows one name (the hub); the hub is the one that brings its own page to the front.
-    ("M66 the hub does not show the Trees page", HUB,
-     '        self.show_left_page(self.trees_dock)\n'
-     '        return self.trees_dock.select_node(tree_name, node_ref)\n',
-     '        return self.trees_dock.select_node(tree_name, node_ref)'
-     '  # MUTATION: no page switch\n',
-     [CELL_HUB_PAGE]),
+    # The door shows the Trees page FIRST — a jump to a hidden tab is a jump nobody sees.
+    ("M66 the door does not show the Trees page", REPORT_SIDE,
+     '    hub.show_left_page(dock)\n'
+     '    if not select_tree_node(dock, tree, node):\n',
+     '    if not select_tree_node(dock, tree, node):  # MUTATION: no page switch\n',
+     [CELL_DOOR_PAGE]),
 
     ("M67 cosmetic control (a comment must change nothing)", REPORT_SIDE,
      '    path = Path(directory) / f"{Path(script).stem}.json"\n',

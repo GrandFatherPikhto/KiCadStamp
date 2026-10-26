@@ -152,6 +152,35 @@ def selected_real_nodes(dock, tree: Tree) -> list[TreeNode]:
     return real_nodes_of_items(tree_widget.selectedItems())
 
 
+def select_tree_node(dock, tree_name: str, node_ref: str) -> bool:
+    """Open the tree `tree_name` and make its node `node_ref` the ONE selected row,
+    expanding whatever hides it. True when the node was there.
+
+    This is the body of the Checks page's «К ноде в дереве» (Ч2б-2 of
+    plan_2026_10_23_checks_tab_top_level), and it lives HERE rather than on the dock for
+    rule 45: `gui/docks/trees_dock.py` is a giant that only shrinks, so the door is a
+    function of the selection layer that takes the dock. A selected row nobody can see is
+    not a jump, hence the expansion; the selection itself goes through `select_only`, the
+    ONE place a single node is selected (Ч1 п.1), so a group selection collapses.
+
+    False when the tree is not loaded or has no such node — the caller says so instead of
+    landing the operator on some other row and calling it a jump."""
+    if not tree_name or not node_ref:
+        return False
+    dock._switch_to_tree(tree_name)
+    tree = next((t for t in dock._trees if t.name == tree_name), None)
+    widget = dock._tree_widget_for(tree) if tree is not None else None
+    item = item_of_ref(widget, node_ref)
+    if item is None:
+        return False
+    parent = item.parent()
+    while parent is not None:
+        parent.setExpanded(True)
+        parent = parent.parent()
+    select_only(widget, item)
+    return True
+
+
 def item_of_ref(tree_widget: Optional[QTreeWidget],
                 ref: str) -> Optional[QTreeWidgetItem]:
     """The row of the node whose `ref` is `ref`, anywhere in `tree_widget` — the ONE

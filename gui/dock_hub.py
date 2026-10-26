@@ -715,19 +715,6 @@ class DockHub:
         TreesDock (design config_qview_chain_entity_pages §8.6)."""
         self.trees_dock.activate_tree(tree_name)
 
-    def select_tree_node(self, tree_name: str, node_ref: str) -> bool:
-        """Checks page's "К ноде в дереве" -> show the Trees page, open the tree
-        and land on THAT node (Ч2б-2 of plan_2026_10_23_checks_tab_top_level).
-
-        One door for the whole walk: the page must not know that the Trees tab is
-        a `left_tabs` page while the tree selection lives inside TreesDock. False
-        when there is nothing to land on, so the page reports the miss instead of
-        pretending the jump happened."""
-        if not tree_name or not node_ref:
-            return False
-        self.show_left_page(self.trees_dock)
-        return self.trees_dock.select_node(tree_name, node_ref)
-
     def _load_entity_page(self, name) -> None:
         """ConfigTreeDock's entity_picked delegate (single click on an Entities
         leaf, 2026-09-05, design config_qview_chain_entity_pages §5) — loads the

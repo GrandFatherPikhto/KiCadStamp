@@ -1,23 +1,26 @@
 # tests/gui/docks/test_trees_dock_select_node.py
-"""Cells for the two halves of «К ноде в дереве» (Ч2б-2 of plan_2026_10_23_checks_tab_top_level).
+"""Cells for the walk behind «К ноде в дереве» (Ч2б-2 of plan_2026_10_23_checks_tab_top_level).
 
 A check report addresses a node by NAME (`to_node = {tree, node, cell}`), so the Checks page
-needs one walk that lands on that node: `TreesDock.select_node` opens the named tree and makes
-the named node the ONE selected row — expanding whatever hides it, because a selected row
-nobody can see is not a jump — and `DockHub.select_tree_node` is the ONE door the page is
-allowed to know about (it shows the Trees page first; the page must not learn that the Trees
-tab and the tree widget are two different things).
+needs one walk that lands on that node. That walk is
+`gui/docks/trees_selection.select_tree_node(dock, tree, node)` — the body lives in the
+SELECTION layer and takes the dock, rather than being a method ON the dock: `gui/docks/
+trees_dock.py` and `gui/dock_hub.py` are giants that only shrink (rule 45, Д-1 of the Ч2б-2
+acceptance), so neither may grow a line for a door. The page switch is the hub's own
+`show_left_page`, and `gui/docks/checks_report.jump_to_node` is the one place that composes
+the two halves.
 
-Both answer False when there is nothing to land on, and neither pretends: the page says the
-node is not there instead of leaving the operator on some other row believing they arrived.
+The walk never pretends: a node that is not in the tree, and a tree that is not loaded, both
+answer False, and the door says so with the node and the tree in the line — leaving the
+operator on some other row believing they arrived would be worse than no jump at all.
 """
 from types import SimpleNamespace
 
 from kicadstamp.config.sexp_format import dict_to_sexp
 
-from gui.dock_hub import DockHub
+from gui.docks.checks_report import jump_to_node
 from gui.docks.trees_dock import TreesDock
-from gui.docks.trees_selection import item_of_ref
+from gui.docks.trees_selection import item_of_ref, select_tree_node
 
 from tests.fakes.write_later import write_later
 
@@ -56,17 +59,17 @@ def _dock(main_window, tmp_path) -> TreesDock:
     return dock
 
 
-def test_select_node_selects_the_row_and_expands_its_parents(main_window, tmp_path):
+def test_select_tree_node_selects_the_row_and_expands_its_parents(main_window, tmp_path):
     """T11 of Ч2б-2: the named TREE becomes the current tab, the named NODE becomes the only
     selected row (a group selection collapses — the door means ONE node), and every parent
     above it is expanded, or the operator would be "sent" somewhere they cannot see."""
     dock = _dock(main_window, tmp_path)
 
-    assert dock.select_node("beta", "B_ONLY") is True
+    assert select_tree_node(dock, "beta", "B_ONLY") is True
     assert dock._current_tab_tree_name() == "beta"
     assert _selected_refs(dock) == ["B_ONLY"]
 
-    assert dock.select_node("alpha", "DEEP") is True
+    assert select_tree_node(dock, "alpha", "DEEP") is True
     assert dock._current_tab_tree_name() == "alpha"
     item = item_of_ref(dock._current_tree_widget(), "DEEP")
     assert item is not None and item.isSelected()
@@ -74,39 +77,36 @@ def test_select_node_selects_the_row_and_expands_its_parents(main_window, tmp_pa
     assert _selected_refs(dock) == ["DEEP"], "ONE node — the door does not mean a group"
 
 
-def test_select_node_answers_false_for_a_node_that_is_not_there(main_window, tmp_path):
-    """T11b: a node name that is not in the tree, and a tree name that is not loaded, both
-    answer False — the caller says so. Landing on the anchor or on another row and calling it
-    a jump would send the operator to the wrong place with a straight face."""
+def test_select_tree_node_answers_false_for_a_node_that_is_not_there(main_window,
+                                                                     tmp_path):
+    """T11b: a node name that is not in the tree, a tree name that is not loaded and an empty
+    address all answer False — the caller says so."""
     dock = _dock(main_window, tmp_path)
 
-    assert dock.select_node("alpha", "GHOST") is False
-    assert dock.select_node("no_such_tree", "PARENT") is False
+    assert select_tree_node(dock, "alpha", "GHOST") is False
+    assert select_tree_node(dock, "no_such_tree", "PARENT") is False
+    assert select_tree_node(dock, "", "PARENT") is False
+    assert select_tree_node(dock, "alpha", "") is False
 
 
-def test_the_hub_shows_the_trees_page_and_selects_the_node(qapp):
-    """T12 of Ч2б-2: the Checks page knows ONE name — `DockHub.select_tree_node`. It brings
-    the Trees tab to the front and lands on the node; a miss is a False (and no page switch
-    of its own is invented), and an empty address never reaches the dock at all."""
-    hub = DockHub.__new__(DockHub)          # no __init__: this cell wires one method's body
-    shown, asked = [], []
-    hub.left_tabs = SimpleNamespace(
-        setCurrentWidget=lambda widget: shown.append(widget))
-    hub.trees_dock = SimpleNamespace(
-        select_node=lambda tree, node: asked.append((tree, node)) or True)
+def test_the_door_brings_the_trees_page_and_lands_on_the_node(main_window, tmp_path):
+    """T12 of Ч2б-2: «К ноде в дереве» is ONE walk — the Trees page to the front, then the
+    node — and its two halves live where rule 45 puts them: `DockHub.show_left_page` for the
+    page, `trees_selection.select_tree_node` for the row. A miss is one line in the status
+    bar naming the node and the tree (never a modal — rule 43)."""
+    dock = _dock(main_window, tmp_path)
+    shown, status = [], []
+    hub = SimpleNamespace(trees_dock=dock, show_left_page=shown.append)
+    page = SimpleNamespace(
+        _main_window=SimpleNamespace(dock_hub=hub),
+        _show_status=lambda text, level: status.append((text, level)))
 
-    assert hub.select_tree_node("alpha", "DEEP") is True
-    assert shown == [hub.trees_dock], "the Trees page is the one that comes to the front"
-    assert asked == [("alpha", "DEEP")]
+    jump_to_node(page, "alpha", "DEEP")
+    assert shown == [dock], "the Trees page comes to the front"
+    assert _selected_refs(dock) == ["DEEP"]
+    assert status == [("Selected DEEP in alpha.", "success")]
 
-    hub.trees_dock = SimpleNamespace(
-        select_node=lambda tree, node: asked.append((tree, node)) or False)
-    asked.clear()
-    shown.clear()
-    assert hub.select_tree_node("alpha", "GHOST") is False
-    assert asked == [("alpha", "GHOST")]
-
-    asked.clear()
-    assert hub.select_tree_node("", "DEEP") is False
-    assert hub.select_tree_node("alpha", "") is False
-    assert asked == [], "an empty address is not a request"
+    status.clear()
+    jump_to_node(page, "alpha", "GHOST")
+    assert status == [("The node GHOST is not in the tree alpha.", "error")]
+    assert _selected_refs(dock) == ["DEEP"], "a miss leaves the selection where it was"
