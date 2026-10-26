@@ -48,7 +48,8 @@ DRC is deliberately out of scope: track collisions are KiCad's own job.
 
 ### Requirements
 
-- **Python 3.10** or newer.
+- **Python 3.12** or newer. CI runs the suite on 3.12 (the lowest supported version,
+  `requires-python`) and on 3.14 (the development version).
 - **KiCad 10.0.4** or newer with the IPC API enabled (*Preferences → Plugins → Enable IPC API server*).
 - For the GUI, a working Qt stack (installed along with the dependencies).
 

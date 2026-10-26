@@ -329,12 +329,15 @@ ON, so one and the same command gave different locks on different machines. That
 how the guard went red on a lock built locally with 3.14 — the four `# via` comment
 lines of `typing-extensions` (httpx2, kicad-python, referencing and starlette
 require it only below 3.13) were missing, while every package version matched.
-Naming the version in the command makes the lock independent of where it was built;
-3.12 is the interpreter CI runs the suite on.
+Naming the version in the command makes the lock independent of where it was built.
+3.12 is the lowest supported version (`requires-python`) and one of the two CI runs;
+3.14 is the other. Resolving for 3.12 is therefore resolving for the OLDEST
+interpreter that must work.
 
-A CI step on Linux re-runs this command and fails when `git diff --exit-code
-requirements.txt` is non-empty. **Rule: change a pin or an extra in `pyproject.toml`
-→ run the command → commit BOTH files together.**
+A CI step on the Linux + 3.12 leg re-runs this command and fails when `git diff
+--exit-code requirements.txt` is non-empty — one leg is enough, the lock is
+OS- and version-independent by construction. **Rule: change a pin or an extra in
+`pyproject.toml` → run the command → commit BOTH files together.**
 
 ### Integration tests (with real KiCad)
 
