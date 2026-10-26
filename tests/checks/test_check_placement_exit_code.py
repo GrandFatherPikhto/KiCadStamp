@@ -89,8 +89,15 @@ def _run(tmp_path, monkeypatch, capsys, footprints, board_file="Test02.kicad_pcb
     sexp.write_text("(kicadstamp-config)\n", encoding="utf-8")
     copy_dir = tmp_path / "copy"           # `_load_copy`'s temp dir — main() rmtree's it, so it
     copy_dir.mkdir(exist_ok=True)          # must NEVER be tmp_path itself
-    cfg = SimpleNamespace(entities=[SimpleNamespace(cluster="CL", cell="cell1")],
-                          cells={"cell1": SimpleNamespace(components=_COMPONENTS)})
+    # The entity carries a NAME and the tree holds its placement node under that name: that
+    # pair is the "to the node" address of every instance problem (Д-1 of Ч2б-1) — an anchor
+    # lookup finds nothing, because a mount node is anchored on its HOST's pad.
+    cfg = SimpleNamespace(
+        entities=[SimpleNamespace(name="E1", cluster="CL", sheet="Channel_0",
+                                  cell="cell1")],
+        cells={"cell1": SimpleNamespace(components=_COMPONENTS)},
+        trees=[SimpleNamespace(name="t", anchor=None, nodes=[
+            SimpleNamespace(ref="E1", anchor=None, children=[])])])
     ctx = SimpleNamespace(sheet_names={}, root_sheet="Test02.kicad_sch")
 
     monkeypatch.setattr(check_placement, "_load_copy",

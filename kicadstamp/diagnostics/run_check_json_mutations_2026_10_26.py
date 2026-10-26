@@ -9,7 +9,9 @@ and must turn a NAMED cell red:
   M50 a problem's `text` is assembled a SECOND time            (tools/check_config_records.py)
   M51 `key` carries the clock instead of the finding           (kicadstamp/check_report.py `problem`)
   M52 `refs` carry the library id instead of the part          (tools/check_footprints_vs_library.py)
-  M56 cosmetic control (a comment must change nothing)
+  M57 `entity_nodes` looks on ANCHORS again (Д-1)              (tools/check_placement.py)
+  M58 a problem is listed TWICE, counted once (Д-2)            (tools/check_footprints_vs_library.py)
+  M59 cosmetic control (a comment must change nothing)
 
 The plan numbers M53–M55 belong to Ч2б-2 (the GUI tree of sections/problems): there is no
 code for them yet, so they are NOT here — a row whose template matches nothing is a MISS,
@@ -44,6 +46,9 @@ CELL_C3 = "test_every_problem_text_appears_verbatim_in_the_report"
 CELL_C4 = "test_kinds_are_from_the_vocabulary_and_keys_are_stable"
 CELL_C6 = "test_refs_of_every_check_exist_on_its_fixture"
 CELL_C4_DEFAULT_KEY = "test_a_problem_without_a_key_gets_one_from_its_kind_and_text"
+CELL_ENTITY_NODE = "test_the_entity_to_node_is_the_placement_node_of_its_name"
+CELL_PLACEMENT_NODE = "test_the_placement_to_node_is_the_entitys_placement_node"
+CELL_ADDS_UP = "test_the_sections_add_up_to_the_problem_count"
 
 MUTATIONS = [
     ("M48 --json prints to stdout instead of writing a file", REPORT,
@@ -83,7 +88,31 @@ MUTATIONS = [
      '  # MUTATION: not a ref\n',
      [CELL_C6]),
 
-    ("M56 cosmetic control (a comment must change nothing)", REPORT,
+    # Д-1 (26.10): the address is the placement node whose ref IS the entity's name. Looking
+    # on ANCHORS is exactly what found ZERO addresses on the live profile (73 of 73 are
+    # placement nodes), so the mutation must redden BOTH cells that assert the address.
+    ("M57 entity_nodes looks on anchors again", PLACEMENT,
+     '            ref = getattr(node, "ref", None)\n'
+     '            if ref:\n'
+     '                found[ref].append({"tree": tree_name, "node": ref})\n',
+     '            anchor = getattr(node, "anchor", None)  # MUTATION: the anchor lookup\n'
+     '            role = getattr(anchor, "role", None) if anchor is not None else None\n'
+     '            if role:\n'
+     '                found[role].append({"tree": tree_name, "node": node.ref})\n',
+     [CELL_ENTITY_NODE, CELL_PLACEMENT_NODE]),
+
+    # Д-2 (26.10): `result.problems` is the sum over the sections. A finding listed twice is
+    # the cheapest way to break that without touching a single printed line.
+    ("M58 a problem is listed twice, counted once", FOOTPRINTS,
+     '                key=f"DMG|{ref}|" + ("|".join(problems)), refs=[ref],\n'
+     '                where={"ref": ref, "library": lib_id}))\n',
+     '                key=f"DMG|{ref}|" + ("|".join(problems)), refs=[ref],\n'
+     '                where={"ref": ref, "library": lib_id}))\n'
+     '            found["footprints"].append(found["footprints"][-1])'
+     '  # MUTATION: listed twice\n',
+     [CELL_ADDS_UP]),
+
+    ("M59 cosmetic control (a comment must change nothing)", REPORT,
      '    target = Path(path)\n',
      '    target = Path(path)  # MUTATION: cosmetic\n',
      "survive"),

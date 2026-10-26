@@ -293,7 +293,15 @@ board read, one config load (`kicadstamp/check_report.py` is the one place the s
   so the first run after the move does not report everything as new. A dry-run merge has NO
   `changes` (nothing to compare), and instead carries `applied` — `false` for a dry run or a
   refusal, `true` after a successful `--write` — plus `refusal` with the reason;
-* `notes[]` — `SKIPPED` / `NOT_CHECKED` / `INFO` lines that are not problems.
+* `notes[]` — `SKIPPED` / `NOT_CHECKED` / `INFO` lines that are not problems. A footprint
+  whose library copy is missing is a `NOT_CHECKED` note (and `result.not_checked`), NOT a
+  problem: "we could not look" must not read like "we found damage";
+* `result.problems` is exactly the sum over the sections — a reader that counts the tree and a
+  reader that reads the header can never disagree;
+* `to_node` for anything about an INSTANCE is the tree node whose `ref` IS the entity's name
+  (that is what Denis's trees hold — a mount node is anchored on its HOST's pad, so an anchor
+  lookup finds next to nothing), and it is `null` rather than a guess when the name is not
+  unique.
 
 Rule: change a check's findings → change its `kind`s HERE and in `check_report.KINDS`; the
 Checks tab switches on `kind`, never on the prose.

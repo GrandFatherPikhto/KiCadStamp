@@ -62,6 +62,11 @@ SCHEMA_VERSION = 1
 
 #: Every `kind` a problem can carry. A closed vocabulary on purpose: the GUI switches on
 #: it, so a new kind must be added HERE (and to the check that emits it).
+#:
+#: A `kind` describes a PROBLEM. "Nothing was checked" is not one (Д-2 of the Ч2б-1
+#: acceptance): a footprint with no library copy is a `NOT_CHECKED` note, and the count
+#: lands in `result.not_checked` — otherwise a "we could not look" row would read like a
+#: "we found damage" row.
 KINDS = frozenset({
     # check_placement.py
     "MISPLACED",       # a part outside the consensus frame of its own instance
@@ -80,7 +85,6 @@ KINDS = frozenset({
     # check_footprints_vs_library.py
     "MODELS",          # 3D models missing on the board vs the library copy
     "POLY",            # fp_poly point count differs from the library copy
-    "LIB_MISSING",     # no library copy for that footprint — not checked
     "FIELDS_LOST",     # Role/Cluster gone from the footprint
     "FIELD_RENAMED",   # KiLib_Generator carries a value that is not the library's
     # merge_duplicate_mounts.py

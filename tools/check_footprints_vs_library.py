@@ -281,9 +281,9 @@ def main(argv):
             line = f"  {ref:6} {lib_id}: library copy not found — not checked"
             print(line)
             missing += 1
-            found["footprints"].append(check_report.problem(
-                "LIB_MISSING", line, key=f"LIB|{ref}|{lib_id}", refs=[ref],
-                where={"ref": ref, "library": lib_id}))
+            # NOT a problem (Д-2 of the Ч2б-1 acceptance): "we could not look" must not read
+            # like "we found damage". The count goes to `result.not_checked`.
+            notes.append(check_report.note("NOT_CHECKED", line))
             continue
         if mod not in cache:
             lib_fp = _parse(mod.read_text(encoding="utf-8"))

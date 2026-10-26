@@ -39,28 +39,48 @@ from kicadstamp import check_report                                  # noqa: E40
 from kicadstamp.utils.units import MM                                # noqa: E402
 
 
-def _instance_nodes(cfg) -> dict:
-    """(cluster, sheet) -> {"tree", "node", "cell"} for a tree node anchored there.
+def entity_nodes(cfg) -> dict:
+    """entity NAME -> {"tree", "node"}: the tree node whose `ref` IS the entity's name.
 
-    The "to the node" address of a placement problem: an INSTANCE is (Cluster, Sheet) and
-    a tree node's anchor carries the same pair. TWO nodes on one pair is not an answer —
-    the panel would send the operator to a guess — so such a pair is simply absent
-    (decision of Denis, 26.10.2026)."""
+    This is the "to the node" address of everything that is about an INSTANCE (Ч2б-1's
+    Д-1 of the acceptance, measured on the real profile: 73 of 73). It is deliberately NOT
+    an anchor lookup: in Denis's trees a mount node is anchored on the HOST's pad and the
+    entity's own placement node is its CHILD, so searching `(cluster, sheet)` on anchors
+    found ZERO addresses on v103.
+
+    A ref that appears in two nodes is NOT an address — the panel would send the operator
+    to a guess — so it is dropped instead of picked."""
     found = defaultdict(list)
 
     def walk(tree_name, nodes):
         for node in nodes:
-            anchor = getattr(node, "anchor", None)
-            if anchor is not None and getattr(anchor, "role", None):
-                cluster = getattr(anchor, "anchor_cluster", None)
-                sheet = getattr(anchor, "anchor_sheet", None)
-                if cluster:
-                    found[(cluster, sheet)].append(
-                        {"tree": tree_name, "node": node.ref, "cell": None})
+            ref = getattr(node, "ref", None)
+            if ref:
+                found[ref].append({"tree": tree_name, "node": ref})
             walk(tree_name, getattr(node, "children", None) or [])
 
     for tree in getattr(cfg, "trees", None) or []:
         walk(tree.name, getattr(tree, "nodes", None) or [])
+    return {ref: entries[0] for ref, entries in found.items() if len(entries) == 1}
+
+
+def entity_instance_nodes(cfg) -> dict:
+    """(cluster, sheet) -> {"tree", "node", "cell"} for the ONE entity of that instance.
+
+    An instance IS an entity: its placement node is found by the entity's name
+    (`entity_nodes`), and a pair claimed by two entities is not an answer either."""
+    by_name = entity_nodes(cfg)
+    found = defaultdict(list)
+    for entity in getattr(cfg, "entities", None) or []:
+        cluster = getattr(entity, "cluster", None)
+        name = getattr(entity, "name", None)
+        if not cluster or not name:
+            continue
+        node = by_name.get(name)
+        if node is None:
+            continue
+        found[(cluster, getattr(entity, "sheet", None))].append(
+            {"tree": node["tree"], "node": node["node"], "cell": entity.cell})
     return {pair: entries[0] for pair, entries in found.items() if len(entries) == 1}
 
 
@@ -248,7 +268,7 @@ def main(argv):
 
     issues = {}      # stable key -> one-line text: what the NEXT run is compared against
     instance_problems, slot_problems, notes = [], [], []
-    nodes_of = _instance_nodes(cfg)
+    nodes_of = entity_instance_nodes(cfg)
     bad = [r for r in report if r[6] or r[8] or r[9]]
     print(f"instances checked: {len(report)}; clean: {len(report) - len(bad)}; with problems: {len(bad)}; "
           f"skipped: {len(skipped)}\n")

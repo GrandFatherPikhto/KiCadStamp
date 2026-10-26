@@ -87,9 +87,17 @@ def _run_records(tmp_path, monkeypatch, capsys, *, variant, json_path):
     if variant == "bad":
         # a cell role (B) the board does not have, and an anchor on a tree node that names it
         parts.append(check_config_records.Part("R2", "A", "OTHER", ("/",)))
-    trees = [SimpleNamespace(
-        name="t", anchor=None,
-        nodes=[_tree_node("n1", "Z" if variant == "bad" else "A", "CL")])]
+    # The REAL tree shape (Д-1 of the Ч2б-1 acceptance): a mount node anchored on the HOST's
+    # pad, and the entity's own placement node as its CHILD with `ref == entity.name`. An
+    # anchor lookup finds no (cluster, sheet) pair here — that is the defect the cell pins.
+    placement_node = SimpleNamespace(ref="E", anchor=None, children=[])
+    host_mount = SimpleNamespace(
+        ref="mnt_host",
+        anchor=SimpleNamespace(role="A", anchor_cluster="CL", anchor_sheet=None),
+        children=[placement_node])
+    trees = [SimpleNamespace(name="t", anchor=None,
+                             nodes=[host_mount,
+                                    _tree_node("n1", "Z" if variant == "bad" else "A", "CL")])]
     cfg = SimpleNamespace(entities=[_entity("E", "cell1", "CL")],
                           cells={"cell1": _cell("A", "B")},
                           net_traces=[], trees=trees, points={}, thermal_via_arrays=[])
@@ -296,9 +304,10 @@ def test_the_anchor_to_node_names_a_node_that_exists(tmp_path, monkeypatch, caps
         "the address names no part, so there is nothing to highlight"
 
 
-def test_the_placement_to_node_is_the_instance_pair(tmp_path, monkeypatch, capsys):
-    """C6 — an instance is (Cluster, Sheet) and a tree node's anchor carries the same pair;
-    exactly one such node → `to_node`, and the refs are the part the problem is about."""
+def test_the_placement_to_node_is_the_entitys_placement_node(tmp_path, monkeypatch, capsys):
+    """C6 — an INSTANCE is an entity, and its "to the node" address is the placement node
+    whose ref IS the entity's name (Д-1 of the Ч2б-1 acceptance). The fixture's tree holds
+    that node with NO anchor at all, so an anchor lookup would report nothing."""
     _code, _out, data = _run(PLACEMENT, tmp_path, monkeypatch, capsys, variant="bad")
 
     problems = _all_problems(data)
@@ -306,8 +315,58 @@ def test_the_placement_to_node_is_the_instance_pair(tmp_path, monkeypatch, capsy
     for entry in problems:
         assert entry["refs"], "a placement problem always names its part"
         assert entry["where"]["cluster"] == "CL"
-        # the placement fixture has no `trees:` at all — so NO node may be invented
-        assert entry["to_node"] is None
+        assert entry["to_node"] == {"tree": "t", "node": "E1", "cell": "cell1"}
+
+
+def test_the_entity_to_node_is_the_placement_node_of_its_name(tmp_path, monkeypatch, capsys):
+    """C6 for config records — same address rule, and the tree is the REAL shape: a mount
+    node anchored on the host's pad with the entity's placement node as its child. The
+    anchor lookup this used to do found ZERO addresses on the live profile (73 of 73 are
+    placement nodes by name)."""
+    _code, _out, data = _run(RECORDS, tmp_path, monkeypatch, capsys, variant="bad")
+
+    entities = next(section for section in data["sections"] if section["id"] == "entities")
+    problem = entities["problems"][0]
+    assert problem["to_node"] == {"tree": "t", "node": "E", "cell": "cell1"}
+
+
+# ── Д-2: "not checked" is a note, and the sections add up ───────────────────
+
+@pytest.mark.parametrize("script", (PLACEMENT, RECORDS, FOOTPRINTS, MERGE))
+def test_the_sections_add_up_to_the_problem_count(script, tmp_path, monkeypatch, capsys):
+    """Д-2 — `result.problems` is the sum over the sections, so a reader that counts the tree
+    and a reader that reads the header can never disagree. A finding that is counted but not
+    listed (or listed twice) is the defect behind this cell."""
+    _code, _out, data = _run(script, tmp_path, monkeypatch, capsys, variant="bad")
+
+    assert sum(len(section["problems"]) for section in data["sections"]) == \
+        data["result"]["problems"]
+
+
+def test_a_missing_library_copy_is_a_note_not_a_problem(tmp_path, monkeypatch, capsys):
+    """Д-2 — "we could not look" must not read like "we found damage": the footprint still
+    prints its line, but it lands in `notes[]` as NOT_CHECKED and in `result.not_checked`,
+    and `LIB_MISSING` is gone from the kind vocabulary."""
+    _fresh_home(monkeypatch, tmp_path, "home_lib")
+    lib_dir = tmp_path / "empty-lib"
+    lib_dir.mkdir()
+    board = tmp_path / "board.kicad_pcb"
+    board.write_text(_BOARD_ONE, encoding="utf-8")
+    report = tmp_path / "report.json"
+
+    code = check_footprints_vs_library.main(
+        [str(board), "--lib-dir", str(lib_dir), "--json", str(report)])
+    out = capsys.readouterr().out
+    data = json.loads(report.read_text(encoding="utf-8"))
+
+    assert code == 0, out
+    assert "library copy not found — not checked" in out
+    assert data["result"]["not_checked"] == 1
+    assert data["result"]["problems"] == 0
+    assert _all_problems(data) == []
+    kinds = [note["kind"] for note in data["notes"]]
+    assert kinds.count("NOT_CHECKED") == 1, kinds
+    assert "LIB_MISSING" not in check_report.KINDS
 
 
 def test_refs_of_every_check_exist_on_its_fixture(tmp_path, monkeypatch, capsys):

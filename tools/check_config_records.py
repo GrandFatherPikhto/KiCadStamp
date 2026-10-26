@@ -30,7 +30,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 # sys.path yet — the same reason `merge_duplicate_mounts.py` does it.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from check_placement import _config_name, _load_copy                 # noqa: E402
+from check_placement import (_config_name, _load_copy,               # noqa: E402
+                             entity_instance_nodes, entity_nodes)
 from kicadstamp import check_report                                  # noqa: E402
 from kicadstamp.adapter_factory import create_board_adapter          # noqa: E402
 from kicadstamp.cluster_matching import cluster_prefix_match         # noqa: E402
@@ -140,6 +141,11 @@ def main(argv):
     problems = 0
     found = {"entities": [], "unlisted": [], "anchors": [], "copper_ends": []}
     notes = []
+    # "To the node" for everything that is about an INSTANCE: the placement node whose ref
+    # IS the entity's name (Д-1 of the Ч2б-1 acceptance — an anchor lookup found nothing on
+    # the real profile, because a mount node is anchored on its HOST's pad).
+    nodes_by_entity = entity_nodes(cfg)
+    nodes_by_instance = entity_instance_nodes(cfg)
     entities = [e for e in cfg.entities if not getattr(e, "retired", False)]
     print(f"board footprints: {len(parts)}; entities: {len(entities)}; net_traces: {len(cfg.net_traces)}")
 
@@ -164,7 +170,10 @@ def main(argv):
         covered[(e.cluster, e.sheet)].update(roles)
         lines = []
         where = {"entity": e.name, "cell": e.cell, "cluster": e.cluster, "sheet": e.sheet}
-        to_node = {"tree": None, "node": None, "cell": e.cell}
+        node = nodes_by_entity.get(e.name)
+        to_node = ({"tree": node["tree"], "node": node["node"], "cell": e.cell}
+                   if node is not None else
+                   {"tree": None, "node": None, "cell": e.cell})
         for role in roles:
             verdict, text, refs = _address(by_role, role, e.cluster, e.sheet)
             if verdict:
@@ -204,7 +213,8 @@ def main(argv):
                 extra += 1
                 found["unlisted"].append(check_report.problem(
                     "UNLISTED", line, key=f"UNLISTED|{cluster}|{sheet}|{p.ref}", refs=[p.ref],
-                    where={"cluster": cluster, "sheet": sheet, "role": p.role}))
+                    where={"cluster": cluster, "sheet": sheet, "role": p.role},
+                    to_node=nodes_by_instance.get((cluster, sheet))))
     if not extra:
         print("   none")
     problems += extra
