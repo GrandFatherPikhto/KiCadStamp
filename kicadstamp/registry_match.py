@@ -96,7 +96,8 @@ def _is_via(planned) -> bool:
 
 
 def same_net(live_item, planned, net: Optional[str] = None) -> bool:
-    """True ⇔ the live item carries the net the planned side must have.
+    """True ⇔ the live item carries the net the planned side must have — or
+    NEITHER side names a net, in which case this question cannot accuse anybody.
 
     KIND is deliberately NOT compared: every caller asks a registry of ONE kind
     (a via file or a track file), so a via can never be paired with a track here
@@ -109,9 +110,28 @@ def same_net(live_item, planned, net: Optional[str] = None) -> bool:
     (role, pad) reference that only the caller can resolve (`net_resolution`).
     Given explicitly, or the command's own name is used.
 
-    A side that carries NO net name at all is never an accusation: such a pair is
-    judged by its place alone, which is how the minimal registry doubles — and any
-    caller that predates the field — keep working."""
+    A SIDE WITHOUT A NET (None, or the empty string) is never an accusation: the
+    pair is then judged by its PLACE alone — away means «away», not «shifted».
+    This is not a formality (Д-1 of the acceptance): strict equality here declared
+    every pair of a net-less command — and every pair whose live item carries no
+    net — a SHIFTED NUMBER, which would have taken copper away from its own record,
+    the very defect Ч1 exists to fix. It also keeps the minimal registry doubles,
+    and any caller that predates the field, working.
+
+    THIS QUESTION IS NOT `same_identity`'s: "is this the same copper?" stays
+    STRICT (`_same_net_strict`), because the reconcile path deletes by uuid and the
+    positional pre-check must not pair a net-less item with a named command. Only
+    the VERDICT's "does the pair contradict?" is lenient."""
+    expected = net if net is not None else getattr(planned, "net_name", None)
+    live_net = getattr(live_item, "net_name", None)
+    if not expected or not live_net:
+        return True
+    return live_net == expected
+
+
+def _same_net_strict(live_item, planned, net: Optional[str] = None) -> bool:
+    """Strict net equality — the «same copper?» half. A missing net on either side
+    is a mismatch here (`via_matches`/`track_matches` have always answered so)."""
     expected = net if net is not None else getattr(planned, "net_name", None)
     return getattr(live_item, "net_name", None) == expected
 
@@ -125,8 +145,11 @@ def same_identity(live_item, planned, net: Optional[str] = None) -> bool:
 
     `planned` is a ViaCommand/TrackCommand OR a stored cell record; a field the
     record does not carry (`layer`/`width_mm` omitted — the cell's own default is
-    inherited) is NOT compared: an absent field is never an accusation."""
-    if not same_net(live_item, planned, net):
+    inherited) is NOT compared: an absent field is never an accusation.
+
+    The NET is asked STRICTLY here (unlike `same_net`, which is the verdict's own
+    lenient question) — see `same_net`'s docstring for why the two must differ."""
+    if not _same_net_strict(live_item, planned, net):
         return False
     if _is_via(planned):
         return (abs(live_item.drill_mm - planned.drill_mm) < _EPS

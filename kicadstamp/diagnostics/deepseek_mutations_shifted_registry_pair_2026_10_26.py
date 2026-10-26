@@ -15,6 +15,8 @@ today's «selected anyway». One row per half of that sentence:
   M4  a shifted key still OCCUPIES the key               -> the record loses its copper
   M5  every owned uuid is released (not only this call's) -> a foreign key loses its item
   M6  an "edited on the board" pair is counted as "away"  -> the line lies about why
+  M7  `same_net` goes back to STRICT equality             -> a side without a net is
+                                                            accused as "shifted" (Д-1)
   K1  cosmetic control (a comment on a def line)          -> NOTHING may redden
 
 Safeguards as everywhere in this package (rule 38): a template matching more than
@@ -45,6 +47,8 @@ CELL_AWAY = "test_a_pair_away_on_the_same_net_is_selected_anyway"
 CELL_OUTSIDE = "test_a_key_outside_the_call_keeps_its_ownership"
 CELL_REGISTRY_ONLY = "test_the_registry_only_door_drops_only_the_shifted_pair"
 CELL_DRY_RUN = "test_the_dry_run_map_gives_both_records_their_own_copper"
+CELL_SILENT_PLAN = "test_a_command_without_a_net_is_away_not_shifted"
+CELL_SILENT_ITEM = "test_a_live_item_without_a_net_is_away_not_shifted"
 
 #: The two lines of the verdict, and the one of the matcher's tier 1.
 VERDICT = ("    if same_place(match.live, match.command):\n"
@@ -52,7 +56,11 @@ VERDICT = ("    if same_place(match.live, match.command):\n"
            "                else PAIR_EDITED)\n"
            "    return (PAIR_AWAY if same_net(match.live, match.command) else PAIR_SHIFTED)\n")
 
-NET_RETURN = '    return getattr(live_item, "net_name", None) == expected\n'
+NET_RETURN = "    return live_net == expected\n"
+
+#: The silence rule of Д-1 — the three lines a strict-equality mutation removes.
+SILENCE = ("    if not expected or not live_net:\n"
+           "        return True\n")
 
 TIER1 = "        if entry is not None and entry.uuid not in released:\n"
 
@@ -104,6 +112,12 @@ MUTATIONS = [
     ("M6 edited pairs counted as away", SELECT, EDITED_COUNT,
      "            refused += 1  # MUTATION: edited pairs counted as away\n",
      [CELL_EDITED]),
+
+    # 7. Strict equality: a side that names NO net is suddenly "another record's
+    # copper" — the pair is dropped and its record loses the item (Д-1).
+    ("M7 same_net back to strict equality", MATCH, SILENCE,
+     "    # MUTATION: a silent side is accused like any other\n",
+     [CELL_SILENT_PLAN, CELL_SILENT_ITEM]),
 
     # K1 — the control: a comment changes, the behaviour does not.
     ("K1 cosmetic control (a comment on a def line)", MATCH, NET_DEF,

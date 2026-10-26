@@ -320,6 +320,41 @@ def test_the_dry_run_map_gives_both_records_their_own_copper(gate, tmp_path):
     assert record_map.disagreed == 0
 
 
+# ── Д-1: a side WITHOUT a net accuses nobody ───────────────────────────────
+
+def test_a_command_without_a_net_is_away_not_shifted(gate, tmp_path):
+    """A planned command that names no net cannot call anything "another record's
+    copper" — the pair is judged by its PLACE alone: away means «away», selected
+    and named, never a shifted number. (Д-1 of the acceptance: strict equality here
+    would have taken copper away from its own record.)"""
+    cfg, config_path, adapter, keys, commands = _setup(
+        tmp_path,
+        live_tracks=[_live_track("t_b", (0.0, 5.0), (1.0, 5.0), "B")],
+        registry_rows=[(0, _entry("t_b", (0.0, 5.0), (1.0, 5.0), "B"))])
+
+    plan = _core(adapter, cfg, config_path,
+                 [_cmd(keys[0], (0.0, 0.0), (1.0, 0.0), None)])
+
+    assert [getattr(i, "uuid", None) for i in plan.copper] == ["t_b"]
+    assert "away from the planned place" in plan.line
+    assert "point at another record" not in plan.line
+
+
+def test_a_live_item_without_a_net_is_away_not_shifted(gate, tmp_path):
+    """And the same for the LIVE side: an item the board reports with no net is
+    not accused either. The place still decides — it is away, so «away»."""
+    cfg, config_path, adapter, keys, commands = _setup(
+        tmp_path,
+        live_tracks=[_live_track("t_x", (2.0, 2.0), (3.0, 2.0), None)],
+        registry_rows=[(0, _entry("t_x", (2.0, 2.0), (3.0, 2.0), None))])
+
+    plan = _core(adapter, cfg, config_path, commands[:1])
+
+    assert [getattr(i, "uuid", None) for i in plan.copper] == ["t_x"]
+    assert "away from the planned place" in plan.line
+    assert "point at another record" not in plan.line
+
+
 # ── the rule itself, in one place ──────────────────────────────────────────
 
 def test_pair_verdict_names_the_three_cases():
@@ -348,6 +383,25 @@ def test_pair_verdict_names_the_three_cases():
     assert verdict(away) == PAIR_AWAY           # same net, other place
     assert verdict(away_other_net) == PAIR_SHIFTED
     assert verdict(plain) == PAIR_AGREES        # identical: neither edited nor shifted
+
+
+def test_a_pair_where_one_side_names_no_net_is_never_shifted():
+    """Д-1, directly: `same_net` answers True when EITHER side is silent — the
+    place then produces «away», never «shifted»."""
+    from kicadstamp.registry_match import same_net
+
+    silent_planned = SimpleNamespace(net_name=None, drill_mm=0.3,
+                                     diameter_mm=0.6)
+    named_item = SimpleNamespace(net_name="B", drill_mm=0.3, diameter_mm=0.6)
+    silent_item = SimpleNamespace(net_name=None, drill_mm=0.3, diameter_mm=0.6)
+    named_planned = SimpleNamespace(net_name="A", drill_mm=0.3,
+                                    diameter_mm=0.6)
+    empty_planned = SimpleNamespace(net_name="", drill_mm=0.3, diameter_mm=0.6)
+
+    assert same_net(named_item, silent_planned)      # the plan is silent
+    assert same_net(silent_item, named_planned)      # the item is silent
+    assert same_net(named_item, empty_planned)       # "" is silence too
+    assert not same_net(named_item, named_planned)   # two names DO compare
 
 
 def test_shifted_entries_reads_the_keys_of_this_call_only(tmp_path, gate):
