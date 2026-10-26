@@ -50,6 +50,13 @@ marker partition, the fake conformance, the board door) and `cli/` (the entry po
 and the `tools/` converters). The markers survived the move unchanged: `gui` is still
 attached by PATH, so a cell inside `tests/gui/docks/` is still `gui`.
 
+One `repo/` guard is a RATCHET rather than a scan: `test_file_size_ceilings.py` holds a table
+of every PRODUCT file over 800 lines (rule 45) with its exact size. A file longer than its
+number is red — growing a giant is Denis's decision, not a fix — and a file SHORTER than its
+number is red too, so a number comes down in the same commit as the shrink. A new file over
+800 lines must be added to the table, and a rename must touch it. Scope is the product tree
+(`kicadstamp/`, `gui/`, `tools/`, `mcp_server/`); `tests/` is not scanned yet.
+
 The rule about where a NEW test goes lives in [Extending Tests](#extending-tests).
 The per-module description tables further down list bare file NAMES on purpose: each
 file now sits under the domain directory named after the module it tests, and the tree
