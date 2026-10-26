@@ -47,9 +47,13 @@ a selection, then refuses.
 from __future__ import annotations
 
 import logging
+from collections import Counter
 from collections.abc import Mapping as _Mapping
 from dataclasses import dataclass
-from typing import Any, Mapping
+from typing import TYPE_CHECKING, Any, Mapping
+
+if TYPE_CHECKING:  # the comparison below names the record, never builds it
+    from .config import NetTrace
 
 from .config import load_template_track, load_template_via
 from .degenerate_segments import collapse_degenerate_segments
@@ -76,6 +80,7 @@ __all__ = [
     "RoleResolver",
     "TreeNodes",
     "choose_anchor_pad",
+    "same_geometry",
     "tree_node_keys",
 ]
 
@@ -451,6 +456,63 @@ def _items_from_unit(unit: CopperUnit, components: Mapping[str, Any],
         vias.append(load_template_via(entry))
 
     return tracks, vias
+
+
+# ── «did the copper change?» — the ONE comparison of two records ───────────
+
+def _track_element(track) -> tuple:
+    """One stored track as a comparable element.
+
+    The two ends are CANONICALISED: a track is unoriented, so B->A is the same
+    copper as A->B. `width_mm` and `layer` stay INSIDE the element, so "two
+    tracks of different width swapped places" can never pass for "nothing
+    changed"."""
+    first = (track.start_along_mm, track.start_across_mm)
+    second = (track.end_along_mm, track.end_across_mm)
+    if second < first:
+        first, second = second, first
+    return (first, second, track.width_mm, track.layer)
+
+
+def _via_element(via) -> tuple:
+    """One stored via as a comparable element — its four numbers."""
+    return (via.offset_along_mm, via.offset_across_mm,
+            via.drill_mm, via.diameter_mm)
+
+
+def same_geometry(old: NetTrace, new: NetTrace) -> bool:
+    """True ⇔ the two records describe THE SAME COPPER.
+
+    Decided by plan_2026_10_26_reread_updated_noise (§5) from the Ч0 measurement
+    (§2-§5 of its report). The comparison is a MULTISET of elements, EXACT:
+
+      * a track — canonicalised ends + `width_mm` + `layer`;
+      * a via — along/across + drill + diameter;
+      * multiplicity counts: losing one of two identical segments IS a change.
+
+    Why this shape, and why no tolerance:
+
+      * ORDER is not copper. A stored record carries the board order of the
+        session that wrote it, a fresh capture carries TODAY's — the two part
+        ways after any KiCad edit, and the record was called "updated" for
+        nothing (measured: 9 of 79 records on v103, same numbers, permuted);
+      * DIRECTION is not copper either — a segment is unoriented (measured: 0 of
+        79, but it can only appear when a track is re-created, which is exactly
+        what a re-route does);
+      * a TOLERANCE is neither needed nor honest: the write step is
+        `round(..., 4)` (0.1 µm) and the read->write->load round trip provably
+        loses nothing (measured: 0 of 111 records), so ANY difference of the
+        stored numbers is a real difference of the copper. The operator's own
+        boundary — a 0.01 mm shift stays `updated` — holds by construction.
+
+    The record's identity (name, anchor, pads, net references) is never
+    compared: a re-read refreshes geometry, it never renames (`capture_unit`)."""
+    if len(old.tracks) != len(new.tracks) or len(old.vias) != len(new.vias):
+        return False
+    return (Counter(map(_track_element, old.tracks))
+            == Counter(map(_track_element, new.tracks))
+            and Counter(map(_via_element, old.vias))
+            == Counter(map(_via_element, new.vias)))
 
 
 def choose_anchor_pad(unit: CopperUnit, components: Mapping[str, Any],

@@ -244,8 +244,13 @@ def test_one_board_read_per_run_however_many_nodes_the_tree_has(tmp_path):
 def test_a_bridge_loses_the_cells_via_and_bcu_track_and_keeps_its_pads():
     """Plan cells 1 and 4: the F.Cu stretch stays, the cell's via and B.Cu go; `pads` — the
     record's signature — is untouched, so the re-read still matches the old record and reports
-    `updated` (its geometry changed) instead of adding a second one."""
-    from kicadstamp.internode_capture import _same_geometry
+    `updated` (its geometry changed) instead of adding a second one.
+
+    The comparison is imported from its new home (`internode_nodes.same_geometry`) since Ч1 of
+    plan_2026_10_26_reread_updated_noise moved it next to `_items_from_unit`, which writes the
+    numbers it compares; `internode_capture` now only calls it. The claim of THIS cell is
+    unchanged: a lost segment is a change (`updated`), not a re-ordering."""
+    from kicadstamp.internode_nodes import same_geometry as _same_geometry
     from kicadstamp.config import NetTrace
 
     fcu = Track(uuid="u-fcu", net_name="N", start=Vector2.from_xy_mm(0.0, 0.0),

@@ -65,6 +65,7 @@ from .internode_nodes import (
     RoleResolver,
     _items_from_unit,
     choose_anchor_pad,
+    same_geometry,
     tree_node_keys,
 )
 from .net_trace_planner import resolve_live_anchor
@@ -271,28 +272,9 @@ def _pad_label(pad: PadRef, components: dict[str, _Component]) -> str:
 # `_item_reference` is asked for a pair) lives in internode_nodes.py, NEXT TO that
 # rule: moved there by Д-1 of plan_2026_10_15_internode_power_copper_anchor — the
 # rule and its only builder must not drift apart, and this file is at the 800-line
-# limit (rule 45).
-
-
-def _same_geometry(old: NetTrace, new: NetTrace) -> bool:
-    """True when the stored record already describes the board's copper — the
-    comparison the "unchanged" count is built from. Compares only what a
-    re-read refreshes (the offsets/widths/layers), never the identity."""
-    if len(old.tracks) != len(new.tracks) or len(old.vias) != len(new.vias):
-        return False
-    for a, b in zip(old.tracks, new.tracks):
-        if (a.start_along_mm, a.start_across_mm, a.end_along_mm,
-                a.end_across_mm, a.width_mm, a.layer) != \
-           (b.start_along_mm, b.start_across_mm, b.end_along_mm,
-                b.end_across_mm, b.width_mm, b.layer):
-            return False
-    for a, b in zip(old.vias, new.vias):
-        if (a.offset_along_mm, a.offset_across_mm, a.drill_mm,
-                a.diameter_mm) != \
-           (b.offset_along_mm, b.offset_across_mm, b.drill_mm,
-                b.diameter_mm):
-            return False
-    return True
+# limit (rule 45). The comparison of two records (`same_geometry`) left for the
+# same reason (Ч1 of plan_2026_10_26_reread_updated_noise): it compares exactly
+# the numbers that builder writes.
 
 
 def _anchor_skip_message(unit: CopperUnit, skip: AnchorSkip | None,
@@ -716,7 +698,7 @@ def plan_internode_reread(adapter, cfg: Config, tree: Tree, *,
             continue
 
         taken.add(id(old))
-        if _same_geometry(old, record):
+        if same_geometry(old, record):
             plan.unchanged.append(identity)
         else:
             plan.updated.append((fresh, (len(old.tracks), len(old.vias),

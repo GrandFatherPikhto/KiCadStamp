@@ -790,8 +790,11 @@ def test_copper_between_clusters_that_share_a_role_gets_a_record_from_the_second
 def test_rereading_the_same_power_copper_reports_unchanged_not_updated():
     """Т5-1b — the second read of the SAME board, with the first read's record in
     the config, reports "unchanged" and adds nothing: the record is matched by its
-    pad signature (never by the element references) and _same_geometry compares
-    geometry only, so the second tier's pairs are not rewritten on disk."""
+    pad signature (never by the element references) and `same_geometry` compares
+    geometry only, so the second tier's pairs are not rewritten on disk.
+
+    (The comparison moved to `internode_nodes` in Ч1 of
+    plan_2026_10_26_reread_updated_noise; the claim of this cell is unchanged.)"""
     fps, pads = _power_rail_fps()
     cfg = _cfg_power_embedded()
     board = _Board(fps, pads)

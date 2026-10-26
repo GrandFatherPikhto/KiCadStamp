@@ -1,11 +1,12 @@
 # kicadstamp/diagnostics/probe_reread_noise_2026_10_26.py
 """probe_reread_noise_2026_10_26.py — where the "updated" noise of a tree re-read comes from.
 
-Ч0 of plan_2026_10_26_reread_updated_noise (worker: DeepSeek). A re-read of a
-tree's inter-node copper names ~80 records "updated" while the track/via COUNTS
-are unchanged, so the operator cannot tell a real change from noise. The verdict
-is taken by `internode_capture._same_geometry`, which compares two records by
-exact float equality and pairwise by order (`zip`).
+Ч0 of plan_2026_10_26_reread_updated_noise (worker: DeepSeek); Ч1 moved the
+verdict itself into `internode_nodes.same_geometry`, and this probe follows the
+product's import. A re-read of a tree's inter-node copper named ~80 records
+"updated" while the track/via COUNTS were unchanged, so the operator could not
+tell a real change from noise; the Ч0 measurement below says WHY (order, not
+precision), and the comparison now ignores order and direction, never a number.
 
 WHAT THIS PROBE DOES — and what it refuses to do
 ------------------------------------------------
@@ -30,10 +31,10 @@ WHAT THIS PROBE DOES — and what it refuses to do
 THE FOUR MEASUREMENTS
 ---------------------
 А0  file round-trip, NO board: `read_data` -> `write_data` -> `load_config` over
-    the stored `net_traces:` and `_same_geometry` on every record. Any "not
+    the stored `net_traces:` and `same_geometry` on every record. Any "not
     equal" here is pure precision loss of the writer/reader.
 А1  fresh capture -> the product's write -> `load_config` -> fresh capture again:
-    `_same_geometry(read_back, fresh)` per written record, plus what the next
+    `same_geometry(read_back, fresh)` per written record, plus what the next
     re-read reports. Any "not equal" is pure noise, at ANY board state.
 Б   (REFERENCE ONLY — depends on the board) fresh capture against the STORED
     records of the profile, exactly as the re-read does it.
@@ -55,7 +56,7 @@ parting ways with the copper (the footprint moved, the copper did not), not of a
 rounding artefact.
 
 Rule 39 — a category that also fires on a pair that is a record against ITSELF is
-empty. The probe therefore runs the same classifier on `_same_geometry(nt, nt)`
+empty. The probe therefore runs the same classifier on `same_geometry(nt, nt)`
 for every record and refuses to report a category that fires there.
 
 USAGE
@@ -85,10 +86,12 @@ from kicadstamp.config_working_set import graph_root, set_active_graph_root
 from kicadstamp.config_writer import read_data, write_data
 from kicadstamp.internode_capture import (
     _classify_area,
-    _same_geometry,
     capture_unit,
     plan_internode_reread,
 )
+# The comparison moved to its rule's own module (Ч1): it lives next to
+# `_items_from_unit`, which writes exactly the numbers it compares.
+from kicadstamp.internode_nodes import same_geometry
 from kicadstamp.net_trace_extract import net_trace_to_dict
 
 #: The write step of every stored number — `internode_nodes._items_from_unit`
@@ -266,7 +269,7 @@ def _rigid_shift(old, new) -> tuple[float, float] | None:
 
 
 def classify_pair(old, new) -> dict[str, Any]:
-    """ONE category for a pair `_same_geometry` called "not equal", plus the
+    """ONE category for a pair `same_geometry` called "not equal", plus the
     numbers a decision needs (the smallest precision N, the worst |Δ|, whether
     the whole record moved by one vector)."""
     if len(old.tracks) != len(new.tracks) or len(old.vias) != len(new.vias):
@@ -438,7 +441,7 @@ def _experiment_a0(copy_config: Path, cfg_stored) -> dict:
     pairs = [(by_name[net_trace_effective_name(nt)], nt)
              for nt in cfg_again.net_traces
              if net_trace_effective_name(nt) in by_name]
-    not_equal = [(a, b) for a, b in pairs if not _same_geometry(a, b)]
+    not_equal = [(a, b) for a, b in pairs if not same_geometry(a, b)]
     print(f"\n== А0  file round-trip of the stored net_traces: "
           f"{len(pairs)} record(s), {len(not_equal)} 'not equal' ==")
     _print_tally("А0 categories", _tally(not_equal))
@@ -519,7 +522,7 @@ def _experiment_v(first: list, second: list) -> dict:
     common = sorted(set(by_sig_first) & set(by_sig_second),
                     key=lambda k: (sorted(k[0]), k[1] or ""))
     pairs = [(by_sig_first[k], by_sig_second[k]) for k in common]
-    not_equal = [(a, b) for a, b in pairs if not _same_geometry(a, b)]
+    not_equal = [(a, b) for a, b in pairs if not same_geometry(a, b)]
     print(f"\n== В  two fresh captures in a row: {len(first)} / {len(second)} "
           f"record(s), matched by pad signature+net {len(common)} "
           f"(signature collisions {collisions}), 'not equal' {len(not_equal)} ==")
@@ -549,7 +552,7 @@ def _experiment_a1(adapter, copy_config: Path, tree, plan, sheet_names) -> dict:
                  for nt in cfg_written.net_traces if net_trace_effective_name(nt) in written}
     pairs = [(read_back[net_trace_effective_name(r)], r)
              for r in written_records if net_trace_effective_name(r) in read_back]
-    not_equal = [(a, b) for a, b in pairs if not _same_geometry(a, b)]
+    not_equal = [(a, b) for a, b in pairs if not same_geometry(a, b)]
     print(f"   read back {len(read_back)} of {len(written)}; "
           f"'not equal' against the capture that was written: {len(not_equal)}")
     _print_tally("А1 categories", _tally(not_equal))
@@ -583,12 +586,12 @@ def _self_control(records: list) -> int:
     """Rule 39: the classifier on a record against ITSELF must say "no pair"."""
     fired = 0
     for record in records:
-        if not _same_geometry(record, record):
+        if not same_geometry(record, record):
             fired += 1
             print(f"   CONTROL FIRED on {net_trace_effective_name(record)!r}: "
                   f"a record is not equal to itself — the comparison itself is "
                   f"the defect")
-    print(f"\n== control: _same_geometry(record, record) over {len(records)} "
+    print(f"\n== control: same_geometry(record, record) over {len(records)} "
           f"record(s) — fired {fired} ==")
     return fired
 
