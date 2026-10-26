@@ -193,12 +193,47 @@ def pairs_for(adapter, cfg, config_path, planned_vias, planned_tracks) -> list[d
                 row["contradicts"] = bad
                 row["fields"] = fields
                 row["position_agrees"] = position_agrees(match.live, match.command)
+                row["verdict"] = verdict_for(row)
             else:
                 row["contradicts"] = None
                 row["fields"] = []
                 row["position_agrees"] = None
+                row["verdict"] = "no live copper"
             rows.append(row)
     return rows
+
+
+#: The three outcomes of rule §2 as Denis approved it on 26.10 ("место решает
+#: первым"): PLACE first, then the identity fields.
+EDITED = "edited on the board"          # at the planned place: ownership, whatever differs
+SHIFTED = "shifted number"              # away + another net/kind: key free, item not a claim
+AWAY_SAME_NET = "same net, away"        # away, same net: today's behaviour ("selected anyway")
+
+
+def verdict_for(row: dict) -> str:
+    """One verdict for a matched pair, by the APPROVED rule:
+
+    * the item sits where the command plans it — OWNERSHIP, whatever the width or
+      the layer says: that is the operator editing the board (34 of 45 on v103);
+    * it does NOT sit there and contradicts by NET or KIND — a SHIFTED KEY: the
+      registry number points at another record's copper (the live defect);
+    * it does not sit there and only the width differs, its net is the record's —
+      as before: the pair is kept, counted as "away from the planned place".
+
+    A pair that contradicts nothing is not under this rule at all (`—`)."""
+    if not row["contradicts"]:
+        return "—"
+    if row["position_agrees"]:
+        return EDITED
+    fields = {f.split()[0] for f in row["fields"]}
+    return SHIFTED if ({"net", "kind"} & fields) else AWAY_SAME_NET
+
+
+def _verdict_counts(rows) -> dict:
+    counts: dict[str, int] = {}
+    for row in rows:
+        counts[row["verdict"]] = counts.get(row["verdict"], 0) + 1
+    return counts
 
 
 def _print_pairs(title: str, rows: list[dict], *, show_all: bool = False) -> None:
@@ -209,9 +244,10 @@ def _print_pairs(title: str, rows: list[dict], *, show_all: bool = False) -> Non
           f"{sum(1 for r in rows if r['tier'] == 'geometry')}, "
           f"missing {sum(1 for r in rows if r['live'] is None)}")
     print(f"   away from place   : {sum(1 for r in rows if r['live'] and not r['in_place'])}")
-    print(f"   CONTRADICT by kind/net/layer/size: {len(bad)}")
+    print(f"   contradicts by kind/net/layer/size: {len(bad)}")
+    print(f"   verdicts (place decides first): {_verdict_counts(rows)}")
     for row in (rows if show_all else bad):
-        flag = "CONTRADICTS" if row["contradicts"] else "ok"
+        flag = row["verdict"] if row["contradicts"] else "ok"
         print(f"   · {row['key']}  [{row['tier']}]  {flag}"
               f"{'' if not row['fields'] else ' — ' + '; '.join(row['fields'])}")
         print(f"       planned: {row['planned']}")
@@ -406,6 +442,9 @@ def main(argv: list[str] | None = None) -> int:
                     print(f"       live   : {row['found']}")
                 result["whole_contradicting"] = len(bad)
                 result["whole_examples"] = bad
+                result["whole_verdicts"] = _verdict_counts(bad)
+                print(f"   verdicts (place decides first): "
+                      f"{result['whole_verdicts']}")
                 by_field: dict[str, int] = {}
                 for row in bad:
                     for field in row["fields"]:
