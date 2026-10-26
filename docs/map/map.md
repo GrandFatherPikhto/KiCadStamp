@@ -130,6 +130,10 @@
 - **Реестр (via / track)** — два JSON-файла, ключ `anchor|template|role|index`; путь — `registry_paths_for_config`.
 - **UUID записи** — формат 3: идентичность записи = `uuid`; ключ реестра несёт `uuid` (`record_key_part`).
 - **Таблица папок** — связь листа схемы и экземпляров; **рабочий набор (`WORKING_SET`)** — `kicadstamp/config_working_set.py`.
+  Его GUI-сторона (включение по корню, активный graph root, грязный индикатор, дебаунс-перестройка
+  деревьев) — `gui/hub_infrastructure.py` (`on_root_changed`, `on_working_set_changed`,
+  `refresh_from_working_set`, `install_working_set`); `DockHub` только делегирует одноимёнными методами
+  (их держат сигналы, ярлыки `_safe_call` и клетки).
 - **Дверь платы** — единственный путь к плате `connection.board`; канон `techdocs/me/door.md`.
 
 ## 2.4. Где лежат данные
@@ -140,6 +144,10 @@
   / `reconcile` в `kicadstamp/registry.py`.
 - **`gui/gui_state.json`**: помнит контекст ячейки (`gui/cell_edit_context.py`), настройки (`gui/settings.py`).
 - **Логи**: GUI-лог-док (`gui/docks/log_panel.py`); диагностика — `kicadstamp/diagnostics/` (вне карты).
+  Корневой `log_file:` профиля — владелец `gui/hub_infrastructure.RootLogFile`: один `FileHandler` на
+  процесс, снимается и пересоздаётся на КАЖДОЙ смене корня (`swap`), читается хабом через свойство
+  `DockHub._log_file_handler`. Сама дверь не закрывает снятый handler (как и до Ч1) — известный мелкий
+  долг, а не часть выноса.
 
 ## 2.5. Дополнения захода 2026-10-08 (части А–Г плана `plan_2026_10_08_narrowing_net_traces_cost`)
 

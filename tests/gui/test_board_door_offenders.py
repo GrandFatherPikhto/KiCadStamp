@@ -1160,11 +1160,17 @@ def _active_graph_root(tmp_path, monkeypatch):
     `set_active_graph_root(None)` on startup — it would clobber this fixture's
     value for the two cells that write through the dock. Neutralise ONLY that
     binding, so the fixture's own root survives (the fixture still sets it via
-    the real function below, in whatever order the window is built)."""
-    import gui.dock_hub as dock_hub_mod
+    the real function below, in whatever order the window is built).
+
+    Ч1 of plan_2026_10_22_dock_hub_reorganization moved that call into
+    `gui/hub_infrastructure.py` (DockHub._on_root_changed_for_working_set is a
+    one-line delegate), so the name to neutralise lives THERE. The property is
+    unchanged; the address is not — patching the giant would keep this cell
+    green while the startup call it exists to stop went through untouched."""
+    import gui.hub_infrastructure as hub_infra_mod
     from kicadstamp.config_working_set import set_active_graph_root
 
-    monkeypatch.setattr(dock_hub_mod, "set_active_graph_root", lambda root: None)
+    monkeypatch.setattr(hub_infra_mod, "set_active_graph_root", lambda root: None)
     set_active_graph_root(tmp_path / "active_root.sexp")
     yield
     set_active_graph_root(None)

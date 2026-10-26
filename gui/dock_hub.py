@@ -32,10 +32,10 @@ set_root_path and saved through the same single live instance.
 import logging
 from functools import partial
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
 from kipy.errors import ApiError
-from PyQt6.QtCore import QTimer, Qt
+from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (QDialog, QMessageBox, QSizePolicy, QTabWidget)
 
 from .docks._common import (ERROR_STYLE as _ERROR_STYLE,
@@ -44,13 +44,13 @@ from .docks._common import (ERROR_STYLE as _ERROR_STYLE,
 from .docks.extract_diagnostics import (format_cluster_rejections,
                                         rejections_log_detail)
 
-from kicadstamp.cli_common import api_error_message, peek_log_file
-from kicadstamp.config_working_set import WORKING_SET, set_active_graph_root
+from kicadstamp.cli_common import api_error_message
 from kicadstamp.exceptions import ValidationError
 from kicadstamp.i18n import _
-from kicadstamp.logging_setup import get_log_listener
 
+from . import hub_infrastructure
 from . import overlay_markers
+from .hub_infrastructure import RootLogFile
 from .connection import ui_thread_board_read
 # The ENTITY doors' rules live in their own module (2в, п.1); the delegates below
 # are one-liners over them.
@@ -129,14 +129,62 @@ class DockHub:
         # _on_overrides_written is where that event lands. Same getattr for the
         # same reason — a stand-in without the method keeps the pre-store world.
         self._reload_poll_store = getattr(connection, "reload_store", None)
-        # The root-config log_file: FileHandler currently attached to the
-        # root logger, if any — see _on_root_file_changed_for_logging().
-        self._log_file_handler: Optional[logging.Handler] = None
+        # Both live-board writers get an immediate out-of-cycle refresh hook
+        # (see MainWindow.request_refresh) — the automatic poll tick never
+        # refreshes on its own once already connected, so without this a
+        # Stage/Clear all/Delete selected write would sit invisible to Pending
+        # changes until the user manually clicked Refresh. getattr, not a direct
+        # attribute access — DockHub itself is built (and tested) against any
+        # plain QMainWindow, not just the real gui.main_window.MainWindow (see
+        # test_phase3_wiring.py's "the composition root works without a real
+        # MainWindow too"). Resolved ONCE here because TWO steps read it: the
+        # write hooks and the entity page.
+        self._request_refresh = getattr(main_window, "request_refresh", None)
+        # The root-config log_file: FileHandler currently attached to the root
+        # logger / QueueListener. The STATE is owned by
+        # gui/hub_infrastructure.RootLogFile (Ч1); the hub keeps only the seam —
+        # see the read-only _log_file_handler property further down, which twelve
+        # test teardowns and tests/gui/conftest.py read.
+        self._root_log = RootLogFile()
         # V.3 (plan_2026_09_11_extract_selection_diagnostics): root paths
         # already checked for the "no schematic_dir -> sheet narrowing is off"
         # Log line — once per root, only with a live board.
         self._sheet_dir_checked: set[str] = set()
+        # The raw selection handed between the docks (Ч0 перепись of
+        # plan_2026_10_22_dock_hub_reorganization): plain attributes ON PURPOSE —
+        # gui/extract_cluster_flow.py reads them and ten cells in
+        # test_phase3_wiring.py ASSIGN them directly, so they must not move into
+        # a container.
+        self._selection_raw_items: list = []
+        self._selection_footprints: list = []
+        # Held across the Record.../capture worker ops (worker.py keeps its own
+        # keep-alive too, but the dock keeps the returned controller for
+        # inspection/idempotency, the same shape as the docks' _active_op).
+        self._scheme_active_op = None
+        # The debounced working-set refresh timer — created by
+        # hub_infrastructure.install_working_set() in the LAST step.
+        self._ws_refresh_timer = None
 
+        # TEN NAMED STEPS, each ONE contiguous block of the constructor this split came from —
+        # so nothing is built in a new order (pending/fieldstool before the tree, the Log dock
+        # last, `_finish_composition` after ALL of them: hotkeys and diagnostics need them).
+        self._build_components_master_detail()
+        self._build_central_tabs()
+        self._wire_board_write_hooks()
+        self._build_config_pages()
+        self._build_record_dialogs()
+        self._build_entity_pages()
+        self._build_tool_dialogs()
+        self._build_bottom_docks(verbose)
+        self._expose_docks_for_view_menu()
+        self._finish_composition()
+
+    # ── Composition steps (rule 45: in a giant only wiring stays) ──────────
+
+    def _build_components_master_detail(self) -> None:
+        """Pending + fieldstool FIRST: RoleClusterTreeDock hosts them, and a QWidget has one parent."""
+        main_window = self.main_window
+        connection = self._connection
         # ── CENTRAL: the Components / Config / Trees tab group ─────────────
         # 2026-09-10 (task T, prompt_2026_09_10_central_widget_layout.md): these
         # three used to be QDockWidgets tabified in the LeftDockWidgetArea. With
@@ -168,6 +216,11 @@ class DockHub:
         self.config_tree_dock = ConfigTreeDock(main_window)
         self.trees_dock = TreesDock(main_window)
         inject_snapshot_refresher(self)
+
+    def _build_central_tabs(self) -> None:
+        """The elastic centre: Components | Config | Trees | Checks — PAGES, not docks."""
+        main_window = self.main_window
+        connection = self._connection
         # Checks (plan_2026_10_23_checks_tab_top_level): a PAGE of the left tab row (Denis,
         # 23.10), not a dock — it only LAUNCHES tools/check_*.py in their own process.
         self.checks_page = ChecksPage(main_window, connection=connection)
@@ -193,18 +246,10 @@ class DockHub:
         self.left_tabs.setMinimumHeight(1)
         main_window.setCentralWidget(self.left_tabs)
 
-        # Both live-board writers get an immediate out-of-cycle refresh hook
-        # (see MainWindow.request_refresh) — the automatic poll tick never
-        # refreshes on its own once already connected, so without this a
-        # Stage/Clear all/Delete selected write would sit invisible to
-        # Pending changes until the user manually clicked Refresh. getattr,
-        # not a direct attribute access — DockHub itself is built (and
-        # tested) against any plain QMainWindow, not just the real
-        # gui.main_window.MainWindow (see test_phase3_wiring.py's "the
-        # composition root works without a real MainWindow too").
-        request_refresh = getattr(main_window, "request_refresh", None)
-        self.tree_dock.on_board_written = request_refresh
-        self.fieldstool_dock.window.on_board_written = request_refresh
+    def _wire_board_write_hooks(self) -> None:
+        """Board writers ask the window for a refresh; store writers land in the ONE hook."""
+        self.tree_dock.on_board_written = self._request_refresh
+        self.fieldstool_dock.window.on_board_written = self._request_refresh
         # ... and the STORE half of the same news (Т5): this window is the other
         # holder of the project's override store, so its own Record (Stage) must
         # make the Refs table re-read the file (and vice versa, wired further
@@ -216,6 +261,10 @@ class DockHub:
         # diff the user reads would still show values that are no longer there.
         self.tree_dock.on_overrides_written = self._on_overrides_written
 
+    def _build_config_pages(self) -> None:
+        """The Config right-QView pages and the Explode flow — each widget built ONCE."""
+        main_window = self.main_window
+        connection = self._connection
         # NetTrace (2026-09-05, plan config_qview_placer_nettrace):
         # ConfigTreeDock is now a master-detail — the Config tree on the left
         # and a context QStack on the right. NetTraceDock (a former DetailDock
@@ -224,8 +273,6 @@ class DockHub:
         # removed 2026-10-12 with the `clone_placements:` section.
         self.net_trace_dock = NetTraceDock(main_window, connection=connection)
         self._net_trace_page = self.config_tree_dock.add_right_page(self.net_trace_dock)
-        self._selection_raw_items: list = []
-        self._selection_footprints: list = []
         # Thermal via (2026-09-05, design config_qview_chain_entity_pages, the
         # same QView move as the Entity page): the single live ThermalViaArrayDock
         # is a Config right-QView page (a single click on a thermal_via_arrays
@@ -258,10 +305,10 @@ class DockHub:
             main_window, connection=connection)
         self._imprint_place_page = self.config_tree_dock.add_right_page(
             self.imprint_place_dock)
-        # Held across the Record.../capture worker ops (worker.py keeps its own
-        # keep-alive too, but the dock keeps the returned controller for
-        # inspection/idempotency, the same shape as the docks' _active_op).
-        self._scheme_active_op = None
+
+    def _build_record_dialogs(self) -> None:
+        """Project (RootMetadataDock) and Cell (CellDock) — one live editor each, in a dialog."""
+        main_window = self.main_window
         # Project (2026-09-01, plan project_settings_dialogs): RootMetadataDock
         # is no longer a Detail dock page — it is hosted in the standalone
         # non-modal ProjectDialog (File > "Project...", see
@@ -281,6 +328,11 @@ class DockHub:
         # dialog instead of switching a Detail dock tab.
         self.cells_dock = CellDock(main_window)
         self.cell_dialog = CellDialog(self.cells_dock, main_window)
+
+    def _build_entity_pages(self) -> None:
+        """The Entity page with Points, the Explode flow and the Refs/Anchor tabs it addresses."""
+        main_window = self.main_window
+        connection = self._connection
         # Entity (2026-09-05, design config_qview_chain_entity_pages §5): the
         # Config right-QView page shown when an Entities leaf is selected — a
         # read-mostly Entity RECORD editor ("Справка": Name/Cell/Sheet/Cluster
@@ -336,9 +388,9 @@ class DockHub:
         # kept its old name), so it needs the same out-of-cycle refresh hook the
         # Role/Cluster tree and fieldstool got above: the ~2s poll never
         # refreshes once connected, and without this the write would stay
-        # invisible to Pending changes until a manual Refresh. request_refresh is
-        # resolved earlier in this same __init__.
-        self.entity_dock.on_board_written = request_refresh
+        # invisible to Pending changes until a manual Refresh. request_refresh was
+        # resolved ONCE in __init__ (see _wire_board_write_hooks).
+        self.entity_dock.on_board_written = self._request_refresh
         # ... and the STORE half of the same news: the fieldstool window holds its
         # OWN copy of that store (it is what the Pending diff reads), so a record
         # made here only becomes visible there when that copy re-reads the file.
@@ -349,6 +401,11 @@ class DockHub:
         # what that module exists to prevent).
         provider = lambda: getattr(self.config_tree_dock, "_entity_index", None)
         self.cells_dock.entity_index_provider = provider
+
+    def _build_tool_dialogs(self) -> None:
+        """Settings (ConfiguratorDock) and Tools (ToolsDock) — one live widget each, in a dialog."""
+        main_window = self.main_window
+        connection = self._connection
         # Settings (2026-09-01, plan project_settings_dialogs): ConfiguratorDock
         # is no longer a Detail dock page either — it is a two-pane settings
         # browser (QTreeWidget of categories on the left, pages on the right,
@@ -367,6 +424,9 @@ class DockHub:
         self.tools_dock = ToolsDock(main_window)
         self.tools_dialog = ToolsDialog(self.tools_dock, main_window)
 
+    def _build_bottom_docks(self, verbose: bool = False) -> None:
+        """The bottom area is the Log ALONE; `raise_()` AFTER the tabify makes it the visible tab."""
+        main_window = self.main_window
         # ── bottom: Log, and nothing else ─────────────────────────────────
         # 2026-09-05 (plan components_fieldstool_master_detail): Pending moved
         # into the Components dock's left tab, so Log is the sole bottom dock.
@@ -378,6 +438,8 @@ class DockHub:
         main_window.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, self.log_dock)
         self.log_dock.raise_()
 
+    def _expose_docks_for_view_menu(self) -> None:
+        """`self.docks` — THE list the View menu turns into toggle actions: real docks only."""
         # All real TOP-LEVEL QDockWidgets (2026-08-27, handoff
         # sync_skip_message_and_view_menu): MainWindow's View menu wires each
         # one's ready-made toggleViewAction() so a closed dock can be brought
@@ -393,6 +455,8 @@ class DockHub:
         # Checks page, so the Log is the only real top-level dock left.
         self.docks = [self.log_dock]
 
+    def _finish_composition(self) -> None:
+        """Signals → hotkeys (need EVERY dock) → diagnostics reminder (needs LogDock) → working set."""
         self._wire()
 
         # Hotkeys list in the Settings tab (ConfiguratorDock.refresh_hotkeys)
@@ -417,11 +481,9 @@ class DockHub:
         # stage/clear notifies this listener -> dirty indicator + a debounced
         # refresh so the tree/collectors show the staged content. QTimer-
         # debounced (a burst of stages in one event-loop turn coalesces into
-        # one rebuild).
-        self._ws_refresh_timer = QTimer(self.main_window)
-        self._ws_refresh_timer.setSingleShot(True)
-        self._ws_refresh_timer.timeout.connect(self._refresh_from_working_set)
-        WORKING_SET.add_listener(self._on_working_set_changed)
+        # one rebuild). The timer and the subscription live in
+        # gui/hub_infrastructure.py since Ч1; the hub only holds the handle.
+        self._ws_refresh_timer = hub_infrastructure.install_working_set(self)
 
     def restore_tree_mode(self) -> None:
         """Restores the Components tree's "Not yet applied" (schematic)
@@ -2642,41 +2704,17 @@ class DockHub:
             lambda _report: self.refresh_explode_state(),
             lambda _message: self.refresh_explode_state(), connection)
 
-    def _attach_log_file_handler(self, handler) -> None:
-        """Attach the root-config log_file: FileHandler either to the live
-        QueueListener (when setup_logging() has started one) or directly to
-        the ROOT logger when no listener exists (unit tests, no
-        setup_logging call) — idempotent across both paths, so
-        _on_root_file_changed_for_logging() can call it on every re-peek.
-        Since 2026-08-15 (queue-based logging rework, see
-        techdocs/handoff/plan_2026_08_15_queue_based_logging.md) the
-        handler's formatting/writing runs on the listener's single thread,
-        so logging can never block the calling thread on a handler lock."""
-        if handler is None:
-            return
-        listener = get_log_listener()
-        if listener is not None:
-            if handler not in listener.handlers:
-                listener.handlers = listener.handlers + (handler,)
-        else:
-            root = logging.getLogger()
-            if handler not in root.handlers:
-                root.addHandler(handler)
+    @property
+    def _log_file_handler(self):
+        """The root config's current log_file: FileHandler — a READ-ONLY seam over
+        RootLogFile.current. A property, not a field, because twelve test teardowns and
+        tests/gui/conftest.py read this name and a refactor may not edit them (п. 33)."""
+        return self._root_log.current
 
-    def _detach_log_file_handler(self, handler) -> None:
-        """Detach the root-config log_file: FileHandler from BOTH the ROOT
-        logger and the live QueueListener (whichever path it was attached
-        through) — idempotent, so _on_root_file_changed_for_logging() (swap
-        on root-file change) and teardown fixtures can call it freely."""
-        if handler is None:
-            return
-        root = logging.getLogger()
-        if handler in root.handlers:
-            root.removeHandler(handler)
-        listener = get_log_listener()
-        if listener is not None and handler in listener.handlers:
-            listener.handlers = tuple(
-                h for h in listener.handlers if h is not handler)
+    def _on_root_file_changed_for_logging(self, path) -> None:
+        """The rule lives in hub_infrastructure.RootLogFile.swap(); the NAME stays — `_wire`
+        connects to it and `_safe_call` labels it."""
+        self._root_log.swap(path)
 
     def _on_overrides_written(self) -> None:
         """The override store was RECORDED into by one of the GUI's own panes
@@ -2806,42 +2844,26 @@ class DockHub:
         self._update_dirty_indicator()
 
     # ── Config working set (2026-09-01, plan project_save_model) ─────────
+    # The RULES live in gui/hub_infrastructure.py (Ч1); the NAMES stay — signals,
+    # reload_project_from_disk, _safe_call labels and the suite call them.
 
     def _on_root_changed_for_working_set(self, root_path) -> None:
-        """Enable/clear the config working set when the project root changes:
-        staging is ON whenever a project is open (so every dock edit lands in
-        the working set, not on disk), OFF/cleared when the project closes. A
-        root switch starts with a clean working set; the unsaved-changes guard
-        lives in RootMetadataDock.set_root_file/close_project.
-
-        The ACTIVE GRAPH ROOT (У4.1, variant B) is set in the SAME place: the
-        format-3 writer stamp reads it to resolve reference UUIDs, and it is
-        visible from worker threads exactly like WORKING_SET."""
-        WORKING_SET.enabled = root_path is not None
-        WORKING_SET.clear()
-        set_active_graph_root(root_path)
-        self._update_dirty_indicator()
+        """Enable/clear the working set + the active graph root. Kept a METHOD because the
+        signal is connected to it AND because a cell calls it UNBOUND on a fake with nothing
+        but `_update_dirty_indicator` (tests/config/test_config_format3_wiring.py, п. 33)."""
+        hub_infrastructure.on_root_changed(self, root_path)
 
     def _on_working_set_changed(self) -> None:
-        """Every staged write (or clear) — reflect the dirty state immediately
-        and schedule a debounced refresh so the tree/collectors show the staged
-        content."""
-        self._update_dirty_indicator()
-        self._ws_refresh_timer.start()
+        """Every staged write (or clear): dirty state now, debounced rebuild later."""
+        hub_infrastructure.on_working_set_changed(self)
 
     def _refresh_from_working_set(self) -> None:
-        """Debounced: the working set changed (staged or flushed) — rebuild the
-        trees and graph-derived combos from the current (staged) state."""
-        self._safe_call("config_tree_dock.refresh", self.config_tree_dock.refresh)
-        self._refresh_graph_dependent_choices()
+        """Debounced: trees and graph-derived combos from the current (staged) state."""
+        hub_infrastructure.refresh_from_working_set(self)
 
     def _update_dirty_indicator(self) -> None:
-        """Mirror the working set's dirty state into MainWindow's status-bar ●
-        and File > Save text (getattr-guarded: DockHub is also built against a
-        plain QMainWindow in tests)."""
-        fn = getattr(self.main_window, "_update_dirty_indicator", None)
-        if fn is not None:
-            fn()
+        """Mirror the working set's dirty state into MainWindow's status bar and File > Save."""
+        hub_infrastructure.update_dirty_indicator(self)
 
     def _warn_if_sheet_narrowing_disabled(self, path) -> None:
         """V.3 (plan_2026_09_11_extract_selection_diagnostics): one informational Log line
@@ -2855,38 +2877,3 @@ class DockHub:
         warn_once(path, getattr(self.main_window, "connection", None),
                   self._sheet_dir_checked)
 
-    def _on_root_file_changed_for_logging(self, path) -> None:
-        """Attaches a FileHandler using the CURRENT root config's own
-        log_file: (Config.log_file) — see this method's own connect() above
-        for why. Since 2026-08-15 (queue-based logging rework, see
-        techdocs/handoff/plan_2026_08_15_queue_based_logging.md) the
-        handler is attached to the live QueueListener (get_log_listener)
-        whenever one exists — its single listener thread formats/writes
-        records, so logging can never block the calling thread on a handler
-        lock — falling back to a direct root-logger attachment when no
-        listener is configured (unit tests, no setup_logging call).
-        Re-peeked fresh on every root-file change (never cached), matching
-        kicadstamp_cli.py's own per-invocation freshness — same
-        cli_common.peek_log_file() helper, so a typo/missing log_file: is
-        handled exactly the same way the CLI already handles it (a logged
-        warning, never a raise). DEBUG level regardless of the GUI's own
-        console/LogDock verbosity, same as the CLI's file handler
-        (kicadstamp/logging_setup.py)."""
-        if self._log_file_handler is not None:
-            self._detach_log_file_handler(self._log_file_handler)
-            self._log_file_handler = None
-        if path is None:
-            return
-        log_file = peek_log_file(str(path))
-        if log_file is None:
-            return
-        try:
-            Path(log_file).parent.mkdir(parents=True, exist_ok=True)
-            handler = logging.FileHandler(log_file, encoding="utf-8")
-        except OSError as e:
-            logging.warning(f"Could not open log_file {log_file!r}: {e}")
-            return
-        handler.setLevel(logging.DEBUG)
-        handler.setFormatter(logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s"))
-        self._attach_log_file_handler(handler)
-        self._log_file_handler = handler

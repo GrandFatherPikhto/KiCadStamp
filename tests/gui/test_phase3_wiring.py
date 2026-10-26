@@ -1736,7 +1736,10 @@ def test_dock_hub_file_handler_attaches_to_the_queue_listener_when_one_is_runnin
     import queue as queue_module
     from logging.handlers import QueueListener
 
-    from gui import dock_hub as dock_hub_mod
+    # Ч1 of plan_2026_10_22_dock_hub_reorganization moved the root-config log_file:
+    # handler into gui/hub_infrastructure.py, so the seam this cell patches lives
+    # THERE. Patching the giant would leave the cell measuring nothing (rule 38).
+    from gui import hub_infrastructure as hub_infra_mod
 
     root_file = tmp_path / "root.sexp"
     _write(root_file, {"log_file": "logs/run.log"})
@@ -1750,7 +1753,7 @@ def test_dock_hub_file_handler_attaches_to_the_queue_listener_when_one_is_runnin
     some_handler = logging.StreamHandler()
     listener = QueueListener(queue_module.Queue(), some_handler)
     listener.start()
-    monkeypatch.setattr(dock_hub_mod, "get_log_listener", lambda: listener)
+    monkeypatch.setattr(hub_infra_mod, "get_log_listener", lambda: listener)
 
     hub = None
     try:
