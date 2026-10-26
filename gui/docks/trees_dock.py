@@ -125,10 +125,10 @@ from .trees_view_helpers import (  # noqa: F401 — re-export for callers and te
     collect_tree_refs,
 )
 from .trees_mount_rebase import run_mount_rebase
-from .trees_selection import (empty_selection_page, multi_selection_page,
-                              on_selection_changed, select_only,
-                              selected_copper_group, selected_real_node,
-                              selected_real_nodes)
+from .trees_selection import (empty_selection_page, item_of_ref,
+                              multi_selection_page, on_selection_changed,
+                              select_only, selected_copper_group,
+                              selected_real_node, selected_real_nodes)
 from .trees_node_form import (kind_menu_rows, mark_used_items, ref_combo_rows,
                               used_ref_locations, used_ref_refusal)
 from .trees_mount_point import (clear_mount_point, read_mount_point,
@@ -1541,6 +1541,29 @@ class TreesDock(QWidget):
         self._switch_to_tree(name)
         self.show()
         self.raise_()
+
+    def select_node(self, tree_name: str, node_ref: str) -> bool:
+        """Public: open the tree `tree_name` and make its node `node_ref` the ONE
+        selected row, expanding whatever hides it (Ч2б-2: a check report's
+        "К ноде в дереве" is handed a node NAME, not a node).
+
+        False when the tree is not loaded or has no such node — the caller says so
+        instead of landing the operator on some other row and calling it a jump.
+        The selection itself goes through `select_only`, the ONE place a single
+        node is selected (Ч1 п.1): an entry point that means ONE node must also
+        collapse a group selection."""
+        self._switch_to_tree(tree_name)
+        tree = next((t for t in self._trees if t.name == tree_name), None)
+        widget = self._tree_widget_for(tree) if tree is not None else None
+        item = item_of_ref(widget, node_ref)
+        if item is None:
+            return False
+        parent = item.parent()
+        while parent is not None:
+            parent.setExpanded(True)
+            parent = parent.parent()
+        select_only(widget, item)
+        return True
 
     def _edit_in_panel(self, tree: Tree, node: TreeNode) -> None:
         """Z.3: 'Edit node…' is a shortcut — a single click already shows the

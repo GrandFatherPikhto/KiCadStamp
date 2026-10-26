@@ -62,6 +62,11 @@ NS_TREE_INNER = "tree-inner"
 #: plan_2026_10_23_checks_tab_top_level): one marker per MEMBER of a group, keyed by
 #: that member's uuid, so pressing the button twice replaces rather than stacks.
 NS_DEDUPE = "dedupe"
+#: A check report's "Highlight on board" (Ч2б-2 of the same plan): one marker per PART the
+#: selected problem names, keyed by the ref (the report's own vocabulary, and stable between
+#: runs). Its own namespace, because a report's marks must go as one set and must never touch
+#: the duplicate panel's circles.
+NS_CHECK = "check"
 NS_TREE_OUTER = "tree-outer"
 
 _SLOT_MARKER = "marker"
@@ -79,6 +84,13 @@ def orphan_tolerance_mm() -> float:
 def dedupe_marker_key(member_uuid: str) -> str:
     """The key of ONE highlighted duplicate (`dedupe/<member uuid>`)."""
     return f"{NS_DEDUPE}/{member_uuid}"
+
+
+def check_marker_key(ref: str) -> str:
+    """The key of ONE part marked by a check report (`check/<ref>`). The ref, not a uuid:
+    the report names parts by ref, and the shape is redrawn from a fresh board read each
+    time, so the key is what makes a second press replace instead of stack."""
+    return f"{NS_CHECK}/{ref}"
 
 
 def cell_anchor_key(root: Any, cell: Any, slot: str) -> str:

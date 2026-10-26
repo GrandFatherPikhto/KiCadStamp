@@ -18644,6 +18644,52 @@ msgstr "KiCad отклонил перемещение {ref!r} — плата н�
 msgid "footprint {ref!r} not found on the board"
 msgstr "футпринт {ref!r} не найден на плате"
 
+#: gui/docks/checks_report.py
+msgid "Go to the tree node"
+msgstr "К ноде в дереве"
+
+#: gui/docks/checks_report.py
+msgid "Open the Trees page on the node this problem names"
+msgstr "Открыть вкладку Trees на узле, который называет эта проблема"
+
+#: gui/docks/checks_report.py
+msgid ""
+"Mark the parts of this problem on the overlay layer — your own board "
+"selection stays as it is"
+msgstr ""
+"Пометить части этой проблемы на слое оверлея — ваше выделение на плате "
+"остаётся как было"
+
+#: gui/docks/checks_report.py
+#, python-brace-format
+msgid "Parts: {refs}"
+msgstr "Части: {refs}"
+
+#: gui/docks/checks_report.py
+#, python-brace-format
+msgid "The node {node} is not in the tree {tree}."
+msgstr "Узла {node} нет в дереве {tree}."
+
+#: gui/docks/checks_report.py
+#, python-brace-format
+msgid "Selected {node} in {tree}."
+msgstr "Выбран узел {node} в дереве {tree}."
+
+#: gui/docks/checks_report.py
+#, python-brace-format
+msgid "Marked {drawn} of {total} parts."
+msgstr "Помечено {drawn} из {total} частей."
+
+#: gui/docks/checks_report.py
+#, python-brace-format
+msgid "Not on the board: {refs}."
+msgstr "Нет на плате: {refs}."
+
+#: gui/docks/checks_report.py
+#, python-brace-format
+msgid "Marking failed: {error}"
+msgstr "Пометка не удалась: {error}"
+
 #~ msgid ""
 #~ "role {role!r} occurs {count} times in"
 #~ " cluster {cluster!r} — this is a "

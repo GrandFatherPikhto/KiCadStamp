@@ -24,6 +24,7 @@ No KiCad and no board: the "scripts" are tiny stand-ins placed under `<tmp>/tool
 their exit code from the profile directory's name (`profile_exit_1` → 1, `profile_exit_99` →
 starts, prints and then hangs for the Stop cell).
 """
+import json
 import logging
 import sys
 from types import SimpleNamespace
@@ -32,11 +33,15 @@ import pytest
 from PyQt6.QtCore import QProcess
 from PyQt6.QtWidgets import QApplication, QDockWidget, QMainWindow
 
+from gui import overlay_markers, settings
 from gui.checks_menu import build_checks_menu
 from gui.checks_registry import CHECKS, DEDUPE_ROW, command_for
 from gui.docks._common import style_for_level
 from gui.docks.checks import ChecksPage, new_output_decoder
 from kicadstamp.config_working_set import WORKING_SET
+from kicadstamp.utils.units import MM
+
+from tests.fakes.adapter import FakeAdapter
 
 
 FAKE_SCRIPT = '''\
@@ -866,3 +871,331 @@ def test_the_panel_row_shows_its_own_verdict(main_window, qtbot, tmp_path):
         page.dedupe.find()
     assert row.text(0).startswith("✔ ")
     assert row.text(1) == "0 groups"
+
+
+# ── Ч2б-2: the report's three levels (C7, C10) and its two doors (C8, C9) ────
+
+#: A stand-in for a check that WRITES a report: it copies `<profile dir>/report.json` — the
+#: report the CELL prepared — into the `--json PATH` the page passed. So a cell states exactly
+#: what the check found, and the page's own promise ("the human text stays on stdout, the
+#: machine report is a FILE") goes through a real process, not a mock of one.
+REPORT_SCRIPT = '''\
+"""Stand-in for tools/check_*.py with --json: copy the prepared report to that path."""
+import sys
+from pathlib import Path
+
+profile = Path(sys.argv[1])
+args = sys.argv[1:]
+print(f"first line for {profile.parent.name}")
+if "--json" in args:
+    prepared = profile.parent / "report.json"
+    if prepared.exists():
+        Path(args[args.index("--json") + 1]).write_text(
+            prepared.read_text(encoding="utf-8"), encoding="utf-8")
+raise SystemExit(int(profile.parent.name.rsplit("_", 1)[-1]))
+'''
+
+
+def _problem(key, kind, text, *, refs=(), to_node=None):
+    return {"key": key, "kind": kind, "text": text, "refs": list(refs),
+            "where": None, "to_node": to_node}
+
+
+def _section(section_id, title, *problems):
+    return {"id": section_id, "title": title, "problems": list(problems)}
+
+
+def _report(*sections):
+    problems = sum(len(section["problems"]) for section in sections)
+    return {"schema": 1, "script": SCRIPT, "when": "2026-10-26 12:00:00",
+            "profile": None, "board": None,
+            "result": {"exit": 1, "problems": problems, "ok": 0, "skipped": 0,
+                       "not_checked": 0},
+            "applied": None, "refusal": None, "notes": [],
+            "sections": list(sections), "changes": None}
+
+
+def _prepare_report(profile, report) -> None:
+    """What the stand-in will copy: the report of THIS run."""
+    (profile.parent / "report.json").write_text(
+        json.dumps(report, ensure_ascii=False), encoding="utf-8")
+
+
+def _report_page(main_window, tmp_path, report):
+    page = _make_page(main_window, tmp_path, script_source=REPORT_SCRIPT)
+    profile = _profile(tmp_path, 1)
+    _prepare_report(profile, report)
+    return page, profile
+
+
+def _section_row(page, index):
+    return page._items[SCRIPT].child(index)
+
+
+def _problem_row(page, section, index):
+    return _section_row(page, section).child(index)
+
+
+def _fp(ref, x_mm, y_mm):
+    return SimpleNamespace(ref=ref,
+                           position=SimpleNamespace(x=int(x_mm * MM),
+                                                    y=int(y_mm * MM)))
+
+
+def _seed_marks(mapping: dict) -> None:
+    """`{key: uuid}` in the overlay owner's own state — the marks a previous press left."""
+    settings.state.set(overlay_markers.OVERLAY_MARKERS_KEY, dict(mapping))
+
+
+def _owner_keys() -> set:
+    return set(overlay_markers.OverlayMarkerOwner().keys())
+
+
+def test_the_tree_shows_a_row_per_section_and_per_problem(main_window, qtbot, tmp_path):
+    """C7 of Ч2б-2: the row's children come from the REPORT — one node per section, one per
+    problem under it, in the report's own order and with its own words. Nothing is parsed out
+    of the printed text, and the row's own verdict is still the exit code's."""
+    page, profile = _report_page(main_window, tmp_path, _report(
+        _section("instances", "Instances",
+                 _problem("K1", "MISPLACED", "R12 is 1.25 mm off its slot"),
+                 _problem("K2", "TURNED", "R3 is turned by 90 deg")),
+        _section("empty_slots", "Empty slots",
+                 _problem("K3", "TAKEN", "R7 stands on R12's slot"))))
+    _run(page, qtbot, profile)
+
+    row = page._items[SCRIPT]
+    assert [row.child(i).text(0) for i in range(row.childCount())] == [
+        "Instances (2)", "Empty slots (1)"]
+    instances = row.child(0)
+    assert [instances.child(i).text(0) for i in range(instances.childCount())] == [
+        "MISPLACED  R12 is 1.25 mm off its slot",
+        "TURNED  R3 is turned by 90 deg"]
+    assert row.text(0).startswith("⚠ "), "the verdict is still the run's exit code"
+
+
+def test_an_empty_section_gets_no_row(main_window, qtbot, tmp_path):
+    """Decision of Denis (26.10, answer 4): a section with nothing to report gets NO node —
+    the row's own count already says how many problems there are, and a row per "checked this,
+    found nothing" would bury the ones that matter."""
+    page, profile = _report_page(main_window, tmp_path, _report(
+        _section("anchors", "Anchors"),
+        _section("instances", "Instances",
+                 _problem("K1", "MISPLACED", "R12 is off its slot"))))
+    _run(page, qtbot, profile)
+
+    row = page._items[SCRIPT]
+    assert [row.child(i).text(0) for i in range(row.childCount())] == ["Instances (1)"]
+
+
+def test_a_rerun_keeps_the_selected_problem_by_its_key(main_window, qtbot, tmp_path):
+    """The selection survives a re-run by the problem's stable `key`, never by the row index:
+    the same finding moving to another section keeps the operator on it, instead of landing
+    them on whatever took its place."""
+    page, profile = _report_page(main_window, tmp_path, _report(
+        _section("instances", "Instances",
+                 _problem("KEEP", "MISPLACED", "the problem we stay on"),
+                 _problem("OTHER", "TURNED", "another one"))))
+    _run(page, qtbot, profile)
+    page.tree.setCurrentItem(_problem_row(page, 0, 0))
+    assert page.report_view.text.toPlainText() == "the problem we stay on"
+
+    _prepare_report(profile, _report(
+        _section("instances", "Instances",
+                 _problem("OTHER", "TURNED", "another one")),
+        _section("empty_slots", "Empty slots",
+                 _problem("KEEP", "MISPLACED", "the problem we stay on"))))
+    _run(page, qtbot, profile)
+
+    current = page.tree.currentItem()
+    assert current.parent().text(0) == "Empty slots (1)"
+    assert current.text(0) == "MISPLACED  the problem we stay on"
+
+
+def test_a_run_without_json_keeps_the_text_only_row(main_window, qtbot, tmp_path):
+    """C10 of Ч2б-2: a script that knows no `--json` (an old check, a refusal that writes
+    nothing) still gives the row its verdict, its duration and its TEXT — the tree simply
+    grows no children, and nothing pretends a report exists."""
+    page = _make_page(main_window, tmp_path)          # FAKE_SCRIPT: no --json handling
+    profile = _profile(tmp_path, 1)
+    _run(page, qtbot, profile)
+
+    assert page._items[SCRIPT].childCount() == 0
+    assert page.output.toPlainText() == OUTPUT_1
+
+
+def test_the_previous_reports_rows_are_gone_before_the_next_run(main_window, qtbot,
+                                                                tmp_path):
+    """The report of a run is removed BEFORE the next process starts: a run that writes none
+    (a refusal, a crash, an old script) must not inherit the previous run's tree — a stale
+    tree under a fresh verdict is exactly the lie Ч2б-1's `changes` was built to avoid."""
+    page, profile = _report_page(main_window, tmp_path, _report(
+        _section("instances", "Instances",
+                 _problem("K1", "MISPLACED", "R12 is off its slot"))))
+    _run(page, qtbot, profile)
+    assert page._items[SCRIPT].childCount() == 1
+
+    (profile.parent / "report.json").unlink()         # the next run writes NO report
+    _run(page, qtbot, profile)
+    assert page._items[SCRIPT].childCount() == 0
+
+
+def test_highlight_marks_the_refs_and_selects_nothing(main_window, qtbot, tmp_path,
+                                                      monkeypatch):
+    """C8 of Ч2б-2: "Highlight on board" asks the overlay owner for one marker per PART the
+    problem names, at that part's own place, keyed by the ref so a second press replaces
+    instead of stacking — and it never selects anything on the board: the operator's own
+    selection is not ours to move. A part that is not on the board is SAID, not silently
+    dropped.
+
+    The drawing itself belongs to gui/board_overlay (its own cells cover it), so the owner's
+    `ensure_marker` is a recorder here: what this cell pins is what the page asks for."""
+    adapter = FakeAdapter(footprints=[_fp("R1", 2.0, 3.0), _fp("R7", -1.0, 1.0)])
+    main_window.connection.board = SimpleNamespace(adapter=adapter)
+    page, profile = _report_page(main_window, tmp_path, _report(
+        _section("instances", "Instances",
+                 _problem("K1", "MISPLACED", "R12 is off its slot",
+                          refs=("R1", "R9")))))
+    _run(page, qtbot, profile)
+
+    asked = []
+    monkeypatch.setattr(
+        overlay_markers.OverlayMarkerOwner, "ensure_marker",
+        lambda self, adapter_, key, x_mm, y_mm, **_kwargs:
+            asked.append((key, round(x_mm, 3), round(y_mm, 3))) or "overlay-" + key)
+    selected = []
+    # `raising=False`: FakeAdapter has no selection surface, and the point is that our door
+    # would USE one if it had it — a recorder proves it never asks for anything but "[]"
+    # (the overlay's own repaint after a removal, which is not the operator's selection).
+    monkeypatch.setattr(adapter, "select_items",
+                        lambda items: selected.append(list(items)), raising=False)
+
+    page.tree.setCurrentItem(_problem_row(page, 0, 0))
+    assert page.report_view.highlight_button.isEnabled() is True
+    page.report_view.highlight_button.click()
+    qtbot.waitUntil(lambda: page.status_label.text().startswith("Marked"), timeout=5000)
+
+    assert asked == [("check/R1", 2.0, 3.0)]
+    assert [call for call in selected if call] == [], \
+        "the operator's board selection must never be touched"
+    assert "Marked 1 of 2 parts." in page.status_label.text()
+    assert "R9" in page.status_label.text(), "the part that is not on the board is named"
+
+
+def test_the_page_asks_the_hub_for_the_node_of_the_problem(main_window, qtbot, tmp_path):
+    """C9 of Ч2б-2: "К ноде в дереве" hands BOTH halves of `to_node` to the hub and says where
+    it landed. The page knows nothing about tabs or tree widgets — one door, one argument."""
+    page, profile = _report_page(main_window, tmp_path, _report(
+        _section("instances", "Instances",
+                 _problem("K1", "MISPLACED", "R12 is off its slot",
+                          to_node={"tree": "alpha", "node": "DEEP", "cell": None}))))
+    _run(page, qtbot, profile)
+
+    asked = []
+    main_window.dock_hub = SimpleNamespace(
+        select_tree_node=lambda tree, node: asked.append((tree, node)) or True)
+    page.tree.setCurrentItem(_problem_row(page, 0, 0))
+    assert page.report_view.node_button.isEnabled() is True
+    page.report_view.node_button.click()
+
+    assert asked == [("alpha", "DEEP")]
+    assert "DEEP" in page.status_label.text()
+
+
+def test_a_node_that_is_not_in_the_tree_is_said_not_guessed(main_window, qtbot, tmp_path):
+    """A jump that lands nowhere must not look like a jump: the hub's False becomes a line with
+    the tree and the node in it (never a modal — rule 43), and the hub was asked about the node
+    the REPORT named, not about something else that happens to exist."""
+    page, profile = _report_page(main_window, tmp_path, _report(
+        _section("instances", "Instances",
+                 _problem("K1", "MISPLACED", "R12 is off its slot",
+                          to_node={"tree": "alpha", "node": "GONE", "cell": None}))))
+    _run(page, qtbot, profile)
+    asked = []
+    main_window.dock_hub = SimpleNamespace(
+        select_tree_node=lambda tree, node: asked.append((tree, node)) or False)
+
+    page.tree.setCurrentItem(_problem_row(page, 0, 0))
+    page.report_view.node_button.click()
+
+    assert asked == [("alpha", "GONE")]
+    assert page.status_label.text() == "The node GONE is not in the tree alpha."
+
+
+def test_the_node_door_is_off_without_a_node(main_window, qtbot, tmp_path):
+    """A problem with `to_node: null` gets no door — the button is disabled, and pressing it
+    (a disabled button emits nothing) reaches no hub at all."""
+    page, profile = _report_page(main_window, tmp_path, _report(
+        _section("instances", "Instances",
+                 _problem("K1", "MISPLACED", "R12 is off its slot"))))
+    _run(page, qtbot, profile)
+    asked = []
+    main_window.dock_hub = SimpleNamespace(
+        select_tree_node=lambda tree, node: asked.append((tree, node)) or True)
+
+    page.tree.setCurrentItem(_problem_row(page, 0, 0))
+    assert page.report_view.node_button.isEnabled() is False
+    page.report_view.node_button.click()
+    assert asked == []
+
+
+def test_the_highlight_door_is_off_without_refs(main_window, qtbot, tmp_path):
+    """No `refs` means nothing to mark, so the door is not drawn as one — a button that does
+    nothing when pressed is worse than an absent one."""
+    page, profile = _report_page(main_window, tmp_path, _report(
+        _section("instances", "Instances",
+                 _problem("K1", "MISPLACED", "R12 is off its slot"))))
+    _run(page, qtbot, profile)
+
+    page.tree.setCurrentItem(_problem_row(page, 0, 0))
+    assert page.report_view.highlight_button.isEnabled() is False
+
+
+def test_a_section_shows_its_problems_and_has_no_doors(main_window, qtbot, tmp_path):
+    """A section node is a LIST: its problems line by line, and neither door — both act on
+    one problem's own address, which a section does not have."""
+    page, profile = _report_page(main_window, tmp_path, _report(
+        _section("instances", "Instances",
+                 _problem("K1", "MISPLACED", "R12 is off its slot", refs=("R1",)),
+                 _problem("K2", "TURNED", "R3 is turned by 90 deg",
+                          to_node={"tree": "alpha", "node": "DEEP"}))))
+    _run(page, qtbot, profile)
+
+    page.tree.setCurrentItem(_section_row(page, 0))
+    assert page.report_view.heading.text() == "Instances (2)"
+    assert page.report_view.text.toPlainText() == (
+        "R12 is off its slot\nR3 is turned by 90 deg")
+    assert page.report_view.node_button.isEnabled() is False
+    assert page.report_view.highlight_button.isEnabled() is False
+
+
+def test_the_previous_marks_are_dropped_before_drawing(main_window, qtbot, tmp_path,
+                                                       monkeypatch):
+    """The marks described the problem that was selected WHEN they were drawn, so a new press
+    drops the whole `check` namespace FIRST (the Д-2 lesson of Ч2а) — and only it: the
+    duplicate panel's circles and every cell anchor on the same layer belong to somebody else
+    and stay exactly where they were."""
+    adapter = FakeAdapter(footprints=[_fp("R1", 2.0, 3.0)])
+    main_window.connection.board = SimpleNamespace(adapter=adapter)
+    events = []
+    monkeypatch.setattr(adapter, "remove_by_ids",
+                        lambda uuids: events.append(("remove", tuple(uuids))),
+                        raising=False)
+    monkeypatch.setattr(adapter, "select_items", lambda items: None, raising=False)
+    monkeypatch.setattr(
+        overlay_markers.OverlayMarkerOwner, "ensure_marker",
+        lambda self, adapter_, key, x_mm, y_mm, **_kwargs:
+            events.append(("draw", key)) or "overlay-" + key)
+    page, profile = _report_page(main_window, tmp_path, _report(
+        _section("instances", "Instances",
+                 _problem("K1", "MISPLACED", "R12 is off its slot", refs=("R1",)))))
+    _run(page, qtbot, profile)
+    _seed_marks({"check/R1": "marker-r1", "dedupe/v1": "marker-v1"})
+
+    page.tree.setCurrentItem(_problem_row(page, 0, 0))
+    page.report_view.highlight_button.click()
+    qtbot.waitUntil(lambda: page.status_label.text().startswith("Marked"), timeout=5000)
+
+    assert events[0] == ("remove", ("marker-r1",)), \
+        "the marks of the previous press go BEFORE the new ones are drawn"
+    assert events[1:] == [("draw", "check/R1")]
+    assert _owner_keys() == {"dedupe/v1"}, "nobody else's marks are touched"

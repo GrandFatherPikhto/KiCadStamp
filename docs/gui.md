@@ -2920,7 +2920,21 @@ check prints `\r\n`, and the pane must not show those next to the page's own `\n
   says in one line while the working set is dirty. **Footprints vs library** reads the SAVED
   `.kicad_pcb` — save the board in KiCad first;
 - the three buttons share the Log's baseline file for `Placement` (`NEW`/`GONE`), exactly like a
-  terminal run — see [docs/check_scripts.md](check_scripts.md).
+  terminal run — see [docs/check_scripts.md](check_scripts.md);
+- **three levels, not one** (Ч2б-2): after a run the row's children are ONE node per section that
+  HAS problems and one per problem under it, built from the machine report the check writes with
+  `--json PATH` (never parsed out of the printed text). A check that writes no report — an old
+  script, a refusal, a crash — simply has no children, and its verdict still comes from the exit
+  code. An **empty section gets no node**: the row's own count already says how many problems
+  there are. Selecting a problem shows its text, `kind`, `where` and `refs` on the right, and the
+  selection follows the problem's stable `key` across re-runs (a run always starts from the check's
+  ROW — Run is off on a problem — so what the page remembers is the problem you looked at);
+- a problem has two doors, and each is enabled only when its promise can be kept: **Go to the tree
+  node** (only when the report names a tree AND a node) brings the Trees page to the front and
+  selects that node, saying so when the node is not there; **Highlight on board** (only when the
+  problem names parts) marks those parts on the overlay layer under its own `check` namespace,
+  dropping the previous press's marks first. It never touches your own board selection, and a part
+  that is not on the board is named in the status line.
 
 Which checks are offered, where the scripts are found (a repository working copy, walked up to from
 the package — an installed build says so instead of guessing) and the command line itself live in

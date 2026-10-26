@@ -18,6 +18,10 @@ QView on the right:
     report without re-running anything, and "Copy" hands over the SELECTED check's own TEXT —
     exactly what the script printed, with line endings normalised to `\\n` (see
     `new_output_decoder`).
+  * Ч2б-2: after a run the row grows CHILDREN — one node per section that HAS problems and one
+    per problem under it — built from the `--json` report, not from the text, with the two
+    doors of a problem ("Go to the tree node" / "Highlight on board"). Reader, QView and row
+    builder live in `gui/docks/checks_report.py`; this file only wires them.
   * one process at a time — "Run" runs the SELECTED check, "Run all" queues every check in
     registry order and starts the next one only when the previous has finished.
 
@@ -46,6 +50,7 @@ from kicadstamp.i18n import _
 from ..checks_registry import CHECKS, DEDUPE_ROW, command_for, exit_level
 from ..worker import defer_while_socket_busy, socket_busy
 from ._common import style_for_level
+from .checks_report import attach_report_side, show_role_on_page, with_json
 from .dedupe import DedupePage, group_label
 
 logger = logging.getLogger(__name__)
@@ -103,6 +108,11 @@ class CheckState:
     level: Optional[str] = None
     #: True once a run has FINISHED (a refused start is not a run: the row keeps "not run").
     started: bool = False
+    #: THIS run's machine report (`--json`), or None when it wrote none — an old script, a
+    #: refusal, a crash. The row's CHILDREN are built from it and from nothing else.
+    report: Optional[dict] = None
+    #: The file `--json` had to write; "" until this check first runs.
+    json_path: str = ""
 
     def glyph(self) -> str:
         """The row's verdict: a live run shows the ellipsis, a check that never FINISHED a run
@@ -251,6 +261,9 @@ class ChecksPage(QWidget):
         self.pane = QStackedWidget()
         self.pane.addWidget(self.output)
         self.pane.addWidget(self.dedupe)
+        # Page 2 (Ч2б-2) is a section or a problem of a check's own `--json` report; the module
+        # builds it, wires its two doors and returns (view, row builder).
+        self.report_view, self.report_rows = attach_report_side(self)
         view_layout.addWidget(self.pane, 1)
         splitter.addWidget(view)
         splitter.setStretchFactor(0, 1)
@@ -356,6 +369,8 @@ class ChecksPage(QWidget):
         # (its provider asks `is_running`), and this call is what re-reads it on every start
         # and end of a run.
         self.dedupe.refresh_buttons()
+        # The report side's highlight door is a board write: it stands down with the rest.
+        self.report_view.set_busy(self.is_running())
         self._update_copy()
 
     def _update_copy(self) -> None:
@@ -399,12 +414,14 @@ class ChecksPage(QWidget):
     def _on_current_changed(self, _current, _previous) -> None:
         """Another row selected: show ITS own view — never re-run anything.
 
-        THREE kinds of selection live in one tree (Д-1 of the Ч2а acceptance): a check row
-        shows its last report and status, the copper row shows the panel's page-level doors,
-        and a GROUP node shows that group's QView."""
+        FOUR kinds of selection live in one tree (Д-1 of the Ч2а acceptance, Ч2б-2): a check
+        row shows its last report and status, the copper row the panel's page-level doors, a
+        GROUP node that group's QView, a section or a problem the report's."""
         role = self._role(_current)
         if isinstance(role, tuple) and role[0] == DEDUPE_GROUP_ROLE:
             self._show_dedupe_group(role[1])
+            return
+        if show_role_on_page(self, role):  # a section or a problem of that check's report
             return
         script = role if isinstance(role, str) else None
         if script == DEDUPE_ROW:
@@ -627,6 +644,7 @@ class ChecksPage(QWidget):
         self._stopping = False
         self._queue_cancelled = 0
         self._decoder = new_output_decoder()
+        argv = with_json(argv, self.report_dir, script, state)  # Ч2б-2: its own report
         if WORKING_SET.is_dirty():
             # The scripts read the profile FROM DISK; the GUI's unsaved edits are not there.
             # Prepended to the PANE only — "Copy" still hands over the script's own text.
@@ -743,6 +761,7 @@ class ChecksPage(QWidget):
                            script, code, state.seconds)
         self._update_buttons()
         self._update_copy()
+        self.report_rows.finish(script)  # Ч2б-2: this run's report -> the row's children
         self.state_changed.emit()
         self.finished.emit(script, code, state.seconds)
         self._start_next()

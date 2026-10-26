@@ -17680,6 +17680,52 @@ msgstr "KiCad rejected the move of {ref!r} — the board was not modified"
 msgid "footprint {ref!r} not found on the board"
 msgstr "footprint {ref!r} not found on the board"
 
+#: gui/docks/checks_report.py
+msgid "Go to the tree node"
+msgstr "Go to the tree node"
+
+#: gui/docks/checks_report.py
+msgid "Open the Trees page on the node this problem names"
+msgstr "Open the Trees page on the node this problem names"
+
+#: gui/docks/checks_report.py
+msgid ""
+"Mark the parts of this problem on the overlay layer — your own board "
+"selection stays as it is"
+msgstr ""
+"Mark the parts of this problem on the overlay layer — your own board "
+"selection stays as it is"
+
+#: gui/docks/checks_report.py
+#, python-brace-format
+msgid "Parts: {refs}"
+msgstr "Parts: {refs}"
+
+#: gui/docks/checks_report.py
+#, python-brace-format
+msgid "The node {node} is not in the tree {tree}."
+msgstr "The node {node} is not in the tree {tree}."
+
+#: gui/docks/checks_report.py
+#, python-brace-format
+msgid "Selected {node} in {tree}."
+msgstr "Selected {node} in {tree}."
+
+#: gui/docks/checks_report.py
+#, python-brace-format
+msgid "Marked {drawn} of {total} parts."
+msgstr "Marked {drawn} of {total} parts."
+
+#: gui/docks/checks_report.py
+#, python-brace-format
+msgid "Not on the board: {refs}."
+msgstr "Not on the board: {refs}."
+
+#: gui/docks/checks_report.py
+#, python-brace-format
+msgid "Marking failed: {error}"
+msgstr "Marking failed: {error}"
+
 #~ msgid ""
 #~ "role {role!r} occurs {count} times in"
 #~ " cluster {cluster!r} — this is a "

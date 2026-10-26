@@ -23,8 +23,8 @@ from __future__ import annotations
 from typing import Optional
 
 from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import (QLabel, QTreeWidget, QTreeWidgetItem, QVBoxLayout,
-                             QWidget)
+from PyQt6.QtWidgets import (QLabel, QTreeWidget, QTreeWidgetItem,
+                             QTreeWidgetItemIterator, QVBoxLayout, QWidget)
 
 from kicadstamp.i18n import _
 from kicadstamp.trees import Tree, TreeNode
@@ -150,6 +150,28 @@ def selected_real_nodes(dock, tree: Tree) -> list[TreeNode]:
     if tree_widget is None:
         return []
     return real_nodes_of_items(tree_widget.selectedItems())
+
+
+def item_of_ref(tree_widget: Optional[QTreeWidget],
+                ref: str) -> Optional[QTreeWidgetItem]:
+    """The row of the node whose `ref` is `ref`, anywhere in `tree_widget` — the ONE
+    lookup of "the row for this node name", shared by every entry point that is handed a
+    node NAME rather than a node (Ч2б-2: a check report's `to_node` is exactly that).
+
+    Only a real `TreeNode` can match: the pseudo-rows (the anchor, "⇐ embedded in X",
+    "→ instance: X") carry a str or nothing and the "Copper" group carries a marker, so
+    none of them can answer for a node. None when the tree is not loaded or has no such
+    node — the caller says so instead of guessing."""
+    if tree_widget is None or not ref:
+        return None
+    it = QTreeWidgetItemIterator(tree_widget)
+    while it.value() is not None:
+        item = it.value()
+        data = item.data(0, Qt.ItemDataRole.UserRole)
+        if isinstance(data, TreeNode) and data.ref == ref:
+            return item
+        it += 1
+    return None
 
 
 def select_only(tree_widget: Optional[QTreeWidget],
