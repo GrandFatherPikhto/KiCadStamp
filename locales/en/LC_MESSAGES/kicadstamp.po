@@ -3,7 +3,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version:  kicadstamp\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-25 13:31+0300\n"
+"POT-Creation-Date: 2026-10-26 19:34+0300\n"
 "PO-Revision-Date: 2026-07-27 12:00+0000\n"
 "Last-Translator: \n"
 "Language: en\n"
@@ -150,11 +150,11 @@ msgid ""
 "cluster ambiguous), then identify again"
 msgstr ""
 
-#: gui/checks_menu.py:38 gui/dock_hub.py:185
+#: gui/checks_menu.py:38 gui/dock_hub.py:238
 msgid "Checks"
 msgstr "Checks"
 
-#: gui/checks_menu.py:47 gui/docks/checks.py:165 gui/docks/checks.py:360
+#: gui/checks_menu.py:47 gui/docks/checks.py:202 gui/docks/checks.py:406
 msgid "Copper duplicates"
 msgstr ""
 
@@ -162,11 +162,11 @@ msgstr ""
 msgid "Find duplicate vias/tracks on the live board"
 msgstr "Find duplicate vias/tracks on the live board"
 
-#: gui/checks_menu.py:54 gui/docks/checks.py:184
+#: gui/checks_menu.py:54 gui/docks/checks.py:221
 msgid "Run all"
 msgstr ""
 
-#: gui/checks_menu.py:55 gui/docks/checks.py:185
+#: gui/checks_menu.py:55 gui/docks/checks.py:222
 msgid "Run every check, one after another"
 msgstr ""
 
@@ -282,32 +282,32 @@ msgstr ""
 msgid "Not connected"
 msgstr "Not connected"
 
-#: gui/dock_hub.py:182 gui/docks/cell_editor.py:531 gui/docks/imprint.py:1336
+#: gui/dock_hub.py:235 gui/docks/cell_editor.py:531 gui/docks/imprint.py:1336
 #: gui/docks/role_cluster_tree.py:339
 msgid "Components"
 msgstr "Components"
 
-#: gui/dock_hub.py:183 gui/main_window.py:372
+#: gui/dock_hub.py:236 gui/main_window.py:372
 msgid "Config"
 msgstr "Config"
 
-#: gui/dock_hub.py:184 gui/docks/config_tree.py:167 gui/main_window.py:268
+#: gui/dock_hub.py:237 gui/docks/config_tree.py:167 gui/main_window.py:268
 msgid "Trees"
 msgstr "Trees"
 
-#: gui/dock_hub.py:544 gui/dock_hub.py:573
+#: gui/dock_hub.py:606 gui/dock_hub.py:635
 msgid "Select an Imprint record first."
 msgstr ""
 
-#: gui/dock_hub.py:567 gui/dock_hub.py:572 gui/dock_hub.py:1429
-#: gui/dock_hub.py:1493 gui/dock_hub.py:1499 gui/dock_hub.py:1505
+#: gui/dock_hub.py:629 gui/dock_hub.py:634 gui/dock_hub.py:1491
+#: gui/dock_hub.py:1555 gui/dock_hub.py:1561 gui/dock_hub.py:1567
 #: gui/docks/config_tree.py:158 gui/docks/imprint.py:873
 #: gui/docks/imprint.py:901 gui/main_window.py:416
 msgid "Imprints"
 msgstr ""
 
-#: gui/dock_hub.py:568 gui/dock_hub.py:1430 gui/dock_hub.py:1807
-#: gui/dock_hub.py:2036 gui/docks/add_entities_flow.py:84
+#: gui/dock_hub.py:630 gui/dock_hub.py:1492 gui/dock_hub.py:1869
+#: gui/dock_hub.py:2098 gui/docks/add_entities_flow.py:84
 #: gui/docks/cell_editor.py:1533 gui/docks/cell_editor.py:1615
 #: gui/docks/cell_editor.py:2135 gui/docks/cell_editor.py:2458
 #: gui/docks/cell_editor.py:2558 gui/docks/change_cell_flow.py:189
@@ -323,9 +323,10 @@ msgstr ""
 msgid "Set the project root first."
 msgstr "Set the project root first."
 
-#: gui/dock_hub.py:582 gui/dock_hub.py:1438 gui/docks/cell_editor.py:1609
+#: gui/dock_hub.py:644 gui/dock_hub.py:1500 gui/docks/cell_editor.py:1609
 #: gui/docks/cell_editor.py:1711 gui/docks/cell_editor.py:2129
-#: gui/docks/cell_editor.py:2455 gui/docks/dedupe.py:374
+#: gui/docks/cell_editor.py:2455 gui/docks/checks_report.py:505
+#: gui/docks/checks_report.py:522 gui/docks/dedupe.py:374
 #: gui/docks/dedupe.py:397 gui/docks/dedupe.py:414 gui/docks/dedupe.py:436
 #: gui/docks/dedupe.py:479 gui/docks/imprint.py:868 gui/docks/imprint.py:1567
 #: gui/docks/imprint.py:1641 gui/docks/net_trace.py:317
@@ -334,11 +335,11 @@ msgstr "Set the project root first."
 msgid "Connect to KiCad first."
 msgstr "Connect to KiCad first."
 
-#: gui/dock_hub.py:634 gui/dock_hub.py:641 gui/dock_hub.py:654
+#: gui/dock_hub.py:696 gui/dock_hub.py:703 gui/dock_hub.py:716
 msgid "Cannot re-source Imprint"
 msgstr ""
 
-#: gui/dock_hub.py:642 gui/dock_hub.py:1506 gui/docks/imprint.py:874
+#: gui/dock_hub.py:704 gui/dock_hub.py:1568 gui/docks/imprint.py:874
 msgid ""
 "No footprints to record — pick a sheet that has footprints on the 'By "
 "sheet' tab, or select footprints on the board for 'By selection'."
@@ -350,8 +351,8 @@ msgstr ""
 # says
 # WHICH board operation is running ("Working with the board: placing"). An
 # operation that passes nothing gets the generic wording above instead.
-#: gui/dock_hub.py:693 gui/dock_hub.py:1546 gui/dock_hub.py:1620
-#: gui/dock_hub.py:1734 gui/dock_hub.py:1960 gui/docks/dedupe.py:382
+#: gui/dock_hub.py:755 gui/dock_hub.py:1608 gui/dock_hub.py:1682
+#: gui/dock_hub.py:1796 gui/dock_hub.py:2022 gui/docks/dedupe.py:382
 #: gui/docks/imprint.py:882 gui/docks/imprint.py:1582
 #: gui/docks/net_trace.py:339 gui/docks/trees_dock.py:3063
 #: gui/docks/trees_dock.py:3272 gui/docks/trees_dock.py:3321
@@ -359,67 +360,67 @@ msgstr ""
 msgid "reading the board"
 msgstr "reading the board"
 
-#: gui/dock_hub.py:1261
+#: gui/dock_hub.py:1323
 msgid ""
 "The board is busy — using the previously read board snapshot; the "
 "Role/Cluster suggestions may be slightly out of date."
 msgstr ""
 
-#: gui/dock_hub.py:1494 gui/docks/add_entities.py:268
+#: gui/dock_hub.py:1556 gui/docks/add_entities.py:268
 #: gui/docks/cell_editor.py:1460 gui/docks/create_entity.py:345
 #: gui/docks/points.py:367 gui/docks/points.py:536 gui/docks/thermal_via.py:272
 msgid "Name is required."
 msgstr "Name is required."
 
-#: gui/dock_hub.py:1515
+#: gui/dock_hub.py:1577
 msgid "Cannot record Imprint"
 msgstr ""
 
-#: gui/dock_hub.py:1594 gui/dock_hub.py:1629 gui/dock_hub.py:1643
-#: gui/dock_hub.py:1657
+#: gui/dock_hub.py:1656 gui/dock_hub.py:1691 gui/dock_hub.py:1705
+#: gui/dock_hub.py:1719
 msgid "Record failed"
 msgstr ""
 
-#: gui/dock_hub.py:1648
+#: gui/dock_hub.py:1710
 #, python-brace-format
 msgid ""
 "Recorded Imprint {name!r} — {components} components, {vias} vias, "
 "{tracks} tracks -> {path}"
 msgstr ""
 
-#: gui/dock_hub.py:1658 gui/dock_hub.py:1777 gui/docks/dedupe.py:570
+#: gui/dock_hub.py:1720 gui/dock_hub.py:1839 gui/docks/dedupe.py:570
 #: gui/docks/net_trace.py:417
 #, python-brace-format
 msgid "Operation failed: {error}"
 msgstr "Operation failed: {error}"
 
-#: gui/dock_hub.py:1710 gui/dock_hub.py:1743 gui/dock_hub.py:1762
-#: gui/dock_hub.py:1776
+#: gui/dock_hub.py:1772 gui/dock_hub.py:1805 gui/dock_hub.py:1824
+#: gui/dock_hub.py:1838
 msgid "Re-source failed"
 msgstr ""
 
-#: gui/dock_hub.py:1767
+#: gui/dock_hub.py:1829
 #, python-brace-format
 msgid ""
 "Re-sourced Imprint {name!r} — {components} components, {vias} vias, "
 "{tracks} tracks -> {path}"
 msgstr ""
 
-#: gui/dock_hub.py:1785
+#: gui/dock_hub.py:1847
 msgid "Pick an Imprint in the Config tree first."
 msgstr ""
 
-#: gui/dock_hub.py:1806 gui/dock_hub.py:1813 gui/docks/instances_dialog.py:129
+#: gui/dock_hub.py:1868 gui/dock_hub.py:1875 gui/docks/instances_dialog.py:129
 msgid "Tree instances"
 msgstr ""
 
-#: gui/dock_hub.py:1814 gui/dock_hub.py:2043 gui/docks/add_entities_flow.py:92
+#: gui/dock_hub.py:1876 gui/dock_hub.py:2105 gui/docks/add_entities_flow.py:92
 #: gui/docks/create_entity_flow.py:79 gui/extract_cluster_flow.py:129
 #, python-brace-format
 msgid "Failed to load config: {error}"
 msgstr "Failed to load config: {error}"
 
-#: gui/dock_hub.py:1968
+#: gui/dock_hub.py:2030
 msgid ""
 "The board is busy — the cluster list comes from the previously read board"
 " snapshot: a component added to a cluster since then may be missing, so a"
@@ -427,15 +428,15 @@ msgid ""
 " tree for a missing component."
 msgstr ""
 
-#: gui/dock_hub.py:1980 gui/docks/imprint.py:914 gui/docks/imprint.py:1628
+#: gui/dock_hub.py:2042 gui/docks/imprint.py:914 gui/docks/imprint.py:1628
 #, python-brace-format
 msgid "Could not refresh the board snapshot: {error}"
 msgstr ""
 
-#: gui/dock_hub.py:1992 gui/dock_hub.py:2022 gui/dock_hub.py:2030
-#: gui/dock_hub.py:2035 gui/dock_hub.py:2042 gui/dock_hub.py:2070
-#: gui/dock_hub.py:2151 gui/dock_hub.py:2157 gui/dock_hub.py:2217
-#: gui/dock_hub.py:2291 gui/dock_hub.py:2301
+#: gui/dock_hub.py:2054 gui/dock_hub.py:2084 gui/dock_hub.py:2092
+#: gui/dock_hub.py:2097 gui/dock_hub.py:2104 gui/dock_hub.py:2132
+#: gui/dock_hub.py:2213 gui/dock_hub.py:2219 gui/dock_hub.py:2279
+#: gui/dock_hub.py:2353 gui/dock_hub.py:2363
 #: gui/docks/tree_from_selection_dialog.py:88
 #: gui/docks/tree_from_selection_dialog.py:415
 #: gui/docks/tree_from_selection_dialog.py:423
@@ -444,7 +445,7 @@ msgstr ""
 msgid "Extract tree"
 msgstr "Extract tree"
 
-#: gui/dock_hub.py:2023 gui/dock_hub.py:2031 gui/docks/points.py:438
+#: gui/dock_hub.py:2085 gui/dock_hub.py:2093 gui/docks/points.py:438
 #: gui/docks/points.py:543 gui/docks/points.py:720 gui/docks/points.py:771
 #: gui/docks/role_cluster_tree.py:905 gui/docks/role_cluster_tree.py:917
 #: gui/docks/trees_dock.py:6976 gui/docks/trees_dock.py:7040
@@ -452,7 +453,7 @@ msgstr "Extract tree"
 msgid "Not connected."
 msgstr "Not connected."
 
-#: gui/dock_hub.py:2071 gui/extract_cluster_flow.py:155
+#: gui/dock_hub.py:2133 gui/extract_cluster_flow.py:155
 msgid ""
 "No fully selected Cluster found — select ALL components of a cluster (its"
 " Cluster tag + sheet) first."
@@ -460,15 +461,15 @@ msgstr ""
 "No fully selected Cluster found — select ALL components of a cluster (its"
 " Cluster tag + sheet) first."
 
-#: gui/dock_hub.py:2152
+#: gui/dock_hub.py:2214
 msgid "No clusters selected."
 msgstr "No clusters selected."
 
-#: gui/dock_hub.py:2158 gui/docks/tree_from_selection_dialog.py:432
+#: gui/dock_hub.py:2220 gui/docks/tree_from_selection_dialog.py:432
 msgid "Role is required for the tree anchor."
 msgstr "Role is required for the tree anchor."
 
-#: gui/dock_hub.py:2218
+#: gui/dock_hub.py:2280
 #, python-brace-format
 msgid ""
 "Cannot build the tree:\n"
@@ -477,21 +478,21 @@ msgstr ""
 "Cannot build the tree:\n"
 "{errors}"
 
-#: gui/dock_hub.py:2292
+#: gui/dock_hub.py:2354
 #, python-brace-format
 msgid "Saved, but the round-trip check failed: {error}"
 msgstr "Saved, but the round-trip check failed: {error}"
 
-#: gui/dock_hub.py:2302
+#: gui/dock_hub.py:2364
 #, python-brace-format
 msgid "Tree {name!r} saved to {path}."
 msgstr "Tree {name!r} saved to {path}."
 
-#: gui/dock_hub.py:2436
+#: gui/dock_hub.py:2498
 msgid "Pick a cell in the Config tree first."
 msgstr ""
 
-#: gui/dock_hub.py:2441
+#: gui/dock_hub.py:2503
 #, python-brace-format
 msgid "pick an entity of cell {cell!r}"
 msgstr ""
@@ -1211,8 +1212,8 @@ msgstr ""
 #: gui/docks/add_entities.py:161 gui/docks/instance_candidates.py:136
 #: gui/docks/instance_candidates.py:451 gui/entity/address.py:142
 #: gui/entity/address.py:146 gui/mixed_selection.py:122
-#: gui/mixed_selection.py:173 gui/mixed_selection.py:288 gui/select_cell.py:143
-#: gui/select_cell.py:238 gui/select_enclosed_copper.py:87
+#: gui/mixed_selection.py:173 gui/mixed_selection.py:288 gui/select_cell.py:146
+#: gui/select_cell.py:242 gui/select_enclosed_copper.py:87
 #: gui/subtract_copper.py:67
 msgid "(no sheet)"
 msgstr ""
@@ -1262,29 +1263,29 @@ msgid ""
 msgstr ""
 
 # ── Overlay markers owner (plan_2026_09_11_overlay_markers_owner) ──
-#: gui/overlay_markers.py:216
+#: gui/overlay_markers.py:228
 #, python-brace-format
 msgid "No live board — the overlay marker {key!r} was not drawn."
 msgstr ""
 
-#: gui/overlay_markers.py:244
+#: gui/overlay_markers.py:256
 #, python-brace-format
 msgid "No live board — the overlay bbox {key!r} was not drawn."
 msgstr ""
 
-#: gui/overlay_markers.py:342
+#: gui/overlay_markers.py:354
 #, python-brace-format
 msgid ""
 "Overlay reconcile: layer {layer!r} is not enabled on this board — nothing"
 " to reconcile."
 msgstr ""
 
-#: gui/overlay_markers.py:347
+#: gui/overlay_markers.py:359
 #, python-brace-format
 msgid "Overlay reconcile: could not read layer {layer!r}: {error}"
 msgstr ""
 
-#: gui/overlay_markers.py:360
+#: gui/overlay_markers.py:372
 #, python-brace-format
 msgid ""
 "Overlay reconcile: {count} shape(s) on layer {layer!r} have no owner key "
@@ -1411,7 +1412,7 @@ msgstr ""
 "previous read; it will be retried. If this persists, use Rescan once the "
 "file is readable."
 
-#: gui/docks/cell_editor.py:2486 gui/select_cell.py:126
+#: gui/docks/cell_editor.py:2486 gui/select_cell.py:129
 #: gui/select_enclosed_copper.py:160
 #, python-brace-format
 msgid ""
@@ -1420,25 +1421,25 @@ msgid ""
 "selection”."
 msgstr ""
 
-#: gui/select_cell.py:141 gui/select_enclosed_copper.py:85
+#: gui/select_cell.py:144 gui/select_enclosed_copper.py:85
 #: gui/subtract_copper.py:65
 #, python-brace-format
 msgid "{cluster} on {sheet}"
 msgstr ""
 
-#: gui/select_cell.py:234
+#: gui/select_cell.py:238
 #, python-brace-format
 msgid ""
 "selected: {components} component(s), {vias} via(s), {tracks} track(s) — "
 "{cell} on {sheet}"
 msgstr ""
 
-#: gui/select_cell.py:240
+#: gui/select_cell.py:244
 #, python-brace-format
 msgid "; the registry remembers {n} more, not on the board"
 msgstr ""
 
-#: gui/select_cell.py:442
+#: gui/select_cell.py:463
 #, python-brace-format
 msgid ""
 "Select cell: {components} component(s); copper — {by_registry} by "
@@ -1446,14 +1447,26 @@ msgid ""
 "{missing}"
 msgstr ""
 
-#: gui/select_cell.py:448
+#: gui/select_cell.py:469
 #, python-brace-format
 msgid ""
 "the instance stands {deviation} mm away from where the tree places it — "
 "the copper was taken at its current place"
 msgstr ""
 
-#: gui/select_cell.py:483
+#: gui/select_cell.py:473
+#, python-brace-format
+msgid ""
+"{count} registry pair(s) differ from the plan in width/layer — edited on "
+"the board"
+msgstr ""
+
+#: gui/select_cell.py:476 kicadstamp/absent_copper_prune.py:308
+#, python-brace-format
+msgid "{count} registry pair(s) point at another record's copper — ignored"
+msgstr ""
+
+#: gui/select_cell.py:510
 #, python-brace-format
 msgid ""
 "Select cell: {components} component(s); the redraw planner produced no "
@@ -1510,7 +1523,7 @@ msgid ""
 "track(s), {vias} via(s)"
 msgstr ""
 
-#: gui/select_internode_copper.py:136 kicadstamp/internode_capture.py:791
+#: gui/select_internode_copper.py:136 kicadstamp/internode_capture.py:773
 #, python-brace-format
 msgid "  not taken:  {counts} — copper the classification left alone"
 msgstr ""
@@ -2185,7 +2198,7 @@ msgstr ""
 msgid "Copy from cell:"
 msgstr ""
 
-#: gui/docks/cell_editor.py:300 gui/docks/checks.py:192 gui/docks/dedupe.py:183
+#: gui/docks/cell_editor.py:300 gui/docks/checks.py:229 gui/docks/dedupe.py:183
 msgid "Copy"
 msgstr ""
 
@@ -2953,15 +2966,15 @@ msgid ""
 "recorded"
 msgstr ""
 
-#: gui/docks/checks.py:149
+#: gui/docks/checks.py:186
 msgid "Check"
 msgstr ""
 
-#: gui/docks/checks.py:149
+#: gui/docks/checks.py:186
 msgid "Last run"
 msgstr ""
 
-#: gui/docks/checks.py:167
+#: gui/docks/checks.py:204
 msgid ""
 "Duplicate vias/tracks on the live board — find them, copy the report, or "
 "clear the extra copies"
@@ -2969,27 +2982,27 @@ msgstr ""
 "Duplicate vias/tracks on the live board — find them, copy the report, or "
 "clear the extra copies"
 
-#: gui/docks/checks.py:180
+#: gui/docks/checks.py:217
 msgid "Run"
 msgstr ""
 
-#: gui/docks/checks.py:181
+#: gui/docks/checks.py:218
 msgid "Run the SELECTED check"
 msgstr ""
 
-#: gui/docks/checks.py:188
+#: gui/docks/checks.py:225
 msgid "Stop"
 msgstr "Stop"
 
-#: gui/docks/checks.py:189
+#: gui/docks/checks.py:226
 msgid "Stop the running check"
 msgstr "Stop the running check"
 
-#: gui/docks/checks.py:193
+#: gui/docks/checks.py:230
 msgid "Copy the SELECTED check's report exactly as the script printed it"
 msgstr ""
 
-#: gui/docks/checks.py:208
+#: gui/docks/checks.py:245
 msgid ""
 "A check reads the board as of the moment it starts — changes made while "
 "it runs are not in its report."
@@ -2997,33 +3010,33 @@ msgstr ""
 "A check reads the board as of the moment it starts — changes made while "
 "it runs are not in its report."
 
-#: gui/docks/checks.py:354 gui/docks/checks.py:362
+#: gui/docks/checks.py:400 gui/docks/checks.py:408
 msgid "running…"
 msgstr ""
 
-#: gui/docks/checks.py:358
+#: gui/docks/checks.py:404
 #, python-brace-format
 msgid "{seconds:.0f} s"
 msgstr ""
 
-#: gui/docks/checks.py:366
+#: gui/docks/checks.py:412
 #, python-brace-format
 msgid "{n} groups"
 msgstr "{n} groups"
 
-#: gui/docks/checks.py:450
+#: gui/docks/checks.py:510
 msgid "Click to see this group's UUIDs"
 msgstr "Click to see this group's UUIDs"
 
-#: gui/docks/checks.py:550
+#: gui/docks/checks.py:607
 msgid "The rest of the run is cancelled."
 msgstr ""
 
-#: gui/docks/checks.py:554
+#: gui/docks/checks.py:611
 msgid "KiCad is busy — try again in a moment."
 msgstr "KiCad is busy — try again in a moment."
 
-#: gui/docks/checks.py:593
+#: gui/docks/checks.py:651
 msgid ""
 "The check reads the SAVED profile — unsaved config changes are not "
 "visible to it."
@@ -3031,52 +3044,107 @@ msgstr ""
 "The check reads the SAVED profile — unsaved config changes are not "
 "visible to it."
 
-#: gui/docks/checks.py:608
+#: gui/docks/checks.py:666
 #, python-brace-format
 msgid "{name} is running…"
 msgstr "{name} is running…"
 
-#: gui/docks/checks.py:678
+#: gui/docks/checks.py:736
 #, python-brace-format
 msgid "{name}: stopped after {seconds:.1f} s — the rest of the run is cancelled"
 msgstr ""
 
-#: gui/docks/checks.py:681
+#: gui/docks/checks.py:739
 #, python-brace-format
 msgid "{name}: stopped after {seconds:.1f} s"
 msgstr "{name}: stopped after {seconds:.1f} s"
 
-#: gui/docks/checks.py:686
+#: gui/docks/checks.py:744
 #, python-brace-format
 msgid "{name}: crashed (exit code {code}) after {seconds:.1f} s"
 msgstr "{name}: crashed (exit code {code}) after {seconds:.1f} s"
 
-#: gui/docks/checks.py:692
+#: gui/docks/checks.py:750
 msgid "clean"
 msgstr "clean"
 
-#: gui/docks/checks.py:692
+#: gui/docks/checks.py:750
 msgid "problems found"
 msgstr "problems found"
 
-#: gui/docks/checks.py:692
+#: gui/docks/checks.py:750
 msgid "refused"
 msgstr "refused"
 
-#: gui/docks/checks.py:693
+#: gui/docks/checks.py:751
 #, python-brace-format
 msgid "{name}: {words} — exit {code}, {seconds:.1f} s"
 msgstr "{name}: {words} — exit {code}, {seconds:.1f} s"
 
-#: gui/docks/checks.py:699
+#: gui/docks/checks.py:757
 #, python-brace-format
 msgid "{name}: unexpected exit code {code} after {seconds:.1f} s"
 msgstr "{name}: unexpected exit code {code} after {seconds:.1f} s"
 
-#: gui/docks/checks.py:732
+#: gui/docks/checks.py:791
 #, python-brace-format
 msgid "{name}: could not start — {reason}"
 msgstr "{name}: could not start — {reason}"
+
+#: gui/docks/checks_report.py:249
+msgid "Go to the tree node"
+msgstr "Go to the tree node"
+
+#: gui/docks/checks_report.py:251
+msgid "Open the Trees page on the node this problem names"
+msgstr "Open the Trees page on the node this problem names"
+
+# Ч2а of plan_2026_10_23_checks_tab_top_level — duplicate groups as tree nodes
+#: gui/docks/checks_report.py:254 gui/docks/dedupe.py:232
+msgid "Highlight on board"
+msgstr "Highlight on board"
+
+#: gui/docks/checks_report.py:256
+msgid ""
+"Mark the parts of this problem on the overlay layer — your own board "
+"selection stays as it is"
+msgstr ""
+"Mark the parts of this problem on the overlay layer — your own board "
+"selection stays as it is"
+
+#: gui/docks/checks_report.py:296 gui/docks/checks_report.py:313
+#, python-brace-format
+msgid "Parts: {refs}"
+msgstr "Parts: {refs}"
+
+#: gui/docks/checks_report.py:483
+#, python-brace-format
+msgid "Selected {node} in {tree}."
+msgstr "Selected {node} in {tree}."
+
+#: gui/docks/checks_report.py:488
+#, python-brace-format
+msgid "The node {node} is not in the tree {tree}."
+msgstr "The node {node} is not in the tree {tree}."
+
+#: gui/docks/checks_report.py:510 gui/docks/dedupe.py:450
+msgid "marking the board"
+msgstr "marking the board"
+
+#: gui/docks/checks_report.py:557
+#, python-brace-format
+msgid "Marked {drawn} of {total} parts."
+msgstr "Marked {drawn} of {total} parts."
+
+#: gui/docks/checks_report.py:559
+#, python-brace-format
+msgid "Not on the board: {refs}."
+msgstr "Not on the board: {refs}."
+
+#: gui/docks/checks_report.py:566
+#, python-brace-format
+msgid "Marking failed: {error}"
+msgstr "Marking failed: {error}"
 
 #: gui/docks/config_tree.py:152
 msgid "Thermal via arrays"
@@ -3880,11 +3948,6 @@ msgstr ""
 msgid "Warning"
 msgstr ""
 
-# Ч2а of plan_2026_10_23_checks_tab_top_level — duplicate groups as tree nodes
-#: gui/docks/dedupe.py:232
-msgid "Highlight on board"
-msgstr "Highlight on board"
-
 #: gui/docks/dedupe.py:234
 msgid ""
 "Mark this group's copper on the board's overlay layer — your own board "
@@ -3908,10 +3971,6 @@ msgstr ""
 #: gui/docks/dedupe.py:405 gui/docks/dedupe.py:423
 msgid "removing duplicate copper"
 msgstr ""
-
-#: gui/docks/dedupe.py:450
-msgid "marking the board"
-msgstr "marking the board"
 
 #: gui/docks/dedupe.py:544
 msgid "That group is no longer on the board — run Find again."
@@ -7389,43 +7448,43 @@ msgstr ""
 msgid "this entity's instance is not on the board — pick a fitting cell"
 msgstr ""
 
-#: kicadstamp/absent_copper_prune.py:291
+#: kicadstamp/absent_copper_prune.py:297
 msgid ""
 "the place of the registry pair(s) was not checked by the cell frame — "
 "selected by registry ownership"
 msgstr ""
 
-#: kicadstamp/absent_copper_prune.py:294
+#: kicadstamp/absent_copper_prune.py:300
 #, python-brace-format
 msgid ""
 "the place of the registry pair(s) was not checked by the cell frame "
 "(worst deviation {deviation} mm) — selected by registry ownership"
 msgstr ""
 
-#: kicadstamp/absent_copper_prune.py:299
+#: kicadstamp/absent_copper_prune.py:305
 #, python-brace-format
 msgid "{count} registry pair(s) sit away from the planned place — selected anyway"
 msgstr ""
 
-#: kicadstamp/absent_copper_prune.py:303
+#: kicadstamp/absent_copper_prune.py:312
 msgid "the live cluster has no usable cell frame — registry pairs are not checked"
 msgstr ""
 
-#: kicadstamp/absent_copper_prune.py:306
+#: kicadstamp/absent_copper_prune.py:315
 #, python-brace-format
 msgid ""
 "the live cluster is not a rigid copy of the cell (worst deviation "
 "{deviation} mm) — registry pairs are not checked"
 msgstr ""
 
-#: kicadstamp/absent_copper_prune.py:311
+#: kicadstamp/absent_copper_prune.py:320
 #, python-brace-format
 msgid ""
 "{count} registry pair(s) do not sit where the record puts them — not "
 "checked"
 msgstr ""
 
-#: kicadstamp/absent_copper_prune.py:314
+#: kicadstamp/absent_copper_prune.py:323
 #, python-brace-format
 msgid ""
 "{count} registry key(s) point past the end of the cell's record list — "
@@ -7452,21 +7511,21 @@ msgstr ""
 "({default}); config/loader.py fatals on it for every command that reads "
 "the profile"
 
-#: kicadstamp/adopt_at_current_place.py:226
+#: kicadstamp/adopt_at_current_place.py:233
 #, python-brace-format
 msgid ""
 "Adopt at current place: the instance of cell {cell} on {cluster} could "
 "not resolve its roles ({reason}) — its copper is not adopted"
 msgstr ""
 
-#: kicadstamp/adopt_at_current_place.py:245
+#: kicadstamp/adopt_at_current_place.py:252
 #, python-brace-format
 msgid ""
 "Adopt at current place: no live cell frame for cell {cell} on {cluster} —"
 " its copper is not adopted"
 msgstr ""
 
-#: kicadstamp/adopt_at_current_place.py:251
+#: kicadstamp/adopt_at_current_place.py:258
 #, python-brace-format
 msgid ""
 "Adopt at current place: cell {cell} on {cluster} is not a rigid copy of "
@@ -7474,35 +7533,42 @@ msgid ""
 "trail may remain"
 msgstr ""
 
-#: kicadstamp/adopt_at_current_place.py:288
+#: kicadstamp/adopt_at_current_place.py:306
 #, python-brace-format
 msgid ""
 "Adopt at current place: {count} live {kind}(s) lie where record {key} "
 "puts its copper, but on another net ({net!r}) — not adopted"
 msgstr ""
 
-#: kicadstamp/adopt_at_current_place.py:296
+#: kicadstamp/adopt_at_current_place.py:314
 #, python-brace-format
 msgid ""
 "Adopt at current place: {count} live {kind}(s) lie where record {key} "
 "puts its copper — ambiguous, none taken"
 msgstr ""
 
-#: kicadstamp/adopt_at_current_place.py:309
+#: kicadstamp/adopt_at_current_place.py:327
 #, python-brace-format
 msgid ""
 "Adopt at current place: live {uuid} is claimed by {count} records "
 "({keys}) — none takes it"
 msgstr ""
 
-#: kicadstamp/adopt_at_current_place.py:329
+#: kicadstamp/adopt_at_current_place.py:347
 #, python-brace-format
 msgid ""
 "Adopt at current place: {count} record(s) bound to their live copper "
 "({vias} via(s), {tracks} track(s))"
 msgstr ""
 
-#: kicadstamp/adopt_at_current_place.py:352
+#: kicadstamp/adopt_at_current_place.py:351
+#, python-brace-format
+msgid ""
+"Adopt at current place: {count} registry key(s) point at another record's"
+" copper — ignored"
+msgstr ""
+
+#: kicadstamp/adopt_at_current_place.py:416
 #, python-brace-format
 msgid ""
 "Adopt at current place: would adopt {count} record(s) (a real run writes "
@@ -10125,14 +10191,14 @@ msgid ""
 "cluster per imprint is required"
 msgstr ""
 
-#: kicadstamp/internode_capture.py:316
+#: kicadstamp/internode_capture.py:298
 #, python-brace-format
 msgid ""
 "skipped a piece of copper between pads {pads}: the pad {pad} has no Role "
 "field on the board, so the record could not be anchored"
 msgstr ""
 
-#: kicadstamp/internode_capture.py:322
+#: kicadstamp/internode_capture.py:304
 #, python-brace-format
 msgid ""
 "skipped a piece of copper between pads {pads}: the anchor pad {pad} "
@@ -10140,7 +10206,7 @@ msgid ""
 "narrow its role"
 msgstr ""
 
-#: kicadstamp/internode_capture.py:328
+#: kicadstamp/internode_capture.py:310
 #, python-brace-format
 msgid ""
 "skipped a piece of copper between pads {pads}: no pad of the piece "
@@ -10148,7 +10214,7 @@ msgid ""
 " the node's sheet and cluster"
 msgstr ""
 
-#: kicadstamp/internode_capture.py:366
+#: kicadstamp/internode_capture.py:348
 #, python-brace-format
 msgid ""
 "skipped a piece of copper between pads {pads}: it carries no net name on "
@@ -10157,7 +10223,7 @@ msgstr ""
 "skipped a piece of copper between pads {pads}: it carries no net name on "
 "the board"
 
-#: kicadstamp/internode_capture.py:399
+#: kicadstamp/internode_capture.py:381
 #, python-brace-format
 msgid ""
 "record {ref!r}: its anchor could not be resolved live ({err}) — left "
@@ -10166,7 +10232,7 @@ msgstr ""
 "record {ref!r}: its anchor could not be resolved live ({err}) — left "
 "untouched"
 
-#: kicadstamp/internode_capture.py:547
+#: kicadstamp/internode_capture.py:529
 #, python-brace-format
 msgid ""
 "component {ref!r} (Cluster {cluster!r}, sheet path {path}) matches "
@@ -10174,7 +10240,7 @@ msgid ""
 "out of the tree, it is never guessed"
 msgstr ""
 
-#: kicadstamp/internode_capture.py:650
+#: kicadstamp/internode_capture.py:632
 msgid ""
 "zones are not read (see the Z1 work): only tracks and vias count as "
 "copper, so a pour never appears in the capture"
@@ -10182,23 +10248,23 @@ msgstr ""
 "zones are not read (see the Z1 work): only tracks and vias count as "
 "copper, so a pour never appears in the capture"
 
-#: kicadstamp/internode_capture.py:671
+#: kicadstamp/internode_capture.py:653
 #, python-brace-format
 msgid "tree {tree!r}: node {ref!r} references no net_traces: record — skipped"
 msgstr "tree {tree!r}: node {ref!r} references no net_traces: record — skipped"
 
 # ── Inter-node copper re-read (plan_2026_09_12_internode_copper_core, Э4) ──
-#: kicadstamp/internode_capture.py:770
+#: kicadstamp/internode_capture.py:752
 #, python-brace-format
 msgid "Tree {name!r}: inter-node copper re-read."
 msgstr "Tree {name!r}: inter-node copper re-read."
 
-#: kicadstamp/internode_capture.py:772
+#: kicadstamp/internode_capture.py:754
 #, python-brace-format
 msgid "  added:      {names}"
 msgstr "  added:      {names}"
 
-#: kicadstamp/internode_capture.py:776
+#: kicadstamp/internode_capture.py:758
 #, python-brace-format
 msgid ""
 "{name} (was {old_tracks} tracks / {old_vias} via, now {new_tracks} / "
@@ -10207,12 +10273,12 @@ msgstr ""
 "{name} (was {old_tracks} tracks / {old_vias} via, now {new_tracks} / "
 "{new_vias})"
 
-#: kicadstamp/internode_capture.py:780
+#: kicadstamp/internode_capture.py:762
 #, python-brace-format
 msgid "  updated:    {names}"
 msgstr "  updated:    {names}"
 
-#: kicadstamp/internode_capture.py:783
+#: kicadstamp/internode_capture.py:765
 #, python-brace-format
 msgid ""
 "  not found:  {name} — the copper is no longer on the board, the record "
@@ -10221,12 +10287,12 @@ msgstr ""
 "  not found:  {name} — the copper is no longer on the board, the record "
 "is kept"
 
-#: kicadstamp/internode_capture.py:785
+#: kicadstamp/internode_capture.py:767
 #, python-brace-format
 msgid "  unchanged:  {count}"
 msgstr "  unchanged:  {count}"
 
-#: kicadstamp/internode_capture.py:795
+#: kicadstamp/internode_capture.py:777
 #, python-brace-format
 msgid ""
 "  no component of the area matched any node of tree {tree!r} by (Cluster,"
@@ -10276,7 +10342,7 @@ msgstr ""
 "inter-node copper: one unit of copper (pads {pads}) carries several nets "
 "at once: {nets} — the unit is defined by geometry; check the routing"
 
-#: kicadstamp/internode_nodes.py:406
+#: kicadstamp/internode_nodes.py:411
 #, python-brace-format
 msgid ""
 "inter-node copper: {count} degenerate track segment(s) collapsed (shorter"
@@ -10884,12 +10950,12 @@ msgstr ""
 msgid "  prune: {key} no longer appears in config, deleting ({uuid})"
 msgstr "  prune: {key} no longer appears in config, deleting ({uuid})"
 
-#: kicadstamp/registry.py:637
+#: kicadstamp/registry.py:633
 #, python-brace-format
 msgid "  via for {owner}: already exists, skipped (positional pre-check)"
 msgstr "  via for {owner}: already exists, skipped (positional pre-check)"
 
-#: kicadstamp/registry.py:642
+#: kicadstamp/registry.py:638
 #, python-brace-format
 msgid "Skipped {count} vias already present on the board (positional pre-check)"
 msgstr "Skipped {count} vias already present on the board (positional pre-check)"
@@ -11413,12 +11479,12 @@ msgstr ""
 "component with role {role!r} ({ref}) has no pad {pad!r} — pad numbers are"
 " strings as in KiCad"
 
-#: kicadstamp/track_identity.py:119
+#: kicadstamp/track_identity.py:102
 #, python-brace-format
 msgid "  track for {owner}: already exists, skipped (positional pre-check)"
 msgstr "  track for {owner}: already exists, skipped (positional pre-check)"
 
-#: kicadstamp/track_identity.py:124
+#: kicadstamp/track_identity.py:107
 #, python-brace-format
 msgid "Skipped {count} tracks already present on the board (positional pre-check)"
 msgstr "Skipped {count} tracks already present on the board (positional pre-check)"
@@ -17679,52 +17745,6 @@ msgstr "KiCad rejected the move of {ref!r} — the board was not modified"
 #, python-brace-format
 msgid "footprint {ref!r} not found on the board"
 msgstr "footprint {ref!r} not found on the board"
-
-#: gui/docks/checks_report.py
-msgid "Go to the tree node"
-msgstr "Go to the tree node"
-
-#: gui/docks/checks_report.py
-msgid "Open the Trees page on the node this problem names"
-msgstr "Open the Trees page on the node this problem names"
-
-#: gui/docks/checks_report.py
-msgid ""
-"Mark the parts of this problem on the overlay layer — your own board "
-"selection stays as it is"
-msgstr ""
-"Mark the parts of this problem on the overlay layer — your own board "
-"selection stays as it is"
-
-#: gui/docks/checks_report.py
-#, python-brace-format
-msgid "Parts: {refs}"
-msgstr "Parts: {refs}"
-
-#: gui/docks/checks_report.py
-#, python-brace-format
-msgid "The node {node} is not in the tree {tree}."
-msgstr "The node {node} is not in the tree {tree}."
-
-#: gui/docks/checks_report.py
-#, python-brace-format
-msgid "Selected {node} in {tree}."
-msgstr "Selected {node} in {tree}."
-
-#: gui/docks/checks_report.py
-#, python-brace-format
-msgid "Marked {drawn} of {total} parts."
-msgstr "Marked {drawn} of {total} parts."
-
-#: gui/docks/checks_report.py
-#, python-brace-format
-msgid "Not on the board: {refs}."
-msgstr "Not on the board: {refs}."
-
-#: gui/docks/checks_report.py
-#, python-brace-format
-msgid "Marking failed: {error}"
-msgstr "Marking failed: {error}"
 
 #~ msgid ""
 #~ "role {role!r} occurs {count} times in"

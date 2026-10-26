@@ -31,9 +31,12 @@ from kicadstamp.registry import (
     registry_paths_for_config,
 )
 from kicadstamp.registry_match import (
+    PAIR_EDITED,
     TIER_REGISTRY,
     accept_planned_match,
     match_planned_copper,
+    pair_verdict,
+    shifted_entries,
 )
 from kicadstamp.selection_narrowing import (
     is_own_key,
@@ -230,7 +233,8 @@ def select_cell_targets(adapter, cfg, config_path: str, cell_name: str,
         not_rigid=False, frame_residual_mm=record_map.frame_residual_mm,
         disagreed=0, orphan_keys=record_map.orphan_keys,
         away_from_place=record_map.disagreed,
-        place_unverified=record_map.not_rigid))
+        place_unverified=record_map.not_rigid,
+        shifted=record_map.shifted))
     line = _("selected: {components} component(s), {vias} via(s), "
              "{tracks} track(s) — {cell} on {sheet}").format(
         components=len(footprints), vias=_count_kind(copper, "via"),
@@ -380,9 +384,18 @@ def select_cell_copper_targets(adapter, cfg, config_path: str, cell_name: str,
         (trk_reg, planned_tracks, live_tracks))
         for m in match_planned_copper(reg, cmds, live_items=live)]
 
+    # The SHIFTED numbers of this instance — named, never selected (Ч1 of
+    # plan_2026_10_26_select_cell_shifted_registry_pair). The same function the
+    # matcher freed them with, so the count and the behaviour cannot disagree.
+    shifted = sum(
+        1 for reg, cmds, live in ((via_reg, planned_vias, live_vias),
+                                  (trk_reg, planned_tracks, live_tracks))
+        for key in shifted_entries(reg, list(cmds or ()), live_items=live)
+        if is_own_key(key, cell_identity, own_addresses, chosen_address, refs))
+
     copper: list = []
     seen: set = set()
-    by_registry = by_geometry = missing = refused = 0
+    by_registry = by_geometry = missing = refused = edited = 0
     bound_keys = {key for _kind, key, _item in at_current_place or ()}
     for reg, m in matches:
         key = getattr(m.command, "registry_key", None)
@@ -398,15 +411,23 @@ def select_cell_copper_targets(adapter, cfg, config_path: str, cell_name: str,
             missing += 1
             continue
         if not accept_planned_match(reg, m):
-            # The registry's uuid pointed at copper that is NOT where THIS record
-            # plans its own (a shifted `index` — rule 1 of
-            # plan_2026_10_07_registry_pair_frame_check). «Select cell» takes it
-            # ANYWAY (part Б1 of plan_2026_10_08_narrowing_net_traces_cost): the
-            # KEY proves the ownership, and highlighting is harmless — that is
-            # exactly the live case, where the instance was edited and never
-            # redrawn, so its recorded copper stands where the plan does not put
-            # it. It is COUNTED and named, never silently dropped.
-            refused += 1
+            # The pair fails the STRICT place+fields test, and «Select cell» still
+            # SELECTS it — but the reason differs, and the line must not lie
+            # (Ч1 of plan_2026_10_26_select_cell_shifted_registry_pair):
+            #
+            #   * EDITED — the item is where the command plans it and only a field
+            #     (width/layer) differs: the copper was edited on the board by
+            #     hand. Ownership holds, nothing is refused, and a redraw will
+            #     bring the width back;
+            #   * AWAY — the item is somewhere else on the same net: part Б1 of
+            #     plan_2026_10_08_narrowing_net_traces_cost, kept and named
+            #     "selected anyway";
+            #   * SHIFTED never arrives here: `match_planned_copper` frees such a
+            #     key, so the record finds its own copper by geometry instead.
+            if pair_verdict(m) == PAIR_EDITED:
+                edited += 1
+            else:
+                refused += 1
         uuid = getattr(m.live, "uuid", None)
         if uuid is not None and uuid in seen:
             continue
@@ -448,6 +469,12 @@ def select_cell_copper_targets(adapter, cfg, config_path: str, cell_name: str,
         line += " " + _("the instance stands {deviation} mm away from where the "
                         "tree places it — the copper was taken at its current "
                         "place").format(deviation=f"{worst_delta:.3f}")
+    if edited:
+        line += " " + _("{count} registry pair(s) differ from the plan in "
+                        "width/layer — edited on the board").format(count=edited)
+    if shifted:
+        line += " " + _("{count} registry pair(s) point at another record's "
+                        "copper — ignored").format(count=shifted)
     if notes:
         line += " " + " ".join(notes)
     return SelectPlan(footprints=footprints, copper=copper,

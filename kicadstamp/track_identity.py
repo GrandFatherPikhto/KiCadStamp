@@ -22,6 +22,7 @@ if TYPE_CHECKING:
 from .constants import POSITION_TOLERANCE_MM
 from .degenerate_segments import is_degenerate_segment
 from .i18n import _
+from .registry_match import same_identity, same_place
 from .utils.layers import layer_to_str
 from .utils.units import MM
 
@@ -45,38 +46,20 @@ def track_matches(live_track, cmd: TrackCommand) -> bool:
     Used by BOTH the UUID-path reconcile (TrackRegistry._live_matches) and the
     positional pre-check (filter_existing_tracks) — one predicate, so the two
     can never disagree (plan_2026_08_16_position_based_copper_idempotency.md).
-    The bidirectional match also fixes a latent reversal bug: a live track that
-    got flipped (start↔end) between runs no longer looks like a position change
-    (see plan_2026_08_16_position_based_copper_idempotency.md, Task 1.2).
+
+    THE TWO HALVES LIVE IN `registry_match` (Ч1 of
+    plan_2026_10_26_select_cell_shifted_registry_pair): `same_place` is the
+    position half, `same_identity` the kind/net/layer/width half. This predicate
+    is their composition, unchanged in meaning — and the split is what lets a
+    caller ask the halves SEPARATELY: a pair at the planned place with another
+    width is the record's own copper edited on the board, while a pair away from
+    the place on another net is a shifted registry number.
 
     Deliberately NO degenerate-segment guard here (acceptance Д-1, 19.10): by
     UUID the identity of a segment IS known, so the reconcile path may compare
     its geometry and keep it. Unidentifiability is a property of POSITIONAL
     identity only, and the rule for it lives in :func:`filter_existing_tracks`."""
-    live_start_x_mm, live_start_y_mm = live_track.start.x / MM, live_track.start.y / MM
-    live_end_x_mm, live_end_y_mm = live_track.end.x / MM, live_track.end.y / MM
-    start_x_mm, start_y_mm = cmd.start.x / MM, cmd.start.y / MM
-    end_x_mm, end_y_mm = cmd.end.x / MM, cmd.end.y / MM
-
-    same_orientation = (
-        points_close(live_start_x_mm, live_start_y_mm, start_x_mm, start_y_mm)
-        and points_close(live_end_x_mm, live_end_y_mm, end_x_mm, end_y_mm)
-    )
-    swapped_orientation = (
-        points_close(live_start_x_mm, live_start_y_mm, end_x_mm, end_y_mm)
-        and points_close(live_end_x_mm, live_end_y_mm, start_x_mm, start_y_mm)
-    )
-    if not (same_orientation or swapped_orientation):
-        return False
-
-    live_net = live_track.net_name
-    if live_net != cmd.net_name:
-        return False
-    if abs(live_track.width_mm - cmd.width_mm) >= 1e-6:
-        return False
-    if layer_to_str(live_track.layer) != layer_to_str(cmd.layer):
-        return False
-    return True
+    return same_place(live_track, cmd) and same_identity(live_track, cmd)
 
 
 def filter_existing_tracks(to_create: list[TrackCommand], live_tracks) -> list[TrackCommand]:

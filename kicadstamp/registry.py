@@ -595,22 +595,18 @@ def via_matches(live_via, via: ViaCommand) -> bool:
     """Shared predicate: does the live board via match the planned ViaCommand?
     Position (within POSITION_TOLERANCE_MM) + net + drill + diameter. Used by
     BOTH the UUID-path reconcile (PlacementRegistry._live_matches) and the
-    positional pre-check (filter_existing_vias) — one predicate, so the two can
-    never disagree (mirrors track_matches / filter_existing_tracks, 2026-08-31;
+    positional pre-check (filter_existing_vias) — one predicate, so the two
+    can never disagree (mirrors track_matches / filter_existing_tracks, 2026-08-31;
     extended to vias 2026-09-08, plan_2026_09_08_via_positional_precheck.md:
-    vias never got the same positional protection tracks got 2026-08-31)."""
-    x_mm = via.position.x / MM
-    y_mm = via.position.y / MM
-    live_x_mm = live_via.position.x / MM
-    live_y_mm = live_via.position.y / MM
-    live_net = live_via.net_name
-    return (
-        abs(live_x_mm - x_mm) <= _POSITION_TOLERANCE_MM
-        and abs(live_y_mm - y_mm) <= _POSITION_TOLERANCE_MM
-        and live_net == via.net_name
-        and abs(live_via.drill_mm - via.drill_mm) < 1e-6
-        and abs(live_via.diameter_mm - via.diameter_mm) < 1e-6
-    )
+    vias never got the same positional protection tracks got 2026-08-31).
+
+    The two halves live in `registry_match` (Ч1 of
+    plan_2026_10_26_select_cell_shifted_registry_pair): `same_place` and
+    `same_identity`, the same tolerances as before, in ONE place for both kinds.
+    This predicate is their composition, unchanged in meaning."""
+    from .registry_match import same_identity, same_place
+
+    return same_place(live_via, via) and same_identity(live_via, via)
 
 
 def filter_existing_vias(to_create: list[ViaCommand], live_vias) -> list[ViaCommand]:

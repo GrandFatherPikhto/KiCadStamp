@@ -84,6 +84,11 @@ class AdoptionReport:
     no_refs: int = 0
     net_refused: int = 0
     ambiguous: int = 0
+    #: Registry keys whose stored uuid points at ANOTHER record's copper (away from
+    #: where the record puts it AND on another net) — a SHIFTED NUMBER, Ч1 of
+    #: plan_2026_10_26_select_cell_shifted_registry_pair. Such a key neither owns
+    #: the item nor keeps its own record from finding its own copper.
+    shifted: int = 0
 
     @property
     def empty(self) -> bool:
@@ -200,6 +205,8 @@ def adopt_cell_copper_at_current_place(adapter, cfg, items, via_reg, track_reg,
             "track": _live(adapter, "get_tracks")}
     live_uuid = {kind: {getattr(i, "uuid", None) for i in ix}
                  for kind, ix in live.items()}
+    live_by_uuid = {kind: {getattr(i, "uuid", None): i for i in ix}
+                    for kind, ix in live.items()}
     regs = {"via": via_reg, "track": track_reg}
     # Every uuid the registry files already own (either kind) is off limits: an
     # item another record claims must never be adopted by geometry.
@@ -256,21 +263,32 @@ def adopt_cell_copper_at_current_place(adapter, cfg, items, via_reg, track_reg,
             continue
         report.instances += 1
 
+        # The SHIFTED numbers of THIS instance, judged by the same rule the command
+        # doors use, with the stored RECORD in place of the command: the item must
+        # be where the record puts its copper (the cell frame) and carry the net the
+        # record's plan will give it. Away AND another net ⇒ a left-over number.
+        released = _shifted_uuids(cell, regs, live_by_uuid, live_uuid, anchor_id,
+                                  cell_key_part, frame, clone, role_refs, adapter)
+        report.shifted += len(released)
+        free = owned - released
+
         for kind, role_part, index in sorted(cell_record_slots(cell)):
             reg = regs[kind]
             role = None if role_part == CELL_LEVEL_ROLE_PLACEHOLDER else role_part
             key = make_registry_key(anchor_id, cell_key_part, role, index)
             entry = reg.entries.get(key)
-            if entry is not None and getattr(entry, "uuid", None) in live_uuid[kind]:
+            if (entry is not None and getattr(entry, "uuid", None) in live_uuid[kind]
+                    and getattr(entry, "uuid", None) not in released):
                 # The record's own copper is on the board — reconcile will move it
-                # by uuid. Never touch a live entry, or the move would be lost.
+                # by uuid. Never touch a live entry, or the move would be lost. A
+                # RELEASED uuid is the exception: that pair is not this record's.
                 continue
             rec = record_of(cell, kind, role_part, index)
             points = record_points(cell, kind, role_part, index)
             if rec is None or points is None:
                 continue
             matches = [item for item in live[kind]
-                       if getattr(item, "uuid", None) not in owned
+                       if getattr(item, "uuid", None) not in free
                        and pair_agrees_with_record(points, item, frame, RIGID_TOLERANCE_MM)]
             if not matches:
                 continue
@@ -329,7 +347,53 @@ def adopt_cell_copper_at_current_place(adapter, cfg, items, via_reg, track_reg,
         logger.info(_("Adopt at current place: {count} record(s) bound to their live "
                       "copper ({vias} via(s), {tracks} track(s))")
                     .format(count=report.adopted, vias=report.vias, tracks=report.tracks))
+    if report.shifted:
+        logger.warning(_("Adopt at current place: {count} registry key(s) point at "
+                         "another record's copper — ignored")
+                       .format(count=report.shifted))
     return report
+
+
+def _shifted_uuids(cell, regs, live_by_uuid, live_uuid, anchor_id, cell_key_part,
+                   frame, clone, role_refs, adapter) -> set:
+    """The live uuids whose registry key is a SHIFTED NUMBER for this instance.
+
+    Judged by the SAME rule the command doors use, with the stored RECORD in place
+    of the command: the item must sit where the record puts its copper (the cell
+    frame) and carry the net the record's plan will give it. Only "away AND
+    another net" is a shifted number — a pair at the record's place with another
+    width is ownership (the copper was edited on the board), and a record whose net
+    cannot be resolved here accuses nobody.
+
+    Ch1 of plan_2026_10_26_select_cell_shifted_registry_pair: without this the
+    left-over key kept the item OUT of `owned` for its real record, and its own
+    record was skipped by the "the entry's uuid is live" branch — which is exactly
+    how «Select cell» lost the track 2f9a0799 on v103."""
+    from .absent_copper_prune import (cell_record_slots, pair_agrees_with_record,
+                                      record_of, record_points)
+    from .cell_frame import RIGID_TOLERANCE_MM
+    from .constants import CELL_LEVEL_ROLE_PLACEHOLDER as _CELL_LEVEL
+    from .registry import make_registry_key
+
+    released: set = set()
+    for kind, role_part, index in sorted(cell_record_slots(cell)):
+        role = None if role_part == _CELL_LEVEL else role_part
+        entry = regs[kind].entries.get(
+            make_registry_key(anchor_id, cell_key_part, role, index))
+        uuid = getattr(entry, "uuid", None) if entry is not None else None
+        if uuid is None or uuid not in live_uuid[kind]:
+            continue
+        item = live_by_uuid[kind].get(uuid)
+        rec = record_of(cell, kind, role_part, index)
+        points = record_points(cell, kind, role_part, index)
+        if item is None or rec is None or points is None:
+            continue
+        if pair_agrees_with_record(points, item, frame, RIGID_TOLERANCE_MM):
+            continue                     # it IS the record's copper, at its place
+        declared, expected = _record_net(rec, clone, role_refs, adapter)
+        if declared and expected is not None and item.net_name != expected:
+            released.add(uuid)
+    return released
 
 
 def dry_run_adoption(adapter, cfg, items, via_reg, track_reg, *, sheet_names=None,

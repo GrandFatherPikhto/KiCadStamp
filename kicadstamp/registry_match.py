@@ -33,21 +33,182 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Optional
 
+from .constants import POSITION_TOLERANCE_MM
+from .utils.layers import layer_to_str
+from .utils.units import MM
+
 if TYPE_CHECKING:  # avoid a runtime import cycle: registry imports this module
     from .registry import BaseRegistry
 
 __all__ = [
+    "PAIR_AGREES",
+    "PAIR_AWAY",
+    "PAIR_EDITED",
+    "PAIR_SHIFTED",
     "TIER_GEOMETRY",
     "TIER_REGISTRY",
     "PlannedCopperMatch",
     "accept_planned_match",
     "match_planned_copper",
+    "pair_verdict",
+    "same_identity",
+    "same_net",
+    "same_place",
+    "shifted_entries",
 ]
+
+#: The width/drill/diameter epsilon `track_matches` and `via_matches` have always
+#: used — the numbers are compared exactly, this only absorbs float noise.
+_EPS = 1e-6
 
 # How a planned command found its live item. TIER_REGISTRY — by the key's stored
 # uuid; TIER_GEOMETRY — by exact shape/net/params, the adoption tier.
 TIER_REGISTRY = "registry"
 TIER_GEOMETRY = "geometry"
+
+# ── what a matched pair IS (rule 2 of plan_2026_10_26_select_cell_shifted_registry_pair,
+#    as Denis revised it on 26.10: «место решает первым») ───────────────────
+#
+#: The live item lies where the command plans it and every field agrees.
+PAIR_AGREES = "agrees"
+#: The live item lies where the command plans it, but its width/layer differs —
+#: the copper was EDITED ON THE BOARD by hand. It is still this record's copper:
+#: the key is ownership, and a redraw will move it to the planned width.
+PAIR_EDITED = "edited"
+#: The live item is NOT where the command plans it AND carries another net (or is
+#: another kind): the registry NUMBER IS SHIFTED — the key keeps the uuid of
+#: another record's copper. Not ownership, and not a claim on that item either.
+PAIR_SHIFTED = "shifted"
+#: Not at the planned place, but the same net/kind: today's behaviour — the pair
+#: is kept and counted "away from the planned place".
+PAIR_AWAY = "away"
+
+
+def _is_via(planned) -> bool:
+    """Is the PLANNED side a via? A via is a POINT, a track is a SEGMENT — asked
+    of the planned command/record ONLY, never of the live item.
+
+    Two measured reasons: the domain `Track` carries a `drill_mm` field too, so
+    `hasattr(..., "drill_mm")` calls every live track a via; and a live item in
+    the tests is a MagicMock, which answers `hasattr` for ANY name — the first
+    cut of this predicate silently broke the whole reconcile path that way."""
+    return not (hasattr(planned, "start") or hasattr(planned, "start_along_mm"))
+
+
+def same_net(live_item, planned, net: Optional[str] = None) -> bool:
+    """True ⇔ the live item carries the net the planned side must have.
+
+    KIND is deliberately NOT compared: every caller asks a registry of ONE kind
+    (a via file or a track file), so a via can never be paired with a track here
+    and the branch would be dead code claiming coverage it has none of (rule 38).
+    The rule's wording — «другая сеть или вид» — keeps its meaning: this function
+    is the part of it that can actually fire.
+
+    `net` — the net name the planned side must carry: a COMMAND has its own
+    (`net_name`), while a stored cell record may hold a literal net or a
+    (role, pad) reference that only the caller can resolve (`net_resolution`).
+    Given explicitly, or the command's own name is used.
+
+    A side that carries NO net name at all is never an accusation: such a pair is
+    judged by its place alone, which is how the minimal registry doubles — and any
+    caller that predates the field — keep working."""
+    expected = net if net is not None else getattr(planned, "net_name", None)
+    return getattr(live_item, "net_name", None) == expected
+
+
+def same_identity(live_item, planned, net: Optional[str] = None) -> bool:
+    """True ⇔ the live item and the planned command/record agree by KIND, NET,
+    LAYER and WIDTH/DRILL-DIAMETER. THE PLACE IS NOT ASKED HERE — that is the
+    whole point of the pair of predicates: a pair may sit at the planned place and
+    still differ in a field (hand-edited copper), and it may differ in a field and
+    not be this record's copper at all (a shifted number).
+
+    `planned` is a ViaCommand/TrackCommand OR a stored cell record; a field the
+    record does not carry (`layer`/`width_mm` omitted — the cell's own default is
+    inherited) is NOT compared: an absent field is never an accusation."""
+    if not same_net(live_item, planned, net):
+        return False
+    if _is_via(planned):
+        return (abs(live_item.drill_mm - planned.drill_mm) < _EPS
+                and abs(live_item.diameter_mm - planned.diameter_mm) < _EPS)
+    width = getattr(planned, "width_mm", None)
+    if width is not None and abs(live_item.width_mm - width) >= _EPS:
+        return False
+    layer = getattr(planned, "layer", None)
+    if layer is not None and layer_to_str(live_item.layer) != layer_to_str(layer):
+        return False
+    return True
+
+
+def same_place(live_item, cmd) -> bool:
+    """True ⇔ the live item sits where the COMMAND plans it, within the registry's
+    own `POSITION_TOLERANCE_MM` (the tolerance `_live_matches` uses — never a
+    second one). A track is unoriented: either end may answer for the other."""
+    def close(a, b) -> bool:
+        return (abs(a[0] - b[0]) / MM <= POSITION_TOLERANCE_MM
+                and abs(a[1] - b[1]) / MM <= POSITION_TOLERANCE_MM)
+
+    if _is_via(cmd):
+        if not hasattr(live_item, "position"):
+            return False
+        return close((live_item.position.x, live_item.position.y),
+                     (cmd.position.x, cmd.position.y))
+    if not hasattr(live_item, "start"):
+        return False
+    live_start = (live_item.start.x, live_item.start.y)
+    live_end = (live_item.end.x, live_item.end.y)
+    cmd_start = (cmd.start.x, cmd.start.y)
+    cmd_end = (cmd.end.x, cmd.end.y)
+    return ((close(live_start, cmd_start) and close(live_end, cmd_end))
+            or (close(live_start, cmd_end) and close(live_end, cmd_start)))
+
+
+def pair_verdict(match: PlannedCopperMatch) -> str:
+    """ONE verdict per matched pair — the rule, in the one place it lives.
+
+    PLACE FIRST (Denis, 26.10): at the planned place the pair is ownership even
+    when a field differs (that is the operator editing the board — 34 of 45 pairs
+    on v103). Away from the place it is a SHIFTED NUMBER only when the net (or the
+    kind) differs too (11 of 45, and the live defect among them); away with the
+    same net stays today's "kept and counted".
+
+    `match.live is None` is not this rule's business — it answers PAIR_AGREES, and
+    every caller checks `.found` first anyway."""
+    if match.live is None:
+        return PAIR_AGREES
+    if same_place(match.live, match.command):
+        return (PAIR_AGREES if same_identity(match.live, match.command)
+                else PAIR_EDITED)
+    return (PAIR_AWAY if same_net(match.live, match.command) else PAIR_SHIFTED)
+
+
+def shifted_entries(reg: "BaseRegistry", planned_cmds: list,
+                    live_items=None) -> dict:
+    """``{key: live_uuid}`` — the keys of `planned_cmds` whose stored uuid points
+    at ANOTHER record's copper (away from the planned place, another net).
+
+    THE one place that decides it: `match_planned_copper` frees these keys and
+    items with this very result, and a door that wants to NAME the count (the
+    «Select cell» line) asks the same function instead of repeating the rule."""
+    planned = list(planned_cmds or ())
+    if not planned:
+        return {}
+    live = (list(reg._get_live_items() or ()) if live_items is None
+            else list(live_items))
+    by_uuid = {getattr(item, "uuid", None): item for item in live}
+    out: dict = {}
+    for cmd in planned:
+        key = getattr(cmd, "registry_key", None)
+        entry = reg.entries.get(key) if key else None
+        if entry is None:
+            continue
+        item = by_uuid.get(getattr(entry, "uuid", None))
+        if item is None:
+            continue
+        if pair_verdict(PlannedCopperMatch(command=cmd, live=item,
+                                           tier=TIER_REGISTRY)) == PAIR_SHIFTED:
+            out[key] = entry.uuid
+    return out
 
 
 @dataclass
@@ -87,6 +248,14 @@ def match_planned_copper(reg: "BaseRegistry", planned_cmds: list,
     not-owned match wins — the same "first matching item" rule
     ``adopt_matching_unowned`` has always used, so adoption is byte-for-byte
     unchanged.
+
+    A SHIFTED NUMBER of THIS call is the one exception (Ч1 of
+    plan_2026_10_26_select_cell_shifted_registry_pair): when the entry under a key
+    of this very call points at copper of another net, that key neither occupies
+    the key (tier 1 skips it, so geometry may still find the record's own copper)
+    nor claims the item (tier 2 may take it for the record it does belong to). A
+    key whose command is NOT in this call keeps its ownership — the rule never
+    weakens an entry it cannot judge.
     """
     planned = list(planned_cmds or ())
     if not planned:
@@ -101,22 +270,28 @@ def match_planned_copper(reg: "BaseRegistry", planned_cmds: list,
     owned = {e.uuid for e in reg.entries.values()}
     taken: set = set()
 
+    # The shifted numbers of THIS call — judged only where a command of this call
+    # names the key, so an entry nobody asked about is never released.
+    released = set(shifted_entries(reg, planned, live_items=live_items).values())
+    free = owned - released
+
     out: list[PlannedCopperMatch] = []
     for cmd in planned:
         key = getattr(cmd, "registry_key", None)
         live = None
         tier = None
 
-        # Tier 1 — the registry knows the uuid of the copper THIS record placed.
+        # Tier 1 — the registry knows the uuid of the copper THIS record placed,
+        # unless that pair is a shifted number (then the key is simply free).
         entry = reg.entries.get(key) if key else None
-        if entry is not None:
+        if entry is not None and entry.uuid not in released:
             candidate = live_by_uuid.get(entry.uuid)
             if candidate is not None and getattr(candidate, "uuid", None) not in taken:
                 live, tier = candidate, TIER_REGISTRY
 
         # Tier 2 — geometry, for copper no registry entry has claimed.
         if live is None:
-            blocked = owned | taken
+            blocked = free | taken
             for candidate in live_items:
                 if getattr(candidate, "uuid", None) in blocked:
                     continue

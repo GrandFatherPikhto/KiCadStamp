@@ -80,7 +80,7 @@ from .registry import (
     record_key_part,
     registry_paths_for_config,
 )
-from .registry_match import accept_planned_match, match_planned_copper
+from .registry_match import accept_planned_match, match_planned_copper, same_net
 from .selection_narrowing import cell_record_addresses, is_own_key
 from .utils.units import MM
 
@@ -129,6 +129,11 @@ class RecordCopperMap:
 
     by_record: dict = field(default_factory=dict)
     planned: int = 0
+    #: Pairs the SELECT door refused because the key is a SHIFTED NUMBER (the live
+    #: item is away from the record's place AND carries another net) — Ч1 of
+    #: plan_2026_10_26_select_cell_shifted_registry_pair. Never claimed, always
+    #: named.
+    shifted: int = 0
     # Own keys whose STORED uuid is not on the board at all — the exact "the
     # registry remembers N more, not on the board" count, independent of how many
     # pairs the place check took or refused (the two doors differ there, Б1).
@@ -270,7 +275,8 @@ def pair_agrees_with_record(points, live_item, frame, tol_mm) -> bool:
 def not_checked_reasons(*, not_rigid: bool, frame_residual_mm,
                         disagreed: int, orphan_keys: int,
                         away_from_place: int = 0,
-                        place_unverified: bool = False) -> list:
+                        place_unverified: bool = False,
+                        shifted: int = 0) -> list:
     """The honest reasons a pair the registry OFFERED was not accepted, as
     translated fragments — ONE wording for the doors that report them («Subtract
     selected copper»'s Log lines and «Select cell»'s own line), so the same
@@ -298,6 +304,9 @@ def not_checked_reasons(*, not_rigid: bool, frame_residual_mm,
     if away_from_place:
         out.append(_("{count} registry pair(s) sit away from the planned place "
                      "— selected anyway").format(count=away_from_place))
+    if shifted:
+        out.append(_("{count} registry pair(s) point at another record's copper "
+                     "— ignored").format(count=shifted))
     if not_rigid:
         if frame_residual_mm is None:
             out.append(_("the live cluster has no usable cell frame — registry "
@@ -553,7 +562,7 @@ def registry_record_copper_map(adapter, config_path: str, cfg, cell_name: str,
             frame = None
 
     by_record: dict = {}
-    disagreed = orphan = gone = 0
+    disagreed = orphan = gone = shifted = 0
     for kind, role_part, index, uuid in entries:
         live_item = by_uuid[kind].get(uuid)
         if live_item is None:
@@ -565,15 +574,28 @@ def registry_record_copper_map(adapter, config_path: str, cfg, cell_name: str,
             continue
         if frame is not None and not pair_agrees_with_record(
                 points, live_item, frame, RIGID_TOLERANCE_MM):
-            disagreed += 1               # not where the record puts the copper
             if place_check:
+                disagreed += 1           # not where the record puts the copper
                 continue                 # the STRICT door never claims it
-            # The select door keeps it: the key owns it (see the docstring).
+            # The SELECT door keeps a pair away from the place — unless the key is a
+            # SHIFTED NUMBER: the item is away AND carries another net, so it is
+            # another record's copper and this key is a left-over number (Ч1 of
+            # plan_2026_10_26_select_cell_shifted_registry_pair). The NET half is the
+            # shared `same_net` — a second comparison here would let the two doors
+            # drift. Only a LITERAL net can be judged on this door — a (role, pad)
+            # reference needs the run's resolver, and a net we cannot name accuses
+            # nobody.
+            rec = record_of(cell, kind, role_part, index)
+            expected = getattr(rec, "net", None)
+            if expected is not None and not same_net(live_item, rec, expected):
+                shifted += 1
+                continue
+            disagreed += 1               # counted and named, still selected
         by_record[(kind, role_part, index)] = uuid
     return RecordCopperMap(by_record=by_record, planned=len(by_record),
                            source="registry", without_registry=without_registry,
                            entries_total=len(entries), disagreed=disagreed,
-                           orphan_keys=orphan,
+                           orphan_keys=orphan, shifted=shifted,
                            not_rigid=(frame is None) if frame_check else None,
                            frame_residual_mm=residual, missing_from_board=gone)
 
