@@ -48,6 +48,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 
+from .anchor_ids import config_anchor_ids, orphan_uuids
 from .i18n import _
 
 logger = logging.getLogger(__name__)
@@ -219,9 +220,15 @@ def adopt_cell_copper_at_current_place(adapter, cfg, items, via_reg, track_reg,
                     for kind, ix in live.items()}
     regs = {"via": via_reg, "track": track_reg}
     # Every uuid the registry files already own (either kind) is off limits: an
-    # item another record claims must never be adopted by geometry.
+    # item another record claims must never be adopted by geometry. EXCEPT what only
+    # an ORPHAN key claims — a key whose record the config no longer produces owns
+    # nothing (Ч1 of plan_2026_10_27_orphan_anchor_keys_own_nothing), otherwise its
+    # left-over uuid would keep the new record of that very copper from adopting it
+    # and prune would then delete the lot.
     owned = {getattr(e, "uuid", None)
              for reg in (via_reg, track_reg) for e in reg.entries.values()}
+    owned -= set(orphan_uuids(via_reg.entries, track_reg.entries,
+                              config_anchor_ids(cfg)))
 
     # The decision is filed by (kind, key): a via and a track of the SAME record
     # carry the SAME key string (they live in different registry files), so a

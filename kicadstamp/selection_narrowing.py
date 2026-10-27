@@ -119,15 +119,22 @@ class CopperSubtraction:
     """The outcome of :func:`subtract_foreign_copper`.
 
     kept — the copper items left in the selection (unregistered, or recorded
-        for the chosen instance) — they go the ordinary way.
-    removed — the items recorded for some OTHER record.
+        for the chosen instance, or recorded under an ORPHAN key) — they go the
+        ordinary way.
+    removed — the items recorded for some OTHER record that still exists.
     report — ((label, count), ...): the anchor part of every foreign key and how
         many items it owns, for the "subtracted: M vias, K tracks — ..." Log
-        line."""
+        line.
+    orphan — ((anchor, count), ...): the items KEPT because their key's record is
+        no longer in the config (an ORPHAN KEY, Ч1 of
+        plan_2026_10_27_orphan_anchor_keys_own_nothing). Named apart from
+        `report` on purpose: the read did NOT subtract them, and a caller that
+        printed them as subtracted would lie about what it kept."""
 
     kept: tuple
     removed: tuple
     report: tuple = ()
+    orphan: tuple = ()
     # Ф3 (acceptance of cbc8bdc): honest notes about a `net_traces:` record whose
     # anchor could not be resolved (or whose match raised) — a read must SAY it
     # skipped the record, never fail its subtraction silently.
@@ -472,9 +479,10 @@ def subtract_foreign_copper(items: Iterable[Any], owner: dict,
                             cell_identity: str | None,
                             own_addresses: dict,
                             chosen_address: tuple,
-                            chosen_refs: Iterable[str] = ()) -> CopperSubtraction:
-    """Split selected copper into KEPT (own / unregistered) and REMOVED
-    (recorded for some other record).
+                            chosen_refs: Iterable[str] = (),
+                            *, orphan_keys: Iterable[str] = ()) -> CopperSubtraction:
+    """Split selected copper into KEPT (own / unregistered / ORPHAN) and REMOVED
+    (recorded for some other record that still exists).
 
     owner — {copper uuid -> registry key} over BOTH registry files (the worker
     builds it with the product's ``load_registry`` / ``load_track_registry``).
@@ -482,11 +490,21 @@ def subtract_foreign_copper(items: Iterable[Any], owner: dict,
     hand-drawn track then goes the ordinary way, exactly as today.
 
     chosen_refs — the chosen instance's component refs, used to recognise an
-    ``anchor:<ref>`` key as this cell's own (N1)."""
+    ``anchor:<ref>`` key as this cell's own (N1).
+
+    ``orphan_keys`` — keys whose anchor the CURRENT config no longer produces
+    (``kicadstamp.anchor_ids.orphan_keys``). Their copper is KEPT and counted
+    apart (`CopperSubtraction.orphan`), never subtracted: «another record's
+    copper» is a claim about a record that still exists, and an orphaned key
+    makes none. Ч0 measured the defect this closes — an entity was rebuilt, its 25
+    keys stayed, and a read of the neighbouring cell threw away 19 live items.
+    The default (empty) keeps every existing caller byte-identical."""
     chosen_ref_set = frozenset(chosen_refs or ())
+    orphan_set = frozenset(orphan_keys or ())
     kept: list[Any] = []
     removed: list[Any] = []
     report: dict[str, int] = {}
+    orphan: dict[str, int] = {}
     for item in items or ():
         key = owner.get(getattr(item, "uuid", None))
         if key is None:
@@ -496,11 +514,20 @@ def subtract_foreign_copper(items: Iterable[Any], owner: dict,
                       chosen_ref_set):
             kept.append(item)
             continue
+        if key in orphan_set:
+            # The key's record is GONE from the config: it owns nothing, so this
+            # copper is read, not subtracted — and the caller says so in its own
+            # line (`CopperSubtraction.orphan`).
+            kept.append(item)
+            label = _anchor_label(key)
+            orphan[label] = orphan.get(label, 0) + 1
+            continue
         removed.append(item)
         label = _anchor_label(key)
         report[label] = report.get(label, 0) + 1
     return CopperSubtraction(kept=tuple(kept), removed=tuple(removed),
-                             report=tuple(sorted(report.items())))
+                             report=tuple(sorted(report.items())),
+                             orphan=tuple(sorted(orphan.items())))
 
 
 @dataclass(frozen=True)

@@ -19,6 +19,7 @@ import math
 from dataclasses import dataclass, field
 from typing import Optional
 
+from kicadstamp.anchor_ids import config_anchor_ids, orphan_uuids
 from kicadstamp.config.models import (
     clone_placement_effective_name,
     entity_effective_name,
@@ -379,10 +380,18 @@ def select_cell_copper_targets(adapter, cfg, config_path: str, cell_name: str,
     via_reg = PlacementRegistry(adapter, via_path)
     trk_reg = TrackRegistry(adapter, trk_path)
 
+    # Registry keys whose RECORD is no longer in the config (the anchor the key
+    # names is not a record of this config any more) own nothing (Ч1 of
+    # plan_2026_10_27_orphan_anchor_keys_own_nothing): the uuid they hold is not
+    # ownership, so the record that really owns that copper still finds it.
+    orphans = orphan_uuids(via_reg.entries, trk_reg.entries,
+                           config_anchor_ids(cfg))
+
     matches = [(reg, m) for reg, cmds, live in (
         (via_reg, planned_vias, live_vias),
         (trk_reg, planned_tracks, live_tracks))
-        for m in match_planned_copper(reg, cmds, live_items=live)]
+        for m in match_planned_copper(reg, cmds, live_items=live,
+                                      orphan_uuids=orphans)]
 
     # The SHIFTED numbers of this instance — named, never selected (Ч1 of
     # plan_2026_10_26_select_cell_shifted_registry_pair). The same function the

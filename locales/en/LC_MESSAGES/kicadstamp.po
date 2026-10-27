@@ -3,7 +3,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version:  kicadstamp\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-27 13:27+0300\n"
+"POT-Creation-Date: 2026-10-27 16:15+0300\n"
 "PO-Revision-Date: 2026-07-27 12:00+0000\n"
 "Last-Translator: \n"
 "Language: en\n"
@@ -1202,7 +1202,7 @@ msgid ""
 "state stay skipped"
 msgstr ""
 
-#: gui/mixed_selection.py:120
+#: gui/mixed_selection.py:121
 #, python-brace-format
 msgid ""
 "read instance {cluster} on {sheet}; skipped {count} component(s) of other"
@@ -1211,52 +1211,59 @@ msgstr ""
 
 #: gui/docks/add_entities.py:161 gui/docks/instance_candidates.py:136
 #: gui/docks/instance_candidates.py:451 gui/entity/address.py:142
-#: gui/entity/address.py:146 gui/mixed_selection.py:122
-#: gui/mixed_selection.py:173 gui/mixed_selection.py:288 gui/select_cell.py:146
-#: gui/select_cell.py:242 gui/select_enclosed_copper.py:87
+#: gui/entity/address.py:146 gui/mixed_selection.py:123
+#: gui/mixed_selection.py:194 gui/mixed_selection.py:309 gui/select_cell.py:147
+#: gui/select_cell.py:243 gui/select_enclosed_copper.py:87
 #: gui/subtract_copper.py:67
 msgid "(no sheet)"
 msgstr ""
 
-#: gui/mixed_selection.py:135
+#: gui/mixed_selection.py:136
 #, python-brace-format
 msgid ""
 "transferred from net_traces {name} into the cell: {tracks} track(s), "
 "{vias} via(s)"
 msgstr ""
 
-#: gui/mixed_selection.py:162
+#: gui/mixed_selection.py:168
+#, python-brace-format
+msgid ""
+"read {count} item(s) held by key(s) of a record that is no longer in the "
+"config — {anchors}"
+msgstr ""
+
+#: gui/mixed_selection.py:183
 #, python-brace-format
 msgid "subtracted from selection: {count} item(s) — {records}"
 msgstr ""
 
-#: gui/mixed_selection.py:171
+#: gui/mixed_selection.py:192
 #, python-brace-format
 msgid "{cluster} on {sheet} ({refs})"
 msgstr ""
 
-#: gui/mixed_selection.py:174
+#: gui/mixed_selection.py:195
 #, python-brace-format
 msgid ""
 "the selection mixes {count} instances of cell {cell!r}: {candidates} — "
 "select ONE instance and read again"
 msgstr ""
 
-#: gui/mixed_selection.py:262
+#: gui/mixed_selection.py:283
 #, python-brace-format
 msgid ""
 "no component of cluster {cluster!r} is in the selection — select the "
 "instance of cell {cell!r}, or remember one from the cell-anchor page"
 msgstr ""
 
-#: gui/mixed_selection.py:285
+#: gui/mixed_selection.py:306
 #, python-brace-format
 msgid ""
 "cluster {cluster!r} on {sheet} is not on the current board — select the "
 "instance by hand"
 msgstr ""
 
-#: gui/mixed_selection.py:388
+#: gui/mixed_selection.py:416
 msgid ""
 "the instance being read is not the exploded one — the inter-cluster "
 "copper was subtracted"
@@ -1412,7 +1419,7 @@ msgstr ""
 "previous read; it will be retried. If this persists, use Rescan once the "
 "file is readable."
 
-#: gui/docks/cell_editor.py:2486 gui/select_cell.py:129
+#: gui/docks/cell_editor.py:2486 gui/select_cell.py:130
 #: gui/select_enclosed_copper.py:160
 #, python-brace-format
 msgid ""
@@ -1421,25 +1428,25 @@ msgid ""
 "selection”."
 msgstr ""
 
-#: gui/select_cell.py:144 gui/select_enclosed_copper.py:85
+#: gui/select_cell.py:145 gui/select_enclosed_copper.py:85
 #: gui/subtract_copper.py:65
 #, python-brace-format
 msgid "{cluster} on {sheet}"
 msgstr ""
 
-#: gui/select_cell.py:238
+#: gui/select_cell.py:239
 #, python-brace-format
 msgid ""
 "selected: {components} component(s), {vias} via(s), {tracks} track(s) — "
 "{cell} on {sheet}"
 msgstr ""
 
-#: gui/select_cell.py:244
+#: gui/select_cell.py:245
 #, python-brace-format
 msgid "; the registry remembers {n} more, not on the board"
 msgstr ""
 
-#: gui/select_cell.py:463
+#: gui/select_cell.py:472
 #, python-brace-format
 msgid ""
 "Select cell: {components} component(s); copper — {by_registry} by "
@@ -1447,26 +1454,26 @@ msgid ""
 "{missing}"
 msgstr ""
 
-#: gui/select_cell.py:469
+#: gui/select_cell.py:478
 #, python-brace-format
 msgid ""
 "the instance stands {deviation} mm away from where the tree places it — "
 "the copper was taken at its current place"
 msgstr ""
 
-#: gui/select_cell.py:473
+#: gui/select_cell.py:482
 #, python-brace-format
 msgid ""
 "{count} registry pair(s) differ from the plan in width/layer — edited on "
 "the board"
 msgstr ""
 
-#: gui/select_cell.py:476 kicadstamp/absent_copper_prune.py:346
+#: gui/select_cell.py:485 kicadstamp/absent_copper_prune.py:346
 #, python-brace-format
 msgid "{count} registry pair(s) point at another record's copper — ignored"
 msgstr ""
 
-#: gui/select_cell.py:510
+#: gui/select_cell.py:519
 #, python-brace-format
 msgid ""
 "Select cell: {components} component(s); the redraw planner produced no "
@@ -7511,21 +7518,21 @@ msgstr ""
 "({default}); config/loader.py fatals on it for every command that reads "
 "the profile"
 
-#: kicadstamp/adopt_at_current_place.py:247
+#: kicadstamp/adopt_at_current_place.py:254
 #, python-brace-format
 msgid ""
 "Adopt at current place: the instance of cell {cell} on {cluster} could "
 "not resolve its roles ({reason}) — its copper is not adopted"
 msgstr ""
 
-#: kicadstamp/adopt_at_current_place.py:266
+#: kicadstamp/adopt_at_current_place.py:273
 #, python-brace-format
 msgid ""
 "Adopt at current place: no live cell frame for cell {cell} on {cluster} —"
 " its copper is not adopted"
 msgstr ""
 
-#: kicadstamp/adopt_at_current_place.py:272
+#: kicadstamp/adopt_at_current_place.py:279
 #, python-brace-format
 msgid ""
 "Adopt at current place: cell {cell} on {cluster} is not a rigid copy of "
@@ -7533,56 +7540,56 @@ msgid ""
 "trail may remain"
 msgstr ""
 
-#: kicadstamp/adopt_at_current_place.py:323
+#: kicadstamp/adopt_at_current_place.py:330
 #, python-brace-format
 msgid ""
 "Adopt at current place: {count} live {kind}(s) lie where record {key} "
 "puts its copper, but on another net ({net!r}) — not adopted"
 msgstr ""
 
-#: kicadstamp/adopt_at_current_place.py:331
+#: kicadstamp/adopt_at_current_place.py:338
 #, python-brace-format
 msgid ""
 "Adopt at current place: {count} live {kind}(s) lie where record {key} "
 "puts its copper — ambiguous, none taken"
 msgstr ""
 
-#: kicadstamp/adopt_at_current_place.py:344
+#: kicadstamp/adopt_at_current_place.py:351
 #, python-brace-format
 msgid ""
 "Adopt at current place: live {uuid} is claimed by {count} records "
 "({keys}) — none takes it"
 msgstr ""
 
-#: kicadstamp/adopt_at_current_place.py:384
+#: kicadstamp/adopt_at_current_place.py:400
 #, python-brace-format
 msgid ""
 "Adopt at current place: {count} released key(s) whose record found no "
 "copper — dropped from the registry"
 msgstr ""
 
-#: kicadstamp/adopt_at_current_place.py:389
+#: kicadstamp/adopt_at_current_place.py:405
 #, python-brace-format
 msgid ""
 "Adopt at current place: {count} record(s) bound to their live copper "
 "({vias} via(s), {tracks} track(s))"
 msgstr ""
 
-#: kicadstamp/adopt_at_current_place.py:393
+#: kicadstamp/adopt_at_current_place.py:409
 #, python-brace-format
 msgid ""
 "Adopt at current place: {count} registry key(s) point at another record's"
 " copper — ignored"
 msgstr ""
 
-#: kicadstamp/adopt_at_current_place.py:485
+#: kicadstamp/adopt_at_current_place.py:501
 #, python-brace-format
 msgid ""
 "Adopt at current place: would adopt {count} record(s) (a real run writes "
 "the registry)"
 msgstr ""
 
-#: kicadstamp/adopt_at_current_place.py:492
+#: kicadstamp/adopt_at_current_place.py:508
 #, python-brace-format
 msgid ""
 "Adopt at current place: would drop {count} released key(s) whose record "
@@ -7647,30 +7654,30 @@ msgstr ""
 msgid "imprint {name}"
 msgstr ""
 
+#: kicadstamp/apply_pipeline.py:97
+#, python-brace-format
+msgid ""
+"ClonePlacement {name!r}: skip=true, skipped this run (existing via/tracks"
+" stay protected)"
+msgstr ""
+"ClonePlacement {name!r}: skip=true, skipped this run (existing via/tracks"
+" stay protected)"
+
 #: kicadstamp/apply_pipeline.py:103
 #, python-brace-format
 msgid ""
-"ClonePlacement {name!r}: skip=true, skipped this run (existing via/tracks"
-" stay protected)"
-msgstr ""
-"ClonePlacement {name!r}: skip=true, skipped this run (existing via/tracks"
-" stay protected)"
-
-#: kicadstamp/apply_pipeline.py:109
-#, python-brace-format
-msgid ""
 "thermal_via_arrays {name!r}: skip=true, skipped this run (existing vias "
 "stay protected)"
 msgstr ""
 "thermal_via_arrays {name!r}: skip=true, skipped this run (existing vias "
 "stay protected)"
 
-#: kicadstamp/apply_pipeline.py:123
+#: kicadstamp/apply_pipeline.py:117
 #, python-brace-format
 msgid "coordinate_placements {name!r}: retired/skip=true, skipped this run"
 msgstr "coordinate_placements {name!r}: retired/skip=true, skipped this run"
 
-#: kicadstamp/apply_pipeline.py:135
+#: kicadstamp/apply_pipeline.py:129
 #, python-brace-format
 msgid ""
 "net_traces entry (net {net!r}): skip=true, skipped this run (existing "
@@ -7679,17 +7686,17 @@ msgstr ""
 "net_traces entry (net {net!r}): skip=true, skipped this run (existing "
 "copper stays protected)"
 
-#: kicadstamp/apply_pipeline.py:209
+#: kicadstamp/apply_pipeline.py:203
 #, python-brace-format
 msgid "--only {token!r}: resolved to the single record {full!r} by its short name"
 msgstr ""
 
-#: kicadstamp/apply_pipeline.py:219
+#: kicadstamp/apply_pipeline.py:213
 #, python-brace-format
 msgid "  {token!r} matches {count} records by its short name: {full}"
 msgstr ""
 
-#: kicadstamp/apply_pipeline.py:222
+#: kicadstamp/apply_pipeline.py:216
 #, python-brace-format
 msgid ""
 "[error] --only: ambiguous short name(s):\n"
@@ -7697,34 +7704,34 @@ msgid ""
 "Use the full name (with its folder path)"
 msgstr ""
 
-#: kicadstamp/apply_pipeline.py:262
+#: kicadstamp/apply_pipeline.py:256
 #, python-brace-format
 msgid " (maybe you meant {suggestion!r}?)"
 msgstr " (maybe you meant {suggestion!r}?)"
 
+#: kicadstamp/apply_pipeline.py:258
+#, python-brace-format
+msgid ""
+"  {name!r} — not found among clone_placements, thermal_via_arrays, "
+"coordinate_placements, net_traces, or entities{hint}"
+msgstr ""
+"  {name!r} — not found among clone_placements, thermal_via_arrays, "
+"coordinate_placements, net_traces, or entities{hint}"
+
+#: kicadstamp/apply_pipeline.py:261
+#, python-brace-format
+msgid ""
+"[error] --only: names not found:\n"
+"{lines}\n"
+"Available: {all}"
+msgstr ""
+"[error] --only: names not found:\n"
+"{lines}\n"
+"Available: {all}"
+
 #: kicadstamp/apply_pipeline.py:264
 #, python-brace-format
 msgid ""
-"  {name!r} — not found among clone_placements, thermal_via_arrays, "
-"coordinate_placements, net_traces, or entities{hint}"
-msgstr ""
-"  {name!r} — not found among clone_placements, thermal_via_arrays, "
-"coordinate_placements, net_traces, or entities{hint}"
-
-#: kicadstamp/apply_pipeline.py:267
-#, python-brace-format
-msgid ""
-"[error] --only: names not found:\n"
-"{lines}\n"
-"Available: {all}"
-msgstr ""
-"[error] --only: names not found:\n"
-"{lines}\n"
-"Available: {all}"
-
-#: kicadstamp/apply_pipeline.py:270
-#, python-brace-format
-msgid ""
 "--only {requested}: clone_placements={clones}, "
 "thermal_via_arrays={thermal}, coordinate_placements={coords}, "
 "net_traces={nets} (everything else is ignored in this run)"
@@ -7733,7 +7740,7 @@ msgstr ""
 "thermal_via_arrays={thermal}, coordinate_placements={coords}, "
 "net_traces={nets} (everything else is ignored in this run)"
 
-#: kicadstamp/apply_pipeline.py:320
+#: kicadstamp/apply_pipeline.py:314
 #, python-brace-format
 msgid ""
 "[error] --cluster {paths}: matched nothing among clone_placements, "
@@ -7742,7 +7749,7 @@ msgstr ""
 "[error] --cluster {paths}: matched nothing among clone_placements, "
 "thermal_via_arrays, coordinate_placements, net_traces, or entities"
 
-#: kicadstamp/apply_pipeline.py:325
+#: kicadstamp/apply_pipeline.py:319
 #, python-brace-format
 msgid ""
 "--cluster {paths}: clone_placements={clones}, "
@@ -7753,26 +7760,26 @@ msgstr ""
 "thermal_via_arrays={thermal}, coordinate_placements={coords}, "
 "net_traces={nets}"
 
-#: kicadstamp/apply_pipeline.py:465
+#: kicadstamp/apply_pipeline.py:445
 #, python-brace-format
 msgid "Loading config: {config}"
 msgstr "Loading config: {config}"
 
-#: kicadstamp/apply_pipeline.py:493
+#: kicadstamp/apply_pipeline.py:473
 #, python-brace-format
 msgid "Connecting to KiCad (timeout {timeout} ms)"
 msgstr "Connecting to KiCad (timeout {timeout} ms)"
 
-#: kicadstamp/apply_pipeline.py:500
+#: kicadstamp/apply_pipeline.py:480
 msgid "--no-selection: current PCB editor selection will be ignored for this run"
 msgstr "--no-selection: current PCB editor selection will be ignored for this run"
 
-#: kicadstamp/apply_pipeline.py:536
+#: kicadstamp/apply_pipeline.py:516
 #, python-brace-format
 msgid "Materialized {count} entity placement(s) from trees into the apply plan"
 msgstr "Materialized {count} entity placement(s) from trees into the apply plan"
 
-#: kicadstamp/apply_pipeline.py:559
+#: kicadstamp/apply_pipeline.py:539
 #, python-brace-format
 msgid ""
 "Materialized {count} component node placement(s) from trees into the "
@@ -7781,12 +7788,12 @@ msgstr ""
 "Materialized {count} component node placement(s) from trees into the "
 "apply plan"
 
-#: kicadstamp/apply_pipeline.py:577
+#: kicadstamp/apply_pipeline.py:557
 #, python-brace-format
 msgid "Planned {count} imprint placement(s) from trees into the apply plan"
 msgstr ""
 
-#: kicadstamp/apply_pipeline.py:579
+#: kicadstamp/apply_pipeline.py:559
 msgid ""
 "Resolving item execution order (dependency chain — see "
 "dependency_order.py)..."
@@ -7794,27 +7801,27 @@ msgstr ""
 "Resolving item execution order (dependency chain — see "
 "dependency_order.py)..."
 
-#: kicadstamp/apply_pipeline.py:582
+#: kicadstamp/apply_pipeline.py:562
 #, python-brace-format
 msgid "Execution order: {order}"
 msgstr "Execution order: {order}"
 
-#: kicadstamp/apply_pipeline.py:642
+#: kicadstamp/apply_pipeline.py:622
 #, python-brace-format
 msgid "Order: {order}"
 msgstr "Order: {order}"
 
-#: kicadstamp/apply_pipeline.py:647
+#: kicadstamp/apply_pipeline.py:627
 msgid "Coordinate placements (Phase 0, before the order above):"
 msgstr "Coordinate placements (Phase 0, before the order above):"
 
-#: kicadstamp/apply_pipeline.py:649 kicadstamp/apply_pipeline.py:658
-#: kicadstamp/apply_pipeline.py:687 kicadstamp/channel_copy.py:923
+#: kicadstamp/apply_pipeline.py:629 kicadstamp/apply_pipeline.py:638
+#: kicadstamp/apply_pipeline.py:667 kicadstamp/channel_copy.py:923
 #, python-brace-format
 msgid "  {ref}: ({x:.3f}, {y:.3f}) mm, angle={angle:.1f}°"
 msgstr "  {ref}: ({x:.3f}, {y:.3f}) mm, angle={angle:.1f}°"
 
-#: kicadstamp/apply_pipeline.py:652
+#: kicadstamp/apply_pipeline.py:632
 msgid ""
 "(Phase 0 moves are NOT applied in a dry run — the ClonePlacement moves "
 "below are still planned from their CURRENT positions, not from the post-"
@@ -7824,25 +7831,25 @@ msgstr ""
 "below are still planned from their CURRENT positions, not from the post-"
 "Phase-0 board a real apply would produce)"
 
-#: kicadstamp/apply_pipeline.py:656
+#: kicadstamp/apply_pipeline.py:636
 msgid "Moves:"
 msgstr "Moves:"
 
-#: kicadstamp/apply_pipeline.py:661
+#: kicadstamp/apply_pipeline.py:641
 msgid "Vias:"
 msgstr "Vias:"
 
-#: kicadstamp/apply_pipeline.py:663 kicadstamp/apply_pipeline.py:691
+#: kicadstamp/apply_pipeline.py:643 kicadstamp/apply_pipeline.py:671
 #: kicadstamp/channel_copy.py:928
 #, python-brace-format
 msgid "  via for {owner}: ({x:.3f}, {y:.3f}) mm, net={net}"
 msgstr "  via for {owner}: ({x:.3f}, {y:.3f}) mm, net={net}"
 
-#: kicadstamp/apply_pipeline.py:666
+#: kicadstamp/apply_pipeline.py:646
 msgid "Tracks:"
 msgstr "Tracks:"
 
-#: kicadstamp/apply_pipeline.py:668 kicadstamp/apply_pipeline.py:695
+#: kicadstamp/apply_pipeline.py:648 kicadstamp/apply_pipeline.py:675
 #: kicadstamp/channel_copy.py:933
 #, python-brace-format
 msgid ""
@@ -7852,7 +7859,7 @@ msgstr ""
 "  track for {owner}: ({sx:.3f}, {sy:.3f}) -> ({ex:.3f}, {ey:.3f}) mm, "
 "net={net}, width={w} mm"
 
-#: kicadstamp/apply_pipeline.py:673
+#: kicadstamp/apply_pipeline.py:653
 msgid ""
 "(net_traces entries are included in the vias/tracks sections above; their"
 " anchors are resolved from CURRENT component positions, so a real apply "
@@ -7862,7 +7869,7 @@ msgstr ""
 " anchors are resolved from CURRENT component positions, so a real apply "
 "after a CoordinatePlacement moves the anchor will follow it)"
 
-#: kicadstamp/apply_pipeline.py:676
+#: kicadstamp/apply_pipeline.py:656
 msgid ""
 "(thermal via keepout is computed based on CURRENT component positions, "
 "not the target ones — may slightly differ from the real run)"
@@ -7870,7 +7877,7 @@ msgstr ""
 "(thermal via keepout is computed based on CURRENT component positions, "
 "not the target ones — may slightly differ from the real run)"
 
-#: kicadstamp/apply_pipeline.py:678
+#: kicadstamp/apply_pipeline.py:658
 msgid ""
 "(track collisions with other copper/components are NOT checked by this "
 "tool — rely on KiCad DRC after placement)"
@@ -7878,7 +7885,7 @@ msgstr ""
 "(track collisions with other copper/components are NOT checked by this "
 "tool — rely on KiCad DRC after placement)"
 
-#: kicadstamp/apply_pipeline.py:680
+#: kicadstamp/apply_pipeline.py:660
 msgid ""
 "(items later in the dependency chain above are ALSO planned from the "
 "CURRENT board, not the post-move board of their prerequisite — a real "
@@ -7890,22 +7897,22 @@ msgstr ""
 "apply may place them differently; rerun without --dry-run for the true "
 "chained result)"
 
-#: kicadstamp/apply_pipeline.py:684
+#: kicadstamp/apply_pipeline.py:664
 #, python-brace-format
 msgid "Imprint {entity} ({mode}):"
 msgstr ""
 
-#: kicadstamp/apply_pipeline.py:814
+#: kicadstamp/apply_pipeline.py:794
 #, python-brace-format
 msgid "Coordinate placements: {count} moves"
 msgstr "Coordinate placements: {count} moves"
 
-#: kicadstamp/apply_pipeline.py:821
+#: kicadstamp/apply_pipeline.py:801
 #, python-brace-format
 msgid "Failed to move (coordinate_placements): {refs}"
 msgstr "Failed to move (coordinate_placements): {refs}"
 
-#: kicadstamp/apply_pipeline.py:849
+#: kicadstamp/apply_pipeline.py:829
 #, python-brace-format
 msgid ""
 "{label}: anchor {ref!r} failed to move earlier in this run — this item's "
@@ -7914,21 +7921,21 @@ msgstr ""
 "{label}: anchor {ref!r} failed to move earlier in this run — this item's "
 "placement is based on its OLD position"
 
-#: kicadstamp/apply_pipeline.py:853
+#: kicadstamp/apply_pipeline.py:833
 #, python-brace-format
 msgid "  {label}: {count} moves"
 msgstr "  {label}: {count} moves"
 
-#: kicadstamp/apply_pipeline.py:872 kicadstamp/channel_copy.py:783
+#: kicadstamp/apply_pipeline.py:852 kicadstamp/channel_copy.py:783
 #, python-brace-format
 msgid "Failed to move: {refs}"
 msgstr "Failed to move: {refs}"
 
-#: kicadstamp/apply_pipeline.py:875
+#: kicadstamp/apply_pipeline.py:855
 msgid "Reloading board data before planning vias..."
 msgstr "Reloading board data before planning vias..."
 
-#: kicadstamp/apply_pipeline.py:926
+#: kicadstamp/apply_pipeline.py:906
 #, python-brace-format
 msgid ""
 "Planned vias: {total}, actually to create (registry filtered already "
@@ -7937,16 +7944,16 @@ msgstr ""
 "Planned vias: {total}, actually to create (registry filtered already "
 "correctly placed): {to_create}"
 
-#: kicadstamp/apply_pipeline.py:929
+#: kicadstamp/apply_pipeline.py:909
 msgid "Applying vias..."
 msgstr "Applying vias..."
 
-#: kicadstamp/apply_pipeline.py:932 kicadstamp/channel_copy.py:785
+#: kicadstamp/apply_pipeline.py:912 kicadstamp/channel_copy.py:785
 #, python-brace-format
 msgid "Failed to create vias near: {refs}"
 msgstr "Failed to create vias near: {refs}"
 
-#: kicadstamp/apply_pipeline.py:975
+#: kicadstamp/apply_pipeline.py:955
 #, python-brace-format
 msgid ""
 "Planned tracks: {total}, actually to create (registry filtered already "
@@ -7955,24 +7962,24 @@ msgstr ""
 "Planned tracks: {total}, actually to create (registry filtered already "
 "correctly placed): {to_create}"
 
-#: kicadstamp/apply_pipeline.py:978
+#: kicadstamp/apply_pipeline.py:958
 msgid "Applying tracks..."
 msgstr "Applying tracks..."
 
-#: kicadstamp/apply_pipeline.py:981 kicadstamp/channel_copy.py:787
+#: kicadstamp/apply_pipeline.py:961 kicadstamp/channel_copy.py:787
 #, python-brace-format
 msgid "Failed to create tracks near: {refs}"
 msgstr "Failed to create tracks near: {refs}"
 
-#: kicadstamp/apply_pipeline.py:987
+#: kicadstamp/apply_pipeline.py:967
 msgid "Applying imprint placements..."
 msgstr ""
 
-#: kicadstamp/apply_pipeline.py:998
+#: kicadstamp/apply_pipeline.py:978
 msgid "✅ All operations completed successfully"
 msgstr "✅ All operations completed successfully"
 
-#: kicadstamp/apply_pipeline.py:1000
+#: kicadstamp/apply_pipeline.py:980
 msgid "⚠️ Some operations failed – check the log."
 msgstr "⚠️ Some operations failed – check the log."
 
@@ -10872,54 +10879,19 @@ msgstr ""
 msgid "Refused (duplicate refdes on the board): {labels}"
 msgstr ""
 
-#: kicadstamp/registry.py:162
+#: kicadstamp/registry.py:172
 #, python-brace-format
 msgid "registry key: record {name!r} has no uuid"
 msgstr ""
 
-#: kicadstamp/registry.py:163
+#: kicadstamp/registry.py:173
 msgid ""
 "format 3 gives every record a uuid (checked at load and at write) — "
 "falling back to the name would split one registry into name- and uuid-"
 "keys, and prune would then delete the difference"
 msgstr ""
 
-#: kicadstamp/registry.py:237
-#, python-brace-format
-msgid ""
-"The copper registry {path} was not lifted to the current schema — apply "
-"stopped, the board was not touched. This is expected while the profile "
-"still carries a non-empty chains: (the lift is skipped then, so the spoke"
-" copper keys stay attached): remove the chains: section and reopen the "
-"profile. If the profile has no chains:, the lift could not write the file"
-" — reopen the profile, and check that the registry directory is writable"
-msgstr ""
-"The copper registry {path} was not lifted to the current schema — apply "
-"stopped, the board was not touched. This is expected while the profile "
-"still carries a non-empty chains: (the lift is skipped then, so the spoke"
-" copper keys stay attached): remove the chains: section and reopen the "
-"profile. If the profile has no chains:, the lift could not write the file"
-" — reopen the profile, and check that the registry directory is writable"
-
-#: kicadstamp/registry.py:290 kicadstamp/registry.py:308
-#, python-brace-format
-msgid ""
-"Failed to read registry {path}: {type}: {e} — treating registry as empty "
-"(all vias will be created anew)"
-msgstr ""
-"Failed to read registry {path}: {type}: {e} — treating registry as empty "
-"(all vias will be created anew)"
-
-#: kicadstamp/registry.py:329 kicadstamp/registry.py:343
-#, python-brace-format
-msgid ""
-"Failed to read track registry {path}: {type}: {e} — treating registry as "
-"empty (all tracks will be created anew)"
-msgstr ""
-"Failed to read track registry {path}: {type}: {e} — treating registry as "
-"empty (all tracks will be created anew)"
-
-#: kicadstamp/registry.py:488
+#: kicadstamp/registry.py:292
 #, python-brace-format
 msgid ""
 "  {key}: registry has an entry (uuid {uuid}), but no such item is on the "
@@ -10932,7 +10904,7 @@ msgstr ""
 "from git, or previous run crashed between registry write and board "
 "commit); recreating as if the entry never existed"
 
-#: kicadstamp/registry.py:499
+#: kicadstamp/registry.py:303
 #, python-brace-format
 msgid ""
 "  {key}: already correctly placed (checked against live item {uuid}), "
@@ -10941,7 +10913,7 @@ msgstr ""
 "  {key}: already correctly placed (checked against live item {uuid}), "
 "skipped"
 
-#: kicadstamp/registry.py:504
+#: kicadstamp/registry.py:308
 #, python-brace-format
 msgid ""
 "  {key}: position/parameters changed, deleting old item ({uuid}) and "
@@ -10950,7 +10922,7 @@ msgstr ""
 "  {key}: position/parameters changed, deleting old item ({uuid}) and "
 "creating a new one"
 
-#: kicadstamp/registry.py:524
+#: kicadstamp/registry.py:336
 #, python-brace-format
 msgid ""
 "  {key}: not processed in this run (--only filtered {anchor_id!r}), but "
@@ -10959,20 +10931,73 @@ msgstr ""
 "  {key}: not processed in this run (--only filtered {anchor_id!r}), but "
 "it is still in the config — NOT pruned"
 
-#: kicadstamp/registry.py:532
+#: kicadstamp/registry.py:345
+#, python-brace-format
+msgid ""
+"  prune: {key} no longer appears in config — the key is dropped, the item"
+" ({uuid}) stays: a key of this run holds it"
+msgstr ""
+"  prune: {key} no longer appears in config — the key is dropped, the item"
+" ({uuid}) stays: a key of this run holds it"
+
+#: kicadstamp/registry.py:355
+#, python-brace-format
+msgid ""
+"  prune: {key} no longer appears in config — the key is dropped, the item"
+" ({uuid}) is not on the board"
+msgstr ""
+"  prune: {key} no longer appears in config — the key is dropped, the item"
+" ({uuid}) is not on the board"
+
+#: kicadstamp/registry.py:359
 #, python-brace-format
 msgid "  prune: {key} no longer appears in config, deleting ({uuid})"
 msgstr "  prune: {key} no longer appears in config, deleting ({uuid})"
 
-#: kicadstamp/registry.py:656
+#: kicadstamp/registry.py:483
 #, python-brace-format
 msgid "  via for {owner}: already exists, skipped (positional pre-check)"
 msgstr "  via for {owner}: already exists, skipped (positional pre-check)"
 
-#: kicadstamp/registry.py:661
+#: kicadstamp/registry.py:488
 #, python-brace-format
 msgid "Skipped {count} vias already present on the board (positional pre-check)"
 msgstr "Skipped {count} vias already present on the board (positional pre-check)"
+
+#: kicadstamp/registry_io.py:122
+#, python-brace-format
+msgid ""
+"The copper registry {path} was not lifted to the current schema — apply "
+"stopped, the board was not touched. This is expected while the profile "
+"still carries a non-empty chains: (the lift is skipped then, so the spoke"
+" copper keys stay attached): remove the chains: section and reopen the "
+"profile. If the profile has no chains:, the lift could not write the file"
+" — reopen the profile, and check that the registry directory is writable"
+msgstr ""
+"The copper registry {path} was not lifted to the current schema — apply "
+"stopped, the board was not touched. This is expected while the profile "
+"still carries a non-empty chains: (the lift is skipped then, so the spoke"
+" copper keys stay attached): remove the chains: section and reopen the "
+"profile. If the profile has no chains:, the lift could not write the file"
+" — reopen the profile, and check that the registry directory is writable"
+
+#: kicadstamp/registry_io.py:169 kicadstamp/registry_io.py:187
+#, python-brace-format
+msgid ""
+"Failed to read registry {path}: {type}: {e} — treating registry as empty "
+"(all vias will be created anew)"
+msgstr ""
+"Failed to read registry {path}: {type}: {e} — treating registry as empty "
+"(all vias will be created anew)"
+
+#: kicadstamp/registry_io.py:208 kicadstamp/registry_io.py:222
+#, python-brace-format
+msgid ""
+"Failed to read track registry {path}: {type}: {e} — treating registry as "
+"empty (all tracks will be created anew)"
+msgstr ""
+"Failed to read track registry {path}: {type}: {e} — treating registry as "
+"empty (all tracks will be created anew)"
 
 #: kicadstamp/role_cluster_damage.py:125
 #, python-brace-format
@@ -11092,17 +11117,17 @@ msgid ""
 "this role — give them distinct roles in the schematic: {components}"
 msgstr ""
 
-#: kicadstamp/selection_narrowing.py:578
+#: kicadstamp/selection_narrowing.py:605
 #, python-brace-format
 msgid "net_traces {net!r}: cannot match its copper ({error})"
 msgstr ""
 
-#: kicadstamp/selection_narrowing.py:587
+#: kicadstamp/selection_narrowing.py:614
 #, python-brace-format
 msgid "net_traces {net!r}: {reason} — it was not subtracted"
 msgstr ""
 
-#: kicadstamp/selection_narrowing.py:611
+#: kicadstamp/selection_narrowing.py:638
 #, python-brace-format
 msgid ""
 "net_traces: {checked} record(s) checked ({skipped} skipped by net), "

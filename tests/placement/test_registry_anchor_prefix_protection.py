@@ -96,8 +96,11 @@ def _reconcile_one(anchor_id, known, tmp_path):
     reg = _registry(tmp_path)
     key = make_registry_key(anchor_id, "cell", None, 0)
     reg.entries[key] = _entry("u-1")
-    _to_create, to_delete = reg.reconcile([], known_anchor_ids=known,
-                                          live_items=[])
+    # The copper IS on the board: prune names a deletion only for an item the
+    # board still carries (Ч1 of plan_2026_10_27_orphan_anchor_keys_own_nothing —
+    # a uuid the board does not carry is dropped together with its key).
+    _to_create, to_delete = reg.reconcile(
+        [], known_anchor_ids=known, live_items=[SimpleNamespace(uuid="u-1")])
     return reg, key, to_delete
 
 

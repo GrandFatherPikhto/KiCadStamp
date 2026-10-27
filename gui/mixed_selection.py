@@ -39,6 +39,7 @@ import logging
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
+from kicadstamp.anchor_ids import config_anchor_ids, orphan_keys
 from kicadstamp.cell_instance import resolve_context_footprints
 from kicadstamp.constants import CLUSTER_FIELD_NAME, ROLE_FIELD_NAME
 from kicadstamp.i18n import _
@@ -146,6 +147,26 @@ def _merged_report(parts) -> dict:
         for label, count in sub.report:
             merged[label] = merged.get(label, 0) + count
     return merged
+
+
+def _orphan_line(parts) -> Optional[str]:
+    """One INFO line naming the copper READ although its key's record is gone.
+
+    Not a subtraction and not a warning (Denis, 27.10): the read did what it was
+    asked. The anchors are named exactly as the subtraction line names its own —
+    «name:e8b2c497-…: 18» is what makes the line useful, and the same label helper
+    builds both."""
+    merged: dict[str, int] = {}
+    for sub in parts:
+        for label, count in getattr(sub, "orphan", ()) or ():
+            merged[label] = merged.get(label, 0) + count
+    if not merged:
+        return None
+    total = sum(merged.values())
+    anchors = ", ".join(f"{label}: {count}"
+                        for label, count in sorted(merged.items()))
+    return _("read {count} item(s) held by key(s) of a record that is no longer in "
+             "the config — {anchors}").format(count=total, anchors=anchors)
 
 
 def _subtraction_line(registry: dict, net_traces: dict) -> Optional[str]:
@@ -295,6 +316,11 @@ def narrow_mixed_selection(*, config_path: str, adapter: Any, footprints: list,
     cell_identity = record_key_part(cell_name, cell_uuid)
     own_addresses = cell_record_addresses(cfg, cell_name)
     via_entries, track_entries, owner = load_registry_entries(config_path, cfg)
+    # The keys whose RECORD is gone from the config (Ч1 of
+    # plan_2026_10_27_orphan_anchor_keys_own_nothing): their copper is READ, not
+    # subtracted — a claim of «another record» needs a record that exists. ONE set
+    # from the ONE builder `reconcile` is protected by.
+    orphans = orphan_keys(via_entries, track_entries, config_anchor_ids(cfg))
     chosen_address = (chosen_cluster, chosen_sheet)
     # Р3а-3: the transfer is allowed ONLY when the read's OWN resolved address is
     # the instance the journal was made for. The UI gate (ExplodeGuard) can only
@@ -306,9 +332,11 @@ def narrow_mixed_selection(*, config_path: str, adapter: Any, footprints: list,
                                          chosen_cluster, chosen_sheet))
 
     sub_v = subtract_foreign_copper(vias, owner, cell_identity, own_addresses,
-                                    chosen_address, chosen_refs)
+                                    chosen_address, chosen_refs,
+                                    orphan_keys=orphans)
     sub_t = subtract_foreign_copper(tracks, owner, cell_identity, own_addresses,
-                                    chosen_address, chosen_refs)
+                                    chosen_address, chosen_refs,
+                                    orphan_keys=orphans)
     net_traces = getattr(cfg, "net_traces", None)
     net_v = net_t = None
     # А1 (plan_2026_10_08_narrowing_net_traces_cost): the board's copper is read
@@ -395,6 +423,11 @@ def narrow_mixed_selection(*, config_path: str, adapter: Any, footprints: list,
     subtraction = _subtraction_line(registry_report, net_report)
     if subtraction:
         lines.append((subtraction, SUCCESS))
+    # INFO: the copper read although its key's record is no longer in the config.
+    # Deliberately NOT in `subtraction`/`subtracted_records` — nothing was removed.
+    orphan_line = _orphan_line([sub_v, sub_t])
+    if orphan_line:
+        lines.append((orphan_line, SUCCESS))
 
     return MixedPrelude(
         footprints=list(instance_fps),

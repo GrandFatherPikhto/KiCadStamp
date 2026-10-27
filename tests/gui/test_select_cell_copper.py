@@ -23,6 +23,9 @@ from kicadstamp.constants import (CLUSTER_FIELD_NAME, ROLE_FIELD_NAME,
 from kicadstamp.domain.board import Footprint, Track, Via
 from kicadstamp.domain.geometry import BoardLayer, Vector2
 from kicadstamp.placement.commands import ViaCommand
+from kicadstamp.placement.services.clone_position_calculator import (
+    entity_anchor_id,
+)
 from kicadstamp.registry import make_registry_key, record_key_part
 from tests.fakes.format3 import det_uuid, registry_schema
 
@@ -268,8 +271,15 @@ def test_the_strict_map_still_refuses_what_the_select_map_takes(gate, tmp_path):
 # ── (г) foreign-by-registry is never selected ──────────────────────────────
 
 def test_foreign_registered_item_is_not_taken(gate, tmp_path):
+    """The OTHER record EXISTS in the config and its key is built by the planner's
+    own builder: a key whose anchor the config no longer produces is an ORPHAN and
+    owns nothing (Ч1 of plan_2026_10_27_orphan_anchor_keys_own_nothing), so a
+    hand-written key would exercise the orphan path, not ownership."""
     cfg, config_path, adapter, key = _setup(tmp_path, [_via("v_foreign", 0.0, 0.0)])
-    other = make_registry_key("anchor:X9:1:0.0000:0.0000", "other_cell", "r", 0)
+    other_rec = _Rec(name="pif_avdd", uuid=det_uuid("entities:pif_avdd"),
+                     cell="pif_avdd", cluster="PIF_AVDD")
+    cfg.entities.append(other_rec)
+    other = make_registry_key(entity_anchor_id(other_rec), "other_cell", "r", 0)
     _write_via_registry(tmp_path, {other: _via_entry("v_foreign", 0.0, 0.0)})
     plan = _core(adapter, cfg, config_path, [_planned_via(key)])
     assert plan.copper == []

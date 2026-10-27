@@ -22,12 +22,15 @@ from types import SimpleNamespace
 import pytest
 
 from kicadstamp.absent_copper_prune import _map_for, registry_record_copper_map
-from kicadstamp.config import format_version
+from kicadstamp.config import ClonePlacement, format_version
 from kicadstamp.constants import (CELL_LEVEL_ROLE_PLACEHOLDER,
                                   CLUSTER_FIELD_NAME, ROLE_FIELD_NAME)
 from kicadstamp.domain.board import Footprint, Track
 from kicadstamp.domain.geometry import BoardLayer, Vector2
 from kicadstamp.placement.commands import TrackCommand
+from kicadstamp.placement.services.clone_position_calculator import (
+    clone_registry_identity,
+)
 from kicadstamp.registry import (PlacementRegistry, TrackRegistry,
                                  make_registry_key, record_key_part)
 from kicadstamp.registry_match import (PAIR_AGREES, PAIR_AWAY, PAIR_EDITED,
@@ -120,18 +123,33 @@ _RECORDS = [((0.0, 0.0, 1.0, 0.0, 0.2), "A"),
 
 
 def _setup(tmp_path, live_tracks, registry_rows):
-    """(cfg, config_path, adapter, keys, planner commands) for the fixture."""
+    """(cfg, config_path, adapter, keys, planner commands) for the fixture.
+
+    The instance IS declared in the cfg (`clone_placements`): a key is judged
+    against the anchors the config PRODUCES, so a key whose anchor no record of the
+    config names is an ORPHAN and owns nothing (Ч1 of
+    plan_2026_10_27_orphan_anchor_keys_own_nothing). A rig that left its own
+    placement out of the cfg — as this one did with the old physical
+    `anchor:C1:…` keys — would silently exercise the ORPHAN path instead of
+    ownership, which is the one thing these cells must not do.
+    """
     cell_uuid = det_uuid("cells:dac_buf")
     cfg = _Cfg({"dac_buf": _Rec(cell_uuid, [r[0] for r in _RECORDS],
                                 [r[1] for r in _RECORDS])})
+    clone = ClonePlacement(cluster="DAC_BUF", cell="dac_buf", xy=(0.0, 0.0),
+                           name="dac0", uuid=det_uuid("clone_placements:dac0"),
+                           nets={})
+    cfg.clone_placements = [clone]
     cell_identity = record_key_part("dac_buf", cell_uuid)
     config_path = tmp_path / "config.sexp"
     config_path.write_text("", encoding="utf-8")
     adapter = _Adapter({"C1": ("DA", "DAC_BUF")},
                        footprints=[_fp("C1", "DA", "DAC_BUF")],
                        tracks=live_tracks)
-    anchor = "anchor:C1:1:0.0000:0.0000"
-    keys = [make_registry_key(anchor, cell_identity,
+    # The SAME builder the planner keys with — the key the config produces.
+    anchor_id, _cell_name, key_part = clone_registry_identity(clone, cfg.cells)
+    assert cell_identity == key_part
+    keys = [make_registry_key(anchor_id, key_part,
                               CELL_LEVEL_ROLE_PLACEHOLDER, index)
             for index in (0, 1)]
     _write_track_registry(tmp_path, {keys[i]: row for i, row in registry_rows})

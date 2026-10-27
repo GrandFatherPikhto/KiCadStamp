@@ -11,6 +11,8 @@ the ONE builder clone_position_calculator.anchor_ids_with_nested (which composes
 "<outer>/<name>" — never a key split on "/", because a slash is legal in a
 cluster name, Р7).
 """
+from types import SimpleNamespace
+
 import pytest
 from unittest.mock import MagicMock
 
@@ -73,8 +75,12 @@ def _seed_and_reconcile(anchor_id, known, tmp_path, template="inner"):
     key = make_registry_key(anchor_id, template, None, 0)
     reg.entries[key] = RegistryEntry(uuid="u-1", x_mm=1.0, y_mm=2.0, net="GND",
                                      drill_mm=0.3, diameter_mm=0.6)
-    _to_create, to_delete = reg.reconcile([], known_anchor_ids=known,
-                                          live_items=[])
+    # The copper IS on the board: prune only names a deletion for an item the
+    # board still carries (Ч1 of plan_2026_10_27_orphan_anchor_keys_own_nothing —
+    # a uuid the board does not carry is dropped with its key, nothing to delete).
+    _to_create, to_delete = reg.reconcile(
+        [], known_anchor_ids=known,
+        live_items=[SimpleNamespace(uuid="u-1")])
     return reg, key, to_delete
 
 

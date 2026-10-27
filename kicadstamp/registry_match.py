@@ -387,7 +387,8 @@ class PlannedCopperMatch:
 
 
 def match_planned_copper(reg: "BaseRegistry", planned_cmds: list,
-                         live_items=None) -> list[PlannedCopperMatch]:
+                         live_items=None, *, orphan_uuids=frozenset(),
+                         ) -> list[PlannedCopperMatch]:
     """READ-ONLY: match every planned command to a live board item, two tiers.
 
     ``reg`` — a PlacementRegistry (vias) or TrackRegistry (tracks); its
@@ -398,6 +399,12 @@ def match_planned_copper(reg: "BaseRegistry", planned_cmds: list,
     ``live_items`` — optional pre-fetched board items (a caller that already read
     them once passes them so the two paths cannot read at different times);
     when None the registry fetches them (``_get_live_items``).
+
+    ``orphan_uuids`` — the uuids held ONLY by registry keys whose record is no
+    longer in the config (`anchor_ids.orphan_uuids`). Such an entry owns nothing
+    (Ч1 of plan_2026_10_27_orphan_anchor_keys_own_nothing): it neither blocks its
+    item from the record that really owns it nor claims it. An empty set is the
+    old behaviour, so every caller that does not know the anchors is unchanged.
 
     Order is significant: the live list is scanned in board order and the FIRST
     not-owned match wins — the same "first matching item" rule
@@ -437,8 +444,10 @@ def match_planned_copper(reg: "BaseRegistry", planned_cmds: list,
         live_items = list(live_items)
     live_by_uuid = {getattr(item, "uuid", None): item for item in live_items}
     # A live item claimed by ANY registry entry (its own record or another) is
-    # never taken by geometry; `taken` grows as this call matches commands.
-    owned = {e.uuid for e in reg.entries.values()}
+    # never taken by geometry; `taken` grows as this call matches commands. A
+    # uuid held only by an orphan entry (`orphan_uuids`) is not ownership — the
+    # key outlived its record, the copper is nobody's.
+    owned = {e.uuid for e in reg.entries.values()} - set(orphan_uuids or ())
     taken: set = set()
 
     # The shifted numbers of THIS call — judged only where a command of this call

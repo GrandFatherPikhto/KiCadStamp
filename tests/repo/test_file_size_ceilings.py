@@ -63,7 +63,7 @@ CEILINGS = {
     "gui/fieldstool_window.py": 1240,
     "gui/main_window.py": 1052,
     "gui/worker.py": 1103,
-    "kicadstamp/apply_pipeline.py": 1169,
+    "kicadstamp/apply_pipeline.py": 1149,
     "kicadstamp/cell_geometry_refresh.py": 1461,
     "kicadstamp/channel_copy.py": 947,
     "kicadstamp/config/entries.py": 1581,

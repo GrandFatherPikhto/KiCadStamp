@@ -313,6 +313,14 @@ class BaseRegistry(ABC, Generic[TEntry]):
             to_create.append(cmd)
 
         seen_anchor_ids = {key.split('|', 1)[0] for key in seen_keys}
+        # A uuid a LIVE key of this run holds is not stale, even when the key
+        # being pruned below points at the very same item — dropping the key must
+        # not take the copper this run needs (Ч1 of
+        # plan_2026_10_27_orphan_anchor_keys_own_nothing: an orphan key owns
+        # nothing, so the record that really owns that copper may bind the same
+        # uuid, and two keys on one item is not a reason to delete it).
+        live_uuids = {self.entries[key].uuid for key in seen_keys
+                      if key in self.entries}
 
         stale_keys = set()
         for key in set(self.entries.keys()) - seen_keys:
@@ -333,6 +341,21 @@ class BaseRegistry(ABC, Generic[TEntry]):
 
         for key in stale_keys:
             entry = self.entries.pop(key)
+            if entry.uuid in live_uuids:
+                logger.info(_("  prune: {key} no longer appears in config — the key "
+                              "is dropped, the item ({uuid}) stays: a key of this "
+                              "run holds it")
+                            .format(key=key, uuid=entry.uuid))
+                continue
+            if entry.uuid not in live_by_uuid:
+                # The stored uuid is not on the board any more — there is nothing
+                # to delete, so the key alone goes (the 6 dead-uuid keys of the
+                # v103 orphan cluster, §7.2). Naming a deletion that cannot happen
+                # would put a board write on a missing id.
+                logger.info(_("  prune: {key} no longer appears in config — the key "
+                              "is dropped, the item ({uuid}) is not on the board")
+                            .format(key=key, uuid=entry.uuid))
+                continue
             logger.info(_("  prune: {key} no longer appears in config, deleting ({uuid})")
                         .format(key=key, uuid=entry.uuid))
             to_delete.append(entry.uuid)

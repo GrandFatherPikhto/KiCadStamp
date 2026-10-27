@@ -37,6 +37,7 @@ from kicadstamp.domain.geometry import BoardLayer, Vector2
 from kicadstamp.placement.services.clone_position_calculator import (
     ClonePositionCalculator,
     clone_registry_identity,
+    entity_anchor_id,
 )
 from kicadstamp.registry import PlacementRegistry, TrackRegistry, make_registry_key
 from tests.fakes.format3 import det_uuid, registry_schema
@@ -152,8 +153,14 @@ def _clone(*, name="dac0", xy=(0.0, 0.0), nets=None):
                           nets=nets or {})
 
 
-def _cfg(cell):
-    return SimpleNamespace(cells={CELL: cell}, entities=[], clone_placements=[])
+def _cfg(cell, entities=()):
+    """A cfg with the CELL under test and, optionally, the OTHER records the cells
+    need — a claim of «another record owns this copper» only means something while
+    that record exists in the config (Ч1 of
+    plan_2026_10_27_orphan_anchor_keys_own_nothing: a key whose anchor the config
+    does not produce is an ORPHAN and owns nothing)."""
+    return SimpleNamespace(cells={CELL: cell}, entities=list(entities),
+                           clone_placements=[])
 
 
 def _items(clone):
@@ -203,10 +210,11 @@ def _key(clone, cfg, kind, role, index):
 
 
 def _run(adapter, cell, clone, tmp_path, *, write=True, via_entries=None,
-         track_entries=None):
+         track_entries=None, entities=()):
     via_reg, trk_reg = _registries(adapter, tmp_path, via_entries, track_entries)
     report = adopt_cell_copper_at_current_place(
-        adapter, _cfg(cell), _items(clone), via_reg, trk_reg, write=write)
+        adapter, _cfg(cell, entities), _items(clone), via_reg, trk_reg,
+        write=write)
     return report, via_reg, trk_reg
 
 
@@ -281,14 +289,22 @@ def test_manual_copper_away_from_the_record_is_left_alone(gate, tmp_path):
 
 def test_copper_owned_by_another_record_is_not_taken(gate, tmp_path):
     """A live item another registry entry owns is off limits — even if it happens
-    to sit where THIS record puts its copper."""
+    to sit where THIS record puts its copper.
+
+    The other record EXISTS in the cfg and its key is built by the SAME builder the
+    planner uses: an entry whose record the config no longer produces is an ORPHAN
+    and owns nothing (Ч1 of plan_2026_10_27_orphan_anchor_keys_own_nothing), so a
+    hand-written `name:other` key would test the orphan path, not ownership."""
     cell = _cell()
     clone = _clone()
     adapter = _adapter(cell, vias=[_live_via("uv", *FPGA_LIVE)])
-    other = make_registry_key("name:other", "other_cell", None, 0)
+    other_rec = SimpleNamespace(name="other", uuid=det_uuid("entities:other"),
+                                cell="other_cell", retired=False)
+    other = make_registry_key(entity_anchor_id(other_rec), "other_cell", None, 0)
 
     report, via_reg, _ = _run(adapter, cell, clone, tmp_path,
-                              via_entries={other: _via_entry("uv", *FPGA_LIVE)})
+                              via_entries={other: _via_entry("uv", *FPGA_LIVE)},
+                              entities=[other_rec])
 
     assert report.adopted == 0
     assert list(via_reg.entries) == [other]

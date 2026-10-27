@@ -19,6 +19,9 @@ from kicadstamp.config import format_version
 from kicadstamp.constants import CLUSTER_FIELD_NAME, ROLE_FIELD_NAME
 from kicadstamp.domain.board import Footprint, Track, Via
 from kicadstamp.domain.geometry import BoardLayer, Vector2
+from kicadstamp.placement.services.clone_position_calculator import (
+    entity_anchor_id,
+)
 from kicadstamp.registry import make_registry_key
 from kicadstamp.selection_narrowing import (
     subtract_net_trace_copper,
@@ -274,7 +277,13 @@ def _via(uuid, net="NT"):
 
 
 def _net_trace_cfg():
-    return _one_cell_cfg(net_traces=[SimpleNamespace(net="NT")])
+    # A `net_traces:` record as the loader yields it: name (optional), uuid, net,
+    # retired. The stand-in carries all four because the anchors the config
+    # PRODUCES are built from them (`kicadstamp.anchor_ids.config_anchor_ids`, the
+    # same builder the planner keys with) — a record without them made every
+    # `net:` key of the read look like an ORPHAN.
+    return _one_cell_cfg(net_traces=[SimpleNamespace(
+        name=None, uuid=det_uuid("net_traces:NT"), net="NT", retired=False)])
 
 
 def test_h4a_unregistered_net_trace_track_is_subtracted(gate, tmp_path,
@@ -486,15 +495,25 @@ def test_r3a4_another_cells_copper_is_still_subtracted(gate, tmp_path):
                        footprints=[fp_c1, fp_c2])
     foreign = _track("t-foreign")
     config_path = _config_path(tmp_path)
+    cfg = _one_cell_cfg()
+    # The OTHER cell EXISTS in the cfg, and its key is built by the planner's own
+    # builder: a hand-written key whose record the config does not produce is an
+    # ORPHAN that owns nothing (Ч1 of
+    # plan_2026_10_27_orphan_anchor_keys_own_nothing), and the copper would be
+    # READ instead of subtracted — the opposite of what this cell pins.
+    other_cell = _Rec(name="other", uuid=det_uuid("entities:other"), cell="other",
+                      cluster="OTHER", sheet="Channel_0")
+    cfg.entities.append(other_cell)
     _vias_path, trk_path = registry_paths_for_config(config_path, None, None)
     save_track_registry(trk_path, {
-        make_registry_key("name:other", "other", None, 0): TrackRegistryEntry(
-            uuid="t-foreign", start_x_mm=0.0, start_y_mm=0.0, end_x_mm=1.0,
-            end_y_mm=0.0, width_mm=0.25, net="NT", layer="F.Cu")})
+        make_registry_key(entity_anchor_id(other_cell), "other", None, 0):
+            TrackRegistryEntry(
+                uuid="t-foreign", start_x_mm=0.0, start_y_mm=0.0, end_x_mm=1.0,
+                end_y_mm=0.0, width_mm=0.25, net="NT", layer="F.Cu")})
 
     prelude = narrow_mixed_selection(
         config_path=config_path, adapter=adapter, footprints=[fp_c1, fp_c2],
-        vias=[], tracks=[foreign], cfg=_one_cell_cfg(),
+        vias=[], tracks=[foreign], cfg=cfg,
         sheet_names={"ch0": "Channel_0"}, cell_name="dac_buf",
         cell_roles={"DA", "DB"}, explode_transfer=True,
         explode_journal=_JOURNAL)

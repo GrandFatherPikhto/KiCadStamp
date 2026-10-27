@@ -38,6 +38,7 @@ would never notice.
 import json
 import logging
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -722,7 +723,11 @@ def test_a_spoke_key_left_in_the_registry_would_be_pruned(tmp_path, format3):  #
     # schema 3 = "already lifted", so the sweep stands down and the entry stays —
     # i.e. the world BEFORE the Д2 detach (a schema-2 registry kept its spokes).
     _write_registry(via, {"pad:17|leaf|__spoke__|0": _VIA}, schema=3)
-    spy = _BoardSpy()
+    # The copper IS on the board: prune names a deletion only for an item the
+    # board still carries (Ч1 of plan_2026_10_27_orphan_anchor_keys_own_nothing —
+    # a uuid the board does not carry is dropped together with its key, so the
+    # board would get NOTHING and this witness would not witness anything).
+    spy = _BoardSpy(live_vias=[SimpleNamespace(uuid="u-via")])
     reg = PlacementRegistry(spy, via)
     _, to_delete = reg.reconcile([], known_anchor_ids={"name:uuid-cabs"})
     for uuid in to_delete:
