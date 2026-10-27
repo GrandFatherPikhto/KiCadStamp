@@ -15,6 +15,9 @@ per half of that sentence:
                                                           ends (the Ч0 IndexError)
   M3  the companion is not written                     -> a released key keeps a
                                                           foreign uuid for reconcile
+  M3b the companion asks the CLAIMS, not the bindings  -> an ambiguous claim keeps a
+                                                          released key, and one uuid
+                                                          ends up under two keys (Д-1)
   M4  the companion drops REBOUND keys too             -> a repaired rotation loses the
                                                           bindings it just made
   M5  the registry-only door keeps the net-only rule   -> that door keeps a pair every
@@ -54,6 +57,7 @@ CELL_REDRAW = "test_redraw_leaves_no_nobodys_copper_behind"
 CELL_REGISTRY_DOOR = "test_the_registry_only_door_drops_a_neighbour_place_pair"
 CELL_AT_PLACE = "test_at_the_planned_place_the_rotation_moves_nothing"
 CELL_OTHER_NET = "test_away_on_another_net_at_nobodys_place_is_still_shifted"
+CELL_AMBIGUOUS = "test_a_released_key_with_an_ambiguous_claim_is_still_dropped"
 
 #: The net gate of the place rule — the three lines M1 removes.
 NET_GATE = ("    if not declared or expected is None:\n"
@@ -64,11 +68,14 @@ NET_GATE = ("    if not declared or expected is None:\n"
 KIND_GATE = ("        if slot == own or slot[0] != kind:\n"
              "            continue\n")
 
-#: The companion's write (M3 removes it) and its skip of rebound keys (M4 removes).
+#: The companion's write (M3 removes it) and its skip of BOUND keys (M4 removes it;
+#: M3b asks the CLAIMS instead of the bindings — the Д-1 defect of the acceptance).
 DROP_WRITE = ("        if write:\n"
               "            regs[kind].forget_key(key)\n")
-DROP_SKIP_REBOUND = ("        if (kind, key) in key_to_item:\n"
-                     "            continue                     # the record found its own copper\n")
+DROP_SKIP_REBOUND = ("        if (kind, key) in bound_keys:\n"
+                     "            continue                     # the record IS bound to its own copper\n")
+DROP_SKIP_CLAIMED = ("        if (kind, key) in key_to_item:  # MUTATION: claims, not bindings\n"
+                     "            continue\n")
 
 #: The registry-only door's shared verdict (M5 puts its own old rule back).
 REGISTRY_RULE = ("            net_agrees = expected is None or same_net(live_item, rec, expected)\n"
@@ -97,6 +104,13 @@ MUTATIONS = [
     ("M3 the companion is not written", ADOPT, DROP_WRITE,
      "        # MUTATION: the released key is kept\n",
      [CELL_DROP]),
+
+    # 3b. The companion asks the CLAIMS instead of the BINDINGS (Д-1 of the
+    # acceptance): an ambiguous claim counts as «found its own copper», the released
+    # key stays, and the uuid it holds ends up under two keys.
+    ("M3b the companion asks the claims, not the bindings", ADOPT,
+     DROP_SKIP_REBOUND, DROP_SKIP_CLAIMED,
+     [CELL_AMBIGUOUS]),
 
     # 4. The companion drops even the keys that DID rebind their record.
     ("M4 rebound keys are dropped too", ADOPT, DROP_SKIP_REBOUND,

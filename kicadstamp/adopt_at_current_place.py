@@ -369,10 +369,19 @@ def adopt_cell_copper_at_current_place(adapter, cfg, items, via_reg, track_reg,
     # is deleted and never redrawn. Dropping the key makes reconcile see "no entry"
     # and simply draw the record's own command. The drop goes through the registry's
     # OWN writer (`forget_key`), never by hand here.
+    # «Did the record find its own copper?» is answered by the BINDINGS, never by
+    # the CLAIMS: a record whose claim on a live item was ambiguous
+    # (`uuid_to_keys[uuid]` longer than one) is IN `key_to_item` and in NO `bound`
+    # pair — nobody took that copper. Asking the claims left its released key in
+    # place, holding another record's uuid next to the real owner's fresh binding:
+    # two keys on one item, and `reconcile` would delete the copper the owner counts
+    # as «in place» — the very defect the companion exists to prevent (Д-1 of the Ч1
+    # acceptance, measured on v103's duplicate-placed records).
+    bound_keys = {(kind, key) for kind, key, _item in bound}
     dropped: list = []
     for kind, key, _uuid in released_items:
-        if (kind, key) in key_to_item:
-            continue                     # the record found its own copper
+        if (kind, key) in bound_keys:
+            continue                     # the record IS bound to its own copper
         if regs[kind].entries.get(key) is None:
             continue                     # already gone — nothing to drop
         dropped.append((kind, key))

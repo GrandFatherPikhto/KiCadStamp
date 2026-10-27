@@ -476,6 +476,39 @@ def test_a_dry_run_counts_the_drop_and_writes_nothing(gate, tmp_path):
     assert any("would drop 1 released key(s)" in line for line in lines)
 
 
+def test_a_released_key_with_an_ambiguous_claim_is_still_dropped(gate, tmp_path):
+    """Д-1 of the Ч1 acceptance: «found its own copper» must mean BOUND, not CLAIMED.
+
+    Records |0 (y=0) and |2 (y=0 again — a duplicate place), record |1 at y=2; the
+    board carries t0 at |0/|2's place and t1 at |1's. Key |0 holds t1 (record |1's
+    copper) and key |1 holds a dead uuid, so |0 is released and then CLAIMS t0 — but
+    |2 claims the same t0, so `uuid_to_keys` sees two claimants and NOBODY is bound.
+    A companion that asked the CLAIMS would leave key |0 in place holding t1 while
+    record |1 binds t1 — two keys on one item, and `reconcile` would delete the very
+    copper `|1` counts as «in place». Asked by the BINDINGS, |0 is dropped.
+    """
+    cell = _cell(tracks=[_record((0.0, 0.0), (1.0, 0.0)),
+                         _record((0.0, 2.0), (1.0, 2.0)),
+                         _record((0.0, 0.0), (1.0, 0.0))])
+    clone = _clone()
+    adapter = _adapter(tracks=[_live_track("t0", 10.0, 10.0, 11.0, 10.0),
+                               _live_track("t1", 10.0, 12.0, 11.0, 12.0)])
+    k0, k1, k2 = (_key("track", i, clone, cell) for i in (0, 1, 2))
+
+    report, _, trk_reg = _run(
+        adapter, cell, clone, tmp_path,
+        track_entries={k0: _track_entry("t1", 10.0, 12.0, 11.0, 12.0),
+                       k1: _track_entry("dead", 9.0, 9.0, 9.0, 9.0)})
+
+    assert report.ambiguous == 1, "records |0 and |2 both claim t0 — nobody takes it"
+    assert report.shifted == 1
+    assert report.dropped == 1, "an ambiguous claim is not copper of its own"
+    assert k0 not in trk_reg.entries
+    assert trk_reg.entries[k1].uuid == "t1"
+    assert _owners(trk_reg) == {"t1": 1}, "t1 must never be held by two keys"
+    assert k2 not in trk_reg.entries
+
+
 # ── cell 8: Redraw on the ring — a TAIL, not a loss ─────────────────────────
 
 def test_redraw_leaves_no_nobodys_copper_behind(gate, tmp_path):
