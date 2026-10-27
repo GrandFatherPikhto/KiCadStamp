@@ -552,6 +552,29 @@ class BaseRegistry(ABC, Generic[TEntry]):
         self.entries[key] = entry
         self._save_entries(self.entries)
 
+    def forget_key(self, key: str) -> bool:
+        """Remove ONE entry and persist — the write door of the companion rule (Ч1
+        of plan_2026_10_27_registry_key_at_another_record_place).
+
+        WHY a released key must go: the key's pair was a SHIFTED NUMBER, i.e. the
+        stored uuid is ANOTHER record's copper. If that record found no copper of
+        its own, the entry keeps the foreign uuid, and ``reconcile`` — seeing an
+        item that is not where THIS key's command plans it — puts the uuid into
+        ``to_delete`` while the real owner, bound to it in the same pass, counts it
+        "already in place". The copper is then deleted and never redrawn. With the
+        entry gone, reconcile sees "no entry" and simply creates this record's own
+        command.
+
+        Lives here because the registry is the schema's OWNER: the caller decides
+        WHICH key may go (the registry never judges ownership), this only persists
+        the decision, exactly like ``adopt_live``. Returns True when an entry was
+        removed — a key already gone is not an error, it is the same outcome."""
+        if key not in self.entries:
+            return False
+        del self.entries[key]
+        self._save_entries(self.entries)
+        return True
+
 
 # ── Via registry ──────────────────────────────────────────────────────────────
 

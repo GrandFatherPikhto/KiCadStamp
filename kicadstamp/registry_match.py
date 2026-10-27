@@ -49,8 +49,11 @@ __all__ = [
     "TIER_REGISTRY",
     "PlannedCopperMatch",
     "accept_planned_match",
+    "at_other_command_place",
     "match_planned_copper",
+    "pair_is_shifted",
     "pair_verdict",
+    "record_accepts_net",
     "same_identity",
     "same_net",
     "same_place",
@@ -75,12 +78,16 @@ PAIR_AGREES = "agrees"
 #: the copper was EDITED ON THE BOARD by hand. It is still this record's copper:
 #: the key is ownership, and a redraw will move it to the planned width.
 PAIR_EDITED = "edited"
-#: The live item is NOT where the command plans it AND carries another net (or is
-#: another kind): the registry NUMBER IS SHIFTED — the key keeps the uuid of
-#: another record's copper. Not ownership, and not a claim on that item either.
+#: The live item is NOT where the command plans it AND either carries another net
+#: (or is another kind) OR stands EXACTLY where ANOTHER record of the same instance
+#: puts its copper (which accepts the item's net) — Ч1 of
+#: plan_2026_10_27_registry_key_at_another_record_place, Denis 27.10: «the proof is
+#: the PLACE, not the net». The registry NUMBER IS SHIFTED — the key keeps the uuid
+#: of another record's copper. Not ownership, and not a claim on that item either.
 PAIR_SHIFTED = "shifted"
-#: Not at the planned place, but the same net/kind: today's behaviour — the pair
-#: is kept and counted "away from the planned place".
+#: Not at the planned place, on the same net, and on NOBODY else's place: today's
+#: behaviour — the pair is kept and counted "away from the planned place". This is
+#: the operator having moved that copper by hand.
 PAIR_AWAY = "away"
 
 
@@ -136,6 +143,28 @@ def _same_net_strict(live_item, planned, net: Optional[str] = None) -> bool:
     return getattr(live_item, "net_name", None) == expected
 
 
+def record_accepts_net(live_item, *, declared: bool, expected: Optional[str]) -> bool:
+    """True ⇔ the record on the OTHER side of a suspected shift ACCEPTS this item's
+    net — the gate of the «another record's place» rule (plan §3, Denis 27.10).
+
+    Three outcomes, and only one of them releases a key:
+
+    * ``declared`` False — the neighbour names no net source at all, or names one
+      this door cannot resolve (``expected`` None): we cannot say the item is that
+      record's copper, so the pair is NOT released by this path;
+    * declared and resolved — the item's net must be exactly that net;
+    * a resolved net that differs — the pre-existing «another net» path judges the
+      pair, this one stays out of the way.
+
+    NOT `same_net`: that one is the VERDICT's lenient question («does the pair
+    contradict?»), where silence accuses nobody. Here silence is not permission —
+    it is the absence of proof, and releasing a key on no proof would take copper
+    away from its own record (the Д-1 lesson, opposite direction)."""
+    if not declared or expected is None:
+        return False
+    return getattr(live_item, "net_name", None) == expected
+
+
 def same_identity(live_item, planned, net: Optional[str] = None) -> bool:
     """True ⇔ the live item and the planned command/record agree by KIND, NET,
     LAYER and WIDTH/DRILL-DIAMETER. THE PLACE IS NOT ASKED HERE — that is the
@@ -186,14 +215,103 @@ def same_place(live_item, cmd) -> bool:
             or (close(live_start, cmd_end) and close(live_end, cmd_start)))
 
 
-def pair_verdict(match: PlannedCopperMatch) -> str:
+def pair_is_shifted(*, at_place: bool, other_record_place: bool,
+                    net_agrees: bool) -> bool:
+    """THE rule, in the form EVERY door can ask — Ч1 of
+    plan_2026_10_27_registry_key_at_another_record_place (Denis, 27.10).
+
+    A pair is a shifted number ⇔ it is NOT at its own place AND
+
+      * it stands EXACTLY where ANOTHER record of the same instance puts its
+        copper, that record ACCEPTING the item's net (`other_record_place`) — the
+        proof is the PLACE, so the net of the pair itself does not matter here
+        (`via|1` on v103: GND on GND, 0.0000 mm from `via|5`'s place against
+        18.19 mm from its own, and invisible to the net rule for exactly that
+        reason); or
+      * its net is not its own record's (`net_agrees` False) — the pre-existing
+        rule of plan_2026_10_26_select_cell_shifted_registry_pair.
+
+    Away, on its own net, on NOBODY's place — «away»: the operator moved that
+    copper by hand. PLACE DECIDES FIRST: a pair at its own place is ownership
+    whatever else is true of it.
+
+    The three facts are asked by the CALLER because their vocabulary belongs to
+    the door: a command door compares with another planned COMMAND (`same_place`),
+    the at-current-place and registry-only doors with another RECORD in the cell
+    frame (`pair_agrees_with_record`). This function is the accusation itself, and
+    it is the only one."""
+    if at_place:
+        return False
+    return bool(other_record_place) or not net_agrees
+
+
+def at_other_command_place(live_item, cmd, siblings) -> list:
+    """The OTHER planned commands of the same instance that put their copper
+    EXACTLY where this live item stands — the COMMAND vocabulary of «another
+    record's place».
+
+    A witness must (a) name a different key, (b) carry the same `anchor|cell` head
+    of the registry key — without that head an entry cannot even be said to belong
+    to the same instance, and such a key never witnesses, (c) be of the same KIND
+    (asked of the PLANNED sides only: one registry per kind), (d) put its copper
+    within `POSITION_TOLERANCE_MM` of the item (`same_place` — the predicate the
+    registry matches with), and (e) ACCEPT the item's net (`record_accepts_net`, a
+    command always names one).
+
+    BLINDNESS, measured and deliberate (Ч1 of plan_2026_10_27_…, §8.4/§8.9): when
+    the instance stands away from where the tree places it, the sibling commands
+    are at the TREE place while the copper is at the CURRENT one, so no witness is
+    found here at all — `ldo_adj_n2v5` on v103 stands 3.462 mm away and this door
+    sees none of its three pairs. That case is served by the FRAME vocabulary
+    (`absent_copper_prune.at_another_record_place`) in the at-current-place pass,
+    which every real run and «Select cell» already go through. Building a second
+    cell frame here was refused on purpose: one measurement, one place."""
+    own_key = getattr(cmd, "registry_key", None)
+    own_instance = _instance_of(own_key)
+    if own_instance is None:
+        return []
+    out: list = []
+    for other in siblings or ():
+        if other is cmd:
+            continue
+        other_key = getattr(other, "registry_key", None)
+        if other_key is None or other_key == own_key:
+            continue
+        if _instance_of(other_key) != own_instance:
+            continue
+        if _is_via(other) != _is_via(cmd):
+            continue
+        if not same_place(live_item, other):
+            continue
+        if not record_accepts_net(live_item, declared=True,
+                                  expected=getattr(other, "net_name", None)):
+            continue
+        out.append(other)
+    return out
+
+
+def _instance_of(key) -> Optional[str]:
+    """``anchor|cell`` of a registry key — the INSTANCE identity (a key is
+    `anchor|cell|role|index`), or None for a key that carries no such head."""
+    parts = str(key or "").split("|")
+    return "|".join(parts[:2]) if len(parts) == 4 else None
+
+
+def pair_verdict(match: PlannedCopperMatch, *, other_record_place: bool = False,
+                 siblings=None) -> str:
     """ONE verdict per matched pair — the rule, in the one place it lives.
 
     PLACE FIRST (Denis, 26.10): at the planned place the pair is ownership even
     when a field differs (that is the operator editing the board — 34 of 45 pairs
-    on v103). Away from the place it is a SHIFTED NUMBER only when the net (or the
-    kind) differs too (11 of 45, and the live defect among them); away with the
-    same net stays today's "kept and counted".
+    on v103). Away from the place it is a SHIFTED NUMBER when its net (or kind)
+    differs, or when it stands at ANOTHER record's place (`pair_is_shifted`,
+    Denis 27.10); away with the same net on nobody's place stays today's "kept and
+    counted".
+
+    ``other_record_place`` — the caller already knows the answer in ITS vocabulary
+    (a cell frame, a refused tree's registry). ``siblings`` — the planned commands
+    of the same call, when the caller has them: the command vocabulary is then
+    asked here, so no caller has to repeat the loop.
 
     `match.live is None` is not this rule's business — it answers PAIR_AGREES, and
     every caller checks `.found` first anyway."""
@@ -202,17 +320,28 @@ def pair_verdict(match: PlannedCopperMatch) -> str:
     if same_place(match.live, match.command):
         return (PAIR_AGREES if same_identity(match.live, match.command)
                 else PAIR_EDITED)
-    return (PAIR_AWAY if same_net(match.live, match.command) else PAIR_SHIFTED)
+    witness = other_record_place or bool(at_other_command_place(
+        match.live, match.command, siblings or ()))
+    if pair_is_shifted(at_place=False, other_record_place=witness,
+                       net_agrees=same_net(match.live, match.command)):
+        return PAIR_SHIFTED
+    return PAIR_AWAY
 
 
 def shifted_entries(reg: "BaseRegistry", planned_cmds: list,
                     live_items=None) -> dict:
     """``{key: live_uuid}`` — the keys of `planned_cmds` whose stored uuid points
-    at ANOTHER record's copper (away from the planned place, another net).
+    at ANOTHER record's copper: away from the planned place AND either on another
+    net or exactly at a sibling command's place (`at_other_command_place`).
 
     THE one place that decides it: `match_planned_copper` frees these keys and
     items with this very result, and a door that wants to NAME the count (the
-    «Select cell» line) asks the same function instead of repeating the rule."""
+    «Select cell» line) asks the same function instead of repeating the rule.
+
+    Only a pair that is AWAY is asked for witnesses — a pair at its own place can
+    never be shifted (place decides first), and scanning every command against
+    every other one would cost O(n²) for nothing (measured: 65 of 2110 pairs on
+    v103 are away, and those are the only ones scanned)."""
     planned = list(planned_cmds or ())
     if not planned:
         return {}
@@ -228,8 +357,11 @@ def shifted_entries(reg: "BaseRegistry", planned_cmds: list,
         item = by_uuid.get(getattr(entry, "uuid", None))
         if item is None:
             continue
+        if same_place(item, cmd):
+            continue                     # place decides first: never a shift
         if pair_verdict(PlannedCopperMatch(command=cmd, live=item,
-                                           tier=TIER_REGISTRY)) == PAIR_SHIFTED:
+                                           tier=TIER_REGISTRY),
+                        siblings=planned) == PAIR_SHIFTED:
             out[key] = entry.uuid
     return out
 
@@ -273,12 +405,28 @@ def match_planned_copper(reg: "BaseRegistry", planned_cmds: list,
     unchanged.
 
     A SHIFTED NUMBER of THIS call is the one exception (Ч1 of
-    plan_2026_10_26_select_cell_shifted_registry_pair): when the entry under a key
-    of this very call points at copper of another net, that key neither occupies
-    the key (tier 1 skips it, so geometry may still find the record's own copper)
-    nor claims the item (tier 2 may take it for the record it does belong to). A
-    key whose command is NOT in this call keeps its ownership — the rule never
-    weakens an entry it cannot judge.
+    plan_2026_10_26_select_cell_shifted_registry_pair, widened by Ч1 of
+    plan_2026_10_27_registry_key_at_another_record_place): when the entry under a
+    key of this very call points at copper of another net OR at copper standing
+    exactly where a SIBLING command of this call puts its own, that key neither
+    occupies the key (tier 1 skips it, so geometry may still find the record's own
+    copper) nor claims the item (tier 2 may take it for the record it does belong
+    to). A key whose command is NOT in this call keeps its ownership — the rule
+    never weakens an entry it cannot judge.
+
+    WHAT THIS DOOR CANNOT SEE (measured on v103, §8.4/§8.9 of that plan, and NOT
+    to be «fixed» here): the sibling vocabulary is a PLANNED COMMAND, so a witness
+    is found only while the instance stands where the tree places it. When it
+    stands away (`ldo_adj_n2v5`: 3.462 mm), the sibling commands are at the TREE
+    place and the copper at the CURRENT one, and no witness is found at all — this
+    door then reports those pairs as «away», keeping their keys. The case is
+    covered by the FRAME vocabulary
+    (`absent_copper_prune.at_another_record_place`) in the pass every real run and
+    «Select cell» go through; a second cell frame here was refused on purpose.
+    `adopt_matching_unowned` is not expected to repair a rotation either: it is
+    handed only the commands whose key the registry does NOT know (`registry.py`),
+    and on a rotation every key is known — its call has no candidates at all, as the
+    Ч1 cells pin.
     """
     planned = list(planned_cmds or ())
     if not planned:

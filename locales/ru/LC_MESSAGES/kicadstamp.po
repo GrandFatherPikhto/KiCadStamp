@@ -3,7 +3,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version:  kicadstamp\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-26 19:34+0300\n"
+"POT-Creation-Date: 2026-10-27 13:27+0300\n"
 "PO-Revision-Date: 2026-07-27 12:00+0000\n"
 "Last-Translator: \n"
 "Language: ru\n"
@@ -1554,7 +1554,7 @@ msgstr ""
 "{count} пар(ы) реестра отличаются от плана по ширине/слою — медь "
 "правилась на плате"
 
-#: gui/select_cell.py:476 kicadstamp/absent_copper_prune.py:308
+#: gui/select_cell.py:476 kicadstamp/absent_copper_prune.py:346
 #, python-brace-format
 msgid "{count} registry pair(s) point at another record's copper — ignored"
 msgstr "{count} пар(ы) реестра указывают на медь ДРУГОЙ записи — не учитывались"
@@ -7936,7 +7936,7 @@ msgstr "ячейки этой сущности нет в проекте — вы
 msgid "this entity's instance is not on the board — pick a fitting cell"
 msgstr "экземпляра этой сущности нет на плате — выберите подходящую ячейку"
 
-#: kicadstamp/absent_copper_prune.py:297
+#: kicadstamp/absent_copper_prune.py:335
 msgid ""
 "the place of the registry pair(s) was not checked by the cell frame — "
 "selected by registry ownership"
@@ -7944,7 +7944,7 @@ msgstr ""
 "место пар реестра не проверено по рамке ячейки — выделено по "
 "принадлежности реестру"
 
-#: kicadstamp/absent_copper_prune.py:300
+#: kicadstamp/absent_copper_prune.py:338
 #, python-brace-format
 msgid ""
 "the place of the registry pair(s) was not checked by the cell frame "
@@ -7953,18 +7953,18 @@ msgstr ""
 "место пар реестра не проверено по рамке ячейки (худшее отклонение "
 "{deviation} мм) — выделено по принадлежности реестру"
 
-#: kicadstamp/absent_copper_prune.py:305
+#: kicadstamp/absent_copper_prune.py:343
 #, python-brace-format
 msgid "{count} registry pair(s) sit away from the planned place — selected anyway"
 msgstr "{count} пар(ы) реестра стоят не там, где план, — всё равно выделены"
 
-#: kicadstamp/absent_copper_prune.py:312
+#: kicadstamp/absent_copper_prune.py:350
 msgid "the live cluster has no usable cell frame — registry pairs are not checked"
 msgstr ""
 "у живого кластера нет пригодного кадра ячейки — пары по реестру не "
 "проверялись"
 
-#: kicadstamp/absent_copper_prune.py:315
+#: kicadstamp/absent_copper_prune.py:353
 #, python-brace-format
 msgid ""
 "the live cluster is not a rigid copy of the cell (worst deviation "
@@ -7973,14 +7973,14 @@ msgstr ""
 "живой кластер не является жёсткой копией ячейки (худшее отклонение "
 "{deviation} мм) — пары по реестру не проверялись"
 
-#: kicadstamp/absent_copper_prune.py:320
+#: kicadstamp/absent_copper_prune.py:358
 #, python-brace-format
 msgid ""
 "{count} registry pair(s) do not sit where the record puts them — not "
 "checked"
 msgstr "пар по реестру не там, куда запись кладёт медь: {count} — не проверялись"
 
-#: kicadstamp/absent_copper_prune.py:323
+#: kicadstamp/absent_copper_prune.py:361
 #, python-brace-format
 msgid ""
 "{count} registry key(s) point past the end of the cell's record list — "
@@ -8007,7 +8007,7 @@ msgstr ""
 "({default}); config/loader.py на нём фаталит для всех команд, читающих "
 "профиль"
 
-#: kicadstamp/adopt_at_current_place.py:233
+#: kicadstamp/adopt_at_current_place.py:247
 #, python-brace-format
 msgid ""
 "Adopt at current place: the instance of cell {cell} on {cluster} could "
@@ -8016,7 +8016,7 @@ msgstr ""
 "Усыновление на текущем месте: экземпляр ячейки {cell} на {cluster} не "
 "смог разрешить свои роли ({reason}) — его медь не усыновляется"
 
-#: kicadstamp/adopt_at_current_place.py:252
+#: kicadstamp/adopt_at_current_place.py:266
 #, python-brace-format
 msgid ""
 "Adopt at current place: no live cell frame for cell {cell} on {cluster} —"
@@ -8025,7 +8025,7 @@ msgstr ""
 "Усыновление на текущем месте: нет живого кадра ячейки {cell} на {cluster}"
 " — её медь не усыновляется"
 
-#: kicadstamp/adopt_at_current_place.py:258
+#: kicadstamp/adopt_at_current_place.py:272
 #, python-brace-format
 msgid ""
 "Adopt at current place: cell {cell} on {cluster} is not a rigid copy of "
@@ -8036,7 +8036,7 @@ msgstr ""
 "копия ячейки (худшее отклонение {deviation} мм) — её медь не "
 "усыновляется, след может остаться"
 
-#: kicadstamp/adopt_at_current_place.py:306
+#: kicadstamp/adopt_at_current_place.py:323
 #, python-brace-format
 msgid ""
 "Adopt at current place: {count} live {kind}(s) lie where record {key} "
@@ -8046,7 +8046,7 @@ msgstr ""
 "куда запись {key} кладёт свою медь, но на другой цепи ({net!r}) — не "
 "усыновлено"
 
-#: kicadstamp/adopt_at_current_place.py:314
+#: kicadstamp/adopt_at_current_place.py:331
 #, python-brace-format
 msgid ""
 "Adopt at current place: {count} live {kind}(s) lie where record {key} "
@@ -8055,7 +8055,7 @@ msgstr ""
 "Усыновление на текущем месте: {count} живых объектов «{kind}» лежат там, "
 "куда запись {key} кладёт свою медь — неоднозначно, ничего не взято"
 
-#: kicadstamp/adopt_at_current_place.py:327
+#: kicadstamp/adopt_at_current_place.py:344
 #, python-brace-format
 msgid ""
 "Adopt at current place: live {uuid} is claimed by {count} records "
@@ -8064,7 +8064,16 @@ msgstr ""
 "Усыновление на текущем месте: на живой объект {uuid} претендуют {count} "
 "записей ({keys}) — никто его не берёт"
 
-#: kicadstamp/adopt_at_current_place.py:347
+#: kicadstamp/adopt_at_current_place.py:384
+#, python-brace-format
+msgid ""
+"Adopt at current place: {count} released key(s) whose record found no "
+"copper — dropped from the registry"
+msgstr ""
+"Усыновление на текущем месте: {count} освобождённых ключ(ей), чья запись не "
+"нашла своей меди — снято из реестра"
+
+#: kicadstamp/adopt_at_current_place.py:389
 #, python-brace-format
 msgid ""
 "Adopt at current place: {count} record(s) bound to their live copper "
@@ -8073,7 +8082,7 @@ msgstr ""
 "Усыновление на текущем месте: {count} записей привязано к их живой меди "
 "({vias} via, {tracks} дорожек)"
 
-#: kicadstamp/adopt_at_current_place.py:351
+#: kicadstamp/adopt_at_current_place.py:393
 #, python-brace-format
 msgid ""
 "Adopt at current place: {count} registry key(s) point at another record's"
@@ -8082,7 +8091,7 @@ msgstr ""
 "Усыновление на текущем месте: {count} ключ(ей) реестра указывают на медь "
 "ДРУГОЙ записи — не учитывались"
 
-#: kicadstamp/adopt_at_current_place.py:416
+#: kicadstamp/adopt_at_current_place.py:485
 #, python-brace-format
 msgid ""
 "Adopt at current place: would adopt {count} record(s) (a real run writes "
@@ -8090,6 +8099,15 @@ msgid ""
 msgstr ""
 "Усыновление на текущем месте: усыновило бы {count} записей (реальный "
 "прогон пишет реестр)"
+
+#: kicadstamp/adopt_at_current_place.py:492
+#, python-brace-format
+msgid ""
+"Adopt at current place: would drop {count} released key(s) whose record "
+"found no copper (a real run writes the registry)"
+msgstr ""
+"Усыновление на текущем месте: сняло бы {count} освобождённых ключ(ей), чья "
+"запись не нашла своей меди (реальный прогон пишет реестр)"
 
 #: kicadstamp/anchor_graph.py:193
 #, python-brace-format
@@ -11648,12 +11666,12 @@ msgstr ""
 msgid "  prune: {key} no longer appears in config, deleting ({uuid})"
 msgstr "  prune: {key} больше нет в конфиге, удаляю ({uuid})"
 
-#: kicadstamp/registry.py:633
+#: kicadstamp/registry.py:656
 #, python-brace-format
 msgid "  via for {owner}: already exists, skipped (positional pre-check)"
 msgstr "  via для {owner}: уже существует, пропущено (позиционная проверка)"
 
-#: kicadstamp/registry.py:638
+#: kicadstamp/registry.py:661
 #, python-brace-format
 msgid "Skipped {count} vias already present on the board (positional pre-check)"
 msgstr "Пропущено {count} via, уже присутствующих на плате (позиционная проверка)"

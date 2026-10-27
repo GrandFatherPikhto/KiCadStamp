@@ -80,12 +80,14 @@ from .registry import (
     record_key_part,
     registry_paths_for_config,
 )
-from .registry_match import accept_planned_match, match_planned_copper, same_net
+from .registry_match import (accept_planned_match, match_planned_copper,
+                             pair_is_shifted, record_accepts_net, same_net)
 from .selection_narrowing import cell_record_addresses, is_own_key
 from .utils.units import MM
 
 __all__ = [
     "RecordCopperMap",
+    "at_another_record_place",
     "cell_record_slots",
     "instance_record_copper_map",
     "own_instance_context",
@@ -270,6 +272,42 @@ def pair_agrees_with_record(points, live_item, frame, tol_mm) -> bool:
     expect = tuple(frame.point_to_world_mm(along, across)
                    for along, across in points)
     return _max_point_distance(expect, _live_points(live_item)) <= tol_mm
+
+
+def at_another_record_place(cell, kind: str, role_part: str, index: int,
+                            live_item, frame, tol_mm=None) -> Optional[tuple]:
+    """The OTHER record of the same cell whose place this live item stands at —
+    the FRAME vocabulary of «another record's place» (Ч1 of
+    plan_2026_10_27_registry_key_at_another_record_place).
+
+    Returns that record's slot ``(kind, role_part, index)`` or None. SAME KIND
+    ONLY, and that is not a formality: a live via carries ONE point and a live
+    track TWO, so asking a via's item about a track's place compared a 1-tuple with
+    a 2-tuple — the Ч0 probe crashed with `IndexError` on exactly that before the
+    kind was pinned. The product never pairs across kinds anyway (one registry per
+    kind). The record's own slot is never a witness.
+
+    ``tol_mm`` — the tolerance of the caller's place comparison
+    (`RIGID_TOLERANCE_MM`, the one `pair_agrees_with_record` takes); None means
+    that tolerance, never a second one.
+
+    WHO ACCEPTS THE NET is NOT decided here: the neighbour record and the run's
+    resolver belong to the caller (`record_accepts_net` in `registry_match`), and
+    this function stays a pure place question — the same split as the command
+    door's `at_other_command_place`. READ-ONLY."""
+    if cell is None or frame is None or live_item is None:
+        return None
+    if tol_mm is None:
+        from .cell_frame import RIGID_TOLERANCE_MM
+        tol_mm = RIGID_TOLERANCE_MM
+    own = (kind, role_part, int(index))
+    for slot in sorted(cell_record_slots(cell)):
+        if slot == own or slot[0] != kind:
+            continue
+        points = record_points(cell, *slot)
+        if pair_agrees_with_record(points, live_item, frame, tol_mm):
+            return slot
+    return None
 
 
 def not_checked_reasons(*, not_rigid: bool, frame_residual_mm,
@@ -577,17 +615,38 @@ def registry_record_copper_map(adapter, config_path: str, cfg, cell_name: str,
             if place_check:
                 disagreed += 1           # not where the record puts the copper
                 continue                 # the STRICT door never claims it
-            # The SELECT door keeps a pair away from the place — unless the key is a
-            # SHIFTED NUMBER: the item is away AND carries another net, so it is
-            # another record's copper and this key is a left-over number (Ч1 of
-            # plan_2026_10_26_select_cell_shifted_registry_pair). The NET half is the
-            # shared `same_net` — a second comparison here would let the two doors
-            # drift. Only a LITERAL net can be judged on this door — a (role, pad)
-            # reference needs the run's resolver, and a net we cannot name accuses
-            # nobody.
+            # The SELECT door keeps a pair away from the place — unless the pair is a
+            # SHIFTED NUMBER by the ONE shared rule (`pair_is_shifted`):
+            #
+            #   * it stands exactly where ANOTHER record of this cell puts its copper
+            #     and that record ACCEPTS the item's net — the PLACE is the proof, so
+            #     the pair's own net does not matter (Ч1 of
+            #     plan_2026_10_27_registry_key_at_another_record_place: `track|4` on
+            #     v103 holds record `|2`'s GND copper, 0.0000 mm away from it);
+            #   * or its own record declares another net (the rule of
+            #     plan_2026_10_26_select_cell_shifted_registry_pair).
+            #
+            # The rule lives in `registry_match` — this door used to keep its OWN copy
+            # of the net comparison, which is exactly how the two doors could drift.
+            # Only a LITERAL net can be judged on this door: a (role, pad) reference
+            # needs the run's resolver, and a net we cannot name accuses nobody.
             rec = record_of(cell, kind, role_part, index)
             expected = getattr(rec, "net", None)
-            if expected is not None and not same_net(live_item, rec, expected):
+            other_place = False
+            other = at_another_record_place(cell, kind, role_part, index,
+                                           live_item, frame)
+            if other is not None:
+                other_rec = record_of(cell, *other)
+                other_net = getattr(other_rec, "net", None)
+                other_place = record_accepts_net(
+                    live_item,
+                    declared=(other_net is not None
+                              or getattr(other_rec, "net_from_role", None)
+                              is not None),
+                    expected=other_net)
+            net_agrees = expected is None or same_net(live_item, rec, expected)
+            if pair_is_shifted(at_place=False, other_record_place=other_place,
+                               net_agrees=net_agrees):
                 shifted += 1
                 continue
             disagreed += 1               # counted and named, still selected

@@ -49,12 +49,22 @@ CELL_REGISTRY_ONLY = "test_the_registry_only_door_drops_only_the_shifted_pair"
 CELL_DRY_RUN = "test_the_dry_run_map_gives_both_records_their_own_copper"
 CELL_SILENT_PLAN = "test_a_command_without_a_net_is_away_not_shifted"
 CELL_SILENT_ITEM = "test_a_live_item_without_a_net_is_away_not_shifted"
+CELL_VERDICT = "test_pair_verdict_names_the_three_cases"
+CELL_SILENT_RULE = "test_a_pair_where_one_side_names_no_net_is_never_shifted"
 
-#: The two lines of the verdict, and the one of the matcher's tier 1.
-VERDICT = ("    if same_place(match.live, match.command):\n"
-           "        return (PAIR_AGREES if same_identity(match.live, match.command)\n"
-           "                else PAIR_EDITED)\n"
-           "    return (PAIR_AWAY if same_net(match.live, match.command) else PAIR_SHIFTED)\n")
+#: The two halves of the verdict, and the one line of the matcher's tier 1. Since
+#: Ч1 of plan_2026_10_27_registry_key_at_another_record_place the second half asks
+#: `pair_is_shifted` (which also knows «another record's place»), so the templates
+#: below follow the body as it is TODAY — a harness that drifted from the code would
+#: silently stop mutating anything.
+PLACE_FIRST = ("    if same_place(match.live, match.command):\n"
+               "        return (PAIR_AGREES if same_identity(match.live, match.command)\n"
+               "                else PAIR_EDITED)\n")
+
+VERDICT_TAIL = ("    if pair_is_shifted(at_place=False, other_record_place=witness,\n"
+                "                       net_agrees=same_net(match.live, match.command)):\n"
+                "        return PAIR_SHIFTED\n"
+                "    return PAIR_AWAY\n")
 
 NET_RETURN = "    return live_net == expected\n"
 
@@ -74,28 +84,33 @@ EDITED_COUNT = ("            if pair_verdict(m) == PAIR_EDITED:\n"
 NET_DEF = "def same_net(live_item, planned, net: Optional[str] = None) -> bool:"
 
 MUTATIONS = [
-    # 1. Without the net the rule cannot see a shifted pair at all.
+    # 1. Without the verdict's net the rule cannot see a shifted pair AT ALL. Since
+    # Ч1 of plan_2026_10_27_registry_key_at_another_record_place the net lives in TWO
+    # gates: `same_net` here and `record_accepts_net` in the witness path, so the two
+    # door cells of this file now survive this single mutation (their pairs stand at a
+    # sibling's place and are released by the place) and only the RULE-LEVEL cells
+    # redden. The net-only half at the doors is pinned by M6 of
+    # `deepseek_mutations_registry_key_at_another_record_place_2026_10_27`.
     ("M1 the net is not compared", MATCH, NET_RETURN,
      "    return True  # MUTATION: every pair agrees on its net\n",
-     [CELL_SHIFT, CELL_REGISTRY_ONLY]),
+     [CELL_VERDICT, CELL_SILENT_RULE]),
 
     # 2. The place decides first; without it the hand-edited copper is thrown out
     # (and so is copper that is away with another width). The registry-only door
     # answers by the CELL FRAME (`pair_agrees_with_record`), not by this function,
     # so it is not expected to redden here — M1 covers it through the shared net.
-    ("M2 the place is not asked first", MATCH, VERDICT,
+    ("M2 the place is not asked first", MATCH, PLACE_FIRST,
      "    if same_identity(match.live, match.command):\n"
      "        return PAIR_AGREES  # MUTATION: the place is not consulted\n"
      "    return PAIR_SHIFTED\n",
      [CELL_EDITED, CELL_AWAY]),
 
     # 3. The identity (width/layer) is asked where the NET must be asked.
-    ("M3 identity asked instead of the net", MATCH, VERDICT,
-     "    if same_place(match.live, match.command):\n"
-     "        return (PAIR_AGREES if same_identity(match.live, match.command)\n"
-     "                else PAIR_EDITED)\n"
-     "    return (PAIR_AWAY if same_identity(match.live, match.command)\n"
-     "            else PAIR_SHIFTED)  # MUTATION: away + another width = shifted\n",
+    ("M3 identity asked instead of the net", MATCH, VERDICT_TAIL,
+     "    if pair_is_shifted(at_place=False, other_record_place=witness,\n"
+     "                       net_agrees=same_identity(match.live, match.command)):\n"
+     "        return PAIR_SHIFTED  # MUTATION: away + another width = shifted\n"
+     "    return PAIR_AWAY\n",
      [CELL_AWAY]),
 
     # 4. The shifted key keeps occupying the key: the record never looks further.

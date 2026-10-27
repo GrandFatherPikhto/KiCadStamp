@@ -84,11 +84,21 @@ class AdoptionReport:
     no_refs: int = 0
     net_refused: int = 0
     ambiguous: int = 0
-    #: Registry keys whose stored uuid points at ANOTHER record's copper (away from
-    #: where the record puts it AND on another net) — a SHIFTED NUMBER, Ч1 of
-    #: plan_2026_10_26_select_cell_shifted_registry_pair. Such a key neither owns
-    #: the item nor keeps its own record from finding its own copper.
+    #: Registry keys whose stored uuid points at ANOTHER record's copper — a SHIFTED
+    #: NUMBER: away from where the record puts it AND either on another net (Ч1 of
+    #: plan_2026_10_26_select_cell_shifted_registry_pair) or exactly at ANOTHER
+    #: record's place of this same cell (Ч1 of
+    #: plan_2026_10_27_registry_key_at_another_record_place). Such a key neither
+    #: owns the item nor keeps its own record from finding its own copper.
     shifted: int = 0
+    #: Released keys this pass DROPPED from the registry (`(kind, key)`): the rule
+    #: gave the key up, the record adopted nothing, so the entry still held the
+    #: OTHER record's uuid — and `reconcile` would delete that uuid under the stale
+    #: key while its real owner counted it "in place" (the copper removed and never
+    #: redrawn). Counted on a dry run as "would drop", written only when
+    #: ``write=True``.
+    dropped: int = 0
+    dropped_keys: tuple = ()
 
     @property
     def empty(self) -> bool:
@@ -218,6 +228,10 @@ def adopt_cell_copper_at_current_place(adapter, cfg, items, via_reg, track_reg,
     # key-only map would let one overwrite the other.
     key_to_item: dict = {}          # (kind, key) -> live_item
     uuid_to_keys: dict = {}         # live uuid -> {(kind, key) that claimed it}
+    # Every key this pass called a SHIFTED NUMBER, over all instances:
+    # [(kind, key, uuid)]. Needed AFTER the binding loop: a released key whose
+    # record adopted nothing still holds another record's uuid and must go.
+    released_items: list = []
 
     for clone in clones:
         anchor_id, cell_name, cell_key_part = clone_registry_identity(clone, cfg.cells)
@@ -264,12 +278,15 @@ def adopt_cell_copper_at_current_place(adapter, cfg, items, via_reg, track_reg,
         report.instances += 1
 
         # The SHIFTED numbers of THIS instance, judged by the same rule the command
-        # doors use, with the stored RECORD in place of the command: the item must
-        # be where the record puts its copper (the cell frame) and carry the net the
-        # record's plan will give it. Away AND another net ⇒ a left-over number.
-        released = _shifted_uuids(cell, regs, live_by_uuid, live_uuid, anchor_id,
-                                  cell_key_part, frame, clone, role_refs, adapter)
+        # doors use (`pair_is_shifted`), with the stored RECORD in place of the
+        # command and the cell frame in place of the plan's place: away AND (another
+        # net OR exactly another record's place that accepts the item's net).
+        shifted_items = _shifted_uuids(cell, regs, live_by_uuid, live_uuid,
+                                      anchor_id, cell_key_part, frame, clone,
+                                      role_refs, adapter)
+        released = {uuid for _kind, _key, uuid in shifted_items}
         report.shifted += len(released)
+        released_items.extend(shifted_items)
         free = owned - released
 
         for kind, role_part, index in sorted(cell_record_slots(cell)):
@@ -343,6 +360,31 @@ def adopt_cell_copper_at_current_place(adapter, cfg, items, via_reg, track_reg,
             report.tracks += 1
     report.bound = tuple(bound)
 
+    # ── THE COMPANION of the rule: a released key must not stay ───────────────
+    # A released key no longer describes its own record: its uuid is another
+    # record's copper. If this pass did not bind the record to anything, the entry
+    # keeps that foreign uuid — and a Redraw's `reconcile` would then put it into
+    # `to_delete` (the item is not where THIS key's command plans it) while the
+    # REAL owner, bound in this very pass, counts it "already in place": the copper
+    # is deleted and never redrawn. Dropping the key makes reconcile see "no entry"
+    # and simply draw the record's own command. The drop goes through the registry's
+    # OWN writer (`forget_key`), never by hand here.
+    dropped: list = []
+    for kind, key, _uuid in released_items:
+        if (kind, key) in key_to_item:
+            continue                     # the record found its own copper
+        if regs[kind].entries.get(key) is None:
+            continue                     # already gone — nothing to drop
+        dropped.append((kind, key))
+        if write:
+            regs[kind].forget_key(key)
+    report.dropped = len(dropped)
+    report.dropped_keys = tuple(dropped)
+    if dropped:
+        logger.warning(_("Adopt at current place: {count} released key(s) whose record "
+                         "found no copper — dropped from the registry")
+                       .format(count=len(dropped)))
+
     if report.adopted:
         logger.info(_("Adopt at current place: {count} record(s) bound to their live "
                       "copper ({vias} via(s), {tracks} track(s))")
@@ -355,27 +397,41 @@ def adopt_cell_copper_at_current_place(adapter, cfg, items, via_reg, track_reg,
 
 
 def _shifted_uuids(cell, regs, live_by_uuid, live_uuid, anchor_id, cell_key_part,
-                   frame, clone, role_refs, adapter) -> set:
-    """The live uuids whose registry key is a SHIFTED NUMBER for this instance.
+                   frame, clone, role_refs, adapter) -> list:
+    """``[(kind, key, uuid)]`` — this instance's keys whose stored uuid is a SHIFTED
+    NUMBER.
 
-    Judged by the SAME rule the command doors use, with the stored RECORD in place
-    of the command: the item must sit where the record puts its copper (the cell
-    frame) and carry the net the record's plan will give it. Only "away AND
-    another net" is a shifted number — a pair at the record's place with another
-    width is ownership (the copper was edited on the board), and a record whose net
-    cannot be resolved here accuses nobody.
+    Judged by the ONE rule every door asks (`registry_match.pair_is_shifted`), with
+    the stored RECORD in place of the command and the cell frame in place of the
+    plan's own place:
 
-    Ch1 of plan_2026_10_26_select_cell_shifted_registry_pair: without this the
-    left-over key kept the item OUT of `owned` for its real record, and its own
-    record was skipped by the "the entry's uuid is live" branch — which is exactly
-    how «Select cell» lost the track 2f9a0799 on v103."""
-    from .absent_copper_prune import (cell_record_slots, pair_agrees_with_record,
-                                      record_of, record_points)
+      * at the record's place — ownership, whatever the width says (the copper was
+        edited on the board by hand);
+      * NOT at the record's place but EXACTLY at ANOTHER record's place of this same
+        cell, that record ACCEPTING the item's net — a shifted number at ANY net
+        (Ч1 of plan_2026_10_27_registry_key_at_another_record_place: the proof is
+        the place — `track|4` holds record `|2`'s GND copper on v103);
+      * away on another net — the shifted number of
+        plan_2026_10_26_select_cell_shifted_registry_pair;
+      * away on its own net on NOBODY's place — the operator moved that copper, the
+        key keeps it;
+      * a record whose net cannot be resolved accuses nobody, and a neighbour whose
+        net cannot be resolved is not a witness (`record_accepts_net`).
+
+    Both kinds of release are returned the same way, and the KEYS come back with
+    the uuids because the caller must know which entries stayed without copper of
+    their own record — those are DROPPED (see the companion in
+    `adopt_cell_copper_at_current_place`; the same hole exists for the keys the
+    «another net» rule released yesterday)."""
+    from .absent_copper_prune import (at_another_record_place, cell_record_slots,
+                                      pair_agrees_with_record, record_of,
+                                      record_points)
     from .cell_frame import RIGID_TOLERANCE_MM
     from .constants import CELL_LEVEL_ROLE_PLACEHOLDER as _CELL_LEVEL
     from .registry import make_registry_key
+    from .registry_match import pair_is_shifted, record_accepts_net
 
-    released: set = set()
+    out: list = []
     for kind, role_part, index in sorted(cell_record_slots(cell)):
         role = None if role_part == _CELL_LEVEL else role_part
         entry = regs[kind].entries.get(
@@ -390,10 +446,23 @@ def _shifted_uuids(cell, regs, live_by_uuid, live_uuid, anchor_id, cell_key_part
             continue
         if pair_agrees_with_record(points, item, frame, RIGID_TOLERANCE_MM):
             continue                     # it IS the record's copper, at its place
+        other_place = False
+        other = at_another_record_place(cell, kind, role_part, index, item, frame,
+                                        RIGID_TOLERANCE_MM)
+        if other is not None:
+            other_rec = record_of(cell, *other)
+            other_declared, other_expected = _record_net(other_rec, clone,
+                                                         role_refs, adapter)
+            other_place = record_accepts_net(item, declared=other_declared,
+                                             expected=other_expected)
         declared, expected = _record_net(rec, clone, role_refs, adapter)
-        if declared and expected is not None and item.net_name != expected:
-            released.add(uuid)
-    return released
+        net_agrees = not (declared and expected is not None
+                          and item.net_name != expected)
+        if pair_is_shifted(at_place=False, other_record_place=other_place,
+                           net_agrees=net_agrees):
+            out.append((kind, make_registry_key(anchor_id, cell_key_part, role,
+                                                index), uuid))
+    return out
 
 
 def dry_run_adoption(adapter, cfg, items, via_reg, track_reg, *, sheet_names=None,
@@ -411,7 +480,16 @@ def dry_run_adoption(adapter, cfg, items, via_reg, track_reg, *, sheet_names=Non
     report = adopt_cell_copper_at_current_place(
         adapter, cfg, items, via_reg, track_reg, write=False,
         sheet_names=sheet_names, position_overrides=position_overrides)
-    if not report.adopted:
-        return report, []
-    return report, [_("Adopt at current place: would adopt {count} record(s) "
-                      "(a real run writes the registry)").format(count=report.adopted)]
+    lines: list[str] = []
+    if report.adopted:
+        lines.append(_("Adopt at current place: would adopt {count} record(s) "
+                       "(a real run writes the registry)")
+                     .format(count=report.adopted))
+    if report.dropped:
+        # The companion of the shifted-number rule: these keys would be REMOVED, so
+        # the number is not decoration — it says the registry loses entries a real
+        # run rewrites. A dry run never writes.
+        lines.append(_("Adopt at current place: would drop {count} released key(s) "
+                       "whose record found no copper (a real run writes the "
+                       "registry)").format(count=report.dropped))
+    return report, lines

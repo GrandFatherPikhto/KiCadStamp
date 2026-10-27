@@ -412,6 +412,12 @@ def redraw_dry_run(adapter, config_path: str, cfg, items, planned_vias,
         adapter, cfg, items, via_reg, trk_reg, write=True,
         sheet_names=sheet_names)
     out["adoption"] = {"adopted": report.adopted, "shifted": report.shifted,
+                       # The companion (Ч1 of the 27.10 plan): a released key whose
+                       # record found no copper is DROPPED from the registry copy.
+                       "dropped": getattr(report, "dropped", None),
+                       "dropped_keys": [{"kind": kind, "key": key}
+                                        for kind, key in
+                                        (getattr(report, "dropped_keys", None) or ())],
                        "bound": [{"kind": kind, "key": key,
                                   "uuid": getattr(item, "uuid", None)}
                                  for kind, key, item in report.bound]}
@@ -546,6 +552,7 @@ def main(argv: list[str] | None = None) -> int:
         instance_result["dry_run_adoption"] = {
             "adopted": getattr(adoption, "adopted", None),
             "shifted": getattr(adoption, "shifted", None),
+            "dropped": getattr(adoption, "dropped", None),
             "net_refused": getattr(adoption, "net_refused", None),
             "ambiguous": getattr(adoption, "ambiguous", None),
             "bound": [{"kind": kind, "key": key,
@@ -555,6 +562,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"\n== adopt at current place (dry run) ==\n"
               f"   bound {len(instance_result['dry_run_adoption']['bound'])}, "
               f"shifted {instance_result['dry_run_adoption']['shifted']}, "
+              f"dropped {instance_result['dry_run_adoption']['dropped']}, "
               f"net_refused {instance_result['dry_run_adoption']['net_refused']}")
 
         # (а) what a REAL Redraw would do to this instance — on scratch registries

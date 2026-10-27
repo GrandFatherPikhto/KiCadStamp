@@ -3,7 +3,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version:  kicadstamp\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-26 19:34+0300\n"
+"POT-Creation-Date: 2026-10-27 13:27+0300\n"
 "PO-Revision-Date: 2026-07-27 12:00+0000\n"
 "Last-Translator: \n"
 "Language: en\n"
@@ -1461,7 +1461,7 @@ msgid ""
 "the board"
 msgstr ""
 
-#: gui/select_cell.py:476 kicadstamp/absent_copper_prune.py:308
+#: gui/select_cell.py:476 kicadstamp/absent_copper_prune.py:346
 #, python-brace-format
 msgid "{count} registry pair(s) point at another record's copper — ignored"
 msgstr ""
@@ -7448,43 +7448,43 @@ msgstr ""
 msgid "this entity's instance is not on the board — pick a fitting cell"
 msgstr ""
 
-#: kicadstamp/absent_copper_prune.py:297
+#: kicadstamp/absent_copper_prune.py:335
 msgid ""
 "the place of the registry pair(s) was not checked by the cell frame — "
 "selected by registry ownership"
 msgstr ""
 
-#: kicadstamp/absent_copper_prune.py:300
+#: kicadstamp/absent_copper_prune.py:338
 #, python-brace-format
 msgid ""
 "the place of the registry pair(s) was not checked by the cell frame "
 "(worst deviation {deviation} mm) — selected by registry ownership"
 msgstr ""
 
-#: kicadstamp/absent_copper_prune.py:305
+#: kicadstamp/absent_copper_prune.py:343
 #, python-brace-format
 msgid "{count} registry pair(s) sit away from the planned place — selected anyway"
 msgstr ""
 
-#: kicadstamp/absent_copper_prune.py:312
+#: kicadstamp/absent_copper_prune.py:350
 msgid "the live cluster has no usable cell frame — registry pairs are not checked"
 msgstr ""
 
-#: kicadstamp/absent_copper_prune.py:315
+#: kicadstamp/absent_copper_prune.py:353
 #, python-brace-format
 msgid ""
 "the live cluster is not a rigid copy of the cell (worst deviation "
 "{deviation} mm) — registry pairs are not checked"
 msgstr ""
 
-#: kicadstamp/absent_copper_prune.py:320
+#: kicadstamp/absent_copper_prune.py:358
 #, python-brace-format
 msgid ""
 "{count} registry pair(s) do not sit where the record puts them — not "
 "checked"
 msgstr ""
 
-#: kicadstamp/absent_copper_prune.py:323
+#: kicadstamp/absent_copper_prune.py:361
 #, python-brace-format
 msgid ""
 "{count} registry key(s) point past the end of the cell's record list — "
@@ -7511,21 +7511,21 @@ msgstr ""
 "({default}); config/loader.py fatals on it for every command that reads "
 "the profile"
 
-#: kicadstamp/adopt_at_current_place.py:233
+#: kicadstamp/adopt_at_current_place.py:247
 #, python-brace-format
 msgid ""
 "Adopt at current place: the instance of cell {cell} on {cluster} could "
 "not resolve its roles ({reason}) — its copper is not adopted"
 msgstr ""
 
-#: kicadstamp/adopt_at_current_place.py:252
+#: kicadstamp/adopt_at_current_place.py:266
 #, python-brace-format
 msgid ""
 "Adopt at current place: no live cell frame for cell {cell} on {cluster} —"
 " its copper is not adopted"
 msgstr ""
 
-#: kicadstamp/adopt_at_current_place.py:258
+#: kicadstamp/adopt_at_current_place.py:272
 #, python-brace-format
 msgid ""
 "Adopt at current place: cell {cell} on {cluster} is not a rigid copy of "
@@ -7533,46 +7533,60 @@ msgid ""
 "trail may remain"
 msgstr ""
 
-#: kicadstamp/adopt_at_current_place.py:306
+#: kicadstamp/adopt_at_current_place.py:323
 #, python-brace-format
 msgid ""
 "Adopt at current place: {count} live {kind}(s) lie where record {key} "
 "puts its copper, but on another net ({net!r}) — not adopted"
 msgstr ""
 
-#: kicadstamp/adopt_at_current_place.py:314
+#: kicadstamp/adopt_at_current_place.py:331
 #, python-brace-format
 msgid ""
 "Adopt at current place: {count} live {kind}(s) lie where record {key} "
 "puts its copper — ambiguous, none taken"
 msgstr ""
 
-#: kicadstamp/adopt_at_current_place.py:327
+#: kicadstamp/adopt_at_current_place.py:344
 #, python-brace-format
 msgid ""
 "Adopt at current place: live {uuid} is claimed by {count} records "
 "({keys}) — none takes it"
 msgstr ""
 
-#: kicadstamp/adopt_at_current_place.py:347
+#: kicadstamp/adopt_at_current_place.py:384
+#, python-brace-format
+msgid ""
+"Adopt at current place: {count} released key(s) whose record found no "
+"copper — dropped from the registry"
+msgstr ""
+
+#: kicadstamp/adopt_at_current_place.py:389
 #, python-brace-format
 msgid ""
 "Adopt at current place: {count} record(s) bound to their live copper "
 "({vias} via(s), {tracks} track(s))"
 msgstr ""
 
-#: kicadstamp/adopt_at_current_place.py:351
+#: kicadstamp/adopt_at_current_place.py:393
 #, python-brace-format
 msgid ""
 "Adopt at current place: {count} registry key(s) point at another record's"
 " copper — ignored"
 msgstr ""
 
-#: kicadstamp/adopt_at_current_place.py:416
+#: kicadstamp/adopt_at_current_place.py:485
 #, python-brace-format
 msgid ""
 "Adopt at current place: would adopt {count} record(s) (a real run writes "
 "the registry)"
+msgstr ""
+
+#: kicadstamp/adopt_at_current_place.py:492
+#, python-brace-format
+msgid ""
+"Adopt at current place: would drop {count} released key(s) whose record "
+"found no copper (a real run writes the registry)"
 msgstr ""
 
 #: kicadstamp/anchor_graph.py:193
@@ -10950,12 +10964,12 @@ msgstr ""
 msgid "  prune: {key} no longer appears in config, deleting ({uuid})"
 msgstr "  prune: {key} no longer appears in config, deleting ({uuid})"
 
-#: kicadstamp/registry.py:633
+#: kicadstamp/registry.py:656
 #, python-brace-format
 msgid "  via for {owner}: already exists, skipped (positional pre-check)"
 msgstr "  via for {owner}: already exists, skipped (positional pre-check)"
 
-#: kicadstamp/registry.py:638
+#: kicadstamp/registry.py:661
 #, python-brace-format
 msgid "Skipped {count} vias already present on the board (positional pre-check)"
 msgstr "Skipped {count} vias already present on the board (positional pre-check)"
