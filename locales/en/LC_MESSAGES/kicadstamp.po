@@ -3,7 +3,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version:  kicadstamp\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-27 16:15+0300\n"
+"POT-Creation-Date: 2026-10-27 16:45+0300\n"
 "PO-Revision-Date: 2026-07-27 12:00+0000\n"
 "Last-Translator: \n"
 "Language: en\n"
@@ -10931,7 +10931,16 @@ msgstr ""
 "  {key}: not processed in this run (--only filtered {anchor_id!r}), but "
 "it is still in the config — NOT pruned"
 
-#: kicadstamp/registry.py:345
+#: kicadstamp/registry.py:351
+#, python-brace-format
+msgid ""
+"  prune: {key} no longer appears in config — the key is dropped, the item"
+" ({uuid}) is already being deleted by a key of this run"
+msgstr ""
+"  prune: {key} no longer appears in config — the key is dropped, the item"
+" ({uuid}) is already being deleted by a key of this run"
+
+#: kicadstamp/registry.py:357
 #, python-brace-format
 msgid ""
 "  prune: {key} no longer appears in config — the key is dropped, the item"
@@ -10940,7 +10949,7 @@ msgstr ""
 "  prune: {key} no longer appears in config — the key is dropped, the item"
 " ({uuid}) stays: a key of this run holds it"
 
-#: kicadstamp/registry.py:355
+#: kicadstamp/registry.py:367
 #, python-brace-format
 msgid ""
 "  prune: {key} no longer appears in config — the key is dropped, the item"
@@ -10949,17 +10958,17 @@ msgstr ""
 "  prune: {key} no longer appears in config — the key is dropped, the item"
 " ({uuid}) is not on the board"
 
-#: kicadstamp/registry.py:359
+#: kicadstamp/registry.py:371
 #, python-brace-format
 msgid "  prune: {key} no longer appears in config, deleting ({uuid})"
 msgstr "  prune: {key} no longer appears in config, deleting ({uuid})"
 
-#: kicadstamp/registry.py:483
+#: kicadstamp/registry.py:495
 #, python-brace-format
 msgid "  via for {owner}: already exists, skipped (positional pre-check)"
 msgstr "  via for {owner}: already exists, skipped (positional pre-check)"
 
-#: kicadstamp/registry.py:488
+#: kicadstamp/registry.py:500
 #, python-brace-format
 msgid "Skipped {count} vias already present on the board (positional pre-check)"
 msgstr "Skipped {count} vias already present on the board (positional pre-check)"

@@ -397,6 +397,33 @@ def test_prune_does_not_delete_a_uuid_a_live_key_of_this_run_holds(gate, tmp_pat
     assert own in reg.entries and reg.entries[own].uuid == "u"
 
 
+def test_one_uuid_is_named_for_deletion_once(gate, tmp_path, caplog):
+    """Cell 4b (Д-1 of the acceptance): the orphan and a MOVING live key hold one
+    uuid. The command loop already put it in `to_delete` (the record's item stands
+    off the planned place, so the record recreates it) and popped that entry —
+    `live_uuids` is built AFTER the loop and cannot see it. Prune must not name the
+    uuid a second time: `remove_by_ids` sends one packet, and a duplicate id in it
+    may reject the WHOLE packet — nothing deleted while the new copper is drawn."""
+    gone = _entity("fpga_oscill", cell="fpga_oscill_fpga")
+    orphan = _orphan_key(gone, _cell())
+    own = _own_key(_clone(), _cell())
+    reg, commands, known = _reconcile_setup(
+        gate, tmp_path,
+        {own: _track_entry("u"), orphan: _track_entry("u")},
+        live_tracks=[_live_track("u", y1=5.0, y2=5.0)])
+
+    with caplog.at_level("INFO"):
+        to_create, to_delete = reg.reconcile(commands, known_anchor_ids=known)
+
+    assert to_create == commands                 # the moved record is recreated
+    assert to_delete == ["u"]                    # named ONCE, not ['u', 'u']
+    assert orphan not in reg.entries
+    said = [record.getMessage() for record in caplog.records
+            if orphan in record.getMessage()]
+    assert said, "the dropped key must be named in the Log"
+    assert "already being deleted" in said[0]
+
+
 def test_prune_still_deletes_the_copper_nobody_holds(gate, tmp_path):
     """Cell 5: an orphan whose item is on the board and held by NOBODY is still
     deleted — the rule frees the key, it does not keep stale copper alive."""

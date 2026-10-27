@@ -3,7 +3,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version:  kicadstamp\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-27 16:15+0300\n"
+"POT-Creation-Date: 2026-10-27 16:45+0300\n"
 "PO-Revision-Date: 2026-07-27 12:00+0000\n"
 "Last-Translator: \n"
 "Language: ru\n"
@@ -11635,7 +11635,16 @@ msgstr ""
 "  {key}: не обработан в этом прогоне (--only отфильтровал {anchor_id!r}),"
 " но он есть в конфиге — НЕ удаляется"
 
-#: kicadstamp/registry.py:345
+#: kicadstamp/registry.py:351
+#, python-brace-format
+msgid ""
+"  prune: {key} no longer appears in config — the key is dropped, the item"
+" ({uuid}) is already being deleted by a key of this run"
+msgstr ""
+"  prune: {key} больше нет в конфиге — ключ снят, предмет ({uuid}) уже "
+"удаляется ключом этого прогона"
+
+#: kicadstamp/registry.py:357
 #, python-brace-format
 msgid ""
 "  prune: {key} no longer appears in config — the key is dropped, the item"
@@ -11644,7 +11653,7 @@ msgstr ""
 "  prune: {key} больше нет в конфиге — ключ снят, предмет ({uuid}) "
 "остаётся: его держит ключ этого прогона"
 
-#: kicadstamp/registry.py:355
+#: kicadstamp/registry.py:367
 #, python-brace-format
 msgid ""
 "  prune: {key} no longer appears in config — the key is dropped, the item"
@@ -11653,17 +11662,17 @@ msgstr ""
 "  prune: {key} больше нет в конфиге — ключ снят, предмет ({uuid}) не "
 "найден на плате"
 
-#: kicadstamp/registry.py:359
+#: kicadstamp/registry.py:371
 #, python-brace-format
 msgid "  prune: {key} no longer appears in config, deleting ({uuid})"
 msgstr "  prune: {key} больше нет в конфиге, удаляю ({uuid})"
 
-#: kicadstamp/registry.py:483
+#: kicadstamp/registry.py:495
 #, python-brace-format
 msgid "  via for {owner}: already exists, skipped (positional pre-check)"
 msgstr "  via для {owner}: уже существует, пропущено (позиционная проверка)"
 
-#: kicadstamp/registry.py:488
+#: kicadstamp/registry.py:500
 #, python-brace-format
 msgid "Skipped {count} vias already present on the board (positional pre-check)"
 msgstr "Пропущено {count} via, уже присутствующих на плате (позиционная проверка)"

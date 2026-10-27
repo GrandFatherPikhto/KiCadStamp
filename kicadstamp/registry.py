@@ -341,6 +341,18 @@ class BaseRegistry(ABC, Generic[TEntry]):
 
         for key in stale_keys:
             entry = self.entries.pop(key)
+            if entry.uuid in to_delete:
+                # A key of THIS run already named this item for deletion (its live
+                # item stands off the planned place, so the record recreates it).
+                # Repeating the uuid would put the same id into ONE remove_by_ids
+                # call, and a rejected packet deletes nothing while the new copper
+                # is drawn anyway (Д-1 of the acceptance): the key goes, the uuid
+                # is named once.
+                logger.info(_("  prune: {key} no longer appears in config — the key "
+                              "is dropped, the item ({uuid}) is already being deleted "
+                              "by a key of this run")
+                            .format(key=key, uuid=entry.uuid))
+                continue
             if entry.uuid in live_uuids:
                 logger.info(_("  prune: {key} no longer appears in config — the key "
                               "is dropped, the item ({uuid}) stays: a key of this "

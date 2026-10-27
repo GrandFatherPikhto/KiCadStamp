@@ -17,6 +17,9 @@ this run holds — nor one the board does not carry. One row per half of that se
                                                           own record has just bound
   M4  prune names a DEAD uuid for deletion             -> a board write on a missing id
                                                           and a Log that lies
+  M4b prune repeats a uuid already in `to_delete`      -> one `remove_by_ids` packet
+                                                          carries the same id twice (Д-1
+                                                          of the acceptance)
   M5  «orphan» is judged for `name:` only              -> a `net:` key of a removed
                                                           record is subtracted again
   M6  the anchor set is built from nothing             -> every key is an orphan: a LIVE
@@ -55,6 +58,7 @@ CELL_MATCHER = "test_match_planned_copper_without_orphan_uuids_is_unchanged"
 CELL_LIVE_UUID = "test_prune_does_not_delete_a_uuid_a_live_key_of_this_run_holds"
 CELL_KNOWN_ANCHOR = "test_a_known_anchor_filtered_out_is_not_pruned"
 CELL_DEAD_UUID = "test_a_dead_uuid_is_not_named_for_deletion"
+CELL_UUID_ONCE = "test_one_uuid_is_named_for_deletion_once"
 
 #: The read door's orphan branch (M1 removes it).
 READ_BRANCH = ("        if key in orphan_set:\n"
@@ -81,6 +85,7 @@ PRUNE_LIVE = ("            if entry.uuid in live_uuids:\n"
               "                            .format(key=key, uuid=entry.uuid))\n"
               "                continue\n")
 PRUNE_DEAD = "            if entry.uuid not in live_by_uuid:\n"
+PRUNE_DUPLICATE = "            if entry.uuid in to_delete:\n"
 
 #: The orphan definition (M5 narrows it to `name:` — the mirror of Denis's M6 note).
 ORPHAN_DEF = "    return anchor_part(key) not in anchors\n"
@@ -116,6 +121,12 @@ MUTATIONS = [
     ("M4 prune names a dead uuid for deletion", REGISTRY, PRUNE_DEAD,
      "            if False:  # MUTATION: a dead uuid is named for deletion\n",
      [CELL_DEAD_UUID]),
+
+    # 4b. Prune repeats a uuid the command loop already named for deletion (Д-1 of
+    # the acceptance): one remove_by_ids packet carries the id twice.
+    ("M4b prune repeats a uuid already in to_delete", REGISTRY, PRUNE_DUPLICATE,
+     "            if False:  # MUTATION: the uuid is named a second time\n",
+     [CELL_UUID_ONCE]),
 
     # 5. «Orphan» judged for `name:` only (Denis's M6): a `net:` key of a removed
     # record is «another record's copper» again.
