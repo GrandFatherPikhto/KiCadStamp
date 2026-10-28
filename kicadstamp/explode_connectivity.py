@@ -27,6 +27,7 @@ from .utils.units import MM
 __all__ = [
     "CellIsland",
     "CopperPiece",
+    "has_copper",
     "pad_areas",
     "copper_extent",
     "copper_touch",
@@ -49,18 +50,37 @@ __all__ = [
 _GRID_NM = 1_000_000
 
 
+def has_copper(pad) -> bool:
+    """Does this pad carry copper on ANY layer?
+
+    False for a PASTE-only pad — ``Pad.copper_layers == ()``: the padstack REPORTED
+    its layers and none of them is copper (a SOD-882/DFN/QFN paste opening, a
+    TO-252 tab). Such a pad is neither a copper anchor nor a FOREIGN pad: a track
+    merely lying under its paste window does not touch it (2026-10-27,
+    plan_2026_10_27_paste_only_pad_is_not_copper — reading ``()`` as ``None`` made
+    the window THROUGH copper and «Select enclosed copper» took a whole +3V3 bus).
+
+    ``None`` (the padstack reported no layer list at all) still reads as "through" —
+    the historical meaning, kept for doubles that predate the field."""
+    layers = getattr(pad, "copper_layers", None)
+    return not (layers is not None and not layers)
+
+
 def pad_areas(adapter, class_fps: dict) -> list:
     """[(PadArea, label, copper_layers)] over every pad of every class.
 
     A CELL pad gets its OWN label ``cell:<ref>:<pad>`` (Р1а-1), so a component
     that touches TWO different cell pads is distinguishable from one that
     touches a single pad — the basis of the ``tee`` rule. A foreign pad keeps its
-    ``<cluster>/<sheet>`` instance label."""
+    ``<cluster>/<sheet>`` instance label. A PASTE-only pad (``has_copper``) is
+    skipped: it is not a pad for connectivity at all."""
     out = []
     for label, fps in class_fps.items():
         for fp in fps:
             ref = getattr(fp, "ref", None) or getattr(fp, "uuid", "?")
             for pad in adapter.get_footprint_pads(fp):
+                if not has_copper(pad):
+                    continue
                 area = pad_area_of(pad)
                 if area is None:
                     continue
@@ -108,11 +128,16 @@ def copper_touch(a, b, ha: float, hb: float) -> bool:
 def cell_pad_areas(adapter, fps) -> list:
     """[(PadArea, copper_layers, name)] for the pads of ``fps`` (Р1в-1) — the
     cell instance's own pads, so ``build_cell_islands`` can join them to the
-    cell's own copper. ``name`` is ``<ref>.<pad>`` for the tee warning."""
+    cell's own copper. ``name`` is ``<ref>.<pad>`` for the tee warning.
+
+    A PASTE-only pad (``has_copper``) is skipped: it is not an island anchor, and
+    counting it as one made its window a pad that two pieces could reach."""
     out = []
     for fp in fps:
         ref = getattr(fp, "ref", None) or getattr(fp, "uuid", "?")
         for pad in adapter.get_footprint_pads(fp):
+            if not has_copper(pad):
+                continue
             area = pad_area_of(pad)
             if area is not None:
                 out.append((area, getattr(pad, "copper_layers", None),

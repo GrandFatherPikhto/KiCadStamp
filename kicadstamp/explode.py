@@ -21,7 +21,9 @@ Reused owners (never a second copy):
     ``geometry/union_find.UnionFind``.
 
 Layers (Ответ Демону, variant b): a track joins a pad ONLY on a layer the pad
-actually has (``Pad.copper_layers``; None = unknown = all). A via is through.
+actually has (``Pad.copper_layers``; None = unknown = all, and ``()`` = the
+padstack reported its layers and NONE is copper, a paste-only opening — such a
+pad carries no copper and is skipped altogether). A via is through.
 A track joins another track only on its own layer; a via joins any layer at its
 point. The copper graph is CUT in the cell's pads — they classify a component,
 they never union two pieces through themselves.

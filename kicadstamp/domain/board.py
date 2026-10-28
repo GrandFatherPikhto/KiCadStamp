@@ -140,10 +140,20 @@ class Pad:
     number/position/size/angle_rad) keeps working with no edits.
 
     ``copper_layers`` (2026-10-05) is the set of copper layers the pad actually
-    has, from kipy ``padstack.layers`` (copper-only). None = UNKNOWN = every
-    copper layer — the historical reading, so doubles that predate the field
-    keep behaving as "through". The explode connectivity joins a track to a pad
-    ONLY on a layer the pad has.
+    has, from kipy ``padstack.layers`` (copper-only), and it has THREE readings:
+
+      * ``None`` — UNKNOWN: the padstack reported no layers at all, so the pad is
+        read as every copper layer (the historical reading; doubles that predate
+        the field keep behaving as "through");
+      * ``()`` — the padstack DID report its layers and NONE of them is copper: a
+        paste-only opening of a SOD-882/DFN/QFN, or a TO-252 tab. Such a pad has no
+        copper ANYWHERE and is not a pad at all for connectivity (2026-10-27,
+        plan_2026_10_27_paste_only_pad_is_not_copper: reading it as ``None`` made
+        the paste window a through-copper pad and «Select enclosed copper» grabbed
+        a whole +3V3 bus through D14's paste opening);
+      * a non-empty tuple — exactly those copper layers.
+
+    The explode connectivity joins a track to a pad ONLY on a layer the pad has.
     """
 
     number: Any  # kipy reports str/int/float depending on the pad — kept as-is
@@ -159,10 +169,11 @@ class Pad:
     # The pad's COPPER layers (2026-10-05, plan_2026_10_05_explode_r1_core.md §2,
     # "Ответ Демону"): from kipy padstack.layers, copper-only. None = UNKNOWN =
     # every copper layer (the historical reading, so old doubles and mappers that
-    # predate this field keep behaving as "through"). Used by the explode
-    # connectivity graph, where a track joins a pad ONLY on a layer the pad
-    # actually has — an SMD F.Cu pad must not read as connected to a B.Cu track
-    # that merely overlaps it in XY.
+    # predate this field keep behaving as "through"); () = the padstack reported
+    # its layers and none is copper (a PASTE-only opening — no copper at all, and
+    # the connectivity skips such a pad). Used by the explode connectivity graph,
+    # where a track joins a pad ONLY on a layer the pad actually has — an SMD F.Cu
+    # pad must not read as connected to a B.Cu track that merely overlaps it in XY.
     copper_layers: tuple[BoardLayer, ...] | None = None
     _kipy: Any = field(default=None, repr=False, compare=False)
 
@@ -319,13 +330,24 @@ def pad_shape_from_kipy(shape: Any) -> str:
 
 
 def _pad_copper_layers(padstack) -> tuple[BoardLayer, ...] | None:
-    """The pad's COPPER layers from ``padstack.layers`` (copper-only, deduped,
-    in the reported order), or None when the padstack reports none.
+    """The pad's COPPER layers from ``padstack.layers`` (copper-only, deduped, in
+    the reported order).
 
-    None means "unknown" = every copper layer — the historical reading, so a
-    hand-made double that only carries ``copper_layers`` (no ``layers``) keeps
-    behaving as "through". Non-copper layers (mask/paste/silk) are dropped:
-    ``_KIPY_CU_TO_DOMAIN`` holds the copper members only."""
+    THREE answers, and the difference is load-bearing (2026-10-27,
+    plan_2026_10_27_paste_only_pad_is_not_copper):
+
+      * ``None`` — the padstack reported NO layer list at all: "unknown", read as
+        every copper layer (the historical reading, so a hand-made double that
+        only carries ``copper_layers`` keeps behaving as "through");
+      * ``()`` — the padstack DID report its layers and not one of them is copper:
+        a PASTE-only pad (SOD-882/DFN/QFN openings, a TO-252 tab) has no copper
+        anywhere. This used to collapse to ``None`` and made the paste window a
+        through-copper pad — «Select enclosed copper» then took a whole +3V3 bus
+        that merely ran under D14's paste opening (v103, 2026-10-27);
+      * the copper members, in the reported order.
+
+    Non-copper layers (mask/paste/silk) are dropped: ``_KIPY_CU_TO_DOMAIN`` holds
+    the copper members only."""
     raw = getattr(padstack, "layers", None)
     if not raw:
         return None
@@ -334,7 +356,7 @@ def _pad_copper_layers(padstack) -> tuple[BoardLayer, ...] | None:
         domain = _KIPY_CU_TO_DOMAIN.get(layer)
         if domain is not None and domain not in out:
             out.append(domain)
-    return tuple(out) if out else None
+    return tuple(out)
 
 
 def pad_from_kipy(pad: KipyPad) -> Pad:
