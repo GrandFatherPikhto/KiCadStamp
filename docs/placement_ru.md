@@ -439,13 +439,14 @@ from .commands import MoveCommand, ViaCommand, TrackCommand, PlacedComponentInfo
 **Класс `ViaPlanner`** – реализует `IViaPlanner`. Отвечает за:
 - Фильтрацию существующих via через реестр (сверка с реальными via на плате, `adapter.get_vias()`).
 - Планирование термовиа (массив под термопадом) с поиском свободных мест через `find_free_point`.
+- ВЫБОР пада, на который садится термомассив, — `geometry/thermal_grid.pick_thermal_pad`: САМЫЙ БОЛЬШОЙ медный пад с этим номером, потому что у TO-252 `TabPin2` (у таба DPAK, у таба SOT-223, у многих открытых площадок QFN) номер вывода повторяется, а маленький вывод идёт в файле первым. `get_pad_by_number` сохраняет свой ответ «первый» для якорей, сетей и net traces.
 
 | Метод | Описание |
 |-------|----------|
 | `_via_already_exists(existing_vias, position, net_name)` | Проверяет существование via с заданной цепью и позицией (допуск 0.01 мм). |
 | `plan_vias(planned_components, planned_vias, target_fp, target_layer)` | Фильтрует `planned_vias` через `skip_existing_components` (сверяет с реальными via на плате), строит keepout, вызывает `_plan_thermal_vias`. |
-| `_build_keepout(target_fp, planned, exclude)` | Строит keepout из падов IC и компонентов. |
-| `_plan_thermal_vias(planned, target_fp, keepout, existing_vias)` | Генерирует термовиа с поиском свободных мест. |
+| `_build_keepout(target_fp, planned, exclude)` | Строит keepout из падов IC и размещаемых компонентов. Пад, у которого меди нет ВООБЩЕ (`pad_has_copper`, `domain/board.py`), препятствием НЕ является: окно пасты — не пад, и собственные окна таба раньше выталкивали сетку с того пада, на котором сидят. |
+| `_plan_thermal_vias(planned, target_fp, keepout, existing_vias)` | Генерирует термовиа с поиском свободных мест на паде, выбранном `pick_thermal_pad`; если номер повторяется — ОДНА строка INFO называет ref, номер, число падов и размер взятого. |
 
 **Используется в:** `planner.py` (после перемещений).
 

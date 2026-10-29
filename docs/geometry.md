@@ -129,10 +129,13 @@ Computes absolute coordinates for an array of thermal vias under a thermal pad (
 
 The local grid (rows/columns/stagger/margin) is laid out in the **pad's own axes** and then turned by the pad's ABSOLUTE angle with the project's own rotation primitive — `rotate_local_offset` (`spoke_layout.py`), the same y‑down formula as `cell_frame.rotate_ydown_mm`. The inline `x·cos − y·sin, x·sin + y·cos` this replaced turned the array the OTHER way round, which is invisible while the grid maps onto itself (an unstaggered grid at 0/90/180/270°, a square one also at 45°) and visible for a staggered grid at 90°/270° or a rectangular one at 45°. The grid is centred on the centre of the pad SHAPE (`pad_area.pad_shape_center`) — `position` plus the pad's own offset, rotated — never on the hole: an offset pad has its copper elsewhere. A pad with no position at all is a fatal, not a grid around the origin.
 
+WHICH pad a thermal array lands on is `pick_thermal_pad`'s answer, never `get_pad_by_number`'s: a TO-252 `TabPin2` (and a DPAK/D2PAK tab, a SOT-223 tab, many QFN exposed pads) repeats a pin's NUMBER and the file lists the little pin FIRST, so «the first pad» put the whole grid on the pin (measured on v103: U2 «2» = 2.2×1.2 first, 6.4×5.8 second — 16 of 16 points inside the pin). The rule: the LARGEST pad by copper area (width × height), the FIRST on a tie; a pad with no copper at all (`domain/board.py:pad_has_copper` — a paste-only window) and a pad without a size are NOT candidates, and when that leaves no candidate the FIRST pad carrying the number is returned — so a lone pad without a size still fails in `get_pad_size`, never as «has no pad». `get_pad_by_number` itself keeps answering «the first»: ten other callers (anchors, nets, net traces, internode) depend on it.
+
 **Key Functions:**
 
 | Name | Description |
 |------|-------------|
+| `pick_thermal_pad(pads, number)` | `(pad, count)` — the pad a thermal array with this number must land on: the LARGEST COPPER pad carrying it (the FIRST on a tie), or `None` when no pad carries the number at all; `count` is how many pads carry it (what the Log line reports). |
 | `get_pad_size(pad)` | Returns the copper layer size `(width, height)` of the pad in nanometres. Raises `GeometryError` if copper layers are missing. |
 | `compute_thermal_via_grid(pad, rows, cols, margin_mm, stagger=False)` | Generates a list of absolute positions for vias evenly distributed inside the pad with the given `margin_mm`. The `stagger` parameter enables a staggered pattern. Returns a list of `Vector2`. |
 

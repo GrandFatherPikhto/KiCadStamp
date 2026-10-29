@@ -53,6 +53,7 @@ __all__ = [
     "layer_to_kipy",
     "net_from_kipy",
     "pad_from_kipy",
+    "pad_has_copper",
     "pad_shape_from_kipy",
     "track_from_kipy",
     "unwrap",
@@ -176,6 +177,27 @@ class Pad:
     # pad must not read as connected to a B.Cu track that merely overlaps it in XY.
     copper_layers: tuple[BoardLayer, ...] | None = None
     _kipy: Any = field(default=None, repr=False, compare=False)
+
+
+def pad_has_copper(pad) -> bool:
+    """Does this pad carry copper on ANY layer?
+
+    THE one predicate of that question (2026-10-28, Д-1 of
+    plan_2026_10_27_thermal_via_duplicate_pad_number): ``explode_connectivity``
+    imports it instead of keeping its own copy, so the pad doors («a paste-only pad
+    is not a pad») and the thermal-pad pick («a paste-only pad is not a candidate»)
+    cannot drift apart.
+
+    False for a PASTE-only pad — ``Pad.copper_layers == ()``: the padstack REPORTED
+    its layers and none of them is copper (a SOD-882/DFN/QFN paste opening, a
+    TO-252 tab). ``None`` (no layer list reported at all) still reads as "through" —
+    the historical meaning, kept for doubles that predate the field.
+
+    A free function on purpose, not a ``Pad`` property: the test doubles of both
+    call sites are plain ``SimpleNamespace``/``MagicMock`` objects, and ``getattr``
+    works on any of them."""
+    layers = getattr(pad, "copper_layers", None)
+    return not (layers is not None and not layers)
 
 
 # --- Via -------------------------------------------------------------------

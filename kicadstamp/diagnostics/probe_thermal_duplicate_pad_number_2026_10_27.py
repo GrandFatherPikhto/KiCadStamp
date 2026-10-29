@@ -326,7 +326,16 @@ def main(argv: list[str] | None = None) -> int:
                 fps = _retry("get_footprints", live_adapter.get_footprints)
                 pads_by_ref = {getattr(fp, "ref", "?"):
                                live_adapter.get_footprint_pads(fp) for fp in fps}
-                out["source"] = "live board (adapter)"
+                # WHICH board the editor has open — the live mode reads the OPEN
+                # document, not the profile's file, and they may differ (measured
+                # 28.10: the editor had a board whose U2 «2» is 2.0×1.5 + 2.0×3.8,
+                # while the profile's file has 2.2×1.2 + 6.4×5.8).
+                try:
+                    board_name = live_adapter.get_board_filename()
+                except Exception:  # noqa: BLE001 — a nice-to-have, not a fact
+                    board_name = None
+                out["board_filename"] = board_name
+                out["source"] = f"live board (adapter), open document {board_name!r}"
             except Exception as exc:  # noqa: BLE001 — the file is the fallback
                 print(f"live mode unavailable: {exc}", file=sys.stderr)
                 if args.mode == "live":

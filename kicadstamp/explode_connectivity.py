@@ -17,7 +17,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass, field
 
-from .domain.board import Via
+from .domain.board import Via, pad_has_copper
 from .geometry.copper_connect import (capsules_touch, disc_touches_capsule,
                                       discs_touch)
 from .geometry.pad_area import pad_area_of
@@ -50,20 +50,13 @@ __all__ = [
 _GRID_NM = 1_000_000
 
 
-def has_copper(pad) -> bool:
-    """Does this pad carry copper on ANY layer?
-
-    False for a PASTE-only pad — ``Pad.copper_layers == ()``: the padstack REPORTED
-    its layers and none of them is copper (a SOD-882/DFN/QFN paste opening, a
-    TO-252 tab). Such a pad is neither a copper anchor nor a FOREIGN pad: a track
-    merely lying under its paste window does not touch it (2026-10-27,
-    plan_2026_10_27_paste_only_pad_is_not_copper — reading ``()`` as ``None`` made
-    the window THROUGH copper and «Select enclosed copper» took a whole +3V3 bus).
-
-    ``None`` (the padstack reported no layer list at all) still reads as "through" —
-    the historical meaning, kept for doubles that predate the field."""
-    layers = getattr(pad, "copper_layers", None)
-    return not (layers is not None and not layers)
+#: The ONE predicate of «does this pad carry copper at all» — the domain function,
+#: imported rather than copied (Д-1 of plan_2026_10_27_thermal_via_duplicate_pad_number):
+#: the pad doors here and the thermal-pad pick in `geometry/thermal_grid.py` must
+#: agree by construction. Kept under this name because it is the door's vocabulary:
+#: a PASTE-only pad (`copper_layers == ()`) is neither a copper anchor nor a FOREIGN
+#: pad, so a track lying under its window does not touch it (plan_2026_10_27_paste_only_pad_is_not_copper).
+has_copper = pad_has_copper
 
 
 def pad_areas(adapter, class_fps: dict) -> list:

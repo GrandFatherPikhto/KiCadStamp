@@ -3,7 +3,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version:  kicadstamp\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-27 16:45+0300\n"
+"POT-Creation-Date: 2026-10-28 14:16+0300\n"
 "PO-Revision-Date: 2026-07-27 12:00+0000\n"
 "Last-Translator: \n"
 "Language: ru\n"
@@ -10375,30 +10375,30 @@ msgstr ""
 "нераспознанные ключи молча игнорируются — частый источник тихих "
 "багов{extra}: {problems}"
 
-#: kicadstamp/explode.py:341
+#: kicadstamp/explode.py:343
 msgid "(via)"
 msgstr "(переходное)"
 
-#: kicadstamp/explode.py:355
+#: kicadstamp/explode.py:357
 msgid "net_traces anchor"
 msgstr "якорь net_traces"
 
-#: kicadstamp/explode.py:475
+#: kicadstamp/explode.py:477
 #, python-brace-format
 msgid "no instance of {cell} on the board for {where}"
 msgstr "на плате нет экземпляра {cell} для {where}"
 
-#: kicadstamp/explode.py:491
+#: kicadstamp/explode.py:493
 #, python-brace-format
 msgid "the instance of {cell} has no measurable frame"
 msgstr "у экземпляра {cell} нет измеримой рамки"
 
-#: kicadstamp/explode.py:604
+#: kicadstamp/explode.py:606
 #, python-brace-format
 msgid "T-branch: the cell's inner part ({pads}) leaves with the foreign cluster"
 msgstr "Т-ответвление: внутренняя часть ячейки ({pads}) уедет вместе с ним"
 
-#: kicadstamp/explode.py:609
+#: kicadstamp/explode.py:611
 #, python-brace-format
 msgid ""
 "piece {uuid} touches several foreign clusters — it moves with the first; "
@@ -15413,7 +15413,7 @@ msgid "coordinate_placements entry {name!r}"
 msgstr "запись coordinate_placements {name!r}"
 
 #: kicadstamp/config/loader.py:509
-#: kicadstamp/placement/services/via_planner.py:78
+#: kicadstamp/placement/services/via_planner.py:79
 #, python-brace-format
 msgid "thermal_via_arrays entry {name!r}"
 msgstr "запись thermal_via_arrays {name!r}"
@@ -17522,20 +17522,20 @@ msgstr ""
 "Пад {ref}.{pad}: своей области пада нет (форма {shape}) — берётся габарит"
 " KiCad, который под этим углом пада ({angle:.2f}°) может быть сдвинут"
 
-#: kicadstamp/geometry/thermal_grid.py:15
+#: kicadstamp/geometry/thermal_grid.py:54
 msgid "pad has no copper layers in its padstack"
 msgstr "у пада нет медных слоёв в падстеке"
 
-#: kicadstamp/geometry/thermal_grid.py:38
+#: kicadstamp/geometry/thermal_grid.py:77
 msgid "rows and cols must be >= 1"
 msgstr "rows и cols должны быть >= 1"
 
-#: kicadstamp/geometry/thermal_grid.py:45
+#: kicadstamp/geometry/thermal_grid.py:84
 #, python-brace-format
 msgid "margin_mm={margin_mm} is too large for a pad {width}x{height} mm"
 msgstr "margin_mm={margin_mm} слишком велик для пада {width}x{height} мм"
 
-#: kicadstamp/geometry/thermal_grid.py:61
+#: kicadstamp/geometry/thermal_grid.py:100
 msgid "pad has no position"
 msgstr "у пада нет позиции"
 
@@ -18661,7 +18661,7 @@ msgstr ""
 "anchor_cluster, ИЛИ выделите нужный экземпляр на плате перед запуском, "
 "ИЛИ используйте явный anchor_ref вместо anchor_role: {first_ref!r}"
 
-#: kicadstamp/placement/services/via_planner.py:88
+#: kicadstamp/placement/services/via_planner.py:89
 #, python-brace-format
 msgid ""
 "{label}: anchor_point {point!r} has no footprint — this should have been "
@@ -18670,68 +18670,77 @@ msgstr ""
 "{label}: у anchor_point {point!r} нет футпринта — это должно было быть "
 "поймано при загрузке (config/loader.py)"
 
-#: kicadstamp/placement/services/via_planner.py:107
+#: kicadstamp/placement/services/via_planner.py:108
 #, python-brace-format
 msgid "{label}: neither anchor_ref nor anchor_role set"
 msgstr "{label}: не заданы ни anchor_ref, ни anchor_role"
 
-#: kicadstamp/placement/services/via_planner.py:134
+#: kicadstamp/placement/services/via_planner.py:135
 #, python-brace-format
 msgid "  via for {owner}: already exists, skipped"
 msgstr "  via для {owner}: уже существует, пропущено"
 
-#: kicadstamp/placement/services/via_planner.py:139
+#: kicadstamp/placement/services/via_planner.py:140
 #, python-brace-format
 msgid "Skipped {count} spoke/component vias already present on the board"
 msgstr "Пропущено {count} via спиц/компонентов, уже присутствующих на плате"
 
-#: kicadstamp/placement/services/via_planner.py:144
+#: kicadstamp/placement/services/via_planner.py:145
 msgid "No thermal_via_arrays entries — thermal planning skipped"
 msgstr "Нет записей thermal_via_arrays — планирование термо-via пропущено"
 
-#: kicadstamp/placement/services/via_planner.py:148
+#: kicadstamp/placement/services/via_planner.py:149
 #, python-brace-format
 msgid "thermal_via_arrays entry {name!r}: retired, skipped"
 msgstr "запись thermal_via_arrays {name!r}: снята с использования, пропущена"
 
-#: kicadstamp/placement/services/via_planner.py:157
+#: kicadstamp/placement/services/via_planner.py:158
 #, python-brace-format
 msgid "plan_vias completed: {count} vias"
 msgstr "plan_vias завершён: {count} via"
 
-#: kicadstamp/placement/services/via_planner.py:243
+#: kicadstamp/placement/services/via_planner.py:244
 #, python-brace-format
 msgid "Planning thermal vias for {ref}, pad {pad}"
 msgstr "Планирование термо-via для {ref}, пад {pad}"
 
-#: kicadstamp/placement/services/via_planner.py:248
+#: kicadstamp/placement/services/via_planner.py:257
 #, python-brace-format
 msgid "Thermal pad: {ref} has no pad {pad}"
 msgstr "Термопад: у {ref} нет пада {pad}"
 
-#: kicadstamp/placement/services/via_planner.py:261
+#: kicadstamp/placement/services/via_planner.py:262
+#, python-brace-format
+msgid ""
+"Thermal pad: {ref} has {count} pads numbered {pad}; using the largest "
+"({w}×{h} mm)"
+msgstr ""
+"Тепловой пад: у {ref} падов с номером {pad} — {count}; беру самый большой"
+" ({w}×{h} мм)"
+
+#: kicadstamp/placement/services/via_planner.py:276
 #, python-brace-format
 msgid "Thermal pad: {error}"
 msgstr "Термопад: {error}"
 
-#: kicadstamp/placement/services/via_planner.py:265
+#: kicadstamp/placement/services/via_planner.py:280
 #, python-brace-format
 msgid "Keepout for {name!r}: {count} rectangles"
 msgstr "Keepout для {name!r}: прямоугольников: {count}"
 
-#: kicadstamp/placement/services/via_planner.py:291
+#: kicadstamp/placement/services/via_planner.py:306
 #, python-brace-format
 msgid "Thermal via: no free spot found for ({x:.3f}, {y:.3f}) mm, point skipped"
 msgstr ""
 "Термо-via: не найдено свободное место для ({x:.3f}, {y:.3f}) мм, точка "
 "пропущена"
 
-#: kicadstamp/placement/services/via_planner.py:308
+#: kicadstamp/placement/services/via_planner.py:323
 #, python-brace-format
 msgid "Skipped {count} thermal vias already present on the board"
 msgstr "Пропущено {count} термо-via, уже присутствующих на плате"
 
-#: kicadstamp/placement/services/via_planner.py:309
+#: kicadstamp/placement/services/via_planner.py:324
 #, python-brace-format
 msgid "Planned {count} thermal vias on {pad}"
 msgstr "Запланировано {count} термо-via на {pad}"

@@ -6,12 +6,13 @@ from typing import Any
 from ...domain.geometry import BoardLayer
 from ...domain.geometry import Vector2
 
-from ...domain.board import Footprint
+from ...domain.board import Footprint, pad_has_copper
 
 from ...config import Config, ThermalViaArrayConfig
 from ...geometry.keepout import Rect, find_free_point
 from ...geometry.pad_area import pad_area_of, warn_bbox_fallback
-from ...geometry.thermal_grid import compute_thermal_via_grid
+from ...geometry.thermal_grid import (compute_thermal_via_grid, get_pad_size,
+                                      pick_thermal_pad)
 from ...kicad.adapter import KiCadBoardAdapter
 from ...utils.units import MM
 from ...exceptions import GeometryError, ComponentNotFoundError, ValidationError
@@ -179,11 +180,20 @@ class ViaPlanner:
         request this method has always made, now usually smaller; each of them is
         logged when its box cannot be trusted (a pad angle that is not a multiple
         of 90°).
+
+        A pad that carries NO copper at all (`pad_has_copper`, domain/board.py) is
+        NOT an obstacle: a PASTE-only window is not a pad, and the tab's own
+        windows used to push the thermal grid off the very pad they sit on
+        (2026-10-28, plan_2026_10_27_thermal_via_duplicate_pad_number §7.8). The
+        skip happens BEFORE `pad_area_of` on purpose — such a pad has a KiCad box
+        as well, so the bbox fallback below would bring the obstacle straight back.
         """
         pad_items: list[tuple[str, Any]] = []
         target_ref_name = target_fp.ref
         for pad in self.adapter.get_footprint_pads(target_fp):
             if exclude and (target_ref_name, pad.number) in exclude:
+                continue
+            if not pad_has_copper(pad):
                 continue
             pad_items.append((target_ref_name, pad))
         for info in planned:
@@ -192,6 +202,8 @@ class ViaPlanner:
                 continue
             for pad in self.adapter.get_footprint_pads(fp):
                 if exclude and (info.ref, pad.number) in exclude:
+                    continue
+                if not pad_has_copper(pad):
                     continue
                 pad_items.append((info.ref, pad))
 
@@ -242,14 +254,31 @@ class ViaPlanner:
         # target_fp should already be resolved (passed from plan_vias)
         logger.debug(_("Planning thermal vias for {ref}, pad {pad}")
                      .format(ref=target_fp.ref, pad=tva.pad))
-        pad = self.adapter.get_pad_by_number(target_fp, tva.pad)
+        # The pad is picked by the ONE rule of geometry/thermal_grid.pick_thermal_pad:
+        # the LARGEST copper pad with this number. A repeated number (a TO-252
+        # `TabPin2`, a DPAK tab, a QFN exposed pad) lists the little pin FIRST, and
+        # `get_pad_by_number` answers the first — the grid then landed on the pin
+        # instead of the tab (measured on v103: U2 «2» = 2.2×1.2 first, 6.4×5.8
+        # second). `get_pad_by_number` itself is untouched: ten other callers (anchors,
+        # nets, net_traces, internode) depend on its «first» answer.
+        pad, pads_with_number = pick_thermal_pad(
+            self.adapter.get_footprint_pads(target_fp), tva.pad)
         if pad is None:
             raise ComponentNotFoundError(
                 _("Thermal pad: {ref} has no pad {pad}").format(
                     ref=target_fp.ref, pad=tva.pad)
             )
-
         try:
+            # The Log line MEASURES the pad it just chose, so it fails the same way
+            # the grid does: two pads numbered «2» with no size at all reach this
+            # line, and `get_pad_size` must answer inside the «Thermal pad: …»
+            # wrapper (cell 8), never as a bare GeometryError.
+            if pads_with_number > 1:
+                width, height = get_pad_size(pad)
+                logger.info(_("Thermal pad: {ref} has {count} pads numbered {pad}; "
+                              "using the largest ({w}×{h} mm)").format(
+                    ref=target_fp.ref, count=pads_with_number, pad=tva.pad,
+                    w=f"{width / MM:.2f}", h=f"{height / MM:.2f}"))
             points = compute_thermal_via_grid(
                 pad,
                 rows=tva.rows,

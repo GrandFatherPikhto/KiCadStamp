@@ -436,13 +436,14 @@ only position calculator left.
 **Class `ViaPlanner`** – implements `IViaPlanner`. Responsible for:
 - Filtering existing vias via the registry (reconciling with real vias on the board via `adapter.get_vias()`).
 - Planning thermal vias (array under the thermal pad) with free‑space search via `find_free_point`.
+- Choosing WHICH pad a thermal array lands on by `geometry/thermal_grid.pick_thermal_pad` — the LARGEST copper pad carrying that number, because a TO-252 `TabPin2` (a DPAK tab, a SOT-223 tab, many QFN exposed pads) repeats a pin's number and the little pin is listed first. `get_pad_by_number` keeps its «the first one» answer for the anchors, nets and net traces.
 
 | Method | Description |
 |-------|-------------|
 | `_via_already_exists(existing_vias, position, net_name)` | Checks if a via with the given net and position exists (tolerance 0.01 mm). |
 | `plan_vias(planned_components, planned_vias, target_fp, target_layer)` | Filters `planned_vias` via `skip_existing_components` (compares against real vias on the board), builds keepout, calls `_plan_thermal_vias`. |
-| `_build_keepout(target_fp, planned, exclude)` | Builds keepout from pads of the IC and components. |
-| `_plan_thermal_vias(planned, target_fp, keepout, existing_vias)` | Generates thermal vias with free‑space search. |
+| `_build_keepout(target_fp, planned, exclude)` | Builds keepout from the pads of the IC and of the components being placed. A pad that carries NO copper at all (`pad_has_copper`, `domain/board.py`) is NOT an obstacle — a paste-only window is not a pad, and the tab's own windows used to push the grid off the pad they sit on. |
+| `_plan_thermal_vias(planned, target_fp, keepout, existing_vias)` | Generates thermal vias with free‑space search on the pad `pick_thermal_pad` chose; when the number repeats, ONE INFO line names the ref, the number, the count and the size of the pad taken. |
 
 **Used in:** `planner.py` (after moves).
 
