@@ -11286,6 +11286,19 @@ msgstr ""
 "отсутствует параметр {param} — добавьте его в params этого "
 "clone_placement или уберите плейсхолдер"
 
+#: kicadstamp/net_resolution.py:94
+#, python-brace-format
+msgid "{what} {template!r} cannot be read as a template: {reason}"
+msgstr "{what} {template!r} не читается как шаблон: {reason}"
+
+#: kicadstamp/net_resolution.py:97
+msgid ""
+"only simple placeholders in braces are allowed — check for a stray brace,"
+" an empty placeholder, or an index/attribute inside one"
+msgstr ""
+"допустимы только простые плейсхолдеры в фигурных скобках — проверьте лишнюю "
+"скобку, пустой плейсхолдер или индекс/атрибут внутри него"
+
 #: kicadstamp/net_resolution.py:130
 #, python-brace-format
 msgid "role {role!r} not resolved in this clone"
@@ -12424,6 +12437,12 @@ msgid ""
 msgstr ""
 "на паде {pad!r} уже стоит маунт-узел {ref!r} дерева {tree!r} — тот же якорь "
 "без смещения нельзя добавить дважды"
+
+#: kicadstamp/tree_mounts.py:449
+#, python-brace-format
+msgid "tree {tree!r} has no node {ref!r} — the new mounts have nowhere to hang"
+msgstr ""
+"в дереве {tree!r} нет узла {ref!r} — новым маунтам не к чему прицепиться"
 
 #: kicadstamp/tree_plan_warnings.py:47
 #, python-brace-format

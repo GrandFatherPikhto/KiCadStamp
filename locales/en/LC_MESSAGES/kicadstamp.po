@@ -10585,6 +10585,17 @@ msgstr ""
 "missing parameter {param} — add it to params of this clone_placement, or "
 "remove the placeholder"
 
+#: kicadstamp/net_resolution.py:94
+#, python-brace-format
+msgid "{what} {template!r} cannot be read as a template: {reason}"
+msgstr ""
+
+#: kicadstamp/net_resolution.py:97
+msgid ""
+"only simple placeholders in braces are allowed — check for a stray brace,"
+" an empty placeholder, or an index/attribute inside one"
+msgstr ""
+
 #: kicadstamp/net_resolution.py:130
 #, python-brace-format
 msgid "role {role!r} not resolved in this clone"
@@ -11674,6 +11685,11 @@ msgstr ""
 msgid ""
 "pad {pad!r} already carries mount node {ref!r} of tree {tree!r} — the "
 "same anchor with no offset cannot be added twice"
+msgstr ""
+
+#: kicadstamp/tree_mounts.py:449
+#, python-brace-format
+msgid "tree {tree!r} has no node {ref!r} — the new mounts have nowhere to hang"
 msgstr ""
 
 #: kicadstamp/tree_plan_warnings.py:47

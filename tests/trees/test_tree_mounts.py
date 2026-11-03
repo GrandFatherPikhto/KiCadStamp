@@ -20,6 +20,7 @@ import pytest
 from kicadstamp.domain.board import BoardLayer, Pad
 from kicadstamp.domain.geometry import Vector2
 from kicadstamp.exceptions import ValidationError
+from kicadstamp.net_resolution import resolve_net
 from kicadstamp.tree_mounts import (
     MountAddress,
     MountRow,
@@ -378,3 +379,95 @@ class TestPlanMountNodes:
         tree.nodes.extend(plan.nodes)
         loaded = tree_from_dict(tree_to_dict(tree))
         assert [node.ref for node in loaded.nodes] == ["R_ONE", "m_7", "m_8"]
+
+    # ── Т2.1(б): вердикт загрузчика спрашивается про ТО место, куда писать ──
+
+    def _tree_with_a_copper_container(self):
+        container = TreeNode(ref="copper", kind="copper", xy=None, polar=None,
+                             rotation=0.0, name=None, group=None, children=[])
+        return _tree(container)
+
+    def test_a_parent_the_loader_refuses_writes_nothing(self):
+        """Д1 hangs the mounts under a NODE when the command was called on one.
+        Under a kind "copper" container the loader allows only net_trace children,
+        so the plan must ask about THAT place — a top-level-only probe would have
+        said "ok" about a tree the next Save cannot load (Т2.1(б))."""
+        plan = plan_mount_nodes("m_{pad}", _rows(_pad("7")), selected=["7"],
+                                address=_ADDRESS,
+                                tree=self._tree_with_a_copper_container(),
+                                parent_ref="copper")
+        assert plan.nodes == []
+        assert "copper container" in plan.refusals[0]
+
+    def test_the_same_batch_under_the_root_is_fine(self):
+        plan = plan_mount_nodes("m_{pad}", _rows(_pad("7")), selected=["7"],
+                                address=_ADDRESS,
+                                tree=self._tree_with_a_copper_container())
+        assert plan.ok, plan.refusals
+
+    def test_a_parent_that_does_not_exist_is_refused_in_words(self):
+        plan = plan_mount_nodes("m_{pad}", _rows(_pad("7")), selected=["7"],
+                                address=_ADDRESS, tree=_tree(), parent_ref="nope")
+        assert plan.nodes == []
+        assert "nowhere to hang" in plan.refusals[0]
+
+    def test_a_nested_parent_is_probed_on_a_copy_and_left_untouched(self):
+        parent = TreeNode(ref="PARENT", kind="placement", xy=(0.0, 0.0), polar=None,
+                          rotation=0.0, name=None, group=None, children=[])
+        tree = _tree(parent)
+        plan = plan_mount_nodes("m_{pad}", _rows(_pad("7")), selected=["7"],
+                                address=_ADDRESS, tree=tree, parent_ref="PARENT")
+        assert plan.ok, plan.refusals
+        assert parent.children == [], "the caller's tree must not be written by a plan"
+        assert tree.nodes == [parent]
+
+    # ── Т2.1(в): якорь, написанный иначе, ловится картой экземпляра ────────
+
+    def test_an_anchor_spelled_differently_is_caught_by_the_occupied_map(self):
+        """`mount_key` is structural (the offline tool of Т3 has no board), so
+        `(role FPGA)(pad 1)` and `(role FPGA)(sheet FPGA)(cluster FPGA)(pad 1)` are
+        two keys — while on a board with one FPGA both are pad 1 of IC1. Д1а
+        pre-fills Sheet/Cluster, so a NEW mount is written in full while older ones
+        may be shorter; the instance-aware map is what closes that gap."""
+        tree = _tree(_mount("old", pad="1"))          # full spelling: sheet+cluster
+        address = MountAddress(role="FPGA")           # short spelling: role only
+        plan = plan_mount_nodes("m_{pad}", _rows(_pad("1")), selected=["1"],
+                                address=address, tree=tree, occupied={"1": "old"})
+        assert plan.nodes == []
+        assert "old" in plan.refusals[0]
+
+    def test_without_the_occupied_map_the_structural_key_does_not_pretend(self):
+        """The other half of the same rule: the key must NOT silently equate the
+        two spellings — only the live-resolved map may."""
+        tree = _tree(_mount("old", pad="1"))
+        plan = plan_mount_nodes("m_{pad}", _rows(_pad("1")), selected=["1"],
+                                address=MountAddress(role="FPGA"), tree=tree)
+        assert plan.ok, plan.refusals
+
+
+class TestBrokenTemplateIsARefusal:
+    """Т2.1(а): the name field is typed LIVE, so every half-written template on the
+    way to `fpga_{pad}` must be a refusal in words — never a raw
+    ValueError/IndexError/AttributeError out of `str.format`."""
+
+    BROKEN = ["fpga_{", "fpga_}", "fpga_{}", "fpga_{0}", "fpga_{pad.x}"]
+
+    @pytest.mark.parametrize("template", BROKEN)
+    def test_mount_name_refuses_instead_of_crashing(self, template):
+        with pytest.raises(ValidationError) as info:
+            mount_name(template, "107")
+        text = str(info.value)
+        assert template in text
+        assert "cannot be read as a template" in text
+
+    @pytest.mark.parametrize("template", BROKEN)
+    def test_the_config_template_owner_refuses_the_same_way(self, template):
+        """The rule lives in the ONE owner, so a config template (a cell's net)
+        gets the same answer — no second guard, no different exception."""
+        with pytest.raises(ValidationError) as info:
+            resolve_net(template, {"pad": "1"}, {})
+        assert "cannot be read as a template" in str(info.value)
+
+    def test_a_well_formed_template_is_untouched(self):
+        assert mount_name("fpga_{pad}_x", "107") == "fpga_107_x"
+        assert resolve_net("net_{pad}", {"pad": "1"}, {}) == "net_1"

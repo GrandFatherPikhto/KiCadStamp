@@ -67,6 +67,18 @@ def resolve_placeholder(template: str, params: dict[str, Any], what: str = "valu
     params mapping at all, and a hint naming one would send the user looking
     for a key that cannot exist. The rule (unknown placeholder = refusal, in
     words) stays here; only the second line is the caller's.
+
+    BROKEN SYNTAX IS A REFUSAL TOO (Т2.1(а) of the same plan, found in review).
+    `str.format` answers a malformed template with its OWN exception, and that
+    used to escape this function as a raw `ValueError`/`IndexError`/
+    `AttributeError`: `'fpga_{'`, `'fpga_}'`, `'fpga_{}'`, `'fpga_{0}'`,
+    `'fpga_{pad.x}'`. A template is TYPED LIVE in the mounts table (Д5), so
+    every one of those is a normal keystroke on the way to `fpga_{pad}` — and a
+    crash is not an answer a dialog can show. They become the same
+    two-line refusal the missing-parameter case already had. No caller relied
+    on the bare exception: every `resolve_placeholder`/`resolve_net` call site
+    (validation, anchor_graph, clone_role_resolver, clone_geometry,
+    adopt_at_current_place) treats a refusal as `ValidationError`.
     """
     try:
         return template.format(**params)
@@ -76,6 +88,15 @@ def resolve_placeholder(template: str, params: dict[str, Any], what: str = "valu
             [hint if hint is not None else
              _("missing parameter {param} — add it to params of this clone_placement, "
                "or remove the placeholder").format(param=e)]
+        ))
+    except (ValueError, IndexError, AttributeError) as e:
+        raise ValidationError(format_fatal_error(
+            _("{what} {template!r} cannot be read as a template: {reason}").format(
+                what=what, template=template, reason=e),
+            [hint if hint is not None else
+             _("only simple placeholders in braces are allowed — check for a "
+               "stray brace, an empty placeholder, or an index/attribute "
+               "inside one")]
         ))
 
 

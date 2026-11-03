@@ -52,7 +52,7 @@ so the rules cannot live in a widget.
 """
 from __future__ import annotations
 
-import dataclasses
+import copy
 import json
 import logging
 from dataclasses import dataclass, field
@@ -321,9 +321,24 @@ def _mount_node(name: str, pad: str, address: MountAddress) -> TreeNode:
                           anchor_pad=pad))
 
 
+def _node_with_ref(nodes, ref: str):
+    """The node whose ref is `ref`, at ANY depth — or None. Mount refs and record
+    refs are unique per tree (`trees._validate_local_refs` / rule 2), so the
+    first match is THE match."""
+    for node in nodes or ():
+        if getattr(node, "ref", None) == ref:
+            return node
+        found = _node_with_ref(getattr(node, "children", ()), ref)
+        if found is not None:
+            return found
+    return None
+
+
 def plan_mount_nodes(template: str, rows: Sequence[MountRow], *,
                      selected: Iterable[str], address: MountAddress,
-                     tree: Tree, edited: Optional[Mapping[str, str]] = None
+                     tree: Tree, edited: Optional[Mapping[str, str]] = None,
+                     parent_ref: Optional[str] = None,
+                     occupied: Optional[Mapping[str, str]] = None
                      ) -> MountPlan:
     """The whole batch, validated BEFORE anything is handed to the writer.
 
@@ -331,6 +346,25 @@ def plan_mount_nodes(template: str, rows: Sequence[MountRow], *,
     name cells the user typed by hand — those WIN over the template (Д5: a
     hand-edited cell is never overwritten by a template change), which is also
     why the plan can simply not re-name them.
+
+    `parent_ref` — WHERE the batch will be attached (Д1: the command adds mounts
+    under the tree's root, or under a NODE when it was called on one). None means
+    the top level. This is not cosmetic (Т2.1(б) of the review): a mount node hung
+    under a kind "copper" container is refused by the LOADER ("may hold only kind
+    net_trace"), so a plan that only tried the top level would say "ok" about a
+    tree the next Save cannot load. The candidates are therefore attached to a
+    DEEP COPY of the tree at exactly this place, and the caller writes `nodes`
+    where the plan tried them.
+
+    `occupied` — {pad number: mount node ref} of THIS instance's already-taken
+    pads, for the anchors whose sheet/cluster are spelled differently (Т2.1(в)).
+    `mount_key` is STRUCTURAL on purpose (the offline tool of Т3 has no board and
+    must not pretend otherwise): `(role FPGA)(pad 1)` and
+    `(role FPGA)(sheet FPGA)(cluster FPGA)(pad 1)` are two keys, while on a board
+    with one FPGA both are pad 1 of IC1. So the dialog resolves the tree's own
+    mount anchors against the live board and hands the answer in here; the
+    structural key stays the offline truth, and this map is the instance-aware
+    one. A pad in it is refused with the same words as a structural hit.
 
     Refusals, in the order they are detected (the first one stops the batch —
     there is nothing to report about nodes that will not exist):
@@ -341,12 +375,15 @@ def plan_mount_nodes(template: str, rows: Sequence[MountRow], *,
         or a template without `{pad}` over two pads;
       * a pad that already carries THIS mount in this tree (Д6: the dialog greys
         such a row, and this is the guard behind the greying — a batch must not
-        be able to write the duplicate the whole задача is about);
+        be able to write the duplicate the whole задача is about), structurally
+        OR by the instance-aware `occupied` map;
+      * a `parent_ref` the tree does not have — nowhere to hang the new mounts;
       * anything the LOADER itself would refuse about the resulting tree — the
         local-name rule of a mount (unique in its tree, no collision with a
-        positioned node's ref), run through `tree_from_dict` on a COPY with the
-        candidates attached, so the refusal is the loader's own wording and the
-        next Save cannot discover a rule this plan did not know."""
+        positioned node's ref) and the copper container's "only net_trace
+        children" rule, run through `tree_from_dict` on the COPY with the
+        candidates attached at `parent_ref`, so the refusal is the loader's own
+        wording and the next Save cannot discover a rule this plan did not know."""
     plan = MountPlan()
     if not address.role:
         plan.refusals.append(_(
@@ -389,16 +426,30 @@ def plan_mount_nodes(template: str, rows: Sequence[MountRow], *,
     for pad, name in names:
         node = _mount_node(name, pad, address)
         key = mount_key_of(node)
-        if key in taken:
+        existing = taken.get(key) or (occupied or {}).get(pad)
+        if existing is not None:
             plan.refusals.append(_(
                 "pad {pad!r} already carries mount node {ref!r} of tree {tree!r} — "
                 "the same anchor with no offset cannot be added twice").format(
-                    pad=pad, ref=taken[key], tree=getattr(tree, "name", "?")))
+                    pad=pad, ref=existing, tree=getattr(tree, "name", "?")))
             return plan
         nodes.append(node)
 
     # THE LOADER'S OWN VERDICT on the tree that would be written (see docstring).
-    probe = dataclasses.replace(tree, nodes=[*tree.nodes, *nodes])
+    # A DEEP copy at the caller's `parent_ref`: the candidates must be tried
+    # exactly where they will be written (Д1), and a nested parent's own rules
+    # (the copper container's "only net_trace children") are part of the verdict.
+    probe = copy.deepcopy(tree)
+    if parent_ref is None:
+        probe.nodes.extend(nodes)
+    else:
+        parent = _node_with_ref(probe.nodes, parent_ref)
+        if parent is None:
+            plan.refusals.append(_(
+                "tree {tree!r} has no node {ref!r} — the new mounts have nowhere "
+                "to hang").format(tree=getattr(tree, "name", "?"), ref=parent_ref))
+            return plan
+        parent.children.extend(nodes)
     try:
         tree_from_dict(tree_to_dict(probe))
     except ValidationError as exc:
