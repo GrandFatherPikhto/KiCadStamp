@@ -11,6 +11,24 @@ Rules (Denis, 22.10):
   * only inside one tree — the same anchor in two trees is not a duplicate;
   * only siblings are merged; a duplicate under another parent is reported and left alone.
 
+THE SAMENESS RULE IS NOT DECLARED HERE ANY MORE (03.11.2026,
+plan_2026_11_03_add_mounts_table, Д6). It lives once, in
+`kicadstamp/tree_mounts.mount_key`, because the mounts dialog asks the very same
+question and two copies of "the same mount" would drift apart. Importing it also
+brought a NORMALIZATION this tool used to miss: an absent `xy`, `(xy 0.0 0.0)` and
+`polar (0, …)` are all "no offset" (the writer omits defaults, so the same mount is
+legitimately spelled both ways — the HiPiMS profile writes its two mounts as
+`(xy 0.0 0.0)`), and an absent `rotation` is 0.0. A run after that change can
+therefore report a duplicate that the old key could not see; it can never report
+fewer. A NON-ZERO `xy` is still never equated with a NON-ZERO `polar` — turning one
+into the other needs the base's angle, which this offline tool does not have.
+
+WHAT THIS TOOL STILL CANNOT SEE, and must not pretend to: an anchor written short
+(`(role FPGA)(pad 1)`) and the same one written in full
+(`(role FPGA)(sheet FPGA)(cluster FPGA)(pad 1)`) are two keys, although on a board
+with one FPGA both are pad 1 of IC1. Telling them apart needs the live board; the
+mounts dialog asks it (its `occupied` map), this offline tool does not.
+
 The kept node is the first one in file order, or the one named by --keep. The tool refuses to write when
 the ref of a node it would delete is still mentioned anywhere else in the config. Before writing the
 config is backed up next to itself (the same backup the Trees dock makes); after writing it is loaded
@@ -36,15 +54,8 @@ from check_placement import _config_name, _load_copy          # noqa: E402
 from kicadstamp import check_report                            # noqa: E402
 from kicadstamp.config_working_set import graph_root           # noqa: E402
 from kicadstamp.config_writer import read_data, write_data    # noqa: E402
+from kicadstamp.tree_mounts import mount_key_of_dict          # noqa: E402
 from kicadstamp.utils.safe_write import backup_file           # noqa: E402
-
-
-def _mount_key(node: dict):
-    """Everything that decides where a mount node stands; None for any other node."""
-    if node.get("kind") != "mount" or not node.get("anchor"):
-        return None
-    return json.dumps([node["anchor"], node.get("xy"), node.get("polar"),
-                       node.get("rotation", 0.0), node.get("shift")], sort_keys=True)
 
 
 def _label(node: dict) -> str:
@@ -62,7 +73,7 @@ def _scan(tree: dict, keep: set):
     def walk(siblings: list, parent: str):
         groups: dict = {}
         for node in siblings:
-            key = _mount_key(node)
+            key = mount_key_of_dict(node)
             if key is not None:
                 groups.setdefault(key, []).append(node)
                 by_key.setdefault(key, set()).add(parent)
