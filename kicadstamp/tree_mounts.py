@@ -81,11 +81,13 @@ __all__ = [
     "mount_key_of",
     "mount_key_of_dict",
     "mount_name",
+    "mount_nodes",
     "normalized_rotation",
     "occupied_pads",
     "pad_number",
     "pad_rows",
     "plan_mount_nodes",
+    "sits_on_its_pad",
 ]
 
 
@@ -223,24 +225,62 @@ def mount_key_of_dict(node: Mapping) -> Optional[str]:
                      node.get("rotation", 0.0), node.get("shift"))
 
 
-def occupied_pads(tree) -> dict[str, str]:
-    """{mount_key: node ref} for every mount node of ONE tree — what Д6 asks
-    «уже есть» about, scoped exactly as the duplicate rule is scoped: inside one
-    tree. The same anchor in ANOTHER tree is a different point of reference and
-    must not grey a row here.
-
-    First node wins on a repeat (which is itself a duplicate the loader refuses
-    at the next Save); the caller only ever asks "is THIS key taken, and by what"."""
-    out: dict[str, str] = {}
+def mount_nodes(tree) -> list:
+    """Every kind "mount" node of ONE tree, depth-first — the ONE walk over a
+    tree's mounts. The table, the duplicate rule and the worker's `occupied` map
+    all ask "which mounts does this tree have", and a second walk would be a
+    second answer the day the nesting rules change."""
+    out: list = []
 
     def walk(nodes) -> None:
         for node in nodes or ():
-            key = mount_key_of(node)
-            if key is not None:
-                out.setdefault(key, node.ref)
+            if getattr(node, "kind", None) == "mount":
+                out.append(node)
             walk(getattr(node, "children", ()))
 
     walk(getattr(tree, "nodes", ()))
+    return out
+
+
+def sits_on_its_pad(node) -> bool:
+    """Does this mount STAND ON its anchor's pad — no offset and no turn?
+
+    THE predicate of that question (Т4/§19 of the review: the worker's `occupied`
+    map and `occupied_pads` below must not each spell the test out with the
+    normalizers, or the two answers drift). Both halves are the module's own
+    normalizers, so every spelling counts the same way the key does: an absent
+    `xy`, `(xy 0, 0)` and `polar (0, …)` are all "no offset", and `rotation 360`
+    / `-0.0` is no turn.
+
+    False for any node that is not a mount: «стоит на паде» is a question about a
+    mount, and answering it for a record node would let a caller use this
+    predicate as a general "has no offset" test it was never meant to be."""
+    if getattr(node, "kind", None) != "mount":
+        return False
+    offset = _normalized_offset(getattr(node, "xy", None),
+                               getattr(node, "polar", None))
+    return offset is None and normalized_rotation(getattr(node, "rotation", 0.0)) == 0.0
+
+
+def occupied_pads(tree) -> dict[str, str]:
+    """{mount_key: node ref} for every mount node of ONE tree THAT SITS on its pad
+    — what Д6 asks «уже есть» about, scoped exactly as the duplicate rule is
+    scoped: inside one tree. The same anchor in ANOTHER tree is a different point
+    of reference and must not grey a row here.
+
+    Only `sits_on_its_pad` nodes go in (Т4/§16): a mount with an offset on the same
+    pad is a DIFFERENT point, so it does not occupy the row — the §8 cell «тот же
+    якорь с НЕНУЛЕВЫМ смещением → свободна» is exactly this filter.
+
+    First node wins on a repeat (which is itself a duplicate the loader refuses at
+    the next Save); the caller only ever asks "is THIS key taken, and by what"."""
+    out: dict[str, str] = {}
+    for node in mount_nodes(tree):
+        if not sits_on_its_pad(node):
+            continue
+        key = mount_key_of(node)
+        if key is not None:
+            out.setdefault(key, node.ref)
     return out
 
 

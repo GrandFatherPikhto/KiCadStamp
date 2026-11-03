@@ -6428,6 +6428,32 @@ msgid ""
 "coordinates, which now mean a different place."
 msgstr ""
 
+#: gui/docks/trees_mounts_flow.py:121
+#, python-brace-format
+msgid "mounts are addressed by a Role — {ref!r} has none"
+msgstr ""
+
+#: gui/docks/trees_mounts_flow.py:123
+msgid ""
+"tag the component with a Role (Tools -> tree -> Tag selected) or pick "
+"another component; a mount anchor is always a role anchor, so the grammar"
+" has no ref anchor to write"
+msgstr ""
+
+#: gui/docks/trees_mounts_flow.py:133
+msgid ""
+"the mounts table needs an instance: a Ref, or a Role with a sheet and a "
+"cluster"
+msgstr ""
+
+#: gui/docks/trees_mounts_flow.py:220
+msgid "the mounts table cannot be read: there is no board connection"
+msgstr ""
+
+#: gui/docks/trees_mounts_flow.py:252
+msgid "reading pads"
+msgstr ""
+
 #: gui/docks/trees_dock.py:3704 gui/docks/trees_move_flow.py:155
 #: gui/docks/trees_move_flow.py:536 gui/docks/trees_move_flow.py:571
 msgid "(top level)"

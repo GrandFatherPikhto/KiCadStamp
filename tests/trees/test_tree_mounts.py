@@ -34,6 +34,7 @@ from kicadstamp.tree_mounts import (
     pad_number,
     pad_rows,
     plan_mount_nodes,
+    sits_on_its_pad,
 )
 from kicadstamp.trees import Tree, TreeAnchor, TreeNode
 
@@ -189,8 +190,12 @@ class TestOccupiedPads:
         assert occupied_pads(tree) == {mount_key_of(tree.nodes[0]): "mnt_117"}
 
     def test_a_mount_with_an_offset_occupies_nothing_here(self):
+        """§16: a mount with a NON-ZERO offset on that pad is a different point —
+        it does not occupy the row («тот же якорь с НЕНУЛЕВЫМ смещением →
+        свободна»). Since Т4 the map is built through `sits_on_its_pad`, so the
+        shifted node is not in it at all."""
         tree = _tree(_mount("shifted", pad="117", xy=(1.0, 0.0)))
-        assert len(occupied_pads(tree)) == 1
+        assert occupied_pads(tree) == {}
         address_key = mount_key(TreeAnchor(role="FPGA", anchor_sheet="FPGA",
                                            anchor_cluster="FPGA", anchor_pad="117"))
         assert address_key not in occupied_pads(tree)
@@ -207,6 +212,33 @@ class TestOccupiedPads:
         tree = _tree(_mount("parent", pad="1", children=[_mount("deep", pad="2")]))
         refs = set(occupied_pads(tree).values())
         assert refs == {"parent", "deep"}
+
+
+class TestSitsOnItsPad:
+    """§19: the ONE public predicate of «this mount stands on its anchor's pad».
+    The worker's `occupied` map and `occupied_pads` both read it — a second
+    spelling of the test (with the normalizers written out again) would drift."""
+
+    @pytest.mark.parametrize("kwargs", [
+        {}, {"xy": (0.0, 0.0)}, {"xy": [0, 0]}, {"rotation": 360.0},
+        {"rotation": -0.0}, {"polar": (0.0, 90.0)}, {"rotation": 720.0},
+    ])
+    def test_no_offset_and_no_turn_sits_on_it(self, kwargs):
+        assert sits_on_its_pad(_mount("m", pad="1", **kwargs))
+
+    @pytest.mark.parametrize("kwargs", [
+        {"xy": (1.0, 0.0)}, {"polar": (5.0, 0.0)}, {"rotation": 90.0},
+        {"rotation": -90.0},
+    ])
+    def test_a_mount_that_moved_or_turned_does_not(self, kwargs):
+        assert not sits_on_its_pad(_mount("m", pad="1", **kwargs))
+
+    def test_a_record_node_is_never_sitting_on_its_pad(self):
+        """«Стоит на паде» is a question about a MOUNT: answering it for a record
+        node would let a caller use the predicate as a general "no offset" test."""
+        record = TreeNode(ref="R1", kind="placement", xy=None, polar=None,
+                          rotation=0.0, name=None, group=None, children=[])
+        assert not sits_on_its_pad(record)
 
 
 # ── 2. строки таблицы ──────────────────────────────────────────────────────
