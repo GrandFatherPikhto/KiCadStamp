@@ -18,10 +18,16 @@ nowhere else:
      `xy` at all, which is the canon a new node gets (Д-2). Both decode to a zero
      offset, so both must give ONE key, or Д6's «уже есть» would stay silent
      exactly on the duplicate it exists for. Therefore: an absent `xy`, an
-     `xy (0, 0)` and a `polar` with radius 0 are all "no offset"; an absent
-     `rotation` is 0.0. A NON-ZERO `xy` and a NON-ZERO `polar` are deliberately
-     NOT equated with each other: turning one into the other needs the base's
-     own angle, which is a placement question, not a structural equality.
+     `xy (0, 0)` and a `polar` with radius 0 are all "no offset", and EVERY ANGLE
+     is taken MODULO 360 (`normalized_rotation`, Т3.1 of the same review): a
+     mount's `rotation` and a `polar` angle are frame angles for the nodes below,
+     never a count of turns, so 360 ≡ 0 and −90 ≡ 270. That is not cosmetic — the
+     3ch-awg-tia-v103 profile carries `rotation 360.0` on three mounts, and a
+     duplicate written once as 360 and once as 0 would otherwise survive the very
+     check that exists to find it.
+     A NON-ZERO `xy` and a NON-ZERO `polar` are deliberately NOT equated with
+     each other: turning one into the other needs the base's own angle, which is
+     a placement question, not a structural equality.
 
   2. WHICH ROWS THE TABLE SHOWS (`pad_rows`, `filter_rows`): copper pads only
      (`domain.board.pad_has_copper` — a paste window is not a pad), ONE row per
@@ -75,6 +81,7 @@ __all__ = [
     "mount_key_of",
     "mount_key_of_dict",
     "mount_name",
+    "normalized_rotation",
     "occupied_pads",
     "pad_number",
     "pad_rows",
@@ -96,6 +103,41 @@ def pad_number(value) -> str:
     if isinstance(number, float) and number.is_integer():
         return str(int(number))
     return str(number)
+
+
+#: Rounding of a normalized angle, in decimal places. Six is far below any angle a
+#: user or a KiCad file expresses (1e-6°) and far above the float noise a rotate /
+#: un-rotate round trip leaves behind (measured order: 1e-10 — see
+#: tests/kicad/test_kipy_vector_rotate.py's own tolerance), so `359.9999999` from
+#: arithmetic becomes the 0 it means, while `359.5` stays its own angle.
+_ANGLE_DECIMALS = 6
+
+
+def normalized_rotation(rotation) -> float:
+    """An ANGLE as the mount rules compare them — taken MODULO 360.
+
+    Т3.1 of plan_2026_11_03_add_mounts_table (found in the Т3 review): a mount's
+    `rotation` is the FRAME angle its children hang in, never a count of turns, so
+    `360` and `0` are the same orientation — and 3ch-awg-tia-v103 really carries
+    `rotation 360.0` on three mounts. Without this the key saw a duplicate written
+    once as 360 and once as 0 as two different mounts: exactly the duplicate the
+    whole check exists for, and the one a live table would have created.
+
+    Absent/None reads as 0.0 (the writer omits a zero), and `-0.0` becomes `0.0`
+    (they compare equal, but the KEY is a JSON string and `-0.0` would print
+    differently from `0.0`). The same function normalizes a `polar` angle, because
+    that is an angle too — leaving it raw would recreate the very hole this closes
+    in the other spelling.
+
+    Public (not `_normalized_rotation`) because the mounts worker filters its
+    instance-aware `occupied` map with THIS function — a second copy of the angle
+    rule would drift the moment one of them changes."""
+    angle = round(float(rotation or 0.0) % 360.0, _ANGLE_DECIMALS)
+    # `% 360.0` never returns 360.0 itself, but rounding can: 359.9999999 % 360.0
+    # is 359.9999999, and six decimals turn that back into a full turn.
+    if angle == 360.0 or angle == 0.0:
+        return 0.0
+    return angle
 
 
 def _normalized_anchor(anchor) -> Optional[list]:
@@ -125,15 +167,17 @@ def _normalized_offset(xy, polar) -> Optional[list]:
     three spellings the grammar allows (absent, `xy (0, 0)`, `polar (0, …)`).
 
     A zero radius makes the angle meaningless — there is no direction to turn —
-    so `polar (0, 90)` IS no offset, exactly like `xy (0, 0)`. Non-zero values
-    are kept verbatim (as floats) and are never converted between the two forms:
-    that conversion depends on the base's angle (see the module docstring)."""
+    so `polar (0, 90)` IS no offset, exactly like `xy (0, 0)`. A non-zero radius
+    is kept verbatim, and its ANGLE goes through `normalized_rotation` (the
+    offset's angle is an angle too — `polar (5, 360)` and `polar (5, 0)` point the
+    same way). The two FORMS are never converted between each other: that
+    conversion depends on the base's angle (see the module docstring)."""
     if xy is not None and len(xy) == 2:
         x, y = float(xy[0]), float(xy[1])
         if x or y:
             return ["xy", x, y]
     if polar is not None and len(polar) == 2:
-        radius, angle = float(polar[0]), float(polar[1])
+        radius, angle = float(polar[0]), normalized_rotation(polar[1])
         if radius:
             return ["polar", radius, angle]
     return None
@@ -158,7 +202,7 @@ def mount_key(anchor, xy=None, polar=None, rotation=None, shift=None) -> Optiona
         return None
     return json.dumps(
         [identity, _normalized_offset(xy, polar),
-         float(rotation) if rotation else 0.0,
+         normalized_rotation(rotation),
          None if shift is None else [float(shift[0]), float(shift[1])]],
         sort_keys=True)
 

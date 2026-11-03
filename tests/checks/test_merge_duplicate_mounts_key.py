@@ -18,13 +18,15 @@ from kicadstamp.tree_mounts import mount_key_of_dict
 from tools import merge_duplicate_mounts
 
 
-def _mount(ref, pad, *, xy=None):
+def _mount(ref, pad, *, xy=None, rotation=None):
     """A config-DICT mount node — the shape the tool scans (never a TreeNode)."""
     node = {"ref": ref, "kind": "mount",
             "anchor": {"role": "FPGA", "sheet": "FPGA", "cluster": "FPGA",
                        "pad": pad}}
     if xy is not None:
         node["xy"] = list(xy)
+    if rotation is not None:
+        node["rotation"] = rotation
     return node
 
 
@@ -64,3 +66,22 @@ def test_a_negative_zero_is_the_same_zero():
         _tree(_mount("mnt_a", "107", xy=(0.0, 0.0)),
               _mount("mnt_b", "107", xy=(0.0, -0.0))), set())
     assert len(merges) == 1
+
+
+def test_rotation_360_and_rotation_0_are_one_duplicate():
+    """Т3.1: the same profile carries `rotation 360.0` on three mounts
+    (`dac_3_dvdd`, `opamp_8_p2v5`, `opamp_4_n2v5`). A mount's rotation is a FRAME
+    angle, so a full turn is no turn — otherwise the duplicate this check exists
+    for would survive it in the 360-vs-0 spelling."""
+    merges, _strays = merge_duplicate_mounts._scan(
+        _tree(_mount("mnt_a", "107", rotation=360.0),
+              _mount("mnt_b", "107", rotation=0.0)), set())
+    assert len(merges) == 1
+
+
+def test_a_real_angle_is_still_a_different_mount():
+    """The control for the cell above: normalizing must not merge 90 with 0."""
+    merges, _strays = merge_duplicate_mounts._scan(
+        _tree(_mount("mnt_a", "107", rotation=90.0),
+              _mount("mnt_b", "107", rotation=0.0)), set())
+    assert merges == []

@@ -29,6 +29,7 @@ from kicadstamp.tree_mounts import (
     mount_key_of,
     mount_key_of_dict,
     mount_name,
+    normalized_rotation,
     occupied_pads,
     pad_number,
     pad_rows,
@@ -144,6 +145,40 @@ class TestMountKey:
     def test_a_node_of_another_kind_has_no_dict_key(self):
         assert mount_key_of_dict({"kind": "placement", "ref": "R1"}) is None
         assert mount_key_of_dict({}) is None
+
+
+class TestAngleIsModulo360:
+    """Т3.1: a mount's angle is a FRAME angle, not a count of turns — so 360 ≡ 0.
+    The live profile 3ch-awg-tia-v103 carries `rotation 360.0` on three mounts,
+    and a duplicate written once as 360 and once as 0 must not survive the check."""
+
+    @pytest.mark.parametrize("angle", [0.0, 360.0, 720.0, -0.0, None, 359.9999999])
+    def test_a_full_turn_is_no_turn(self, angle):
+        assert normalized_rotation(angle) == 0.0
+
+    def test_a_negative_angle_lands_in_the_same_place(self):
+        assert normalized_rotation(-90.0) == normalized_rotation(270.0) == 270.0
+
+    def test_a_real_angle_is_left_alone(self):
+        """The control: normalizing must not flatten everything to zero."""
+        assert normalized_rotation(90.0) == 90.0
+        assert normalized_rotation(90.0) != 0.0
+        assert normalized_rotation(359.5) == 359.5
+
+    def test_mount_key_compares_angles_by_that_rule(self):
+        anchor = TreeAnchor(role="FPGA", anchor_pad="1")
+        assert mount_key(anchor, rotation=360.0) == mount_key(anchor, rotation=0.0)
+        assert mount_key(anchor, rotation=-90.0) == mount_key(anchor, rotation=270.0)
+        assert mount_key(anchor, rotation=90.0) != mount_key(anchor, rotation=0.0)
+
+    def test_a_polar_angle_is_an_angle_too(self):
+        """Leaving the offset's angle raw would reopen the same hole in the other
+        spelling: `polar (5, 360)` and `polar (5, 0)` point the same way."""
+        anchor = TreeAnchor(role="FPGA", anchor_pad="1")
+        assert (mount_key(anchor, polar=(5.0, 360.0))
+                == mount_key(anchor, polar=(5.0, 0.0)))
+        assert (mount_key(anchor, polar=(5.0, -90.0))
+                == mount_key(anchor, polar=(5.0, 270.0)))
 
 
 class TestOccupiedPads:
