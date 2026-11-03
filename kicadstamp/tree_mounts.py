@@ -1,0 +1,410 @@
+# kicadstamp/tree_mounts.py
+"""The rules of a kind "mount" node that are NOT geometry — plan_2026_11_03_add_mounts_table.
+
+Four questions the mounts table asks before it writes anything, answered HERE and
+nowhere else:
+
+  1. WHEN ARE TWO MOUNTS THE SAME ONE (`mount_key`)? A mount is addressed by its
+     anchor (role, sheet, cluster, pad) plus its own offset (xy/polar), rotation
+     and shift. Two nodes with all of that equal are ONE point of reference
+     written twice — the 22.10 duplicate (`fpga_107_vcca` and `mnt_fpga_vcca_107`
+     on pad 107 of IC1) that `tools/merge_duplicate_mounts.py` cleans up.
+     The rule lives HERE now (plan Д6: "the rule is ONE"): that tool imports it
+     instead of keeping its own copy.
+
+     NORMALIZATION (Д-1 of the 03.11 review, measured on the live profile): the
+     s-expr writer OMITS default-valued fields, so the SAME mount can be spelled
+     `(xy 0.0 0.0)` — as the HiPiMS profile spells both of its mounts — or with no
+     `xy` at all, which is the canon a new node gets (Д-2). Both decode to a zero
+     offset, so both must give ONE key, or Д6's «уже есть» would stay silent
+     exactly on the duplicate it exists for. Therefore: an absent `xy`, an
+     `xy (0, 0)` and a `polar` with radius 0 are all "no offset"; an absent
+     `rotation` is 0.0. A NON-ZERO `xy` and a NON-ZERO `polar` are deliberately
+     NOT equated with each other: turning one into the other needs the base's
+     own angle, which is a placement question, not a structural equality.
+
+  2. WHICH ROWS THE TABLE SHOWS (`pad_rows`, `filter_rows`): copper pads only
+     (`domain.board.pad_has_copper` — a paste window is not a pad), ONE row per
+     pad NUMBER because an anchor is addressed by the number (Д3: a TabPin
+     repeats a number, and the anchor cannot tell the copies apart), the net
+     shown but never edited (rule 26), and the net filter Д4 asks for.
+
+     A repeated number is ONE row, and that can HIDE a real difference: the
+     copies may sit on different nets. Such a row says so (`conflicting_nets`)
+     instead of silently showing the first one.
+
+  3. WHAT A ROW IS CALLED (`mount_name`, Д5): the template with `{pad}`
+     substituted — through `net_resolution.resolve_placeholder`, the ONE owner of
+     "`{placeholder}` with a refusal for an unknown one". The NET name is never
+     substituted into a node name (Denis: «+2v5_vcca всё название испортит»).
+
+  4. WHETHER THE BATCH MAY BE WRITTEN (`plan_mount_nodes`): all-or-nothing (Д7).
+     The name rule of a mount is NOT the record rule — a mount's ref is a LOCAL
+     NAME: unique inside its tree and not colliding with a positioned node's ref
+     of that same tree (`trees._validate_local_refs`, the loader's own check).
+     That check is therefore RUN here, on a copy of the target tree with the
+     candidate nodes already attached, through `tree_from_dict` — the loader
+     itself, with its own words — instead of a second copy of the rule that would
+     drift from what the next Save/load enforces.
+
+Qt-free on purpose: the dialog, the worker and the tool all read these answers,
+so the rules cannot live in a widget.
+"""
+from __future__ import annotations
+
+import dataclasses
+import json
+import logging
+from dataclasses import dataclass, field
+from typing import Iterable, Mapping, Optional, Sequence
+
+from .domain.board import pad_has_copper
+from .exceptions import ValidationError
+from .i18n import _
+from .net_resolution import resolve_placeholder
+from .trees import Tree, TreeAnchor, TreeNode, tree_from_dict, tree_to_dict
+
+logger = logging.getLogger(__name__)
+
+__all__ = [
+    "MountAddress",
+    "MountPlan",
+    "MountRow",
+    "filter_rows",
+    "mount_key",
+    "mount_key_of",
+    "mount_key_of_dict",
+    "mount_name",
+    "occupied_pads",
+    "pad_number",
+    "pad_rows",
+    "plan_mount_nodes",
+]
+
+
+# ── 1. "the same mount" ────────────────────────────────────────────────────
+
+def pad_number(value) -> str:
+    """A pad number as the anchor stores it — a STRING ('1', '17', 'A3').
+
+    kipy hands a pad's number over as str/int/float depending on the source
+    (`domain.board.Pad.number` says so), and a float that IS an integer would
+    otherwise read '1.0' — a name that matches no anchor and no config pad.
+    The anchor side is always a string (`trees.TreeAnchor.anchor_pad`), so this
+    is the one place the two shapes meet."""
+    number = getattr(value, "number", value)
+    if isinstance(number, float) and number.is_integer():
+        return str(int(number))
+    return str(number)
+
+
+def _normalized_anchor(anchor) -> Optional[list]:
+    """(role, sheet, cluster, pad) of an anchor — a TreeAnchor OR the config
+    dict's `{"role": ..., "sheet": ..., "cluster": ..., "pad": ...}` shape, both
+    reduced to one list. None when this is not an anchor at all (or carries no
+    role: a mount anchor without a role cannot be loaded)."""
+    if anchor is None:
+        return None
+    if isinstance(anchor, Mapping):
+        role = anchor.get("role")
+        parts = (anchor.get("sheet"), anchor.get("cluster"), anchor.get("pad"))
+    else:
+        role = getattr(anchor, "role", None)
+        parts = (getattr(anchor, "anchor_sheet", None),
+                 getattr(anchor, "anchor_cluster", None),
+                 getattr(anchor, "anchor_pad", None))
+    if not role:
+        return None
+    sheet, cluster, pad = parts
+    return [str(role), sheet, cluster,
+            None if pad is None else pad_number(pad)]
+
+
+def _normalized_offset(xy, polar) -> Optional[list]:
+    """The offset of a mount node, normalized: None for "no offset" in ANY of the
+    three spellings the grammar allows (absent, `xy (0, 0)`, `polar (0, …)`).
+
+    A zero radius makes the angle meaningless — there is no direction to turn —
+    so `polar (0, 90)` IS no offset, exactly like `xy (0, 0)`. Non-zero values
+    are kept verbatim (as floats) and are never converted between the two forms:
+    that conversion depends on the base's angle (see the module docstring)."""
+    if xy is not None and len(xy) == 2:
+        x, y = float(xy[0]), float(xy[1])
+        if x or y:
+            return ["xy", x, y]
+    if polar is not None and len(polar) == 2:
+        radius, angle = float(polar[0]), float(polar[1])
+        if radius:
+            return ["polar", radius, angle]
+    return None
+
+
+def mount_key(anchor, xy=None, polar=None, rotation=None, shift=None) -> Optional[str]:
+    """Everything that decides where a mount node stands, as ONE comparable
+    string — or None when this is not a mount address (no anchor, no role).
+
+    Returned as a JSON string rather than a tuple so it is hashable, readable in
+    a failure message, and identical to what the config-file tool has always
+    compared (its own `_mount_key`, whose place this took).
+
+    `shift` is the anchor's OWN local-mm shift (`(shift x y)`, tree-anchor-only
+    per `trees._parse_anchor_shift`). It never reaches a mount node's anchor —
+    the loader fatals on it — so `mount_key_of` passes nothing for it. It stays
+    a parameter because the CONFIG-level spelling is what this key describes, and
+    a key that silently stopped covering a field of its own input is exactly the
+    kind of quiet change this module exists to prevent."""
+    identity = _normalized_anchor(anchor)
+    if identity is None:
+        return None
+    return json.dumps(
+        [identity, _normalized_offset(xy, polar),
+         float(rotation) if rotation else 0.0,
+         None if shift is None else [float(shift[0]), float(shift[1])]],
+        sort_keys=True)
+
+
+def mount_key_of(node: TreeNode) -> Optional[str]:
+    """`mount_key` of ONE TreeNode — None for every kind but "mount"."""
+    if getattr(node, "kind", None) != "mount":
+        return None
+    return mount_key(node.anchor, node.xy, node.polar, node.rotation)
+
+
+def mount_key_of_dict(node: Mapping) -> Optional[str]:
+    """`mount_key` of ONE config-dict node — the tool's half (its nodes are dicts
+    straight out of `config_writer.read_data`, never TreeNodes)."""
+    if not isinstance(node, Mapping) or node.get("kind") != "mount":
+        return None
+    return mount_key(node.get("anchor"), node.get("xy"), node.get("polar"),
+                     node.get("rotation", 0.0), node.get("shift"))
+
+
+def occupied_pads(tree) -> dict[str, str]:
+    """{mount_key: node ref} for every mount node of ONE tree — what Д6 asks
+    «уже есть» about, scoped exactly as the duplicate rule is scoped: inside one
+    tree. The same anchor in ANOTHER tree is a different point of reference and
+    must not grey a row here.
+
+    First node wins on a repeat (which is itself a duplicate the loader refuses
+    at the next Save); the caller only ever asks "is THIS key taken, and by what"."""
+    out: dict[str, str] = {}
+
+    def walk(nodes) -> None:
+        for node in nodes or ():
+            key = mount_key_of(node)
+            if key is not None:
+                out.setdefault(key, node.ref)
+            walk(getattr(node, "children", ()))
+
+    walk(getattr(tree, "nodes", ()))
+    return out
+
+
+# ── 2. the table's rows ────────────────────────────────────────────────────
+
+@dataclass(frozen=True)
+class MountRow:
+    """One row of the mounts table — a pad NUMBER (Д3), its net for DISPLAY only
+    (rule 26: nets are never edited here), and the two facts that must not be
+    swallowed by the one-row-per-number rule:
+
+      * `pads_with_this_number` — how many physical pads carry it (a TabPin or a
+        split pad; the anchor addresses the number, so they are one row);
+      * `conflicting_nets` — those copies sit on DIFFERENT nets, so the single
+        net column can only show one of them. Non-empty means the row is shown
+        with a mark instead of pretending."""
+    pad: str
+    net: str = ""
+    pads_with_this_number: int = 1
+    conflicting_nets: tuple[str, ...] = ()
+
+
+def pad_rows(pads: Iterable) -> list[MountRow]:
+    """The table's rows for ONE footprint's pads, in the order the pads come
+    (KiCad's own order — for a QFP that is the number order), copper only, one
+    row per number.
+
+    `pad_has_copper` (the ONE predicate of "is this a pad at all") drops a
+    paste-only window and a TO-252 tab opening: an anchor cannot be seated on
+    them, so offering them in the table would offer a mount that cannot resolve."""
+    groups: dict[str, list] = {}
+    for pad in pads or ():
+        if not pad_has_copper(pad):
+            continue
+        groups.setdefault(pad_number(pad), []).append(pad)
+    rows: list[MountRow] = []
+    for number, group in groups.items():
+        nets = sorted({str(p.net_name) for p in group if getattr(p, "net_name", None)})
+        rows.append(MountRow(
+            pad=number,
+            net=str(getattr(group[0], "net_name", "") or ""),
+            pads_with_this_number=len(group),
+            conflicting_nets=tuple(nets) if len(nets) > 1 else ()))
+    return rows
+
+
+def filter_rows(rows: Sequence[MountRow], net_contains: str) -> list[MountRow]:
+    """The rows whose NET contains `net_contains`, case-insensitively (Д4's
+    "Net contains…"). An empty needle keeps every row — the filter is a
+    narrowing, never a hidden default."""
+    needle = (net_contains or "").strip().casefold()
+    if not needle:
+        return list(rows)
+    return [row for row in rows if needle in row.net.casefold()]
+
+
+# ── 3. the row's name ──────────────────────────────────────────────────────
+
+def mount_name(template: str, pad: str) -> str:
+    """The node name for `pad` from the name template (Д5), e.g.
+    `fpga_vcca_{pad}` -> `fpga_vcca_107`.
+
+    An EMPTY template means "name it by the pad number" — the shortest useful
+    name, and the one Denis's own existing mounts use (`fpga_vccio_117` is a
+    template of `fpga_vccio_{pad}`). Everything else goes through
+    `resolve_placeholder`, the ONE owner of `{placeholder}` substitution and of
+    the refusal for an unknown one — so `{net}` is refused in words here exactly
+    as it is refused in a cell's net template, but with a hint that speaks of a
+    mount name (there is no clone and no params mapping in this flow)."""
+    text = (template or "").strip()
+    if not text:
+        return pad_number(pad)
+    return resolve_placeholder(
+        text, {"pad": pad_number(pad)}, what=_("mount name"),
+        hint=_("a mount name knows only the {pad} placeholder — the pad number; "
+               "the net name is not substituted, write its meaning into the "
+               "template yourself"))
+
+
+# ── 4. the batch ───────────────────────────────────────────────────────────
+
+@dataclass(frozen=True)
+class MountAddress:
+    """The instance every new mount of one batch is anchored to — the role anchor
+    the file will carry (plan Д2: a Ref is only a way to FIND the instance; the
+    anchor written is always the role one). `cluster`/`sheet` narrow the role
+    exactly as they do in the config."""
+    role: str
+    cluster: Optional[str] = None
+    sheet: Optional[str] = None
+
+
+@dataclass
+class MountPlan:
+    """The answer of `plan_mount_nodes`: the nodes to append and, when the batch
+    cannot be written, WHY — never half of both (Д7 "всё или ничего": a single
+    refusal leaves `nodes` empty, so the caller cannot write a partial batch even
+    by accident)."""
+    nodes: list[TreeNode] = field(default_factory=list)
+    names: list[tuple[str, str]] = field(default_factory=list)   # (pad, name)
+    refusals: list[str] = field(default_factory=list)
+
+    @property
+    def ok(self) -> bool:
+        return not self.refusals
+
+
+def _mount_node(name: str, pad: str, address: MountAddress) -> TreeNode:
+    """ONE new mount node: the role anchor, NO offset and NO rotation (the canon
+    the s-expr writer emits for defaults — Д-2), no children.
+
+    No offset rather than `xy (0, 0)`: `trees._node_to_sexp` omits default-valued
+    fields, so a zero written explicitly would read back as the same mount but
+    would make the file carry two spellings of one fact. `mount_key` treats them
+    as equal either way — this is about not writing the noise in the first place."""
+    return TreeNode(
+        ref=name, kind="mount", xy=None, polar=None, rotation=0.0,
+        name=None, group=None, children=[],
+        anchor=TreeAnchor(role=address.role, is_origin=False,
+                          anchor_sheet=address.sheet,
+                          anchor_cluster=address.cluster,
+                          anchor_pad=pad))
+
+
+def plan_mount_nodes(template: str, rows: Sequence[MountRow], *,
+                     selected: Iterable[str], address: MountAddress,
+                     tree: Tree, edited: Optional[Mapping[str, str]] = None
+                     ) -> MountPlan:
+    """The whole batch, validated BEFORE anything is handed to the writer.
+
+    `selected` are the ticked pad numbers (as `MountRow.pad`), `edited` are the
+    name cells the user typed by hand — those WIN over the template (Д5: a
+    hand-edited cell is never overwritten by a template change), which is also
+    why the plan can simply not re-name them.
+
+    Refusals, in the order they are detected (the first one stops the batch —
+    there is nothing to report about nodes that will not exist):
+
+      * nothing ticked;
+      * a ticked pad that is not a row of this table (a stale table);
+      * two rows resolving to ONE name — a hand edit colliding with the template,
+        or a template without `{pad}` over two pads;
+      * a pad that already carries THIS mount in this tree (Д6: the dialog greys
+        such a row, and this is the guard behind the greying — a batch must not
+        be able to write the duplicate the whole задача is about);
+      * anything the LOADER itself would refuse about the resulting tree — the
+        local-name rule of a mount (unique in its tree, no collision with a
+        positioned node's ref), run through `tree_from_dict` on a COPY with the
+        candidates attached, so the refusal is the loader's own wording and the
+        next Save cannot discover a rule this plan did not know."""
+    plan = MountPlan()
+    if not address.role:
+        plan.refusals.append(_(
+            "the mounts cannot be addressed: no Role — a mount anchor is a role "
+            "anchor, so pick an instance that carries one"))
+        return plan
+
+    by_pad = {row.pad: row for row in rows or ()}
+    ticked = [pad_number(pad) for pad in (selected or ())]
+    if not ticked:
+        plan.refusals.append(_(
+            "no pad is ticked — tick the pads this table should create mounts for"))
+        return plan
+    unknown = [pad for pad in ticked if pad not in by_pad]
+    if unknown:
+        plan.refusals.append(_(
+            "pad(s) {pads} are not rows of this table — read the pads again").format(
+                pads=", ".join(unknown)))
+        return plan
+
+    taken = occupied_pads(tree)
+    edited = dict(edited or {})
+    names: list[tuple[str, str]] = []
+    owning: dict[str, list[str]] = {}
+    for pad in ticked:
+        name = (edited.get(pad) or "").strip() or mount_name(template, pad)
+        names.append((pad, name))
+        owning.setdefault(name, []).append(pad)
+    clashes = {name: pads for name, pads in owning.items() if len(pads) > 1}
+    if clashes:
+        plan.refusals.append(_(
+            "name(s) {names} would be used for more than one pad — a mount node's "
+            "ref must identify exactly one node in the tree").format(
+                names="; ".join("{name!r} (pads {pads})".format(
+                    name=name, pads=", ".join(pads))
+                    for name, pads in sorted(clashes.items()))))
+        return plan
+
+    nodes: list[TreeNode] = []
+    for pad, name in names:
+        node = _mount_node(name, pad, address)
+        key = mount_key_of(node)
+        if key in taken:
+            plan.refusals.append(_(
+                "pad {pad!r} already carries mount node {ref!r} of tree {tree!r} — "
+                "the same anchor with no offset cannot be added twice").format(
+                    pad=pad, ref=taken[key], tree=getattr(tree, "name", "?")))
+            return plan
+        nodes.append(node)
+
+    # THE LOADER'S OWN VERDICT on the tree that would be written (see docstring).
+    probe = dataclasses.replace(tree, nodes=[*tree.nodes, *nodes])
+    try:
+        tree_from_dict(tree_to_dict(probe))
+    except ValidationError as exc:
+        plan.refusals.append(str(exc))
+        return plan
+
+    plan.nodes = nodes
+    plan.names = names
+    return plan

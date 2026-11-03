@@ -11636,6 +11636,46 @@ msgstr ""
 msgid "convert-trees: wrote {path}"
 msgstr ""
 
+#: kicadstamp/tree_mounts.py:273
+msgid "mount name"
+msgstr ""
+
+#: kicadstamp/tree_mounts.py:274
+#, python-brace-format
+msgid ""
+"a mount name knows only the {pad} placeholder — the pad number; the net "
+"name is not substituted, write its meaning into the template yourself"
+msgstr ""
+
+#: kicadstamp/tree_mounts.py:353
+msgid ""
+"the mounts cannot be addressed: no Role — a mount anchor is a role "
+"anchor, so pick an instance that carries one"
+msgstr ""
+
+#: kicadstamp/tree_mounts.py:361
+msgid "no pad is ticked — tick the pads this table should create mounts for"
+msgstr ""
+
+#: kicadstamp/tree_mounts.py:366
+#, python-brace-format
+msgid "pad(s) {pads} are not rows of this table — read the pads again"
+msgstr ""
+
+#: kicadstamp/tree_mounts.py:381
+#, python-brace-format
+msgid ""
+"name(s) {names} would be used for more than one pad — a mount node's ref "
+"must identify exactly one node in the tree"
+msgstr ""
+
+#: kicadstamp/tree_mounts.py:394
+#, python-brace-format
+msgid ""
+"pad {pad!r} already carries mount node {ref!r} of tree {tree!r} — the "
+"same anchor with no offset cannot be added twice"
+msgstr ""
+
 #: kicadstamp/tree_plan_warnings.py:47
 #, python-brace-format
 msgid ""

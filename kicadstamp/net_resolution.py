@@ -47,7 +47,8 @@ from .i18n import _
 ROLELESS_NETS: set[str] = {"GND"}
 
 
-def resolve_placeholder(template: str, params: dict[str, Any], what: str = "value") -> str:
+def resolve_placeholder(template: str, params: dict[str, Any], what: str = "value",
+                        *, hint: str | None = None) -> str:
     """
     Generic {placeholder} substitution from params (str.format) — the engine
     underneath resolve_net, also reused as-is for ClonePlacement.anchor_sheet
@@ -58,13 +59,22 @@ def resolve_placeholder(template: str, params: dict[str, Any], what: str = "valu
     anchor_sheet: 'Channel_{channel}' to actually narrow per‑instance — a
     literal anchor_sheet would have to be repeated, unparametrized, in every
     clone_placement copy.
+
+    hint — the caller's OWN second line for the refusal. The default speaks of
+    ``params of this clone_placement``, which is true only for the config
+    texts this function started with; the mounts table (plan_2026_11_03, Д5)
+    substitutes ``{pad}`` into a NODE NAME, where there is no clone and no
+    params mapping at all, and a hint naming one would send the user looking
+    for a key that cannot exist. The rule (unknown placeholder = refusal, in
+    words) stays here; only the second line is the caller's.
     """
     try:
         return template.format(**params)
     except KeyError as e:
         raise ValidationError(format_fatal_error(
             _("{what} {template!r} has a placeholder with no parameter").format(what=what, template=template),
-            [_("missing parameter {param} — add it to params of this clone_placement, "
+            [hint if hint is not None else
+             _("missing parameter {param} — add it to params of this clone_placement, "
                "or remove the placeholder").format(param=e)]
         ))
 

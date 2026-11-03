@@ -12376,6 +12376,55 @@ msgstr ""
 msgid "convert-trees: wrote {path}"
 msgstr "convert-trees: записан {path}"
 
+#: kicadstamp/tree_mounts.py:273
+msgid "mount name"
+msgstr "имя маунта"
+
+#: kicadstamp/tree_mounts.py:274
+#, python-brace-format
+msgid ""
+"a mount name knows only the {pad} placeholder — the pad number; the net "
+"name is not substituted, write its meaning into the template yourself"
+msgstr ""
+"имя маунта знает только плейсхолдер {pad} — номер пада; имя сети не "
+"подставляется, впишите его смысл в шаблон сами"
+
+#: kicadstamp/tree_mounts.py:353
+msgid ""
+"the mounts cannot be addressed: no Role — a mount anchor is a role "
+"anchor, so pick an instance that carries one"
+msgstr ""
+"маунты не к чему привязать: нет поля Role — якорь маунта ролевой, выберите "
+"экземпляр, у которого оно есть"
+
+#: kicadstamp/tree_mounts.py:361
+msgid "no pad is ticked — tick the pads this table should create mounts for"
+msgstr ""
+"не отмечен ни один пад — отметьте пады, для которых таблица создаёт маунты"
+
+#: kicadstamp/tree_mounts.py:366
+#, python-brace-format
+msgid "pad(s) {pads} are not rows of this table — read the pads again"
+msgstr "пад(ы) {pads} не являются строками этой таблицы — прочитайте пады заново"
+
+#: kicadstamp/tree_mounts.py:381
+#, python-brace-format
+msgid ""
+"name(s) {names} would be used for more than one pad — a mount node's ref "
+"must identify exactly one node in the tree"
+msgstr ""
+"имя (имена) {names} пришлось бы на несколько падов — ref маунт-узла должен "
+"указывать ровно один узел дерева"
+
+#: kicadstamp/tree_mounts.py:394
+#, python-brace-format
+msgid ""
+"pad {pad!r} already carries mount node {ref!r} of tree {tree!r} — the "
+"same anchor with no offset cannot be added twice"
+msgstr ""
+"на паде {pad!r} уже стоит маунт-узел {ref!r} дерева {tree!r} — тот же якорь "
+"без смещения нельзя добавить дважды"
+
 #: kicadstamp/tree_plan_warnings.py:47
 #, python-brace-format
 msgid ""
