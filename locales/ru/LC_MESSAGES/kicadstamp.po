@@ -6858,7 +6858,45 @@ msgstr ""
 "компонент; якорь маунта всегда ролевой, поэтому в грамматике нет ref-якоря "
 "для записи"
 
-#: gui/docks/trees_mounts_flow.py:133
+#: gui/docks/trees_mounts_flow.py:127
+#, python-brace-format
+msgid ""
+"mounts are addressed by a Role — {ref!r} stands on a sheet that did not "
+"resolve, so its role anchor cannot name it"
+msgstr ""
+"маунты адресуются ролью — {ref!r} стоит на листе, который не разрешился, "
+"поэтому ролевой якорь его не назовёт"
+
+#: gui/docks/trees_mounts_flow.py:130
+msgid ""
+"open the profile's schematic (root_sheet / schematic_files) so the sheet "
+"names resolve, or pick a component whose sheet is known; without a sheet "
+"the anchor may land on a same-role part of another sheet"
+msgstr ""
+"откройте схему профиля (root_sheet / schematic_files), чтобы имена листов "
+"разрешились, или выберите компонент с известным листом; без листа якорь может "
+"попасть в деталь той же роли с другого листа"
+
+#: gui/docks/trees_mounts_flow.py:140
+#, python-brace-format
+msgid ""
+"{ref!r} is not addressed uniquely by its Role — the anchor the mounts "
+"would carry (role {role!r}, sheet {sheet!r}, cluster {cluster!r}) "
+"resolves to {other!r}"
+msgstr ""
+"{ref!r} не адресуется своей ролью однозначно — якорь, который получили бы "
+"маунты (role {role!r}, sheet {sheet!r}, cluster {cluster!r}), находит "
+"{other!r}"
+
+#: gui/docks/trees_mounts_flow.py:146
+msgid ""
+"narrow the anchor (its Sheet or Cluster), or pick the component the "
+"redraw actually finds"
+msgstr ""
+"уточните якорь (его Sheet или Cluster) либо выберите компонент, который "
+"действительно находит перерисовка"
+
+#: gui/docks/trees_mounts_flow.py:152
 msgid ""
 "the mounts table needs an instance: a Ref, or a Role with a sheet and a "
 "cluster"

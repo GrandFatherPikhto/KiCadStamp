@@ -88,6 +88,7 @@ __all__ = [
     "pad_rows",
     "plan_mount_nodes",
     "sits_on_its_pad",
+    "sitting_anchors",
 ]
 
 
@@ -262,6 +263,31 @@ def sits_on_its_pad(node) -> bool:
     return offset is None and normalized_rotation(getattr(node, "rotation", 0.0)) == 0.0
 
 
+def sitting_anchors(tree) -> tuple[tuple[str, str, Optional[str], Optional[str], str], ...]:
+    """(ref, role, sheet, cluster, pad) of every mount of ONE tree that STANDS on
+    its pad — PLAIN DATA, so a worker can hold it while the UI thread keeps
+    working (Т4.1(б) of the review: the worker used to be handed the Tree itself,
+    and the dock is not frozen while a read runs — only the dialog's button is).
+
+    Tuples cannot change under a worker's feet, and these are exactly what
+    `occupied_for_instance` needs: the pad to key on, the role to compare (a
+    footprint has one Role, so a mount of another role cannot name this
+    footprint) and the anchor to resolve.
+
+    A mount without a pad, or one that does not sit on it, is left out: it cannot
+    occupy a table row (`sits_on_its_pad` owns that rule)."""
+    out: list[tuple[str, str, Optional[str], Optional[str], str]] = []
+    for node in mount_nodes(tree):
+        if not sits_on_its_pad(node):
+            continue
+        anchor = getattr(node, "anchor", None)
+        if anchor is None or not getattr(anchor, "anchor_pad", None):
+            continue
+        out.append((node.ref, anchor.role, anchor.anchor_sheet,
+                    anchor.anchor_cluster, pad_number(anchor.anchor_pad)))
+    return tuple(out)
+
+
 def occupied_pads(tree) -> dict[str, str]:
     """{mount_key: node ref} for every mount node of ONE tree THAT SITS on its pad
     — what Д6 asks «уже есть» about, scoped exactly as the duplicate rule is
@@ -378,10 +404,17 @@ class MountPlan:
     """The answer of `plan_mount_nodes`: the nodes to append and, when the batch
     cannot be written, WHY — never half of both (Д7 "всё или ничего": a single
     refusal leaves `nodes` empty, so the caller cannot write a partial batch even
-    by accident)."""
+    by accident).
+
+    `parent_ref` is WHERE the plan was checked (None = the tree's top level), put
+    there by `plan_mount_nodes` from its argument of the same name. It travels
+    WITH the plan so the writer can refuse to place the nodes anywhere else
+    (Т4.1(г) of the review: «the plan checked that place» was a promise in a
+    docstring until the plan started carrying the place itself)."""
     nodes: list[TreeNode] = field(default_factory=list)
     names: list[tuple[str, str]] = field(default_factory=list)   # (pad, name)
     refusals: list[str] = field(default_factory=list)
+    parent_ref: Optional[str] = None
 
     @property
     def ok(self) -> bool:
@@ -468,7 +501,7 @@ def plan_mount_nodes(template: str, rows: Sequence[MountRow], *,
         children" rule, run through `tree_from_dict` on the COPY with the
         candidates attached at `parent_ref`, so the refusal is the loader's own
         wording and the next Save cannot discover a rule this plan did not know."""
-    plan = MountPlan()
+    plan = MountPlan(parent_ref=parent_ref)
     if not address.role:
         plan.refusals.append(_(
             "the mounts cannot be addressed: no Role — a mount anchor is a role "

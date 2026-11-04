@@ -6440,7 +6440,35 @@ msgid ""
 " has no ref anchor to write"
 msgstr ""
 
-#: gui/docks/trees_mounts_flow.py:133
+#: gui/docks/trees_mounts_flow.py:127
+#, python-brace-format
+msgid ""
+"mounts are addressed by a Role — {ref!r} stands on a sheet that did not "
+"resolve, so its role anchor cannot name it"
+msgstr ""
+
+#: gui/docks/trees_mounts_flow.py:130
+msgid ""
+"open the profile's schematic (root_sheet / schematic_files) so the sheet "
+"names resolve, or pick a component whose sheet is known; without a sheet "
+"the anchor may land on a same-role part of another sheet"
+msgstr ""
+
+#: gui/docks/trees_mounts_flow.py:140
+#, python-brace-format
+msgid ""
+"{ref!r} is not addressed uniquely by its Role — the anchor the mounts "
+"would carry (role {role!r}, sheet {sheet!r}, cluster {cluster!r}) "
+"resolves to {other!r}"
+msgstr ""
+
+#: gui/docks/trees_mounts_flow.py:146
+msgid ""
+"narrow the anchor (its Sheet or Cluster), or pick the component the "
+"redraw actually finds"
+msgstr ""
+
+#: gui/docks/trees_mounts_flow.py:152
 msgid ""
 "the mounts table needs an instance: a Ref, or a Role with a sheet and a "
 "cluster"

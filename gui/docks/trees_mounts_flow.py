@@ -1,5 +1,5 @@
 # gui/docks/trees_mounts_flow.py
-"""Т4 of plan_2026_11_03_add_mounts_table — the READS and the WRITE of the
+"""Т4/Т4.1 of plan_2026_11_03_add_mounts_table — the READS and the WRITE of the
 mounts table, and nothing of its window (that is Т5).
 
 WHAT THIS MODULE ANSWERS, in one place:
@@ -7,33 +7,38 @@ WHAT THIS MODULE ANSWERS, in one place:
   * `resolve_instance` — WHICH instance the table is about (Д2). Given a Ref it
     reads that footprint's Role/Cluster and its sheet (the SAME two owners Д2
     names: the adapter for the field values, `sheet_names.sheet_of_names` for the
-    sheet); given a role anchor it resolves through `ComponentResolver.
-    resolve_anchor_fp` — the resolver `tree_position.mount_node_base` uses, so the
-    pads the table shows are the pads the redraw will find. A Ref on a footprint
-    WITHOUT a Role is refused in words, because the anchor written to the file is
-    always the role one (the anchor grammar is not touched by this задача).
-  * `read_pads` — the rows (`tree_mounts.pad_rows`) plus the instance-aware
-    «уже есть» map (`occupied_for_instance`).
+    sheet) and then PROVES that the role anchor it is about to write resolves back
+    to that very footprint (Т4.1(а)); given a role anchor it resolves through
+    `ComponentResolver.resolve_anchor_fp` — the resolver `tree_position.
+    mount_node_base` uses, so the pads the table shows are the pads the redraw
+    will find. A Ref on a footprint WITHOUT a Role is refused in words, because
+    the anchor written to the file is always the role one.
+  * `occupied_for_instance` — the instance-aware «уже есть» map (Т2.1(в)) over
+    PLAIN TUPLES from `tree_mounts.sitting_anchors`, never over the live Tree.
+  * `read_pads` / `run_read_pads_worker` — plain data in, plain data out; the
+    adapter is read from the CONNECTION on the worker thread.
   * `start_read_pads` — phase 1 on the WORKER through the door (`start_long_op`,
-    the shared kipy socket's only in-flight owner), with `socket_busy` checked
-    first (the same guard `cell_layers.py` uses: `start_long_op` does NOT refuse
-    while another owner holds the socket, and that owner's completion would
-    release OUR token mid-read).
-  * `write_plan` — attaching an approved `MountPlan` exactly where the plan
-    proved it, through the dock's own staging path (`_mark_dirty`, one writer).
+    the shared kipy socket's only in-flight owner), with `is_connected` and
+    `socket_busy` checked first (the same two guards `cell_layers.py` uses).
+  * `write_plan` — attaching an approved `MountPlan` exactly where the plan proved
+    it (`MountPlan.parent_ref`), through the dock's own staging path.
 
-THE ADAPTER IS THE DOCK'S OWN, TAKEN INSIDE THE WORKER (Д of the Т1 review, §12):
-`start_long_op` hands the CONNECTION over, and `connection.board.adapter` is read
-on the worker thread — the door's own rule (`gui/docks/explode_page.adapter_of`).
-This is not a style choice: a FRESH adapter cannot answer the resolve at all
-until `refresh_board()` loads the document — `get_selected_items()`, the first
+WHY THE WORKER GETS TUPLES AND NOT THE TREE (Т4.1(б)). `start_long_op` hands a
+payload to another thread; the dock keeps living while the read runs (only the
+dialog's button is disabled). An object the UI thread may mutate is therefore not
+plain data — `tree_mounts.sitting_anchors(tree)` is computed ON THE UI THREAD
+(pure tree walking, no board) and the worker only sees tuples it cannot share.
+
+THE ADAPTER IS THE DOCK'S OWN, TAKEN INSIDE THE WORKER (§12 of the Т1 review):
+`connection.board.adapter` is read on the worker thread — the door's own rule
+(`gui/docks/explode_page.adapter_of`). A FRESH adapter cannot answer the resolve at
+all until `refresh_board()` loads the document: `get_selected_items()`, the first
 call `resolve_footprint_by_role` makes, dies on it with
 `AttributeError: 'NoneType' object has no attribute 'document'` (measured in Т1).
-The dock already holds a loaded adapter, and it is the one this read uses.
 
-Qt-free at import on purpose: the reading half is plain data in, plain data out,
-so its cells need no window. The two Qt-touching seams (`start_long_op`,
-`adapter_of`) are imported INSIDE the functions that need them.
+Qt-free at import on purpose: the reading half is plain data in, plain data out, so
+its cells need no window. The Qt-touching seams (`start_long_op`, `adapter_of`) are
+imported INSIDE the functions that need them.
 """
 from __future__ import annotations
 
@@ -50,39 +55,21 @@ from kicadstamp.placement.services.component_resolver import (
 from kicadstamp.sheet_names import resolve_sheet_path_names, sheet_of_names
 from kicadstamp.tree_mounts import (
     MountPlan,
-    mount_nodes,
     pad_number,
     pad_rows,
-    sits_on_its_pad,
+    sitting_anchors,
 )
 
 logger = logging.getLogger(__name__)
 
 __all__ = [
-    "PADS_READ_SIGN",
     "occupied_for_instance",
     "read_pads",
     "resolve_instance",
+    "run_read_pads_worker",
     "start_read_pads",
     "write_plan",
 ]
-
-
-# ── The door sign ──────────────────────────────────────────────────────────
-#
-# A sign names WHY the read is on the worker and WHAT it costs, measured to the
-# leaves (deepseek.md §31). The numbers are Т1's live measurement
-# (probe_2026_11_03_mount_pads_read.py, HiPiMS-Controller-v099, 175 footprints,
-# 03.11.2026) plus Т4's own measurement of the instance-aware map.
-PADS_READ_SIGN = (
-    "read the board for the mounts table — ONE selection read plus the anchor "
-    "resolve (the same ComponentResolver the redraw uses), then ONE resolve per "
-    "mount of this tree that shares the instance's Role, so «уже есть» answers "
-    "about the INSTANCE and not merely about one spelling of the anchor. "
-    "Measured 03.11.2026: ~1 ms with the dock's warm adapter, 14.7-15.8 ms on a "
-    "fresh one; the 25 same-role mounts of the v103 FPGA tree add 3.1 ms "
-    "(median; a 2-mount tree 0.4 ms); the pads themselves are in memory "
-    "(0.8 ms for 145 pads), so nothing here is per-pad IPC")
 
 
 # ── Д2: which instance ─────────────────────────────────────────────────────
@@ -104,15 +91,25 @@ def resolve_instance(adapter, cfg, sheet_names, *, ref: Optional[str] = None,
 
     Two ways in (Д2), and they end in the SAME dict:
 
-      * `ref` — a way to FIND the instance: the Role/Cluster come from that
-        footprint's fields and the sheet from its own hierarchical chain, and the
-        ANCHOR WRITTEN to the file stays the role one. A footprint without a Role
-        is a refusal in words (the grammar has no ref-anchor for a mount, and this
-        задача does not change it);
+      * `ref` — a way to FIND the instance: Role/Cluster come from that footprint's
+        fields and the sheet from its own hierarchical chain; the ANCHOR WRITTEN to
+        the file stays the role one. A footprint without a Role is a refusal in
+        words (the grammar has no ref-anchor for a mount, and this задача does not
+        change it). A sheet that did not resolve is a refusal too, and so is an
+        anchor that lands on ANOTHER footprint — see the block comment below;
       * `role` (+ optional sheet/cluster) — the anchor itself, resolved by
         `ComponentResolver.resolve_anchor_fp`. Its refusals (not found, ambiguous
-        «уточни Sheet») are the resolver's own and are re-raised unchanged, so
-        this module never invents a second wording for them."""
+        «уточни Sheet») are the resolver's own and are re-raised unchanged, so this
+        module never invents a second wording for them.
+
+    WHY THE REF PATH RESOLVES ITS OWN ANCHOR (Т4.1(а)). The table shows the pads of
+    the footprint found by Ref, while the config receives `(role, sheet, cluster)`
+    built from that footprint's fields. Those two are the same footprint only if
+    that anchor is unambiguous — and it need not be: two instances of one role and
+    cluster on one sheet, or a sheet that did not resolve (`sheet_of_names` →
+    None). Without the check the table would happily list pads of IC1 while the
+    redraw went looking for IC2 — so the anchor is resolved once, with the SAME
+    resolver, and a mismatch is refused in words instead of written."""
     if ref:
         footprint = resolve_footprint_by_ref(adapter, ref, ref)
         found_role = adapter.get_field_value(footprint, ROLE_FIELD_NAME)
@@ -123,11 +120,33 @@ def resolve_instance(adapter, cfg, sheet_names, *, ref: Optional[str] = None,
                 [_("tag the component with a Role (Tools -> tree -> Tag selected) "
                    "or pick another component; a mount anchor is always a role "
                    "anchor, so the grammar has no ref anchor to write")]))
-        names = resolve_sheet_path_names(footprint, sheet_names or {})
-        return {"footprint": footprint, "ref": footprint.ref,
-                "role": found_role,
-                "cluster": adapter.get_field_value(footprint, CLUSTER_FIELD_NAME) or None,
-                "sheet": sheet_of_names(names)}
+        found_sheet = sheet_of_names(
+            resolve_sheet_path_names(footprint, sheet_names or {}))
+        if found_sheet is None:
+            raise ValidationError(format_fatal_error(
+                _("mounts are addressed by a Role — {ref!r} stands on a sheet that "
+                  "did not resolve, so its role anchor cannot name it").format(
+                    ref=footprint.ref),
+                [_("open the profile's schematic (root_sheet / schematic_files) so "
+                   "the sheet names resolve, or pick a component whose sheet is "
+                   "known; without a sheet the anchor may land on a same-role part "
+                   "of another sheet")]))
+        found_cluster = adapter.get_field_value(footprint, CLUSTER_FIELD_NAME) or None
+        landing = _resolver(adapter, cfg, sheet_names, snapshot, resolver) \
+            .resolve_anchor_fp(None, found_role, found_sheet, found_cluster,
+                               label=footprint.ref)
+        if getattr(landing, "ref", None) != footprint.ref:
+            raise ValidationError(format_fatal_error(
+                _("{ref!r} is not addressed uniquely by its Role — the anchor the "
+                  "mounts would carry (role {role!r}, sheet {sheet!r}, cluster "
+                  "{cluster!r}) resolves to {other!r}").format(
+                    ref=footprint.ref, role=found_role, sheet=found_sheet,
+                    cluster=found_cluster,
+                    other=getattr(landing, "ref", "?")),
+                [_("narrow the anchor (its Sheet or Cluster), or pick the component "
+                   "the redraw actually finds")]))
+        return {"footprint": footprint, "ref": footprint.ref, "role": found_role,
+                "cluster": found_cluster, "sheet": found_sheet}
     if not role:
         raise ValidationError(_(
             "the mounts table needs an instance: a Ref, or a Role with a sheet "
@@ -140,14 +159,18 @@ def resolve_instance(adapter, cfg, sheet_names, *, ref: Optional[str] = None,
 
 # ── Д6: «уже есть» — по ЭКЗЕМПЛЯРУ, не только по написанию якоря ─────────
 
-def occupied_for_instance(adapter, cfg, sheet_names, tree, *, role: str,
+def occupied_for_instance(adapter, cfg, sheet_names, anchors, *, role: str,
                           instance_ref: str, snapshot=None, resolver=None
                           ) -> dict[str, str]:
     """{pad number: mount ref} for the pads of THIS instance that already carry a
     mount standing on them (Т2.1(в), Т4).
 
-    Why this exists at all: `tree_mounts.mount_key` is STRUCTURAL on purpose — the
-    offline tool has no board — so `(role FPGA)(pad 1)` and
+    `anchors` are `tree_mounts.sitting_anchors(tree)` tuples —
+    `(ref, role, sheet, cluster, pad)` — so this function reads plain data and the
+    UI thread keeps its Tree (Т4.1(б)).
+
+    Why the map exists at all: `tree_mounts.mount_key` is STRUCTURAL on purpose —
+    the offline tool has no board — so `(role FPGA)(pad 1)` and
     `(role FPGA)(sheet FPGA)(cluster FPGA)(pad 1)` are two keys while on a board
     with one FPGA both are pad 1 of IC1. Д1а pre-fills Sheet/Cluster, so a NEW
     mount is written in full while Денис's older ones may be shorter; only a
@@ -155,41 +178,37 @@ def occupied_for_instance(adapter, cfg, sheet_names, tree, *, role: str,
 
     Two filters keep the map honest, both of them ОДНО правило из `tree_mounts`:
 
-      * `sits_on_its_pad` — a mount with an offset or a turn on that pad is a
+      * `sitting_anchors` — a mount with an offset or a turn on that pad is a
         different point and does not occupy the row (§16);
       * the mount's anchor must resolve to `instance_ref` — the same footprint the
         table is about. A mount of the SAME role on ANOTHER instance (channel 1 vs
         channel 0) must not grey a row here, and a mount of another role cannot
         name this footprint at all (a footprint has exactly one Role), so those
         are skipped WITHOUT a resolve — that skip is what keeps the cost at "the
-        mounts of this tree that share the role" (~3 ms for 25, Т4 measurement).
+        mounts of this tree that share the role".
 
     An anchor that does not resolve (a stale record, a channel whose sheet no
     longer exists) is SKIPPED, not fatal: this map only greys rows, and the plan's
     own rules still guard the write."""
     resolve_fp = _resolver(adapter, cfg, sheet_names, snapshot, resolver)
     out: dict[str, str] = {}
-    for node in mount_nodes(tree):
-        if not sits_on_its_pad(node):
-            continue
-        anchor = getattr(node, "anchor", None)
-        if anchor is None or anchor.role != role or not anchor.anchor_pad:
+    for ref, anchor_role, anchor_sheet, anchor_cluster, pad in anchors or ():
+        if anchor_role != role:
             continue
         try:
             footprint = resolve_fp.resolve_anchor_fp(
-                None, anchor.role, anchor.anchor_sheet, anchor.anchor_cluster,
-                label=node.ref)
+                None, anchor_role, anchor_sheet, anchor_cluster, label=ref)
         except ValidationError:
             continue
         if getattr(footprint, "ref", None) != instance_ref:
             continue
-        out.setdefault(pad_number(anchor.anchor_pad), node.ref)
+        out.setdefault(pad_number(pad), ref)
     return out
 
 
 # ── the read itself (worker side) ──────────────────────────────────────────
 
-def read_pads(adapter, cfg, sheet_names, tree, *, ref=None, role=None,
+def read_pads(adapter, cfg, sheet_names, anchors, *, ref=None, role=None,
               cluster=None, sheet=None, snapshot=None, resolver=None) -> dict:
     """Plain data: the instance (without its footprint object) and the table's
     rows + the instance-aware «уже есть» map. Never touches a widget."""
@@ -198,7 +217,7 @@ def read_pads(adapter, cfg, sheet_names, tree, *, ref=None, role=None,
                                 resolver=resolver)
     rows = pad_rows(adapter.get_footprint_pads(instance["footprint"]))
     occupied = occupied_for_instance(
-        adapter, cfg, sheet_names, tree, role=instance["role"],
+        adapter, cfg, sheet_names, anchors, role=instance["role"],
         instance_ref=instance["ref"], snapshot=snapshot, resolver=resolver)
     return {"instance": {key: value for key, value in instance.items()
                          if key != "footprint"},
@@ -208,10 +227,25 @@ def read_pads(adapter, cfg, sheet_names, tree, *, ref=None, role=None,
 def run_read_pads_worker(payload: dict) -> dict:
     """`start_long_op` worker entry — plain data in, plain data out.
 
-    The CONNECTION travels in the payload and the adapter is read from it HERE,
-    on the worker thread (see the module docstring: a fresh adapter would not even
-    answer the resolve). `cfg`, `tree` and `sheet_names` ride along because the
-    read needs the tree's own mounts for the «уже есть» map."""
+    The CONNECTION travels in the payload and the adapter is read from it HERE, on
+    the worker thread (see the module docstring: a fresh adapter would not even
+    answer the resolve). `anchors` ride along as TUPLES from
+    `sitting_anchors(tree)` — no Tree, no TreeNode crosses threads.
+
+    WHAT THIS COSTS, measured 03.11.2026 (probe_2026_11_03_mount_pads_read,
+    HiPiMS-Controller-v099, 175 footprints) and again for Т4:
+
+      * with the dock's warm adapter the whole read is ~1 ms; on a FRESH adapter
+        14.7-15.8 ms, almost all of it the first IPC round trip of the resolve;
+      * the pads themselves are in memory — 0.8 ms for 145 pads, never per-pad IPC;
+      * «уже есть» adds ONE resolve per mount of this tree that shares the role:
+        25 such mounts (the v103 FPGA tree) cost 3.1 ms median, a 2-mount tree
+        0.4 ms — i.e. ~0.2 ms per mount that actually resolves (the ones that do
+        not — roles this board does not carry — are cheaper, ~0.12 ms, because the
+        resolver fails fast on an empty candidate list);
+      * a REF-addressed read spends ONE more resolve proving its own anchor
+        (Т4.1(а)) — the same call, so ~0.2 ms warm; a role-addressed read needs no
+        extra one (the anchor IS what it resolved)."""
     from .explode_page import adapter_of
 
     adapter = adapter_of(payload["connection"])
@@ -219,7 +253,7 @@ def run_read_pads_worker(payload: dict) -> dict:
         raise ValidationError(_(
             "the mounts table cannot be read: there is no board connection"))
     return read_pads(adapter, payload["cfg"], payload["sheet_names"],
-                     payload["tree"], ref=payload.get("ref"),
+                     payload["anchors"], ref=payload.get("ref"),
                      role=payload.get("role"), cluster=payload.get("cluster"),
                      sheet=payload.get("sheet"),
                      snapshot=payload.get("snapshot"),
@@ -233,19 +267,30 @@ def start_read_pads(connection, *, cfg, sheet_names, tree, ref=None, role=None,
     then runs on the UI thread with the worker stopped (the shape `cell_layers.py`
     documents for its own two phases).
 
+    Nothing is started — and nothing is shown — when there is no live connection
+    or another operation already holds the shared kipy socket: `start_long_op` does
+    NOT refuse on a busy socket, and the other owner's completion would release OUR
+    token mid-read (the same two guards `cell_layers.start_*` makes, Т4.1(д)). Both
+    refusals are a Log line, never a modal.
+
     `widgets` are the caller's guard widgets (the dialog's button): disabled while
     the read runs, so the same read cannot be started twice. Returns the
-    LongOpController, or None when nothing was started (another operation holds
-    the shared kipy socket — then nothing is read and nothing is shown)."""
+    LongOpController, or None when nothing was started.
+
+    `tree` is read HERE, on the UI thread, and only through
+    `sitting_anchors(tree)` — the worker gets tuples (Т4.1(б))."""
     from ..worker import socket_busy, start_long_op
 
+    if not getattr(connection, "is_connected", False):
+        logger.info("Read pads refused: there is no live board connection")
+        return None
     if socket_busy(connection):
         logger.info("Read pads refused: another long operation already holds the "
                     "shared kipy socket")
         return None
     payload = {"connection": connection, "cfg": cfg, "sheet_names": sheet_names,
-               "tree": tree, "ref": ref, "role": role, "cluster": cluster,
-               "sheet": sheet, "snapshot": snapshot}
+               "anchors": sitting_anchors(tree), "ref": ref, "role": role,
+               "cluster": cluster, "sheet": sheet, "snapshot": snapshot}
     return start_long_op(
         connection, widgets, run_read_pads_worker, on_ready,
         on_error if on_error is not None else _log_read_failure, payload,
@@ -263,14 +308,24 @@ def write_plan(dock, tree, parent_node, plan: MountPlan) -> int:
     """Attach the approved nodes EXACTLY where the plan proved them (Д1), through
     the dock's own staging path, and return how many were written.
 
-    Refused plan → NOTHING is written (Д7 «всё или ничего»); the caller shows
-    `plan.refusals`. `parent_node` must be the node whose ref the plan was given as
-    `parent_ref` — the plan checked the loader's verdict AT THAT PLACE, and
-    writing elsewhere would be a promise this function cannot keep.
+    Two refusals write NOTHING and stage NOTHING:
+
+      * a refused plan (Д7 «всё или ничего») — the caller shows `plan.refusals`;
+      * a `parent_node` that is not the place the plan was checked at. `MountPlan.
+        parent_ref` carries that place, and a mismatch means the loader's verdict
+        was asked about another spot — the promise would be false, so it is a red
+        Log line and 0 (Т4.1(г)).
 
     One `_mark_dirty()` for the whole batch: the staging path serialises the whole
     tree anyway, so N nodes cost the same as one (Т1, §7.2)."""
     if not plan.ok:
+        return 0
+    actual = None if parent_node is None else getattr(parent_node, "ref", None)
+    if plan.parent_ref != actual:
+        logger.error(
+            "Mounts not written: the plan was checked under parent %r but is "
+            "being written under %r — nothing was written",
+            plan.parent_ref, actual)
         return 0
     target = tree.nodes if parent_node is None else parent_node.children
     target.extend(plan.nodes)

@@ -34,6 +34,7 @@ from kicadstamp.tree_mounts import (
     pad_number,
     pad_rows,
     plan_mount_nodes,
+    sitting_anchors,
     sits_on_its_pad,
 )
 from kicadstamp.trees import Tree, TreeAnchor, TreeNode
@@ -239,6 +240,29 @@ class TestSitsOnItsPad:
         record = TreeNode(ref="R1", kind="placement", xy=None, polar=None,
                           rotation=0.0, name=None, group=None, children=[])
         assert not sits_on_its_pad(record)
+
+
+class TestSittingAnchors:
+    """Т4.1(б): the PLAIN DATA a worker may hold — the mounts that stand on their
+    pad, as tuples, so no Tree crosses a thread while the dock keeps working."""
+
+    def test_only_mounts_standing_on_their_pad_with_a_pad(self):
+        tree = _tree(_mount("mnt_117", pad="117", xy=(0.0, 0.0)),
+                     _mount("moved", pad="130", xy=(1.0, 0.0)),
+                     _mount("turned", pad="5", rotation=90.0),
+                     _mount("no_pad", pad=None),
+                     _mount("deep", pad="9", children=[_mount("nested", pad="10")]))
+        assert sitting_anchors(tree) == (
+            ("mnt_117", "FPGA", "FPGA", "FPGA", "117"),
+            ("deep", "FPGA", "FPGA", "FPGA", "9"),
+            ("nested", "FPGA", "FPGA", "FPGA", "10"),
+        )
+
+    def test_the_result_is_immutable_and_flat(self):
+        """A tuple of tuples: nothing the UI thread can mutate under a worker."""
+        anchors = sitting_anchors(_tree(_mount("mnt_1", pad="1")))
+        assert isinstance(anchors, tuple)
+        assert all(isinstance(item, tuple) for item in anchors)
 
 
 # ── 2. строки таблицы ──────────────────────────────────────────────────────
