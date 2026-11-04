@@ -44,7 +44,6 @@ from kicadstamp.link_trees import (
     _PLACEABLE_KINDS,
     _build_by_key_index,
     _build_by_name_index,
-    _resolve_anchor_ref,
     _resolve_node_ref,
     link_trees,
 )
@@ -52,13 +51,11 @@ from kicadstamp.tree_position import (
     MountFrames,
     _anchor_base_live_position,
     _root_entity_ref,
-    _snap_mm,
     board_offset_to_local_mm,
     board_rotation_to_local_deg,
     local_offset_to_board_mm,
     local_rotation_to_board_deg,
     mount_node_poses,
-    node_position,
     rotate_offset_mm,
     tree_layout_base,
     tree_pivot_offset,
@@ -71,8 +68,7 @@ from kicadstamp.placement.services.component_resolver import (
     resolve_anchor_pad_position,
 )
 from kicadstamp.placement.anchor_identity import entity_is_self_anchor
-from kicadstamp.placement.services.point_resolver import resolve_point_chain
-from kicadstamp.trees import (KINDS, RECORD_KINDS, Tree, TreeAnchor,
+from kicadstamp.trees import (RECORD_KINDS, Tree, TreeAnchor,
                               TreeNode, _mount_ancestor_of, _walk_nodes,
                               node_kind_label,
                               tree_pivot_ref_candidates,
@@ -91,6 +87,7 @@ from .trees_move_flow import (RehangPlan, _MOVE_OFFSET_REFUSED,
                               reexpress_offset, run_group_move, run_single_move)
 from .trees_dnd import make_node_tree_widget
 from .trees_delete import delete_action_text, run_delete_nodes
+from .trees_mounts_launch import open_mounts_for
 # The overlay NAMES (the tree's anchor/base circles and a mount node's point/base
 # pair) and the tree-marker WORKER live in trees_markers.py — the "giants only
 # shrink" rule of the Ч1-А доделка moved them out of this file. Re-exported
@@ -1785,11 +1782,6 @@ class TreesDock(QWidget):
     # _build_anchor_form/_build_node_form use), so inactive pages stay cheap and
     # no N live widget trees are kept around.
 
-    def _active_page_splitter(self) -> Optional[QSplitter]:
-        """The QSplitter of the CURRENT page, or None (placeholder/no tree)."""
-        page = self.tree_tabs.currentWidget()
-        return page if isinstance(page, QSplitter) else None
-
     @staticmethod
     def _form_panel_of_page(widget) -> Optional[QStackedWidget]:
         """The right-hand form PANEL of ANY page widget — the page-level
@@ -2541,6 +2533,8 @@ class TreesDock(QWidget):
                 lambda: self._add_child_flow(tree, node))
             menu.addAction(_("Add sibling")).triggered.connect(
                 lambda: self._add_sibling_flow(tree, node))
+            menu.addAction(_("Add mounts…")).triggered.connect(
+                lambda: open_mounts_for(self, tree, node))
             menu.addAction(_("Reread current position")).triggered.connect(
                 lambda: self._reread_node_flow(tree, node))
             # §3.3: 'Edit node…' no longer opens the modal — a single click on
@@ -2596,6 +2590,8 @@ class TreesDock(QWidget):
             # Z.2), which makes the right-hand panel show the anchor form.
             menu.addAction(_("Add node")).triggered.connect(
                 lambda: self._add_node_flow(tree))
+            menu.addAction(_("Add mounts…")).triggered.connect(
+                lambda: open_mounts_for(self, tree, None))
             menu.addAction(_("Set anchor…")).triggered.connect(
                 lambda: self._select_anchor_row(tree))
             menu.addSeparator()

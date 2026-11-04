@@ -47,9 +47,10 @@ import logging
 from typing import Optional
 
 from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import (QAbstractItemView, QDialog, QDialogButtonBox,
-                             QHBoxLayout, QLabel, QLineEdit, QPushButton,
-                             QTableWidget, QTableWidgetItem, QVBoxLayout)
+from PyQt6.QtWidgets import (QAbstractItemView, QCompleter, QDialog,
+                             QDialogButtonBox, QHBoxLayout, QLabel, QLineEdit,
+                             QPushButton, QTableWidget, QTableWidgetItem,
+                             QVBoxLayout)
 
 from kicadstamp.exceptions import ValidationError
 from kicadstamp.i18n import _
@@ -80,7 +81,8 @@ class MountsDialog(QDialog):
     def __init__(self, parent=None, *, dock, connection, cfg, sheet_names,
                  tree_name: str, parent_ref: Optional[str] = None,
                  ref: Optional[str] = None, role: Optional[str] = None,
-                 cluster: Optional[str] = None, sheet: Optional[str] = None):
+                 cluster: Optional[str] = None, sheet: Optional[str] = None,
+                 role_choices=()):
         super().__init__(parent)
         self.setWindowTitle(_("Add mounts…"))
         # MODELESS (Д-4): the dock stays usable, and this window survives a reload —
@@ -106,6 +108,10 @@ class MountsDialog(QDialog):
         # must never overwrite it (§24 б).
         self._refusal = False
 
+        # Д1а: the roles of the cell the window was opened on — SUGGESTIONS for the
+        # Role field (a completer, not a closed list: free text stays legal, the
+        # same populate-don't-restrict rule the node dialog's pickers follow).
+        self._role_choices = tuple(role_choices or ())
         self._build_ui(ref=ref, role=role, cluster=cluster, sheet=sheet)
         self.retranslate()
 
@@ -119,6 +125,8 @@ class MountsDialog(QDialog):
         self.role_edit = QLineEdit(role or "")
         self.sheet_edit = QLineEdit(sheet or "")
         self.cluster_edit = QLineEdit(cluster or "")
+        if self._role_choices:
+            self.role_edit.setCompleter(QCompleter(list(self._role_choices), self))
         for label, widget in ((_("Ref:"), self.ref_edit), (_("Role:"), self.role_edit),
                               (_("Sheet:"), self.sheet_edit),
                               (_("Cluster:"), self.cluster_edit)):
@@ -322,10 +330,15 @@ class MountsDialog(QDialog):
             return
         self.read_button.setEnabled(False)
         self.status_label.setText(_("reading…"))
+        # §26 (Т5.1 review): the ADDRESS FIELDS are guard widgets too — a field edited
+        # while the read runs would label the incoming rows with the wrong address.
+        # The same LongOpController greys them and gives them back (and a window that
+        # dies meanwhile is skipped, Т5.1а).
         self._active_op = trees_mounts_flow.start_read_pads(
             self._connection, cfg=self._cfg, sheet_names=self._sheet_names,
-            tree=tree, widgets=(self.read_button,), on_ready=self.filled,
-            on_error=self._tell, **self._address_kwargs())
+            tree=tree, widgets=(self.read_button, self.ref_edit, self.role_edit,
+                                self.sheet_edit, self.cluster_edit),
+            on_ready=self.filled, on_error=self._tell, **self._address_kwargs())
         if self._active_op is None:
             # Nothing was started (no board, or another operation holds the socket):
             # the status line already says why in the Log; the button comes back.
@@ -426,7 +439,7 @@ class MountsDialog(QDialog):
 
 def open_mounts_dialog(parent, *, dock, connection, cfg, sheet_names, tree_name,
                        parent_ref=None, ref=None, role=None, cluster=None,
-                       sheet=None) -> MountsDialog:
+                       sheet=None, role_choices=()) -> MountsDialog:
     """Build the window, connect it to the dock's lifetime and SHOW it (modeless).
 
     Returns the dialog so a caller (and a cell) can talk to it; the window deletes
@@ -434,7 +447,7 @@ def open_mounts_dialog(parent, *, dock, connection, cfg, sheet_names, tree_name,
     dialog = MountsDialog(parent, dock=dock, connection=connection, cfg=cfg,
                           sheet_names=sheet_names, tree_name=tree_name,
                           parent_ref=parent_ref, ref=ref, role=role,
-                          cluster=cluster, sheet=sheet)
+                          cluster=cluster, sheet=sheet, role_choices=role_choices)
     dialog.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
     dialog.show()
     return dialog

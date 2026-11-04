@@ -125,6 +125,18 @@ class TestTheWindow:
         assert labels[1:4] == ["Pad", "Net", "Ref"]
         assert labels[0] == ""
 
+    def test_the_role_field_offers_the_cells_roles(self, dialog):
+        """Д1а: the roles of the cell the click came from — SUGGESTIONS only (a
+        completer, so free text stays legal)."""
+        window = dialog(role="FPGA", role_choices=["VCCAUX", "FPGA"])
+        completer = window.role_edit.completer()
+        assert completer is not None
+        assert [completer.completionModel().index(row, 0).data()
+                for row in range(completer.completionCount())] == ["VCCAUX", "FPGA"]
+
+    def test_without_choices_the_role_field_is_a_plain_field(self, dialog):
+        assert dialog().role_edit.completer() is None
+
     def test_no_window_for_a_refusal(self, dialog, caplog):
         """Rule 43: every refusal is a line in the window AND the Log."""
         window = dialog()
@@ -239,7 +251,11 @@ class TestReadPads:
         window.read_pads()
         assert captured["tree"] is dock._trees[0]
         assert captured["on_ready"] == window.filled
-        assert captured["widgets"] == (window.read_button,)
+        # §26 of the Т5.1 review: the ADDRESS FIELDS ride along as guard widgets, so a
+        # field cannot be edited while the read that names its rows is in flight.
+        assert captured["widgets"] == (window.read_button, window.ref_edit,
+                                       window.role_edit, window.sheet_edit,
+                                       window.cluster_edit)
         assert window.read_button.isEnabled() is False
         assert window.status_label.text() == "reading…"
 
@@ -252,6 +268,25 @@ class TestReadPads:
         window.read_pads()
         assert started == []
         assert "gone" in window.status_label.text()
+
+    def test_the_address_fields_are_greyed_out_while_the_read_runs(self, qtbot,
+                                                                   monkeypatch):
+        """§26 of the Т5.1 review: a field edited mid-read would label the incoming rows
+        with the address of a DIFFERENT part. The same LongOpController greys the four
+        fields and gives them back once the read lands."""
+        monkeypatch.setattr(trees_mounts_flow, "run_read_pads_worker",
+                            lambda payload: (time.sleep(0.2), _result())[1])
+        window = open_mounts_dialog(None, dock=_Dock(_tree()), connection=_LiveConn(),
+                                    cfg=None, sheet_names={}, tree_name="fpga",
+                                    ref="IC1")
+        window.read_pads()
+        assert [w.isEnabled() for w in (window.ref_edit, window.role_edit,
+                                        window.sheet_edit, window.cluster_edit)] \
+            == [False, False, False, False]
+        qtbot.waitUntil(lambda: bool(window.rows), timeout=5000)
+        assert [w.isEnabled() for w in (window.ref_edit, window.role_edit,
+                                        window.sheet_edit, window.cluster_edit)] \
+            == [True, True, True, True]
 
     def test_nothing_started_says_so(self, dialog, monkeypatch):
         """No board / busy socket: `start_read_pads` returns None — the button comes

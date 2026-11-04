@@ -6428,62 +6428,62 @@ msgid ""
 "coordinates, which now mean a different place."
 msgstr ""
 
-#: gui/docks/trees_mounts_dialog.py:85
+#: gui/docks/trees_mounts_dialog.py:87
 msgid "Add mounts…"
 msgstr ""
 
-#: gui/docks/trees_mounts_dialog.py:134
+#: gui/docks/trees_mounts_dialog.py:142
 msgid "Net contains…"
 msgstr ""
 
-#: gui/docks/trees_mounts_dialog.py:136
+#: gui/docks/trees_mounts_dialog.py:144
 msgid "Mark all visible"
 msgstr ""
 
-#: gui/docks/trees_mounts_dialog.py:159
+#: gui/docks/trees_mounts_dialog.py:167
 msgid "Read pads"
 msgstr ""
 
-#: gui/docks/trees_mounts_dialog.py:171
+#: gui/docks/trees_mounts_dialog.py:179
 msgid "Pad"
 msgstr ""
 
-#: gui/docks/trees_mounts_dialog.py:171
+#: gui/docks/trees_mounts_dialog.py:179
 msgid "«Already there»"
 msgstr ""
 
-#: gui/docks/trees_mounts_dialog.py:235
+#: gui/docks/trees_mounts_dialog.py:243
 #, python-brace-format
 msgid "ticked {chosen}, {hidden} of them hidden by the filter"
 msgstr ""
 
-#: gui/docks/trees_mounts_dialog.py:260
+#: gui/docks/trees_mounts_dialog.py:268
 #, python-brace-format
 msgid "this number is carried by pads on DIFFERENT nets: {nets}"
 msgstr ""
 
-#: gui/docks/trees_mounts_dialog.py:320
+#: gui/docks/trees_mounts_dialog.py:328
 #, python-brace-format
 msgid "tree {name!r} is gone — reopen the mounts table"
 msgstr ""
 
-#: gui/docks/trees_mounts_dialog.py:324
+#: gui/docks/trees_mounts_dialog.py:332
 msgid "reading…"
 msgstr ""
 
-#: gui/docks/trees_mounts_dialog.py:333
+#: gui/docks/trees_mounts_dialog.py:346
 msgid "nothing was read — see the Log"
 msgstr ""
 
-#: gui/docks/trees_mounts_dialog.py:368
+#: gui/docks/trees_mounts_dialog.py:381
 msgid "read the pads first — the anchor is taken from the instance that read them"
 msgstr ""
 
-#: gui/docks/trees_mounts_dialog.py:389
+#: gui/docks/trees_mounts_dialog.py:402
 msgid "nothing was written — the mounts did not reach the tree"
 msgstr ""
 
-#: gui/docks/trees_mounts_dialog.py:424
+#: gui/docks/trees_mounts_dialog.py:437
 msgid "the address changed — read the pads again"
 msgstr ""
 

@@ -371,12 +371,15 @@ def test_copper_node_menu_is_exactly_the_three_useful_actions(
 
 
 def test_plain_node_menu_is_unchanged(main_window, tmp_path, monkeypatch):
-    """Т1.5.6 (other half): an ordinary node's menu keeps every action it had."""
+    """Т1.5.6 (other half): an ordinary node's menu keeps every action it had —
+    plus «Add mounts…» (Т6 of plan_2026_11_03_add_mounts_table, Д1: a node's mounts
+    become its children), which sits right after the two "add" items."""
     dock, _root = _dock_with(main_window, tmp_path, [
         {"ref": "dac_buf_channel_0", "kind": "external", "xy": [0.0, 0.0]}])
     item = dock._node_items["dac_buf_channel_0"]
     labels = _context_menu_labels(dock, item, monkeypatch)
-    assert labels == ["Add child", "Add sibling", "Reread current position",
+    assert labels == ["Add child", "Add sibling", "Add mounts…",
+                      "Reread current position",
                       "Edit node…", "Delete node", "Rename…", "Move to…"]
 
 
