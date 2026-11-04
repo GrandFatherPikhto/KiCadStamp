@@ -22,6 +22,11 @@ WHAT THE WINDOW SHOWS (Д2–Д6):
   and shows the existing node's ref in the last column (Д6); the plan refuses such
   a pad anyway, so the greying is a courtesy and the rule is enforced below.
 * The NET is read-only and only filters (rule 26: nets are never edited here).
+* A TICK outlives the filter (§24 б): «Net contains…» narrows what is SHOWN, so the
+  status line says «ticked N, M of them hidden by the filter» and OK writes them all.
+* Editing the ADDRESS after a read DROPS that read (§24 в), and a result that comes
+  back after the window is closed is dropped too (§24 а) — the read runs on a worker,
+  so both can happen while this window is gone.
 
 WHAT IT WRITES, AND WHY IT HOLDS NAMES AND NOT OBJECTS (§23 of the review). The
 window is modeless, so it lives longer than one tick: while it is open the user can
@@ -51,6 +56,7 @@ from kicadstamp.i18n import _
 from kicadstamp.tree_mounts import (MountAddress, MountRow, filter_rows,
                                     mount_name, node_with_ref, plan_mount_nodes)
 
+from ..worker import qt_object_gone
 from . import trees_mounts_flow
 
 logger = logging.getLogger(__name__)
@@ -96,6 +102,9 @@ class MountsDialog(QDialog):
         self._checked: set[str] = set()
         self._edited: dict[str, str] = {}
         self._filling = False
+        # True while a REFUSAL owns the status area — the courtesy line about ticks
+        # must never overwrite it (§24 б).
+        self._refusal = False
 
         self._build_ui(ref=ref, role=role, cluster=cluster, sheet=sheet)
         self.retranslate()
@@ -115,6 +124,7 @@ class MountsDialog(QDialog):
                               (_("Cluster:"), self.cluster_edit)):
             address.addWidget(QLabel(label))
             address.addWidget(widget, 1)
+            widget.textChanged.connect(self._on_address_changed)
         layout.addLayout(address)
 
         naming = QHBoxLayout()
@@ -167,9 +177,19 @@ class MountsDialog(QDialog):
         return filter_rows(self.rows, self.net_filter_edit.text())
 
     def selected_pads(self) -> list[str]:
-        """Ticked pads among the VISIBLE rows — what OK will create (Д7)."""
-        return [row.pad for row in self.visible_rows()
+        """Every TICKED pad, visible or not — what OK will create (Д7, §24 б).
+
+        The net filter narrows what is SHOWN and nothing else: a pad ticked under
+        one filter must not be lost by typing another one. A taken pad is never
+        selected, however it got ticked (Д6)."""
+        return [row.pad for row in self.rows
                 if row.pad in self._checked and row.pad not in self.occupied]
+
+    def hidden_ticked(self) -> int:
+        """How many ticked pads the net filter currently hides from the table."""
+        visible = {row.pad for row in self.visible_rows()}
+        return sum(1 for pad in self._checked
+                   if pad not in visible and pad not in self.occupied)
 
     def _tree(self):
         """The dock's tree by NAME, at the moment of use (§23) — None if it is gone."""
@@ -201,8 +221,20 @@ class MountsDialog(QDialog):
         except ValidationError as exc:
             self._tell(str(exc).strip().splitlines()[0])
         else:
-            if self.rows:
-                self.status_label.setText("")
+            # NOT `self._refusal = False` here: a refusal (of the template, of OK) is
+            # cleared by the action that ANSWERS it — a new read, a tick, an edit of
+            # the template — never by a mere rebuild (§24 б).
+            self._update_tick_status()
+
+    def _update_tick_status(self) -> None:
+        """Say what the filter hides from the ticks — never over a refusal (§24 б)."""
+        if self._refusal:
+            return
+        hidden = self.hidden_ticked()
+        self.status_label.setText(
+            _("ticked {chosen}, {hidden} of them hidden by the filter").format(
+                chosen=len(self.selected_pads()), hidden=hidden)
+            if hidden else "")
 
     def _append_row(self, row: MountRow) -> None:
         index = self.table.rowCount()
@@ -253,6 +285,8 @@ class MountsDialog(QDialog):
                 self._checked.add(pad)
             else:
                 self._checked.discard(pad)
+            self._refusal = False      # the user answered the refusal by ticking
+            self._update_tick_status()
             return
         if item.column() == _COLUMN_REF:
             text = item.text().strip()
@@ -270,9 +304,12 @@ class MountsDialog(QDialog):
                 self._checked.add(row.pad)
             else:
                 self._checked.discard(row.pad)
+        if checked:
+            self._refusal = False          # marking IS the answer to "nothing is ticked"
         self._rebuild()
 
     def _on_template_changed(self, _text: str) -> None:
+        self._refusal = False              # the user is answering the template complaint
         self._rebuild()
 
     # ── «Read pads» (phase 1, on the worker) ──────────────────────────────
@@ -305,6 +342,9 @@ class MountsDialog(QDialog):
 
     def filled(self, result: dict) -> None:
         """Phase 2 (UI thread, worker stopped): the table fills IN THIS WINDOW."""
+        if self._window_gone():
+            logger.info("mounts: the pads arrived after the window was closed — dropped")
+            return
         self.read_button.setEnabled(True)
         self.status_label.setText("")
         self.rows = list(result.get("rows") or [])
@@ -312,6 +352,7 @@ class MountsDialog(QDialog):
         self.instance = dict(result.get("instance") or {})
         self._checked.clear()
         self._edited.clear()
+        self._refusal = False
         self._rebuild()
 
     # ── OK ────────────────────────────────────────────────────────────────
@@ -352,8 +393,35 @@ class MountsDialog(QDialog):
 
     def _tell(self, text: str) -> None:
         """One red line in the window AND in the Log — never a modal (rule 43)."""
+        if self._window_gone():
+            logger.info("mounts: %s (the window is closed — the Log only)", text)
+            return
+        self._refusal = True
         logger.error(text)
         self.status_label.setText(text)
+
+    def _window_gone(self) -> bool:
+        """True once Qt has deleted this window (`WA_DeleteOnClose`).
+
+        The read runs on a worker, so its result may come back AFTER the user closed
+        the window (§24 а): touching a dead widget raises, and that is not an error
+        in the operation — it is a result nobody wants any more."""
+        return qt_object_gone(self)
+
+    def _on_address_changed(self, _text: str = "") -> None:
+        """The address was edited AFTER a read — that read is about a DIFFERENT part.
+
+        §24 в: the rows, the instance and «уже есть» all describe the address the pads
+        were read at, so they go, and OK says «read the pads first» until a new read."""
+        if not self.instance and not self.rows:
+            return
+        self.rows = []
+        self.occupied = {}
+        self.instance = {}
+        self._checked.clear()
+        self._edited.clear()
+        self._rebuild()
+        self._tell(_("the address changed — read the pads again"))
 
 
 def open_mounts_dialog(parent, *, dock, connection, cfg, sheet_names, tree_name,

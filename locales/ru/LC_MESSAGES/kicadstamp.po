@@ -6843,57 +6843,66 @@ msgstr ""
 "Перевесить {ref!r} БЕЗ пересчёта смещения? Останутся сохранённые "
 "координаты, которые теперь означают другое место."
 
-#: gui/docks/trees_mounts_dialog.py:79
+#: gui/docks/trees_mounts_dialog.py:85
 msgid "Add mounts…"
 msgstr "Добавить маунты…"
 
-#: gui/docks/trees_mounts_dialog.py:124
+#: gui/docks/trees_mounts_dialog.py:134
 msgid "Net contains…"
 msgstr "Сеть содержит…"
 
-#: gui/docks/trees_mounts_dialog.py:126
+#: gui/docks/trees_mounts_dialog.py:136
 msgid "Mark all visible"
 msgstr "Отметить видимые"
 
-#: gui/docks/trees_mounts_dialog.py:149
+#: gui/docks/trees_mounts_dialog.py:159
 msgid "Read pads"
 msgstr "Прочитать пады"
 
-#: gui/docks/trees_mounts_dialog.py:161
+#: gui/docks/trees_mounts_dialog.py:171
 msgid "Pad"
 msgstr "Пад"
 
-#: gui/docks/trees_mounts_dialog.py:161
+#: gui/docks/trees_mounts_dialog.py:171
 msgid "«Already there»"
 msgstr "«Уже есть»"
 
-#: gui/docks/trees_mounts_dialog.py:228
+#: gui/docks/trees_mounts_dialog.py:235
+#, python-brace-format
+msgid "ticked {chosen}, {hidden} of them hidden by the filter"
+msgstr "отмечено {chosen}, из них скрыто фильтром {hidden}"
+
+#: gui/docks/trees_mounts_dialog.py:260
 #, python-brace-format
 msgid "this number is carried by pads on DIFFERENT nets: {nets}"
 msgstr "этот номер несут пады на РАЗНЫХ сетях: {nets}"
 
-#: gui/docks/trees_mounts_dialog.py:283
+#: gui/docks/trees_mounts_dialog.py:320
 #, python-brace-format
 msgid "tree {name!r} is gone — reopen the mounts table"
 msgstr "дерева {name!r} больше нет — откройте таблицу маунтов заново"
 
-#: gui/docks/trees_mounts_dialog.py:287
+#: gui/docks/trees_mounts_dialog.py:324
 msgid "reading…"
 msgstr "чтение…"
 
-#: gui/docks/trees_mounts_dialog.py:296
+#: gui/docks/trees_mounts_dialog.py:333
 msgid "nothing was read — see the Log"
 msgstr "ничего не прочитано — смотри Лог"
 
-#: gui/docks/trees_mounts_dialog.py:327
+#: gui/docks/trees_mounts_dialog.py:368
 msgid "read the pads first — the anchor is taken from the instance that read them"
 msgstr ""
 "сначала прочитайте пады — якорь берётся у того экземпляра, который их "
 "прочитал"
 
-#: gui/docks/trees_mounts_dialog.py:348
+#: gui/docks/trees_mounts_dialog.py:389
 msgid "nothing was written — the mounts did not reach the tree"
 msgstr "ничего не записано — маунты не дошли до дерева"
+
+#: gui/docks/trees_mounts_dialog.py:424
+msgid "the address changed — read the pads again"
+msgstr "адрес изменён — прочитайте пады заново"
 
 #: gui/docks/trees_mounts_flow.py:121
 #, python-brace-format

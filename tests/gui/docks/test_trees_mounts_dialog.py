@@ -16,11 +16,17 @@ and EVERY refusal is a line in the window's status area plus the Log.
 No board, no dock, no config: the window is driven through its own API, which is
 exactly how Т6 will drive it.
 """
+import sys
+import time
+
 import pytest
+from PyQt6 import sip
 from PyQt6.QtCore import Qt
 
+import gui.worker as worker_mod
 from gui.docks import trees_mounts_dialog as dialog_mod
-from gui.docks.trees_mounts_dialog import MountsDialog
+from gui.docks import trees_mounts_flow
+from gui.docks.trees_mounts_dialog import MountsDialog, open_mounts_dialog
 from kicadstamp.tree_mounts import MountRow
 from kicadstamp.trees import Tree, TreeAnchor, TreeNode
 
@@ -54,6 +60,11 @@ def _rows():
     return [MountRow(pad="117", net="/FPGA/+3V3_VCCIO"),
             MountRow(pad="130", net="GND"),
             MountRow(pad="7", net="unconnected-(IC1-IO_5-Pad7)")]
+
+
+def _two_nets():
+    """Two pads on two nets — the VCCA / VCCIO pair §24 б is about."""
+    return [MountRow(pad="117", net="VCCA"), MountRow(pad="130", net="VCCIO")]
 
 
 def _result(rows=None, occupied=None, role="FPGA"):
@@ -166,13 +177,41 @@ class TestTheTable:
         assert [window.table.item(r, 1).text() for r in range(window.table.rowCount())] \
             == ["117"]
 
-    def test_selected_pads_are_the_ticked_visible_ones(self, dialog):
+    def test_a_tick_survives_the_net_filter(self, dialog):
+        """§24 б: the filter narrows what is SHOWN and nothing else. The VCCA tick
+        used to vanish silently the moment VCCIO was typed."""
         window = dialog()
-        window.filled(_result(occupied={"130": "mnt_130"}))
-        _tick(window, "117")
-        _tick(window, "7")
-        window.net_filter_edit.setText("gnd")          # 130 only, and it is taken
-        assert window.selected_pads() == []
+        window.filled(_result(rows=_two_nets()))
+        window.net_filter_edit.setText("vcca")
+        window.mark_all_button.click()
+        window.net_filter_edit.setText("vccio")
+        window.mark_all_button.click()
+        assert sorted(window.selected_pads()) == ["117", "130"]
+        assert window.hidden_ticked() == 1
+        assert "hidden by the filter" in window.status_label.text()
+
+    def test_clear_only_clears_what_is_visible(self, dialog):
+        """The same rule from the other side: «Clear» is the twin of «Mark all visible»."""
+        window = dialog()
+        window.filled(_result(rows=_two_nets()))
+        window.mark_all_button.click()                 # both ticked
+        window.net_filter_edit.setText("vccio")        # 117 is hidden now
+        window.clear_button.click()
+        assert window.selected_pads() == ["117"]
+
+    def test_a_refusal_is_not_overwritten_by_the_tick_line(self, dialog):
+        """The tick line is a courtesy; a refusal owns the status area until the user
+        answers it (§24 б)."""
+        window = dialog()
+        window.filled(_result(rows=_two_nets()))
+        window.accept_plan()                           # nothing ticked → refusal
+        assert "no pad is ticked" in window.status_label.text()
+        window.net_filter_edit.setText("vcca")         # a successful rebuild
+        assert "no pad is ticked" in window.status_label.text(), \
+            "a courtesy line must not overwrite the refusal"
+        window.mark_all_button.click()                 # ticking IS the answer
+        assert "no pad is ticked" not in window.status_label.text()
+        assert window.selected_pads() == ["117"]
 
     def test_mark_all_visible_skips_taken_rows(self, dialog):
         window = dialog()
@@ -292,6 +331,21 @@ class TestOk:
         assert dock._trees[0].nodes == []
         assert dock.dirty == 0
 
+    def test_editing_the_address_after_a_read_drops_that_read(self, dialog):
+        """§24 в: the rows describe the address they were read at, so editing the
+        address throws them away and OK refuses until a NEW read."""
+        dock = _Dock(_tree())
+        window = dialog(dock=dock, ref="IC1")
+        window.filled(_result())
+        _tick(window, "117")
+        window.ref_edit.setText("IC2")
+        assert window.rows == [] and window.instance == {} and window.occupied == {}
+        assert "read the pads again" in window.status_label.text()
+        window.accept_plan()
+        assert "read the pads first" in window.status_label.text()
+        assert dock._trees[0].nodes == []
+        assert dock.dirty == 0
+
     def test_a_taken_pad_can_never_be_selected_even_by_force(self, dialog):
         """The window refuses a taken pad TWICE — no checkbox (Д6) and a
         `selected_pads` that filters `occupied` out — so the plan's own guard
@@ -306,3 +360,64 @@ class TestOk:
         assert "no pad is ticked" in window.status_label.text()
         assert dock._trees[0].nodes == []
         assert dock.dirty == 0
+
+
+# ── the window that is gone before its worker comes back (§24 а) ──────────
+
+class _LiveConn:
+    """What `start_read_pads` asks of a connection: a live board, a free socket."""
+
+    def __init__(self):
+        self.is_connected = True
+        self.long_op_active = False
+        self.board = None
+
+
+class TestTheClosedWindow:
+    """The read runs on a worker, so its result may come back AFTER the user closed
+    the window — and the guard widget the controller restores is gone by then too.
+
+    Two owners, two cells: the window drops a result it can no longer show, and the
+    controller (gui/worker.py) finishes its own teardown without touching the dead
+    button. The second one is a REAL QThread, because the defect was a thread left
+    running, which no mock can show."""
+
+    def test_a_result_that_arrives_after_the_window_closed_is_dropped(self, qtbot,
+                                                                     caplog):
+        """The window is closed through Qt's own path (`WA_DeleteOnClose`), never
+        `sip.delete`: a deleted TOP-LEVEL widget leaves a dangling entry in the
+        application's window list, and a cell whose failure aborts the whole pytest
+        process is not an instrument (found while mutating this very line)."""
+        window = open_mounts_dialog(None, dock=_Dock(_tree()), connection=None, cfg=None,
+                                    sheet_names={}, tree_name="fpga")
+        window.close()
+        qtbot.wait(50)
+        assert sip.isdeleted(window) is True
+        assert window._window_gone() is True
+        with caplog.at_level("INFO", logger="gui.docks.trees_mounts_dialog"):
+            window.filled(_result())          # must not touch a dead widget
+            window._tell("boom")
+        assert "arrived after the window was closed" in caplog.text
+        assert "boom" in caplog.text
+
+    def test_closing_mid_read_stops_the_thread_and_raises_nothing(self, qtbot,
+                                                                  monkeypatch):
+        errors = []
+        monkeypatch.setattr(sys, "excepthook",
+                            lambda kind, value, tb: errors.append(f"{kind.__name__}: {value}"))
+        monkeypatch.setattr(trees_mounts_flow, "run_read_pads_worker",
+                            lambda payload: (time.sleep(0.3), _result())[1])
+        connection = _LiveConn()
+        window = open_mounts_dialog(None, dock=_Dock(_tree()), connection=connection,
+                                    cfg=None, sheet_names={}, tree_name="fpga",
+                                    ref="IC1")
+        window.read_pads()
+        controller = window._active_op
+        assert controller is not None, "the read never started"
+        window.close()
+        qtbot.wait(100)
+        assert sip.isdeleted(window), "WA_DeleteOnClose must have deleted the window"
+        qtbot.waitUntil(lambda: controller not in worker_mod._ACTIVE_CONTROLLERS,
+                        timeout=5000)
+        assert errors == [], "a closed window must not raise from the worker's signal"
+        assert connection.long_op_active is False, "the shared-socket token stayed up"

@@ -26,6 +26,7 @@ start() (before any pump) and only used for a final wait(), which is safe
 because the completion handler has already run (posting quit()) by then.
 """
 import logging
+import sys
 import threading
 import time
 import weakref
@@ -34,6 +35,7 @@ from types import SimpleNamespace
 import pytest
 from PyQt6 import sip
 from PyQt6.QtCore import QEvent, Qt
+from PyQt6.QtWidgets import QPushButton
 
 import gui.worker as worker_mod
 from gui.worker import LongOpController, start_long_op
@@ -1077,5 +1079,48 @@ def test_an_abandoned_deferred_start_leaves_the_keep_alive_registry(
         assert controller not in worker_mod._ACTIVE_CONTROLLERS, (
             "an abandoned deferred start leaked its controller in the keep-alive "
             "set for ever")
+    finally:
+        _drain_controller(qapp, controller)
+
+
+# ── a guard widget that dies while its own op runs (Т5.1а) ───────────────
+
+def test_a_widget_deleted_mid_op_leaves_no_thread_and_no_exception(qapp, monkeypatch):
+    """Т5.1а of `plan_2026_11_03_add_mounts_table`: the mounts table is the first
+    window in `gui/` with `WA_DeleteOnClose`, and it passes its own button as a guard
+    widget. Closing the window mid-op deletes that button, so `_release()` must SKIP
+    it — an exception raised there used to skip `quit()`, and the thread outlived the
+    window it belonged to ("QThread: Destroyed while thread is still running", then a
+    core dump at exit; reproduced in
+    `diagnostics/claude_t5_close_mid_read_2026_11_04.py`).
+
+    The real path, not a stand-in: a real QPushButton, a real QThread, and the button
+    deleted by `sip.delete` — exactly what Qt does to a child when its window closes."""
+    errors = []
+    monkeypatch.setattr(sys, "excepthook",
+                        lambda kind, value, tb: errors.append(f"{kind.__name__}: {value}"))
+    connection = SimpleNamespace(long_op_active=False)
+    button = QPushButton()
+    entered = threading.Event()
+    release = threading.Event()
+    results = []
+
+    def slow_op():
+        entered.set()
+        release.wait(5)
+        return "done"
+
+    controller = start_long_op(connection, (button,), slow_op,
+                               results.append, errors.append)
+    assert entered.wait(5), "the worker never started"
+    assert button.isEnabled() is False, "the guard widget was not disabled"
+    sip.delete(button)                             # the window closed under the op
+    release.set()
+    try:
+        _pump(qapp, lambda: bool(results)
+              and controller not in worker_mod._ACTIVE_CONTROLLERS)
+        assert results == ["done"]
+        assert errors == [], "a deleted guard widget must not raise in _release"
+        assert connection.long_op_active is False, "the shared-socket token stayed up"
     finally:
         _drain_controller(qapp, controller)

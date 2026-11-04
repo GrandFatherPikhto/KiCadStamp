@@ -542,6 +542,8 @@ class LongOpController(QObject):
             pass
 
     def _release(self) -> None:
+        """Take the visual state, the token and the thread down — a widget whose window
+        is already deleted is SKIPPED, everything else happens regardless (Т5.1а)."""
         if self._released:
             return
         self._released = True
@@ -552,7 +554,8 @@ class LongOpController(QObject):
         if self._connection is not None and self._acquired:
             self._connection.long_op_active = False
         for w, enabled in self._prior_enabled.items():
-            w.setEnabled(enabled)
+            if not qt_object_gone(w):
+                w.setEnabled(enabled)
         self._set_wait_cursor(False)
         _notify_busy(None)
         if self._thread is not None:
@@ -807,6 +810,13 @@ def qt_object_gone(obj: Any) -> bool:
         return False
 
 
+def _any_object_gone(owner: Any, widgets: Iterable[Any] = ()) -> bool:
+    """True when `owner` or ANY guard widget has been deleted (one answer, two callers)."""
+    candidates = [owner] if owner is not None else []
+    candidates.extend(widgets)
+    return any(qt_object_gone(c) for c in candidates)
+
+
 def refresh_snapshot_then_with_retry(
         connection: Any, widgets: Iterable[Any],
         on_ready: Callable[[], Any], on_error: Callable[[str], Any], *,
@@ -856,11 +866,6 @@ def refresh_snapshot_then_with_retry(
     fallback, or a refusal whose single retry is now armed)."""
     widget_list = tuple(widgets)
 
-    def _gone() -> bool:
-        candidates = [owner] if owner is not None else []
-        candidates.extend(widget_list)
-        return any(qt_object_gone(c) for c in candidates)
-
     def _exhausted() -> None:
         if on_still_busy is not None:
             on_still_busy()
@@ -870,7 +875,7 @@ def refresh_snapshot_then_with_retry(
         on_ready()
 
     def _retry() -> None:
-        if _gone():
+        if _any_object_gone(owner, widget_list):
             return
         refresh_snapshot_then(connection, widget_list, on_ready, on_error,
                               busy_text=busy_text, on_refused=_exhausted)
@@ -932,13 +937,8 @@ def defer_while_socket_busy(
         return True
     widget_list = tuple(widgets)
 
-    def _gone() -> bool:
-        candidates = [owner] if owner is not None else []
-        candidates.extend(widget_list)
-        return any(qt_object_gone(c) for c in candidates)
-
     def _retry() -> None:
-        if _gone():
+        if _any_object_gone(owner, widget_list):
             return
         if socket_busy(connection):
             on_still_busy()
