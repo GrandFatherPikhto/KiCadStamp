@@ -476,8 +476,12 @@ def instance_record_copper_map(config_path: str, record_name: str,
 
     pipeline = None
     try:
+        # in_place_entities=True (plan 2026-10-28 §8.1): the map must see the
+        # copper of a record NO tree places — this is a reading door (dry run),
+        # and the pipeline refuses the flag without dry_run.
         pipeline = ApplyPipeline(str(config_path), only=[record_name],
-                                 dry_run=True, timeout_ms=timeout_ms)
+                                 dry_run=True, timeout_ms=timeout_ms,
+                                 in_place_entities=True)
         pipeline.run()
         vias, tracks = pipeline.plan_copper()
         return record_copper_map_for(pipeline.adapter, str(config_path),

@@ -157,8 +157,13 @@ def _run_with_copper(payload: dict) -> dict:
                                   no_planned_copper_targets,
                                   select_cell_copper_targets)
 
+        # in_place_entities=True (plan 2026-10-28 §8.1): a record NO tree places
+        # is materialized at its live place, so this door finds its copper instead
+        # of falling back to «registry only: 0». Reading door, dry run — the
+        # pipeline refuses the flag without dry_run.
         pipeline = ApplyPipeline(root, only=[record], dry_run=True,
-                                 timeout_ms=payload["timeout_ms"])
+                                 timeout_ms=payload["timeout_ms"],
+                                 in_place_entities=True)
         pipeline.run()
         vias, tracks = pipeline.plan_copper()
         refs = payload.get("refs") or {}

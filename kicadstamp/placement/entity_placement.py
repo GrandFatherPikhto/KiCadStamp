@@ -15,20 +15,17 @@ entity_anchor_id(clone.name == entity.name) — exactly the id wired into
 known_anchor_ids in phase 3.1.
 
 A tree ANCHOR may itself point at an Entity (anchor (ref ...) resolving to a
-record.kind == "placement") — the tree is then anchored on another tree's
-placement node. Because an Entity carries no position, such an anchor base is
-resolved RECURSIVELY: find the (single) tree whose placement node references
-that Entity, resolve ITS anchor base (origin/ref/role/Entity-again), and
-compose the found node's own offset on top (the same composition _walk()
-uses). The recursion is cycle-guarded (a set of visited Entity names): an
-Entity with no placement node, one referenced by more than one node, or a
-chain that loops into a cycle is a CONFIG error — fatal for the whole run,
-never a per-tree skip (that skip is reserved for live-board conditions like an
-unresolvable-role or unresolvable-point anchor).
+record.kind == "placement"), and because an Entity carries no position such an
+anchor base is resolved RECURSIVELY (cycle-guarded): the (single) tree whose
+placement node references that Entity, ITS anchor base, then the found node's own
+offset on top — the same composition _walk() uses. No placement node, two of them,
+or a cycle is a CONFIG error, fatal for the whole run, never a per-tree skip.
 
-Materialization is purely in-memory: the saved config is never rewritten,
-and legacy clone_placements/rules/coordinate_placements are untouched. With
-no entities and/or no trees the result is empty (all real profiles today).
+Materialization is purely in-memory: the saved config is never rewritten and the
+legacy sections are untouched. No entities -> empty result. A record NO tree
+places is materialized at its LIVE place by placement/in_place_entities.py —
+behind the caller's `in_place` flag (that branch serves the reading doors so far,
+plan 2026-10-28 §8.1).
 """
 import logging
 from typing import TYPE_CHECKING
@@ -57,6 +54,7 @@ from ..tree_position import (
 )
 from ..trees import check_tree_self_anchor_drift
 from ..utils.units import MM
+from .in_place_entities import materialize_in_place_entity_placements
 from .services.component_resolver import (
     ComponentResolver,
     resolve_anchor_pad_position,
@@ -765,8 +763,8 @@ def materialize_entity_placements(adapter: "KiCadBoardAdapter", cfg: "Config",
                                   sheet_names=None,
                                   position_overrides: dict | None = None,
                                   only: list[str] | None = None,
-                                  cluster: list[str] | None = None
-                                  ) -> list[ClonePlacement]:
+                                  cluster: list[str] | None = None,
+                                  in_place: bool = False) -> list[ClonePlacement]:
     """Walk cfg.trees and materialize every kind="placement" node (whose
     ref resolves to an Entity) into a transient absolute ClonePlacement.
 
@@ -823,7 +821,7 @@ def materialize_entity_placements(adapter: "KiCadBoardAdapter", cfg: "Config",
     --only/--cluster is already an explicit narrowing, so this is intended — see
     the plan's P.2.3 for the error classes and their static coverage.
     """
-    if not cfg.entities or not cfg.trees:
+    if not cfg.entities:
         return []
     sheet_names = sheet_names or {}
     linked = link_trees(cfg, cfg.trees)
@@ -877,6 +875,8 @@ def materialize_entity_placements(adapter: "KiCadBoardAdapter", cfg: "Config",
                              "{error}").format(tree=tree.name, error=e))
             continue
         out.extend(tree_clones)
+    if in_place:
+        out.extend(materialize_in_place_entity_placements(adapter, cfg, linked, sheet_names, only=only_set, cluster=cluster_paths))
     return out
 
 

@@ -377,6 +377,7 @@ class ApplyPipeline:
         position_overrides=None,
         preloaded_cfg=None,
         preloaded_ctx=None,
+        in_place_entities: bool = False,
     ):
         self.config_path = config_path
         self.timeout_ms = timeout_ms
@@ -387,19 +388,20 @@ class ApplyPipeline:
         self.collision_margin = collision_margin
         self.only = only or []
         self.cluster = cluster or []
+        # READ-ONLY branch (plan 2026-10-28 §8.1): live-place materialization.
+        self.in_place_entities = in_place_entities
+        if in_place_entities and not dry_run:
+            raise ValueError(_("in_place_entities is read-only: pass dry_run=True"))
         # Per-run absolute placement overrides keyed by record effective name
         # (tree rigid-group redraw — plan_2026_08_29_tree_live_rigid_redraw.md;
-        # PositionOverride in kicadstamp/tree_position.py). Non-persistent:
-        # replaces the record's own position/rotation resolution for this run
-        # only; the saved config is never rewritten. None/empty = normal.
+        # PositionOverride in kicadstamp/tree_position.py). Non-persistent: the
+        # saved config is never rewritten. None/empty = normal.
         self.position_overrides = position_overrides or {}
         # Internal state
         self.cfg = preloaded_cfg
-        # Bug #3 fix (2026-08-30): the FULL, pre-filter config. _filter_config()
-        # replaces self.cfg with the --only/--cluster-narrowed copy, but
-        # _resolve_order()'s entity materialization must run over the WHOLE
-        # config — a tree mixes placement and rule/coordinate/... nodes, and
-        # link_trees fatals on any node whose section --only narrowed away.
+        # Bug #3 fix (2026-08-30): the FULL, pre-filter config — _filter_config()
+        # narrows self.cfg, while _resolve_order()'s entity materialization must
+        # run over the WHOLE config (link_trees fatals on a filtered-away node).
         # Captured here (and refreshed in _load_config) BEFORE any narrowing.
         self._full_cfg = preloaded_cfg
         self.ctx: RuntimeContext | None = preloaded_ctx
@@ -426,16 +428,13 @@ class ApplyPipeline:
         # library itself never prints to stdout; it only produces this.
         self.dry_run_report: list[str] | None = None
         # The dry run's at-current-place adoption (AdoptionReport, part Б of
-        # plan_2026_10_08_narrowing_net_traces_cost) — «Select cell» reads its
-        # .bound. None until _dry_run() runs (the real run does not store it).
+        # plan_2026_10_08_narrowing_net_traces_cost) — «Select cell» reads .bound.
         self.at_current_place = None
-        # Imprint placement plans (plan_2026_09_05_scheme_list.md §4) —
-        # built in _resolve_order over the FULL cfg, executed by _execute and
-        # reported by _dry_run. [] when there are no imprint Entities.
+        # Imprint plans (plan_2026_09_05_scheme_list.md §4) — built in
+        # _resolve_order, executed by _execute, reported by _dry_run.
         self._scheme_plans: list = []
-        # The duplicate-refdes door guard's report lines (one per refused entry
-        # kind) — filled in run(), shown by the dry run. [] when nothing was
-        # refused, which is the normal case (plan_2026_10_12_duplicate_refdes_guard).
+        # The duplicate-refdes door guard's report lines (one per refused kind) —
+        # filled in run(), shown by the dry run (plan_2026_10_12_duplicate_refdes_guard).
         self._duplicate_report: list[str] = []
 
     # ── Pipeline steps ──────────────────────────────────────────────────────
@@ -510,7 +509,8 @@ class ApplyPipeline:
             materialize_entity_placements(self.adapter, self._full_cfg,
                                           sheet_names=self.sheet_names,
                                           position_overrides=self.position_overrides,
-                                          only=split_only, cluster=split_cluster),
+                                          only=split_only, cluster=split_cluster,
+                                          in_place=self.in_place_entities),
             split_only, split_cluster)
         if materialized:
             logger.info(_("Materialized {count} entity placement(s) from trees "

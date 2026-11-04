@@ -19171,3 +19171,28 @@ msgid ""
 msgstr ""
 "{ref}: элементов неизвестного типа ({type}) — {count}; они остались на "
 "месте, обновите kicad-python"
+
+
+# records outside trees are materialized at their live place
+# (plan_2026_10_28_entity_outside_trees_in_place, commit Б)
+msgid "Entity materialization: {name!r} is placed by no tree — read at its live place ({cluster!r} on {sheet!r})"
+msgstr "Материализация записей: {name!r} не стоит ни в одном дереве — прочитана по живому месту ({cluster!r} на {sheet!r})"
+
+msgid "Entity materialization: {name!r} is placed by no tree and has no live place ({reason}) — its copper is not planned"
+msgstr "Материализация записей: {name!r} не стоит ни в одном дереве, и живого места у неё нет ({reason}) — её медь не планируется"
+
+msgid "Entity materialization: {name!r} — its live cluster is not a rigid copy of the cell (worst deviation {deviation} mm), so its copper is not planned"
+msgstr "Материализация записей: {name!r} — живой кластер не является жёсткой копией ячейки (худшее отклонение {deviation} мм), поэтому её медь не планируется"
+
+msgid "Entity materialization: {name!r} — the record says mirror={record} and the live instance is mirror={live}; its copper is not planned"
+msgstr "Материализация записей: {name!r} — в записи mirror={record}, а живой экземпляр mirror={live}; её медь не планируется"
+
+msgid "Entity materialization: {name!r} is placed by no tree and its cell cannot be identified without a selection — its copper is not planned"
+msgstr "Материализация записей: {name!r} не стоит ни в одном дереве, и её ячейка не опознаётся без выделения — её медь не планируется"
+
+msgid "Entity materialization: {count} placement(s) outside trees materialized at their live places"
+msgstr "Материализация записей: {count} размещение(й) вне деревьев материализовано по живому месту"
+
+msgid "in_place_entities is read-only: pass dry_run=True"
+msgstr "in_place_entities — только чтение: передайте dry_run=True"
+

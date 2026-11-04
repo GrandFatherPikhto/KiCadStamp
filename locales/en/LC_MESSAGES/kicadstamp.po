@@ -18138,3 +18138,28 @@ msgid ""
 "{ref}: {count} item(s) of an unknown type ({type}) stayed where they "
 "were; update kicad-python"
 msgstr ""
+
+
+# records outside trees are materialized at their live place
+# (plan_2026_10_28_entity_outside_trees_in_place, commit Б)
+msgid "Entity materialization: {name!r} is placed by no tree — read at its live place ({cluster!r} on {sheet!r})"
+msgstr ""
+
+msgid "Entity materialization: {name!r} is placed by no tree and has no live place ({reason}) — its copper is not planned"
+msgstr ""
+
+msgid "Entity materialization: {name!r} — its live cluster is not a rigid copy of the cell (worst deviation {deviation} mm), so its copper is not planned"
+msgstr ""
+
+msgid "Entity materialization: {name!r} — the record says mirror={record} and the live instance is mirror={live}; its copper is not planned"
+msgstr ""
+
+msgid "Entity materialization: {name!r} is placed by no tree and its cell cannot be identified without a selection — its copper is not planned"
+msgstr ""
+
+msgid "Entity materialization: {count} placement(s) outside trees materialized at their live places"
+msgstr ""
+
+msgid "in_place_entities is read-only: pass dry_run=True"
+msgstr ""
+

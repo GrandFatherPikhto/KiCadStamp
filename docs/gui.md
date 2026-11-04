@@ -1609,6 +1609,20 @@ copper entirely and how many cell records have no registry key (their copper is 
 copper is read from the WHOLE board even when the area is a selection, and the profile is a REQUIRED
 argument now: `None` means "no profile", and then nothing is subtracted — said out loud, never silent.
 
+**«Select cell» finds the copper of a record NO tree places** (2026-11-04, plan
+`plan_2026_10_28_entity_outside_trees_in_place`; Denis, 28.10: "a cell must be read, re-read and find its
+copper whether the record stands in a tree or not"): an `entities` record that no tree node places is
+materialized AT ITS LIVE PLACE for the read — the pose AND the role map come from the live cluster of its
+own cell (`kicadstamp/live_cluster_frame.py`), so the redraw planner produces its copper instead of the old
+"the redraw planner produced no copper … registry only: 0". Two doors arm the branch, both DRY runs:
+«Select cell» and «Subtract selected copper» (`ApplyPipeline(in_place_entities=True)`; the flag is refused
+unless `dry_run=True`). A record a tree DOES place is decided by the tree, byte for byte. A record that
+cannot be read live — no cell or cluster, a cluster that is not a rigid copy of the cell, a record whose
+`mirror` disagrees with the board, or a cell that could only be identified by the user's selection — is
+skipped with ONE visible Log warning naming the reason, and its neighbours still materialize. A real Apply
+that would move components or write copper for such a record is a SEPARATE decision and is not part of this
+branch.
+
 **The re-read also follows `kind "module"` nodes, and a NEW record is anchored on the side it redraws
 from** (2026-10-05, plan `plan_2026_10_05_tree_reread_modules`): the tree's nodes include the nodes of
 every embedded module tree, a node is `(Cluster, sheet)` rather than a label (two channels reusing one
