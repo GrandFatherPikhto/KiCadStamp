@@ -17,6 +17,13 @@ Two halves, ONE run:
    and the traceback of ``board.get_footprints()`` — the failure Ч0.1 named from the
    code alone.
 
+ALSO PRINTED, never parsed (plan section 8.4, the points standing ON the board rather than
+inside a footprint): ``GetItems`` with the bare type code ``56`` — KiCad's own board-point
+type, ABSENT from kicad-python 0.8.0's ``KiCadObjectType`` (``Name(56)`` raises ``ValueError``),
+which our adapter therefore never requests — and the editor's current selection by
+``type_url``. Both are courtesy readings: the board is live, so a different count is NOT a
+mismatch, and nothing here tries to make sense of an element the catalogue has not seen.
+
 WHY RAW PROTOS. ``Footprint.__init__`` unwraps every child of every footprint
 (``kipy/board_types.py:1994``), so ``board.get_footprints()`` on a board carrying a
 ``ReferencePoint`` raises before a single footprint reaches the caller — including the
@@ -55,7 +62,12 @@ from google.protobuf import descriptor_pb2, descriptor_pool, message_factory
 from google.protobuf.any_pb2 import Any
 
 from kipy.proto.board import board_types_pb2
-from kipy.proto.common.commands.editor_commands_pb2 import GetItems, GetItemsResponse
+from kipy.proto.common.commands.editor_commands_pb2 import (
+    GetItems,
+    GetItemsResponse,
+    GetSelection,
+    SelectionResponse,
+)
 from kipy.proto.common.types import KiCadObjectType
 from kipy.proto.common.types.base_types_pb2 import LockedState
 
@@ -115,6 +127,12 @@ EXPECTED_UNLOCKED = LockedState.LS_UNLOCKED
 
 #: The refdes the fixture is taken from (plan 8.2 п.1).
 FIXTURE_REF = "Q1"
+
+#: KiCad's object type of a point standing on the BOARD (not inside a footprint). ABSENT from
+#: kicad-python 0.8.0's ``KiCadObjectType`` — ``Name(56)`` raises ``ValueError`` — so it can
+#: only go on the wire as a bare number. Value measured live 04.11.2026 (plan 8.4): two points
+#: on F.Cu, one of them selectable.
+BOARD_POINT_TYPE_CODE = 56
 
 _MISMATCHES: list[str] = []
 
@@ -249,6 +267,27 @@ def _ref_of(instance) -> str:
     return instance.reference_field.text.text.text
 
 
+def _items_by_type(board, types) -> list[str]:
+    """The ``type_url`` of every item KiCad answers for *types* — the request, not the parse.
+
+    Same shape as ``Board.get_items`` builds (kipy ``board.py:671-681``); the type codes are
+    passed as raw numbers so a code kipy's enum does not know still reaches KiCad.
+    """
+    command = GetItems()
+    command.header.document.CopyFrom(board.document)
+    command.types.extend(types)
+    response = board.client.send(command, GetItemsResponse)
+    return [raw.type_url for raw in response.items]
+
+
+def _selection_type_urls(board) -> list[str]:
+    """The ``type_url`` of every selected item — the editor's answer, never unpacked."""
+    command = GetSelection()
+    command.header.document.CopyFrom(board.document)
+    response = board.client.send(command, SelectionResponse)
+    return [raw.type_url for raw in response.items]
+
+
 def _read_footprint_instances(board) -> list:
     """Every FootprintInstance of the board as a RAW proto — the read kipy cannot finish.
 
@@ -351,6 +390,18 @@ def live_section(cls) -> dict:
         instance = next(i for i in instances if _ref_of(i) == ref)
         for child in children:
             points[ref] = _report_point(cls, instance, child)
+
+    print("\n--- points standing ON the board (GetItems with the bare type code "
+          f"{BOARD_POINT_TYPE_CODE}; printed, never parsed)")
+    board_points = _items_by_type(board, [BOARD_POINT_TYPE_CODE])
+    print(f"  {len(board_points)} item(s): "
+          f"{[url or '<empty Any>' for url in board_points]}")
+    print("  (a different count is NOT a mismatch — the board is live; the adapter never "
+          "requests this type, so it cannot affect a board read)")
+
+    print("\n--- the editor's current selection, by type_url (printed, never unpacked)")
+    selected = _selection_type_urls(board)
+    print(f"  {len(selected)} selected: {[url or '<empty Any>' for url in selected]}")
 
     print("\n--- the traceback of board.get_footprints() (the failure Ч0.1 named)")
     try:
