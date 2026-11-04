@@ -18132,3 +18132,9 @@ msgstr "footprint {ref!r} not found on the board"
 #~ msgid "Unapplied changes were discarded."
 #~ msgstr "Unapplied changes were discarded."
 
+
+# the reference points kipy does not know (plan_2026_11_04_kipy_reference_point, Р4)
+msgid ""
+"{ref}: {count} item(s) of an unknown type ({type}) stayed where they "
+"were; update kicad-python"
+msgstr ""

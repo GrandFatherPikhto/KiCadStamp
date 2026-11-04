@@ -65,8 +65,12 @@ def read_raw_selection(board) -> tuple[list[Any], int]:
         try:
             items.append(kipy_unwrap(raw_item))
         except NotImplementedError:
-            # KiCad knows a type this kipy was not generated against —
-            # also not a reason to lose the rest of the selection.
+            # REACHABLE ONLY WITHOUT THE CATALOGUE (since plan_2026_11_04_kipy_reference_point):
+            # kipy_item_types.py installs a wrapper at import that turns a type kipy was not
+            # generated against into an OPAQUE item instead of raising, so an unknown `type_url`
+            # arrives here as an object with its bytes intact and is NOT skipped. The arm stays
+            # as the honest answer for a bare kipy (a bench, a test double, a module that was
+            # never imported) — the cost is one except clause.
             logger.debug(_("Selected item of unknown type skipped: {url}").format(
                 url=raw_item.type_url))
             skipped += 1

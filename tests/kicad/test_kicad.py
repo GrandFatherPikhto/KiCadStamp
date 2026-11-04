@@ -22,6 +22,7 @@ from kipy.proto.common.commands.editor_commands_pb2 import (
 
 from kicadstamp.kicad import KiCadBoardAdapter, IBoardAdapter
 from kicadstamp.kicad.adapter import KiCadBoardAdapter as Adapter
+from kicadstamp.kicad.kipy_item_types import is_opaque_item
 from kipy.proto.common.types.base_types_pb2 import DocumentSpecifier
 
 from tests.fakes.selection import (board_answering, packed_footprint,
@@ -498,8 +499,12 @@ class TestUnreadableSelectionItems:
     it — which ``get_selected_items`` used to pass straight up, so the 400 ms
     selection tick read it as "lost connection" and disconnected. The adapter
     now reads ``GetSelection`` raw and SKIPS such items, keeping every readable
-    one; an unknown ``type_url`` (KiCad newer than kipy) is skipped the same
-    way."""
+    one.
+
+    An unknown ``type_url`` (KiCad newer than kipy) used to be skipped the same way; since
+    plan_2026_11_04_kipy_reference_point it is DELIVERED instead — as an opaque item whose bytes
+    survive a round trip (``kicadstamp/kicad/kipy_item_types.py``). Skipping it would have meant
+    silently accepting the loss this whole plan exists to end, for every future KiCad type."""
 
     def _adapter(self, *raw_items):
         adapter = Adapter.__new__(Adapter)
@@ -521,14 +526,25 @@ class TestUnreadableSelectionItems:
 
         assert adapter.get_selected_items() == []
 
-    def test_an_unknown_type_url_is_skipped_too(self, caplog):
+    def test_an_unknown_type_url_arrives_as_an_opaque_item(self, caplog):
+        """REVERSED on 04.11.2026 (plan_2026_11_04_kipy_reference_point): not skipped any more.
+
+        The cell this replaced asserted that an unknown ``type_url`` disappears from the
+        selection. That is a SILENT LOSS of a real board element — the same disease as the
+        dropped 3D models of 15.10 — and the catalogue turns such a type into an opaque item
+        instead, so nothing is lost and nothing raises.
+        """
         adapter = self._adapter(unknown_type_item(), packed_footprint("J1"))
 
         with caplog.at_level(logging.DEBUG, logger="kicadstamp.kicad.kipy_selection"):
             items = adapter.get_selected_items()
 
-        assert [item.ref for item in items] == ["J1"]
-        assert any("FutureBoardItem" in r.message for r in caplog.records)
+        assert [item.ref for item in items if hasattr(item, "ref")] == ["J1"]
+        assert len(items) == 2, "the unknown item is DELIVERED, not dropped"
+        opaque = next(item for item in items if is_opaque_item(item))
+        assert opaque.short_name == "FutureBoardItem"
+        assert not [r for r in caplog.records if "Skipped" in r.message], (
+            "nothing was skipped: only the empty Any (a DRC marker) is unreadable")
 
     def test_the_skip_line_is_logged_once_per_change(self, caplog):
         adapter = self._adapter(unreadable_item())

@@ -45,21 +45,42 @@ import — not scoped to a call — because swapping a class method out and back
 between the worker thread and the UI, and because the exact rotation is strictly better for
 every caller: same semantics, no lost nanometre.
 
-REMOVAL CONDITIONS — TWO, and each has its own canary:
+THIRD REASON, the same module: the REFERENCE POINTS (KiCad 10.0.7+, see
+``kipy_item_types.py`` and plan_2026_11_04_kipy_reference_point). kipy's position setter has
+no arm for them and its orientation setter drops them the same way it drops a 3D model, so a
+moved or rotated footprint used to leave all four of HP-Power-v099's points behind. They are
+carried here BY THE SAME RULE as everything else the setter has no arm for: what
+``KIPY_ORIENTATION_BRANCH_TYPES`` does not cover is our responsibility, and the arithmetic is
+the ONE exact rotation above (never a second copy of it). Measured live 04.11.2026: a point sits
+(+5.45, -2.33) mm from its TO-247 and (+2.54, -3.15) mm from its TO-220 — the same offset for
+the same body, so a point is rigidly attached to its footprint exactly like a pad.
+
+REMOVAL CONDITIONS — FOUR, and each has its own canary:
 1. the item drop: ``test_raw_kipy_orientation_setter_still_drops_the_3d_model`` in
    tests/kicad/test_adapter_orientation_items.py. When IT goes red, delete this module and
    move the sync back into the adapter (where it lived before Д-2 of the same plan), setting
    the angle inline with the plain ``kipy_fp.orientation = angle``;
 2. the truncation: ``test_the_original_kipy_rotate_truncates`` in
    tests/kicad/test_kipy_vector_rotate.py. When IT goes red, kipy rounds by itself — delete
-   the patch block below and the cell with it (the item guard may still be needed).
+   the patch block below and the cell with it (the item guard may still be needed);
+3. the point's MOVE: ``test_raw_kipy_position_setter_does_not_move_the_reference_point`` in
+   tests/kicad/test_adapter_reference_point_geometry.py. When IT goes red, kipy's own position
+   setter carries the point — delete ``_move_reference_points`` and its call;
+4. the point's ROTATION: ``test_raw_kipy_orientation_setter_drops_the_reference_point`` in the
+   same file. When IT goes red, kipy's own orientation setter rotates the point — delete
+   ``_rotate_reference_points`` and its call.
 """
+import logging
 import math
 
 from kipy.board_types import BoardShape, BoardText, Field, Pad, Zone
 from kipy.geometry import Vector2 as KipyVector2, Angle
 
 from ..domain.board import Footprint, layer_to_kipy
+from ..i18n import _
+from .kipy_item_types import is_reference_point, unknown_items
+
+logger = logging.getLogger(__name__)
 
 
 # --------------------------------------------------------------------------------------
@@ -131,6 +152,71 @@ if not getattr(KipyVector2.rotate, _EXACT_ROTATE_MARKER, False):
 KIPY_ORIENTATION_BRANCH_TYPES = (Field, Pad, BoardText, Zone, BoardShape)
 
 
+#: (ref, type) pairs already reported as "stayed where they were", ONE line per pair for the
+#: whole process — the GUI moves footprints on every tick of a redraw, and a line per move
+#: would bury the Log exactly like the 2026-08-06 selection counter did.
+_STATIONARY_REPORTED: set[tuple[str, str]] = set()
+
+
+def _definition_items(kipy_fp) -> list:
+    """The footprint's definition items, or ``[]`` when the object has none.
+
+    A stand-in on a bench (and several tests' doubles) has no ``definition`` at all, and the
+    sync is called with whatever a caller passes: inventing an ``AttributeError`` for an object
+    that simply has nothing to carry would be this module causing the very crash it prevents.
+    A REAL kipy footprint always answers a LIST — ``Footprint.items`` returns
+    ``self._unwrapped_items`` (kipy/board_types.py:2019), never a sequence of another kind.
+    """
+    items = getattr(getattr(kipy_fp, "definition", None), "items", None)
+    return items if isinstance(items, list) else []
+
+
+def _move_reference_points(kipy_fp, delta: KipyVector2) -> int:
+    """Carry the footprint's reference points by ``delta`` — the move kipy's setter misses.
+
+    The rule is the module's own: what ``KIPY_ORIENTATION_BRANCH_TYPES`` does not cover, the
+    setter does not move, so WE do. A point is geometry, not an opaque blob: its position is
+    absolute (plan section 1) and it sits at a fixed offset from its footprint, measured live on
+    two TO-247s (+5.45, −2.33 mm) and two TO-220s (+2.54, −3.15 mm).
+    """
+    moved = 0
+    for item in _definition_items(kipy_fp):
+        if is_reference_point(item) and not isinstance(item, KIPY_ORIENTATION_BRANCH_TYPES):
+            item.position = item.position + delta
+            moved += 1
+    return moved
+
+
+def _rotate_reference_points(items, delta_degrees: float, center) -> int:
+    """Rotate the given reference points around the footprint's position by ``delta_degrees``.
+
+    Same arithmetic as every other item: ``_rotate_exact``, which is the patched
+    ``Vector2.rotate`` — never a second copy of the formula. A private ``Vector2`` is built
+    because the wrapper hands out a COPY of the proto, so mutating it in place would be lost.
+    """
+    rotated = 0
+    for item in items:
+        if not is_reference_point(item):
+            continue
+        position = item.position
+        _rotate_exact(position, Angle.from_degrees(delta_degrees), center)
+        item.position = position
+        rotated += 1
+    return rotated
+
+
+def _report_stationary_unknown_items(ref: str, kipy_fp) -> None:
+    """ONE Log line per (footprint, unknown type) for the whole process (Р4 of the plan)."""
+    for type_name, count in unknown_items(kipy_fp).items():
+        key = (ref, type_name)
+        if key in _STATIONARY_REPORTED:
+            continue
+        _STATIONARY_REPORTED.add(key)
+        logger.warning(_("{ref}: {count} item(s) of an unknown type ({type}) stayed where they "
+                         "were; update kicad-python").format(
+                             ref=ref, count=count, type=type_name))
+
+
 def set_footprint_orientation(kipy_fp, angle: Angle) -> int:
     """Set ``kipy_fp.orientation`` without losing the definition items kipy's setter drops.
 
@@ -143,6 +229,11 @@ def set_footprint_orientation(kipy_fp, angle: Angle) -> int:
     current = Angle.from_degrees(kipy_fp.orientation.degrees).normalize180()
     if target == current:
         return 0
+
+    # kipy's OWN delta (board_types.py:2126): target minus the RAW current angle. Computed
+    # here, before the setter overwrites the orientation, and used below for the reference
+    # points so they turn by exactly what the pads turn by.
+    raw_current_degrees = kipy_fp.orientation.degrees
 
     before = list(kipy_fp.definition.items)
     # A private copy: kipy's setter normalizes the Angle it is handed IN PLACE, and the
@@ -171,6 +262,11 @@ def set_footprint_orientation(kipy_fp, angle: Angle) -> int:
         ]
     else:
         kipy_fp.definition.items = after + missing
+
+    # The dropped items are back on their slots but STAND UNROTATED (restoring an item is not
+    # the same as moving it). The reference points are the ones whose geometry we know, so
+    # they turn here, by the very delta the setter turned the pads by, about the same centre.
+    _rotate_reference_points(missing, target.degrees - raw_current_degrees, kipy_fp.position)
     return len(missing)
 
 
@@ -189,7 +285,15 @@ def sync_dto_to_kipy(dto, kipy_item) -> int:
     """
     if not isinstance(dto, Footprint):
         return 0
-    kipy_item.position = KipyVector2.from_xy(dto.position.x, dto.position.y)
+    target = KipyVector2.from_xy(dto.position.x, dto.position.y)
+    # The delta has to be taken BEFORE the setter runs — the same delta kipy's own setter
+    # uses internally (board_types.py:2096) and the one the reference points need.
+    delta = target - kipy_item.position
+    kipy_item.position = target
+    _move_reference_points(kipy_item, delta)
     restored = set_footprint_orientation(kipy_item, Angle.from_degrees(dto.angle_deg))
+    # Anything of a type this kipy does not know has no geometry here, so it stayed where it
+    # was; say so once per footprint and type instead of silently leaving it behind (Р4).
+    _report_stationary_unknown_items(dto.ref, kipy_item)
     kipy_item.layer = layer_to_kipy(dto.layer)
     return restored

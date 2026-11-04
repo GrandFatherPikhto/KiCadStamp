@@ -19163,3 +19163,11 @@ msgstr "футпринт {ref!r} не найден на плате"
 #~ msgid "Unapplied changes were discarded."
 #~ msgstr "Неприменённые изменения были отброшены."
 
+
+# the reference points kipy does not know (plan_2026_11_04_kipy_reference_point, Р4)
+msgid ""
+"{ref}: {count} item(s) of an unknown type ({type}) stayed where they "
+"were; update kicad-python"
+msgstr ""
+"{ref}: элементов неизвестного типа ({type}) — {count}; они остались на "
+"месте, обновите kicad-python"

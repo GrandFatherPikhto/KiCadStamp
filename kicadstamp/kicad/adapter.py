@@ -46,11 +46,11 @@ from ..utils.units import MM
 from ..constants import DEFAULT_TIMEOUT_MS
 from ..i18n import _
 
-# Patches pynng.nng.Socket.close with an external timeout on import (see its
-# docstring) — must run before any kipy/pynng socket is created, so this is
-# the single chokepoint every entry point (GUI, CLI, tests) goes
-# through just by importing this module.
-from . import pynng_safety  # noqa: F401
+# Patches pynng.nng.Socket.close (external timeout) AND teaches kipy the board-item types
+# it was not generated against (kipy_item_types.py; KiCad 10.0.7's ReferencePoint above
+# all), both ON IMPORT: the single chokepoint every entry point (GUI, CLI, MCP, tests)
+# goes through by importing this module — before any socket exists, before the first read.
+from . import kipy_item_types, pynng_safety  # noqa: F401
 
 logger = logging.getLogger(__name__)
 

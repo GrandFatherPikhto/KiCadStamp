@@ -224,6 +224,7 @@ The adapter uses the following elements that go beyond the stable public API of 
 | `footprint.texts_and_fields` | **Undocumented** | Used to read custom fields (`Field`). |
 | `footprint.definition.items` | **Undocumented** | Used to obtain component pads. |
 | `footprint.orientation` setter | **Broken in kipy 0.8.0** | Rebuilds `definition.items` and drops items with no rotation branch (`Footprint3DModel` above all); wrapped by `set_footprint_orientation()` (`kicadstamp/kicad/kipy_footprint_safety.py`). |
+| `kipy.util.proto.unpack_any` and the three names kipy bound of it at import | **Worked around** | ONE `type_url` kipy has no mapping for — KiCad 10.0.7's `ReferencePoint`, carried by the stock TO-247/TO-220 footprints — took the whole board read down, because `Footprint.__init__` unwraps every child (`kipy/board_types.py:1994`). Wrapped in `kicadstamp/kicad/kipy_item_types.py`: the point becomes a real message (descriptor pool + wrapper), every other unknown type an opaque item that keeps its bytes. See [kipy.md](kipy.md). |
 | `adapter.remove_by_id()` | **New, potentially unstable** | Added recently (July 2025), may change. |
 | `board.get_tracks()` | **Undocumented** | Used to retrieve all tracks on the board for registry reconciliation. |
 | `board.get_item_bounding_box(list)` | **Undocumented** | Used for batch bounding‑box requests. |

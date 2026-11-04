@@ -387,6 +387,52 @@ nanometre. That is a separate decision, not covered by this patch.
 
 ---
 
+### An element type kipy was not generated against (`ReferencePoint`, KiCad 10.0.7+)
+
+**Where used:**
+`kicadstamp/kicad/kipy_item_types.py`, imported by `kicadstamp/kicad/adapter.py` next to
+`pynng_safety` — the same chokepoint every entry point (GUI, CLI, MCP server, tests) goes through,
+so the shim is in place before the first board read. The geometry of the point lives in
+`kicadstamp/kicad/kipy_footprint_safety.py`.
+
+**Problem:**
+KiCad 10.0.7 added `ReferencePoint` to the board API, and the stock
+`Package_TO_SOT_THT:TO-247-3_Vertical` / `TO-220-2_Vertical` footprints carry one. kipy keeps a
+table of the `type_url`s it can unpack (`kipy/util/proto.py:_any_urls`), and an unknown one raises
+`NotImplementedError` — before any wrapper is reached. `Footprint.__init__` unwraps EVERY child of
+EVERY footprint (`kipy/board_types.py:1994`), so ONE such footprint kills the whole
+`Board.get_footprints()` answer: measured live 04.11.2026 on HP-Power-v099 (four points: Q1, Q2,
+D4, D8), the GUI could not connect at all — "Missing type mapping for
+type.googleapis.com/kiapi.board.types.ReferencePoint, can't unpack it" every 5 s.
+
+**Alternative:**
+Two stages, installed at import and idempotent (a marker on `kipy.util.proto` plus a mark on the
+function itself, so a reload cannot wrap kipy twice):
+
+- `ReferencePoint` becomes a REAL message — a hand-built `FileDescriptorProto` (six fields, all
+  dependencies already in the pool) added to the DEFAULT descriptor pool kipy uses, with a wrapper
+  giving `id`/`position`/`layer`/`size_nm`/`locked`/`parent`. Measured: parse+serialize of the live
+  102-byte point is byte-identical, and so is the WHOLE 5606-byte `FootprintInstance` of Q1 after
+  kipy's `_pack` — the `lib_footprint_mismatch` disease of 15.10 would have started here;
+- every OTHER unknown `type_url` becomes an OPAQUE item — an empty stub message under that name,
+  cached, parsed from the `Any` value. protobuf keeps unknown fields, so the element comes back out
+  with the same `type_url` and the same bytes; it simply has no geometry, so it stays where it is
+  and the Log says so ONCE per footprint and type.
+
+The seam is the FUNCTION, not the table: `kipy.util.proto.unpack_any` and the three names kipy bound
+by value at import (`kipy.util.unpack_any`, `kipy.board_types.unpack_any`,
+`kipy.schematic_types.unpack_any`) are replaced; a URL kipy KNOWS is delegated to kipy untouched.
+The board registration sits on a `BoardItem` subclass because `Board._to_concrete_items` asserts
+exactly that (`kipy/board.py:657`). kipy's own `unpack_any` is kept frozen for the canary: when
+`test_the_pure_kipy_unpack_any_still_raises_for_the_reference_point` goes RED, kicad-python learned
+the type and the catalogue half is due for deletion.
+
+`kipy.schematic_types` cannot even be imported on kicad-python 0.8.0 in this venv
+(`ImportError: BusEntryType`), so the schematic side is best-effort: its two registrations are
+skipped, and the board read — the reason the shim exists — never depends on it.
+
+---
+
 ### A footprint polygon loses its repeated closing point on the way IN (KiCad side)
 
 A `fp_poly` whose outline repeats its first point — the pin-1 marker of
