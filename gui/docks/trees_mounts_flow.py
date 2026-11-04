@@ -68,6 +68,7 @@ __all__ = [
     "resolve_instance",
     "run_read_pads_worker",
     "start_read_pads",
+    "tree_by_name",
     "write_plan",
 ]
 
@@ -81,6 +82,20 @@ def _resolver(adapter, cfg, sheet_names, snapshot, resolver=None):
     if resolver is not None:
         return resolver
     return ComponentResolver(adapter, cfg, sheet_names, snapshot=snapshot)
+
+
+def tree_by_name(dock, name: str):
+    """The tree the dock holds NOW under this name, or None — the ONE place a
+    window asks the dock for a tree.
+
+    Т5/§23: the mounts window is MODELESS, so it lives longer than one tick — a
+    reload between «Read pads» and OK replaces every Tree object. That is why the
+    window keeps the NAME and this lookup happens at the moment of use: the write
+    then lands in the tree that exists, and never in one the dock has dropped."""
+    for tree in getattr(dock, "_trees", ()) or ():
+        if getattr(tree, "name", None) == name:
+            return tree
+    return None
 
 
 def resolve_instance(adapter, cfg, sheet_names, *, ref: Optional[str] = None,

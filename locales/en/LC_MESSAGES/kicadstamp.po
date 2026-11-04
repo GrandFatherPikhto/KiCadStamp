@@ -6428,6 +6428,56 @@ msgid ""
 "coordinates, which now mean a different place."
 msgstr ""
 
+#: gui/docks/trees_mounts_dialog.py:79
+msgid "Add mounts…"
+msgstr ""
+
+#: gui/docks/trees_mounts_dialog.py:124
+msgid "Net contains…"
+msgstr ""
+
+#: gui/docks/trees_mounts_dialog.py:126
+msgid "Mark all visible"
+msgstr ""
+
+#: gui/docks/trees_mounts_dialog.py:149
+msgid "Read pads"
+msgstr ""
+
+#: gui/docks/trees_mounts_dialog.py:161
+msgid "Pad"
+msgstr ""
+
+#: gui/docks/trees_mounts_dialog.py:161
+msgid "«Already there»"
+msgstr ""
+
+#: gui/docks/trees_mounts_dialog.py:228
+#, python-brace-format
+msgid "this number is carried by pads on DIFFERENT nets: {nets}"
+msgstr ""
+
+#: gui/docks/trees_mounts_dialog.py:283
+#, python-brace-format
+msgid "tree {name!r} is gone — reopen the mounts table"
+msgstr ""
+
+#: gui/docks/trees_mounts_dialog.py:287
+msgid "reading…"
+msgstr ""
+
+#: gui/docks/trees_mounts_dialog.py:296
+msgid "nothing was read — see the Log"
+msgstr ""
+
+#: gui/docks/trees_mounts_dialog.py:327
+msgid "read the pads first — the anchor is taken from the instance that read them"
+msgstr ""
+
+#: gui/docks/trees_mounts_dialog.py:348
+msgid "nothing was written — the mounts did not reach the tree"
+msgstr ""
+
 #: gui/docks/trees_mounts_flow.py:121
 #, python-brace-format
 msgid "mounts are addressed by a Role — {ref!r} has none"

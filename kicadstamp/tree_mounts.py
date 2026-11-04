@@ -82,6 +82,7 @@ __all__ = [
     "mount_key_of_dict",
     "mount_name",
     "mount_nodes",
+    "node_with_ref",
     "normalized_rotation",
     "occupied_pads",
     "pad_number",
@@ -449,6 +450,18 @@ def _node_with_ref(nodes, ref: str):
         if found is not None:
             return found
     return None
+
+
+def node_with_ref(tree, ref: str):
+    """The node of `tree` whose ref is `ref`, at ANY depth — or None. THE way to
+    turn a remembered NAME back into the object of the tree the dock holds NOW.
+
+    Т5 of the review (§23): a modeless window lives longer than one tick, so it may
+    remember `parent_ref` and a tree NAME but never a `TreeNode` — a reload between
+    the read and OK replaces the objects, and writing into a retained one would land
+    in a tree the dock no longer has. This resolves the name at the moment of the
+    write, against the tree that exists then."""
+    return _node_with_ref(getattr(tree, "nodes", ()), ref)
 
 
 def plan_mount_nodes(template: str, rows: Sequence[MountRow], *,
