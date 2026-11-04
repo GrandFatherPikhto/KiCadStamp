@@ -1285,6 +1285,44 @@ context-menu entry — is gone. Extracting a standalone Cell from a fully-select
 single **Extract cluster…** dialog (**Tools → Config**, see the [Extract](#extract) section); the group
 is then placed by a normal tree node or a `tree_instances:` template.
 
+## Add mounts… (2026-11-04, plan_2026_11_03_add_mounts_table)
+
+**Where.** In a tree tab, right-click a **node** → **Add mounts…** and the mounts it creates become that
+node's children; right-click the tree's **root row** → **Add mounts…** and they go into the tree itself.
+The item is NOT offered on a `kind copper` container (it may hold only `net_trace` nodes, so mounts there
+would be refused after the pads had already been ticked) and on a read-only generated instance.
+
+**What the address is prefilled from.** A node that places a CELL RECORD ("FPGA/FPGA/FPGA" in the plan's
+own words) has no anchor of its own — its sheet and cluster come from the RECORD it names, and the Role
+suggestions are the roles of that record's CELL (with exactly one role the field is filled in; otherwise
+pick from the list, and free text stays legal). A `mount`/`component` node prefills from its own role
+anchor; anything else opens with an empty address.
+
+**The table.** **Read pads** reads the pads of the ONE instance the address names, on a worker — the window
+stays responsive, and its address fields are greyed out until the read lands. One row per PAD NUMBER that
+has copper: paste-only pads are not listed, and a tab pin appears once. The columns are checkbox, pad, net,
+name and **«Already there»**. The net column only SHOWS the net (nets are never edited here); the **Net
+contains…** field narrows the list and does NOT touch your ticks — while something is hidden the status
+line says «ticked N, M of them hidden by the filter». **Mark all visible** and **Clear** act on the visible
+rows only.
+
+**Names.** The **Name** field is a TEMPLATE, and only `{pad}` is substituted. The net name is deliberately
+NOT substituted — write the meaning into the template yourself after filtering the net. A name typed by
+hand survives a template change, and typing the computed name back makes the cell template-driven again.
+
+**«Already there».** A pad that already carries a mount of THIS tree standing on it (the same anchor, zero
+offset) is grey, has no checkbox, and shows the existing node's ref.
+
+**What OK writes.** One `kind mount` node per ticked row — anchor (role, sheet, cluster, pad), zero offset,
+no children — through the same staging path as **Add node**, with one dirty mark for the whole batch.
+**All or nothing**: if any row is refused (a name used twice, a pad already taken, the loader's own verdict
+on the new place), nothing at all is written.
+
+**Refusals** are a line in the window AND in the Log, never a dialog, and the window stays open so the
+field can be fixed. Editing the address after a read throws that read away («the address changed — read the
+pads again»), because its rows described the old address. A result that arrives after the window was closed
+is dropped with an `info` line in the Log — the read ran on a worker.
+
 ## Detail dock
 
 > **2026-09-05 relayout (plan config_qview_placer_nettrace):** Placer and Net Trace are no
