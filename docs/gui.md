@@ -1310,8 +1310,10 @@ rows only.
 NOT substituted — write the meaning into the template yourself after filtering the net. A name typed by
 hand survives a template change, and typing the computed name back makes the cell template-driven again.
 
-**«Already there».** A pad that already carries a mount of THIS tree standing on it (the same anchor, zero
-offset) is grey, has no checkbox, and shows the existing node's ref.
+**«Already there».** A pad that already carries a mount of THIS tree is grey, has no checkbox and shows the
+existing node's ref — when it is the same pad of the SAME INSTANCE, however the anchor is written (short or
+full: the board itself decides which pad an anchor names), and that mount stands right ON the pad — no
+offset and no rotation (360° is 0°).
 
 **What OK writes.** One `kind mount` node per ticked row — anchor (role, sheet, cluster, pad), zero offset,
 no children — through the same staging path as **Add node**, with one dirty mark for the whole batch.
