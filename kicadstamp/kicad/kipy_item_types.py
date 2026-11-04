@@ -212,7 +212,13 @@ def reference_point_class() -> type:
 
 
 class ReferencePointItem(BoardItem):
-    """A KiCad ``ReferencePoint`` — the fab-layer mark that says "place this part by hand here".
+    """A KiCad 10.0.7+ ``ReferencePoint`` — a POSITION-ONLY helper item: no copper, no net.
+
+    It exists in two places, and BOTH are real (measured live 04.11.2026): inside a footprint —
+    the stock ``Package_TO_SOT_THT:TO-247-3_Vertical`` / ``TO-220-2_Vertical`` carry one on
+    ``F.Fab``, marking the back face of the body — and directly ON the board, where Денис put two
+    of them on ``F.Cu``. What KiCad uses a board-level point FOR is not stated anywhere in its
+    API, and it is deliberately not guessed here.
 
     Geometry is the footprint's, exactly like a pad's: ``position`` is ABSOLUTE (KiCad stores a
     footprint's children that way, kipy/board_types.py:2094-2095) and moves/rotates with it. The
