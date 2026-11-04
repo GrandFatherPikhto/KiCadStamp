@@ -58,6 +58,7 @@ __all__ = [
     "cell_entity_naming_address",
     "cell_record_addresses",
     "choose_instance",
+    "record_by_name",
     "group_selection",
     "is_own_key",
     "journal_is_the_read_instance",
@@ -188,6 +189,29 @@ def cell_record_addresses(cfg, cell_name: str | None
         identity = record_key_part(name, getattr(c, "uuid", None))
         out[identity] = (getattr(c, "cluster", None), getattr(c, "sheet", None))
     return out
+
+
+def record_by_name(cfg, name: str | None):
+    """The ``entities`` / ``clone_placements`` record called ``name``, or None.
+
+    The reverse of :func:`cell_record_addresses` (that one asks "which records place
+    this cell"; this one asks "which record is this"), and it reads the SAME loaded
+    config, materialized ``tree_instances`` / ``sheet_templates`` copies included —
+    one door, no second walk of the graph.
+
+    A clone placement's name follows the rule :func:`cell_record_addresses` already
+    uses: its ``name`` when it has one, else its ``cluster`` (a clone may be named by
+    the cluster it stands on). Entities are looked at first: a tree node's ref names
+    an Entity when both exist, which is the reading the tree loader itself takes."""
+    if not name:
+        return None
+    for e in getattr(cfg, "entities", None) or ():
+        if getattr(e, "name", None) == name:
+            return e
+    for c in getattr(cfg, "clone_placements", None) or ():
+        if (getattr(c, "name", None) or getattr(c, "cluster", None)) == name:
+            return c
+    return None
 
 
 def cell_entity_naming_address(cfg, cell_name: str | None,

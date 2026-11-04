@@ -87,7 +87,7 @@ from .trees_move_flow import (RehangPlan, _MOVE_OFFSET_REFUSED,
                               reexpress_offset, run_group_move, run_single_move)
 from .trees_dnd import make_node_tree_widget
 from .trees_delete import delete_action_text, run_delete_nodes
-from .trees_mounts_launch import open_mounts_for
+from .trees_mounts_launch import add_mounts_item
 # The overlay NAMES (the tree's anchor/base circles and a mount node's point/base
 # pair) and the tree-marker WORKER live in trees_markers.py — the "giants only
 # shrink" rule of the Ч1-А доделка moved them out of this file. Re-exported
@@ -2533,8 +2533,7 @@ class TreesDock(QWidget):
                 lambda: self._add_child_flow(tree, node))
             menu.addAction(_("Add sibling")).triggered.connect(
                 lambda: self._add_sibling_flow(tree, node))
-            menu.addAction(_("Add mounts…")).triggered.connect(
-                lambda: open_mounts_for(self, tree, node))
+            add_mounts_item(menu, self, tree, node)
             menu.addAction(_("Reread current position")).triggered.connect(
                 lambda: self._reread_node_flow(tree, node))
             # §3.3: 'Edit node…' no longer opens the modal — a single click on
@@ -2590,8 +2589,7 @@ class TreesDock(QWidget):
             # Z.2), which makes the right-hand panel show the anchor form.
             menu.addAction(_("Add node")).triggered.connect(
                 lambda: self._add_node_flow(tree))
-            menu.addAction(_("Add mounts…")).triggered.connect(
-                lambda: open_mounts_for(self, tree, None))
+            add_mounts_item(menu, self, tree, None)
             menu.addAction(_("Set anchor…")).triggered.connect(
                 lambda: self._select_anchor_row(tree))
             menu.addSeparator()

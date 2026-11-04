@@ -912,20 +912,34 @@ ONE_NODE_CFG = {
 }
 
 
+def _record_mounts_items(monkeypatch):
+    """Replace the launcher's ONE item helper with a recorder.
+
+    The dock calls `add_mounts_item(menu, self, tree, node)` and decides nothing, so
+    the cell asserts exactly that call — which node the item belongs to, and whether it
+    was offered at all. What the returned action DOES is the launcher's own cell
+    (`test_trees_mounts_launch.py`)."""
+    import gui.docks.trees_dock as td_mod
+    calls: list = []
+
+    def _item(menu, dock_, tree_, node_=None):
+        calls.append((dock_, tree_, node_))
+        return menu.addAction("Add mounts…")
+
+    monkeypatch.setattr(td_mod, "add_mounts_item", _item)
+    return calls
+
+
 def test_root_menu_add_mounts_opens_the_table_into_the_root(main_window, tmp_path,
                                                             monkeypatch):
     """Т6 of plan_2026_11_03_add_mounts_table (Д1): the root's «Add mounts…» hands the
     dock, THIS tree and NO parent to the one launcher both items share."""
-    import gui.docks.trees_dock as td_mod
     dock, _root = _dock_with(main_window, tmp_path, ONE_NODE_CFG)
     tree = dock._current_tree()
-    calls = []
-    monkeypatch.setattr(td_mod, "open_mounts_for",
-                        lambda d, t, n=None: calls.append((d, t, n)))
+    calls = _record_mounts_items(monkeypatch)
 
-    actions = dict(_root_menu(dock, monkeypatch))
-    actions["Add mounts…"].trigger()
-
+    labels = [text for text, _a in _root_menu(dock, monkeypatch)]
+    assert "Add mounts…" in labels
     assert calls == [(dock, tree, None)]
 
 
@@ -933,13 +947,10 @@ def test_the_node_menu_add_mounts_opens_the_table_under_that_node(main_window,
                                                                   tmp_path, monkeypatch):
     """Д1: called on a NODE the mounts become its children — the node travels to the
     launcher, which turns it into `parent_ref`; the dock itself decides nothing."""
-    import gui.docks.trees_dock as td_mod
     dock, _root = _dock_with(main_window, tmp_path, ONE_NODE_CFG)
     tree = dock._current_tree()
     node = tree.nodes[0]
-    calls = []
-    monkeypatch.setattr(td_mod, "open_mounts_for",
-                        lambda d, t, n=None: calls.append((d, t, n)))
+    calls = _record_mounts_items(monkeypatch)
 
     anchor_row = _children(dock._current_tree_widget().invisibleRootItem())[0]
     anchor_row.setExpanded(True)          # a collapsed row has no clickable rect
@@ -948,7 +959,6 @@ def test_the_node_menu_add_mounts_opens_the_table_under_that_node(main_window,
     assert node_rows, "the tree shows no node row"
     actions = dict(_context_menu_actions(dock, node_rows[0], monkeypatch))
     assert "Add mounts…" in actions, "a node must offer the mounts table"
-    actions["Add mounts…"].trigger()
 
     assert calls == [(dock, tree, node)]
 
