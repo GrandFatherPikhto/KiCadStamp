@@ -331,6 +331,10 @@ def test_a_row_the_loader_would_refuse_is_not_written(main_window, tmp_path):
     assert [f["name"] for f in failures] == ["switch_b"]
     assert failures[0]["error"] == dlg.refusal_label.text()
     assert "must be role-anchored OR self-anchored" in dlg.refusal_label.text()
+    # Н7 polish: the dialog shows the loader's OWN hint, and its first exit is
+    # the row's own Anchor column — the one action this very dialog offers.
+    assert "give this instance its own anchor" in dlg.refusal_label.text()
+    assert "Anchor column" in dlg.refusal_label.text()
 
 
 def test_a_row_with_its_own_anchor_is_written(main_window, tmp_path):

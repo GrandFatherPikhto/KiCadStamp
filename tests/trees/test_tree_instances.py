@@ -1343,6 +1343,30 @@ class TestDeclarationOwnPlace:
                            match=r"must be role-anchored OR self-anchored"):
             expand_tree_instances(data)
 
+    def test_the_gate_hint_names_the_rows_own_anchor_FIRST(self):
+        """Н7 polish (07.11): the person who sees this refusal is sitting in the
+        Instances dialog with a POINT-anchored template, and the ONE thing that
+        fixes it there is the row's own Anchor column. The hint therefore leads
+        with that exit and only then mentions the template's role/self anchor —
+        the order is the answer, not decoration."""
+        from kicadstamp.config.tree_instances import expand_tree_instances
+        data = _template_data([{
+            "template": "dac_buf_tpl", "name": "ch1_dac_buf",
+            "sheet": "Channel_1"}], anchor={"point": "p_tpl"})
+
+        with pytest.raises(ValidationError) as caught:
+            expand_tree_instances(data)
+
+        hint_lines = [line for line in str(caught.value).splitlines()
+                      if line.strip().startswith("✗")]
+        assert len(hint_lines) == 1, hint_lines
+        hint = hint_lines[0]
+        assert "give this instance its own anchor" in hint
+        assert "Anchor column" in hint
+        assert '(point "Origin")' in hint
+        # the row's own anchor comes FIRST; the template-side exits only after it
+        assert hint.index("own anchor") < hint.index("role-anchored")
+
     def test_old_sheet_still_comes_from_the_template_with_a_declared_anchor(self):
         """§И.3.2: a declaration anchor moves the instance but does NOT change
         what it IS — the template's own sheet (here the root Entity's: there is

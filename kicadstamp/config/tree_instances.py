@@ -702,10 +702,10 @@ def _expand_template(template: dict, template_name: str, instance_name: str,
             _("tree_instance: template {template!r} must be role-anchored OR "
               "self-anchored (an explicit (self ...), or no (anchor ...) at all)")
             .format(template=template_name),
-            [_("either an (anchor (role ...)) template, or a self anchor — an "
-               "explicit (anchor (self [(ref \"...\")])) OR no (anchor ...) at "
-               "all with exactly one top-level placement node; origin/ref/point "
-               "anchors are still not parameterized by sheet")]))
+            [_("give this instance its own anchor (the row's Anchor column, e.g. (point "
+               "\"Origin\") with a shift); otherwise the template must be role-anchored or "
+               "self-anchored — (anchor (self [(ref \"...\")])) or no (anchor ...) at all, "
+               "with one top-level placement node")]))
     if not is_role_anchor and is_self_anchor and root_ref is None:
         # A self template whose subject cannot be resolved at EXPANSION time —
         # fail HERE with a clear message, not later during a live redraw of the
