@@ -4129,6 +4129,17 @@ def test_a_dirty_reload_refreshes_generated_tabs_and_keeps_a_manual_edit(
                                  format_number=2), encoding="utf-8")
     dock.reload_trees()
 
+    # M20 (07.11, §12 of plan_2026_11_07_dialog_sizes_and_row_shift): the EXACT
+    # name list, each name exactly ONCE, in both views. The cells below pick the
+    # copy with next(...), so a DUPLICATE copy slipped through them: merge_reload's
+    # own append is index-based, and `fresh_manual = list(fresh)` made the copy
+    # land twice (once appended, once as the generated one) with every cell green.
+    assert [t.name for t in dock._trees] == [
+        "dac_buf_tpl", "manual", "ch1_dac_buf"]
+    assert [dock.tree_tabs.tabText(index)
+            for index in range(dock.tree_tabs.count())] == [
+        "dac_buf_tpl", "manual", "ch1_dac_buf"]
+
     inst = next(t for t in dock._trees if t.name == "ch1_dac_buf")
     assert [n.ref for n in inst.nodes[0].children] == [
         "pif_avdd__ch1_dac_buf", "extra_sw__ch1_dac_buf"]
