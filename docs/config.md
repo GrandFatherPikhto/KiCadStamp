@@ -907,6 +907,14 @@ layer/mirror checks as hand-written ones — nothing is validated twice.
   `shift` unchanged; the template's `pivot-ref` is rewritten to follow the node renames (`placement`
   → `__{instance}`, `net_trace` → leading-sheet substitution, mount unchanged), and a `pivot-ref`
   naming no node of the template is a fatal at EXPANSION time.
+- **A template's own sheet may be DERIVED from its placement records (2026-11-07, Н3):** the sheet is
+  normally read off a role anchor's `sheet`, or off the single root Entity's own record. A
+  POINT-anchored template with several top-level nodes has neither — yet when every `entities:` record
+  its placement nodes reference sits on ONE non-empty sheet and none of them is sheetless, that sheet IS
+  the template's own (an INFO line in the Log names the source; it is never silently assumed). Different
+  sheets among the records, or one record without a sheet, stay the historical refusal — its hint now
+  lists every way out: a role anchor's `sheet`, an explicit sheet on the root Entity, the mount nodes
+  gathered under one root, or the declaration's own `root` node (see below).
 - **A declaration's own PLACE (`anchor:`) and own angle (`rotation:`)** (v1.6, 2026-09-12, plan
   tree_instance_own_place §И.2, task C2): besides "the same role on another sheet", a declaration can
   say WHERE the instance stands — the one thing the sheet substitution cannot express. Both keys are

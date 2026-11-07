@@ -232,13 +232,15 @@ import logging
 from ..exceptions import ValidationError, format_fatal_error
 from ..i18n import _
 from .format_version import current_format
-from .tree_instance_checks import template_generated_clusters
+from .tree_instance_checks import (derive_old_sheet, template_generated_clusters,
+                                   template_needs_old_sheet)
 from .uuids import derived_uuid
 
 # Kept under its historical PRIVATE name: the composite-guard cells import it
 # from here (Н8 moved the body out; the name stays so those cells keep guarding
 # the same code).
 _template_generated_clusters = template_generated_clusters
+_template_needs_old_sheet = template_needs_old_sheet
 
 logger = logging.getLogger(__name__)
 
@@ -279,32 +281,6 @@ def _literal_item_nets(record: dict) -> list[str]:
             if isinstance(item, dict) and item.get('net'):
                 out.append(f"{kind}[{idx}]")
     return out
-
-
-def _template_needs_old_sheet(nodes: list) -> bool:
-    """True when the template carries a node whose expansion READS the
-    template's own sheet (`old_sheet`): a MOUNT node, whose anchor's sheet
-    decides whether it looks inside the template or out at the board.
-
-    A net_trace node never does any more: its record always carries a NAME under
-    the format-3 gate (В36 mints one for a historically nameless record at the
-    2->3 lift) and a named record's copper is (role, pad)-based, so nothing is
-    rewritten by sheet — the legacy literal-net branch is GONE
-    (plan_2026_10_05_uuid_tails Д1/4).
-
-    Used by the entry gate (§И.4): a declaration that brings its own `anchor`
-    may use a template of ANY anchor mode, but such a template must still be
-    able to yield a sheet somewhere (a role anchor's sheet, or the root Entity's
-    own sheet) — otherwise the gate says exactly what to add instead of leaving
-    a per-node mystery fatal."""
-    for node in nodes:
-        if not isinstance(node, dict):
-            continue
-        if node.get('kind') == 'mount':
-            return True
-        if _template_needs_old_sheet(node.get('children') or []):
-            return True
-    return False
 
 
 def _template_root_entity_ref(template: dict) -> str | None:
@@ -898,8 +874,13 @@ def _expand_template(template: dict, template_name: str, instance_name: str,
             old_sheet = root_entity.get('sheet')
     else:
         old_sheet = None
+    if old_sheet is None:
+        # Н3: a POINT-anchored template with several top-level nodes has no role
+        # anchor and no single root — but its placement records may all sit on
+        # ONE sheet, which is then the template's own sheet (INFO names it).
+        old_sheet = derive_old_sheet(template, entities_by_name, instance_name)
     if (has_decl_anchor and old_sheet is None
-            and _template_needs_old_sheet(template.get('nodes') or [])):
+            and template_needs_old_sheet(template.get('nodes') or [])):
         # §И.4: the declaration's anchor lets a template of any mode in, but a
         # MOUNT node still needs the template's OWN sheet (its anchor's sheet
         # decides inside/outside), and that cannot be invented. Say exactly what
@@ -910,9 +891,11 @@ def _expand_template(template: dict, template_name: str, instance_name: str,
               "place, but the template's own sheet cannot be derived")
             .format(name=instance_name, template=template_name),
             [_("the template has a mount node, whose expansion needs the "
-               "template's own sheet — add (sheet \"...\") to a (role ...) anchor "
-               "of the template, or an explicit sheet to the root Entity of the "
-               "template tree")]))
+               "template's own sheet. Four ways to give it one: (sheet \"...\") "
+               "on a (role ...) anchor of the template; an explicit sheet on the "
+               "root Entity; gather the mount nodes under ONE root node; or name "
+               "a `root` node for this instance (the sheet of that node's record "
+               "is then the template's own)")]))
     gen = copy.deepcopy(template)
     gen['name'] = instance_name
     if has_decl_anchor:

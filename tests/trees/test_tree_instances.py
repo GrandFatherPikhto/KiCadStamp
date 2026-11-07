@@ -10,6 +10,7 @@ hand-written ones — these tests pin that behaviour down.
 """
 import copy
 import json
+import logging
 from pathlib import Path
 
 import pytest
@@ -1593,6 +1594,81 @@ class TestDeclarationOwnPlace:
                 {"ref": "H1", "kind": "mount",
                  "anchor": {"role": "HOST", "sheet": "Own"}},
             ])
+        with pytest.raises(ValidationError,
+                           match=r"the template's own sheet cannot be derived"):
+            expand_tree_instances(data)
+
+    def test_the_own_sheet_is_derived_from_the_placement_records(self, caplog):
+        """Н3 (plan_2026_11_07_tree_instances_dialog_and_subtree): a
+        POINT-anchored template with SEVERAL top-level nodes yields no sheet from
+        a role anchor or from the single root — yet every placement record sits
+        on ONE sheet, and that IS the template's own sheet. The INFO line names
+        the source (a derived value must never look hand-written), and the mount
+        anchor is then re-sheeted to the instance."""
+        from kicadstamp.config.tree_instances import expand_tree_instances
+        data = _template_data([{
+            "template": "dac_buf_tpl", "name": "ch1_dac_buf",
+            "sheet": "Channel_1", "anchor": {"origin": True}}],
+            anchor={"point": "p_tpl"},
+            nodes=[
+                {"ref": "dac_buf", "kind": "placement", "xy": [1.0, 2.0]},
+                {"ref": "H1", "kind": "mount",
+                 "anchor": {"role": "HOST", "sheet": "Own"}},
+            ])
+        data["entities"][0]["sheet"] = "Own"
+
+        with caplog.at_level(logging.INFO):
+            out = expand_tree_instances(data)
+
+        gen = _raw_tree(out, "ch1_dac_buf")
+        mount = next(n for n in gen["nodes"] if n["ref"] == "H1")
+        assert mount["anchor"]["sheet"] == "Channel_1"
+        assert any("derived from the sheets" in r.message
+                   for r in caplog.records)
+
+    def test_records_on_different_sheets_keep_the_fatal_and_name_every_exit(self):
+        """Н3, the other half: two sheets among the template's records are NOT a
+        guess to make — the refusal stands and names ALL four ways out (role
+        anchor, explicit root-Entity sheet, one root, and Н6's `root`)."""
+        from kicadstamp.config.tree_instances import expand_tree_instances
+        data = _template_data([{
+            "template": "dac_buf_tpl", "name": "ch1_dac_buf",
+            "sheet": "Channel_1", "anchor": {"origin": True}}],
+            anchor={"point": "p_tpl"},
+            nodes=[
+                {"ref": "dac_buf", "kind": "placement", "xy": [1.0, 2.0]},
+                {"ref": "H1", "kind": "mount",
+                 "anchor": {"role": "HOST", "sheet": "Own"}},
+                {"ref": "dac_buf2", "kind": "placement", "xy": [3.0, 2.0]},
+            ])
+        data["entities"][0]["sheet"] = "Own"
+        data["entities"].append({"name": "dac_buf2", "cell": data["entities"][0]["cell"],
+                                 "sheet": "Elsewhere"})
+
+        with pytest.raises(ValidationError) as exc:
+            expand_tree_instances(data)
+
+        text = str(exc.value)
+        assert "cannot be derived" in text
+        assert "(sheet" in text
+        assert "gather the mount nodes under ONE root node" in text
+        assert "root" in text
+
+    def test_a_sheetless_placement_record_is_not_papered_over(self):
+        """A record without a sheet makes the answer ambiguous (the mount could
+        look inside or out) — no derived value, the same fatal."""
+        from kicadstamp.config.tree_instances import expand_tree_instances
+        data = _template_data([{
+            "template": "dac_buf_tpl", "name": "ch1_dac_buf",
+            "sheet": "Channel_1", "anchor": {"origin": True}}],
+            anchor={"point": "p_tpl"},
+            nodes=[
+                {"ref": "dac_buf", "kind": "placement", "xy": [1.0, 2.0]},
+                {"ref": "H1", "kind": "mount",
+                 "anchor": {"role": "HOST", "sheet": "Own"}},
+            ])
+        data["entities"][0].pop("sheet", None)
+
         with pytest.raises(ValidationError,
                            match=r"the template's own sheet cannot be derived"):
             expand_tree_instances(data)

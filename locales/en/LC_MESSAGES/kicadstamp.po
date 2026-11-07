@@ -15509,12 +15509,30 @@ msgid ""
 " the template's own sheet cannot be derived"
 msgstr ""
 
+#: kicadstamp/config/tree_instance_checks.py:61
+#, python-brace-format
+msgid ""
+"tree_instance {name!r}: the template's own sheet {sheet!r} was derived from "
+"the sheets of its placement records (no role anchor and no single root to "
+"read it off)"
+msgstr ""
+"tree_instance {name!r}: the template's own sheet {sheet!r} was derived from "
+"the sheets of its placement records (no role anchor and no single root to "
+"read it off)"
+
 #: kicadstamp/config/tree_instances.py:936
 msgid ""
 "the template has a mount node, whose expansion needs the template's own "
-"sheet — add (sheet \"...\") to a (role ...) anchor of the template, or an"
-" explicit sheet to the root Entity of the template tree"
+"sheet. Four ways to give it one: (sheet \"...\") on a (role ...) anchor of "
+"the template; an explicit sheet on the root Entity; gather the mount nodes "
+"under ONE root node; or name a `root` node for this instance (the sheet of "
+"that node's record is then the template's own)"
 msgstr ""
+"the template has a mount node, whose expansion needs the template's own "
+"sheet. Four ways to give it one: (sheet \"...\") on a (role ...) anchor of "
+"the template; an explicit sheet on the root Entity; gather the mount nodes "
+"under ONE root node; or name a `root` node for this instance (the sheet of "
+"that node's record is then the template's own)"
 
 #: kicadstamp/config/tree_instances.py:989
 #, python-brace-format

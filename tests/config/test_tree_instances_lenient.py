@@ -21,9 +21,10 @@ from kicadstamp.config.sexp_format import dict_to_sexp
 from kicadstamp.config.tree_instances import expand_tree_instances
 from kicadstamp.exceptions import ValidationError
 
-# The broken row: a POINT-anchored template with a mount node and the
-# declaration's own anchor — its `old_sheet` cannot be derived (the very live
-# refusal of Н3). The good row instantiates a role-anchored template.
+# The broken row: the POINT-anchored template's mount node has NO sheet in its
+# anchor, which its expansion refuses ("without a sheet the role is ambiguous
+# across the instances' sheets") — a refusal Н3 cannot derive away. The good row
+# instantiates a role-anchored template.
 _BROKEN = {"template": "point_tpl", "name": "bad", "sheet": "S2",
            "anchor": {"origin": True}}
 _GOOD = {"template": "tpl", "name": "good", "sheet": "S2"}
@@ -38,7 +39,7 @@ def _data(instances) -> dict:
              "nodes": [
                  {"ref": "e2", "kind": "placement", "xy": [0.0, 0.0]},
                  {"ref": "m1", "kind": "mount", "xy": [0.0, 0.0],
-                  "anchor": {"role": "HOST", "sheet": "S"}},
+                  "anchor": {"role": "HOST"}},
              ]},
         ],
         "entities": [{"name": "e1", "cell": "c1", "sheet": "S"},
@@ -68,7 +69,7 @@ def test_a_refused_declaration_is_reported_and_the_rest_loads():
     row = failures[0]
     assert row["index"] == 1
     assert (row["template"], row["name"], row["sheet"]) == ("point_tpl", "bad", "S2")
-    assert "sheet cannot be derived" in row["error"]
+    assert "no sheet in its anchor" in row["error"]
 
 
 def test_a_refused_declaration_adds_nothing_of_its_own():
@@ -86,7 +87,7 @@ def test_a_refused_declaration_adds_nothing_of_its_own():
 
 def test_the_strict_mode_still_refuses_the_same_data():
     """Control: without the `failures` list the historical fatal is untouched."""
-    with pytest.raises(ValidationError, match="own sheet cannot be derived"):
+    with pytest.raises(ValidationError, match="no sheet in its anchor"):
         expand_tree_instances(_data([_GOOD, _BROKEN]))
 
 

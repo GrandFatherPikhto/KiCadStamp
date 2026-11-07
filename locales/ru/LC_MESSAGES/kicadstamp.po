@@ -16437,15 +16437,30 @@ msgstr ""
 "tree_instance {name!r}: шаблон {template!r} объявляет собственное место, "
 "но собственный лист шаблона вывести нельзя"
 
+#: kicadstamp/config/tree_instance_checks.py:61
+#, python-brace-format
+msgid ""
+"tree_instance {name!r}: the template's own sheet {sheet!r} was derived from "
+"the sheets of its placement records (no role anchor and no single root to "
+"read it off)"
+msgstr ""
+"tree_instance {name!r}: собственный лист шаблона {sheet!r} выведен по листам "
+"его placement-записей (нет role-якоря и нет единственного корня, откуда его "
+"взять)"
+
 #: kicadstamp/config/tree_instances.py:936
 msgid ""
 "the template has a mount node, whose expansion needs the template's own "
-"sheet — add (sheet \"...\") to a (role ...) anchor of the template, or an"
-" explicit sheet to the root Entity of the template tree"
+"sheet. Four ways to give it one: (sheet \"...\") on a (role ...) anchor of "
+"the template; an explicit sheet on the root Entity; gather the mount nodes "
+"under ONE root node; or name a `root` node for this instance (the sheet of "
+"that node's record is then the template's own)"
 msgstr ""
 "в шаблоне есть узел mount, для раскрытия которого нужен собственный лист "
-"шаблона — добавьте (sheet \"...\") в якорь (role ...) шаблона либо явный "
-"sheet корневой Entity дерева-шаблона"
+"шаблона. Четыре способа его задать: (sheet \"...\") в якоре (role ...) "
+"шаблона; явный sheet у корневой Entity; собрать mount-узлы под ОДИН корень; "
+"или назвать `root`-узел в объявлении (тогда лист записи этого узла и есть "
+"собственный лист шаблона)"
 
 #: kicadstamp/config/tree_instances.py:989
 #, python-brace-format
