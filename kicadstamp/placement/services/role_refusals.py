@@ -16,6 +16,21 @@ from kicadstamp.exceptions import ValidationError, format_fatal_error
 from kicadstamp.i18n import _
 
 
+def mount_node_label(tree, node) -> str:
+    """The label a MOUNT node's anchor_role resolve carries into its refusal.
+
+    "anchor_role 'UCC' is ambiguous" without the node sent the user hunting
+    through the whole tree for which mount fell over (live, 06.11/07.11: the
+    ambiguous mount was `ucc_vcc_15`, and two neighbouring nodes' Redraw simply
+    did nothing). `tree` may be None (a caller with no plain Tree): then only
+    the node is named — never the words "tree None"."""
+    name = getattr(tree, "name", None)
+    ref = getattr(node, "ref", None)
+    if name is None:
+        return _("mount node {ref!r}").format(ref=ref)
+    return _("tree {tree!r} mount node {ref!r}").format(tree=name, ref=ref)
+
+
 def raise_role_not_found(label: str, role: str | None) -> None:
     """The canonical "this Role is on nothing" fatal — ONE wording for both
     sources of candidates (the sweep and the snapshot)."""

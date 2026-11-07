@@ -6581,6 +6581,18 @@ msgstr "Nothing selected — check some nodes first."
 msgid "Nothing to redraw."
 msgstr "Nothing to redraw."
 
+#: gui/docks/trees_redraw_report.py:38
+msgid ""
+"Redraw: nothing was planned for the selected nodes — see the Log above (a "
+"tree whose anchor failed is skipped there)"
+msgstr ""
+"Redraw: nothing was planned for the selected nodes — see the Log above (a "
+"tree whose anchor failed is skipped there)"
+
+#: gui/docks/trees_redraw_report.py:58
+msgid "nothing was planned — see the log"
+msgstr "nothing was planned — see the log"
+
 #: gui/docks/trees_dock.py:4170 gui/docks/trees_dock.py:4177
 #, python-brace-format
 msgid "Redraw: {ok}/{total} ok"
@@ -11846,6 +11858,16 @@ msgstr ""
 "Node {ref!r} also has its own {field} — the regular (non-tree) "
 "Apply/Redraw keeps using it; this tree redraw moves it TEMPORARILY, "
 "without touching the record"
+
+#: kicadstamp/placement/services/role_refusals.py:30
+#, python-brace-format
+msgid "mount node {ref!r}"
+msgstr "mount node {ref!r}"
+
+#: kicadstamp/placement/services/role_refusals.py:31
+#, python-brace-format
+msgid "tree {tree!r} mount node {ref!r}"
+msgstr "tree {tree!r} mount node {ref!r}"
 
 #: kicadstamp/tree_position.py:181
 #, python-brace-format

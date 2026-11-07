@@ -7016,6 +7016,18 @@ msgstr ""
 msgid "Nothing to redraw."
 msgstr "Нечего перерисовывать."
 
+#: gui/docks/trees_redraw_report.py:38
+msgid ""
+"Redraw: nothing was planned for the selected nodes — see the Log above (a "
+"tree whose anchor failed is skipped there)"
+msgstr ""
+"Redraw: для выбранных узлов ничего не запланировано — смотри Лог выше "
+"(дерево с упавшим якорем пропускается там)"
+
+#: gui/docks/trees_redraw_report.py:58
+msgid "nothing was planned — see the log"
+msgstr "ничего не запланировано — смотри лог"
+
 #: gui/docks/trees_dock.py:4170 gui/docks/trees_dock.py:4177
 #, python-brace-format
 msgid "Redraw: {ok}/{total} ok"
@@ -12612,6 +12624,16 @@ msgstr ""
 "Узел {ref!r} также имеет собственный {field} — обычный (не-деревный) "
 "Apply/Redraw продолжает им пользоваться; этот tree redraw двигает его "
 "ВРЕМЕННО, не трогая запись"
+
+#: kicadstamp/placement/services/role_refusals.py:30
+#, python-brace-format
+msgid "mount node {ref!r}"
+msgstr "mount-узел {ref!r}"
+
+#: kicadstamp/placement/services/role_refusals.py:31
+#, python-brace-format
+msgid "tree {tree!r} mount node {ref!r}"
+msgstr "дерево {tree!r}, mount-узел {ref!r}"
 
 #: kicadstamp/tree_position.py:181
 #, python-brace-format

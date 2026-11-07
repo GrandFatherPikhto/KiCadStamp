@@ -141,6 +141,7 @@ from ._common import (ERROR_STYLE as _ERROR_STYLE,
                       configure_searchable, confirm_first_run_adoption,
                       highlight_stylesheet_for, set_combo_items, show_message,
                       SplitterSizeKeeper)
+from .trees_redraw_report import redraw_log_lines, redraw_status_text
 from .cascade import (run_curated_forest_redraw_worker, run_curated_tree_redraw_worker,
                       run_single_node_redraw_worker)
 from .entity_delete import backup_file
@@ -4159,16 +4160,11 @@ class TreesDock(QWidget):
 
     def _finish_redraw(self, result) -> None:
         results, warnings = result
-        ok = sum(1 for _n, good, _e in results if good)
-        failed = len(results) - ok
-        logger.info(_("Redraw: {ok}/{total} ok").format(ok=ok, total=len(results)))
-        if failed:
-            logger.warning(_("Redraw: {failed} record(s) failed — see the log above")
-                           .format(failed=failed))
-        if warnings:
-            self._show_status(_("{count} warning(s) — see log").format(count=len(warnings)))
-        else:
-            self._show_status(_("Redraw: {ok}/{total} ok").format(ok=ok, total=len(results)))
+        # The wording (and the "nothing was planned is NOT ok" rule) lives in
+        # gui/docks/trees_redraw_report.py — the giant only wires it (Н2).
+        for level, text in redraw_log_lines(results):
+            getattr(logger, level)(text)
+        self._show_status(redraw_status_text(results, warnings))
 
     def _on_redraw_failed(self, message: str) -> None:
         logger.error(_("Redraw failed: {error}").format(error=message))

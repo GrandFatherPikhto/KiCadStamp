@@ -1827,6 +1827,45 @@ def test_layout_mount_node_without_adapter_is_validation_error():
         layout_tree_from_base(tree, _ORIGIN, 0.0)
 
 
+def test_a_mount_anchor_refusal_names_the_node_and_the_tree(monkeypatch):
+    """Н2 (plan_2026_11_07_tree_instances_dialog_and_subtree): a mount anchor's
+    `anchor_role` refusal used to be labelled with the ROLE alone ("UCC:
+    anchor_role 'UCC' is ambiguous"), so the Log named neither the tree nor the
+    mount that fell over — Denis hunted through the nodes. The label now names
+    both, and the refusal text is the resolver's own (unchanged)."""
+    import kicadstamp.tree_position as tp
+
+    labels = []
+
+    class _RefusingResolver(FakeComponentResolver):
+        def resolve_anchor_fp(self, anchor_ref, anchor_role, anchor_sheet,
+                              anchor_cluster, label=""):
+            labels.append(label)
+            raise ValidationError("stopped at the seam")
+
+    monkeypatch.setattr(tp, "ComponentResolver", _RefusingResolver)
+    child = _node_dc(ref="d0", xy=(1.0, 0.0))
+    tree = _leaf_tree("switch", [_mount_dc("ucc_vcc_15", "UCC", [child])])
+    with pytest.raises(ValidationError):
+        layout_tree_from_base(tree, _ORIGIN, 0.0, adapter=object(), cfg=None,
+                              sheet_names={})
+
+    assert labels == ["tree 'switch' mount node 'ucc_vcc_15'"]
+
+
+def test_a_mount_label_without_a_tree_names_only_the_node():
+    """§7.6 of the plan: `mount_node_base` may be called with tree=None (a pure
+    module-embedding helper). Then the label names the node alone — never the
+    words "tree None"."""
+    from kicadstamp.placement.services.role_refusals import mount_node_label
+
+    class _Node:
+        ref = "m1"
+
+    assert mount_node_label(None, _Node()) == "mount node 'm1'"
+    assert "tree None" not in mount_node_label(None, _Node())
+
+
 # ── Board frame <-> config frame, the tree-node form's conversion pair ──────
 # (plan_2026_09_11_tree_node_live_read_and_board_frame §3). The form shows the
 # offset/rotation in the BOARD frame; the config stores them in the base's

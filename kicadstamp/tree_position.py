@@ -55,6 +55,7 @@ from .placement.services.component_resolver import (
     resolve_anchor_pad_position,
     resolve_footprint_by_ref,
 )
+from .placement.services.role_refusals import mount_node_label
 from .placement.services.coordinate_position_calculator import (
     _anchor_offset_mm,
     _has_external_anchor,
@@ -172,9 +173,8 @@ def mount_node_base(node: TreeNode, tree: "Tree | None", tree_base_pos: Vector2,
     clear cycle fatal, never infinite recursion (§Г.3.1).
 
     Only the role shape is possible here (the parser fatals on any other). A
-    resolve failure (role not found / ambiguous on the live board) is a plain
-    ValidationError — the same per-tree tolerance a tree-level role anchor gets
-    (design_2026_09_03 §1.2; unchanged)."""
+    resolve failure (role not found / ambiguous) is a plain ValidationError —
+    the same per-tree tolerance a tree-level role anchor gets (design_2026_09_03 §1.2)."""
     anchor = node.anchor
     if anchor is None:
         raise ValidationError(_(
@@ -204,7 +204,7 @@ def mount_node_base(node: TreeNode, tree: "Tree | None", tree_base_pos: Vector2,
     resolver = ComponentResolver(adapter, cfg, sheet_names, snapshot=snapshot)
     fp = resolver.resolve_anchor_fp(
         None, anchor.role, anchor.anchor_sheet, anchor.anchor_cluster,
-        label=anchor.role)
+        label=mount_node_label(tree, node))
     pos = fp.position
     rot = fp.angle_deg
     if anchor.anchor_pad:
@@ -343,7 +343,7 @@ def _internal_mount_base(node: TreeNode, anchor: TreeAnchor,
     resolver = ComponentResolver(adapter, cfg, sheet_names, snapshot=snapshot)
     fp = resolver.resolve_anchor_fp(
         None, anchor.role, anchor.anchor_sheet, anchor.anchor_cluster,
-        label=anchor.role)
+        label=mount_node_label(tree, node))
     pad_abs = resolve_anchor_pad_position(adapter, fp, anchor.anchor_pad, anchor.role)
     relative_mirror = _footprint_relative_mirror(fp, match.cell, mirror)
     delta_x_mm = (pad_abs.x - fp.position.x) / MM
