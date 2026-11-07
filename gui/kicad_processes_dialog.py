@@ -22,6 +22,8 @@ from PyQt6.QtWidgets import (QDialog, QHBoxLayout, QLabel, QListWidget,
 from kicadstamp.i18n import _
 from kicadstamp.schematic_safety import KicadProcessInfo, kill_kicad_process, list_kicad_processes
 
+from .ui_utils import remember_dialog_size
+
 _PID_ROLE = Qt.ItemDataRole.UserRole
 
 
@@ -34,7 +36,7 @@ class KicadProcessesDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle(_("KiCad processes"))
-        self.resize(440, 260)
+        remember_dialog_size(self, 440, 260)
 
         layout = QVBoxLayout(self)
         layout.addWidget(QLabel(

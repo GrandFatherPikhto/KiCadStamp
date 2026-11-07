@@ -57,6 +57,7 @@ from kicadstamp.i18n import _
 from kicadstamp.tree_mounts import (MountAddress, MountRow, filter_rows,
                                     mount_name, node_with_ref, plan_mount_nodes)
 
+from ..ui_utils import remember_dialog_size
 from ..worker import qt_object_gone
 from . import trees_mounts_flow
 
@@ -88,7 +89,7 @@ class MountsDialog(QDialog):
         # MODELESS (Д-4): the dock stays usable, and this window survives a reload —
         # which is exactly why it remembers names and not objects.
         self.setModal(False)
-        self.resize(720, 520)
+        remember_dialog_size(self, 720, 520)
 
         self._dock = dock
         self._connection = connection

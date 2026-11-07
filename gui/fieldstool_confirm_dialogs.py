@@ -22,6 +22,7 @@ from PyQt6.QtWidgets import (QDialog, QDialogButtonBox, QLabel, QListWidget,
 from kicadstamp.i18n import _
 
 from .docks.pending import PendingEdit
+from .ui_utils import remember_dialog_size
 
 
 def confirm_apply_dialog(parent, report: List) -> bool:
@@ -53,6 +54,7 @@ def confirm_apply_dialog(parent, report: List) -> bool:
     than "yes". The summary list keeps its height cap, so the new lines do
     not grow the dialog (Р5)."""
     dialog = QDialog(parent)
+    remember_dialog_size(dialog, 640, 460, key="FieldstoolConfirmApply")
     dialog.setWindowTitle(_("Confirm apply"))
     layout = QVBoxLayout(dialog)
     layout.addWidget(QLabel(
@@ -102,6 +104,7 @@ def confirm_sync_dialog(parent, edits: List[PendingEdit],
     when there is something to lose — the stored records this action drops
     for the same components."""
     dialog = QDialog(parent)
+    remember_dialog_size(dialog, 640, 440, key="FieldstoolConfirmSync")
     dialog.setWindowTitle(_("Confirm sync from schematic"))
     layout = QVBoxLayout(dialog)
     layout.addWidget(QLabel(

@@ -386,6 +386,68 @@ def test_a_declaration_anchor_shift_survives_mode_switches(
     assert anchor["shift"] == [0.0, 40.0]
 
 
+def test_the_anchor_window_remembers_its_size_between_opens(
+        main_window, tmp_path, monkeypatch):
+    """Б8 (part Б, the live complaint): «окно якоря каждый раз открывается
+    слопнутым». Both halves of the pair: with NOTHING remembered the window
+    comes up at its DESIRED default (not Qt's squeezed one), and with a
+    remembered size it comes up exactly where it was left."""
+    from PyQt6.QtWidgets import QDialog
+
+    import gui.docks.instances_dialog as id_mod
+    from gui import settings
+
+    dlg, _p = _open_dialog(main_window, tmp_path)
+    dlg._add_row()
+    dlg.table.item(0, 0).setText("switch_b")
+    dlg.table.item(0, 1).setText("SW B")
+    seen = []
+
+    def fake_exec(self):
+        seen.append((self.width(), self.height()))
+        return QDialog.DialogCode.Rejected
+
+    monkeypatch.setattr(id_mod.QDialog, "exec", fake_exec)
+    settings.state.set("dialog_size:InstanceAnchor", None)
+    dlg._edit_anchor(None)
+    assert seen[-1] == (640, 520), "nothing remembered -> the DESIRED default"
+
+    settings.state.set("dialog_size:InstanceAnchor", [700, 500])
+    dlg._edit_anchor(None)
+    assert seen[-1] == (700, 500), "a remembered size must win over the default"
+
+
+def test_the_two_anonymous_windows_use_their_own_size_keys(
+        main_window, tmp_path, monkeypatch):
+    """Б7 (part Б): an anonymous `QDialog` has no class name to key its size on —
+    without an explicit key EVERY such window in the app would write the same
+    `dialog_size:QDialog` entry, and one window's size would move another's."""
+    from PyQt6.QtWidgets import QDialog
+
+    from gui import settings
+    from gui.fieldstool_confirm_dialogs import confirm_sync_dialog
+
+    dlg, _p = _open_dialog(main_window, tmp_path)
+    dlg._add_row()
+    dlg.table.item(0, 0).setText("switch_b")
+    dlg.table.item(0, 1).setText("SW B")
+
+    def fake_exec(self):
+        self.show()
+        self.resize(700, 500)
+        self.hide()
+        return QDialog.DialogCode.Rejected
+
+    monkeypatch.setattr(QDialog, "exec", fake_exec)
+    dlg._edit_anchor(None)
+    confirm_sync_dialog(main_window, [])
+
+    assert settings.state.get("dialog_size:InstanceAnchor") == [700, 500]
+    assert settings.state.get("dialog_size:FieldstoolConfirmSync") == [700, 500]
+    assert settings.state.get("dialog_size:QDialog") is None, (
+        "the two anonymous windows must not share the generic class key")
+
+
 def test_a_row_the_loader_would_refuse_is_not_written(main_window, tmp_path):
     """Cell 2 (Н7): a row without its own anchor under a POINT-anchored template
     is refused by the loader — so the dialog refuses it FIRST, with the loader's

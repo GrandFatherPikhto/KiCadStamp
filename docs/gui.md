@@ -306,18 +306,32 @@ scaling). With no screen at all (headless runs) it degrades to a plain
 `resize()`.
 
 Since 2026-09-12 (`plan_2026_09_12_node_dialog_usability` §Э3) the dialogs also
-REMEMBER the size they were left at: `gui/ui_utils.restore_dialog_size()` (called
-once where the size is decided, with the old constant as its fallback) reads
-`gui_state.json["dialog_size:<ClassName>"]` — the class name, never the
-translated title — and `gui/ui_utils.persist_dialog_size()` stores it on every
-hide/close. Hiding is the one path every dialog has (`accept()`/`reject()` and the
-window X both hide; a non-modal dialog closed with the X never emits
-`finished()`), hence the event filter rather than a signal. The restored size goes
-through the SAME screen cap as a constant — a size saved on a big monitor cannot
-hang off a laptop. Only the SIZE is remembered; a position on another monitor
-layout would put the window off-screen. Covers Cell/Project/Tools/Settings/
-TreeInstances/ExtractCluster/TreeFromSelection dialogs and the
-node dialog.
+REMEMBER the size they were left at: `gui/ui_utils.remember_dialog_size()` — ONE
+call that does both halves, because a half-pair fails silently
+(restore-without-persist looks right for exactly one launch, then the window is
+back to "slopped"). It reads `gui_state.json["dialog_size:<ClassName>"]` — the
+class name, never the translated title — and stores the size on every hide/close.
+Hiding is the one path every dialog has (`accept()`/`reject()` and the window X
+both hide; a non-modal dialog closed with the X never emits `finished()`), hence
+the event filter rather than a signal. The restored size goes through the SAME
+screen cap as a constant — a size saved on a big monitor cannot hang off a
+laptop. Only the SIZE is remembered; a position on another monitor layout would
+put the window off-screen.
+
+07.11 (part Б of `plan_2026_11_07_dialog_sizes_and_row_shift`): EVERY window of
+`gui/` remembers its size — the node/anchor/tree dialogs, Instances… and the
+instance-anchor window it opens, Cell (import preview, copy placement, layers),
+Project/Create Project, Tools, Settings, Extract Cluster, Tree from selection,
+the imprint Record/Re-source and Boundary-nets windows, Import from profile, the
+mounts table, KiCad processes and the two fieldstool confirmations. An ANONYMOUS
+`QDialog` (the instance anchor, the two confirmations) passes an explicit `key=`
+— without one every anonymous window would share the single
+`dialog_size:QDialog` entry. Guard: `tests/repo/test_dialog_sizes.py` reads the
+BODY — a class's own methods, or the function that builds an anonymous dialog —
+so a file that remembers its MAIN dialog can no longer hide an unsized one (the
+exact miss that started this); a half-pair (restore without persist) and an
+anonymous window without `key=` are failures, and an exemption must carry its
+reason in words.
 
 Guard: `tests/gui/test_no_widget_height_squeezing.py` — an ast tripwire over
 `gui/**/*.py` for height calls on field-looking receivers, plus a behavioural

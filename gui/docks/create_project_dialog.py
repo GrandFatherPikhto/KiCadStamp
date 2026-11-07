@@ -31,6 +31,8 @@ from kicadstamp.i18n import _
 from kicadstamp.project_setup import ProjectConfigExists, create_project
 from kicadstamp.utils.paths import project_config_path_for_dir
 
+from ..ui_utils import remember_dialog_size
+
 logger = logging.getLogger(__name__)
 
 # Names that are NOT project names (2026-09-24, ДОПОЛНЕНИЕ 1, Д-1): "." makes the
@@ -47,6 +49,8 @@ class CreateProjectDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle(_("Create Project"))
         self.setObjectName("create_project_dialog")
+        # Remembered per class name: one such dialog per app, no explicit key.
+        remember_dialog_size(self, 560, 300)
         # What the caller reads after accept(): the config that now exists.
         self.created_config_path: Optional[Path] = None
 

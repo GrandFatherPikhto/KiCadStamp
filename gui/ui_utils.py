@@ -347,3 +347,22 @@ def persist_dialog_size(dialog: QWidget, *, key: Optional[str] = None) -> None:
     where the dialog is built; every later hide/close updates the stored size."""
     dialog._dialog_size_saver = _DialogSizeSaver(
         dialog, dialog_size_key(dialog, key))
+
+
+def remember_dialog_size(dialog: QWidget, width: Optional[int] = None,
+                         height: Optional[int] = None, *,
+                         key: Optional[str] = None, screen=None) -> None:
+    """BOTH halves of the remembered size in one call — the pair every modal
+    dialog wants: show it at the size it was left at (or at the DESIRED
+    (width, height) the first time), and store the size on every later hide.
+
+    This exists because the two halves are only useful TOGETHER and a
+    half-pair fails silently in the one direction nobody notices: a dialog that
+    restores but never persists looks right for one launch and is back to
+    "slopnuty" on the next one — exactly the live complaint of 07.11 that put
+    the pair on a dozen windows at once (plan
+    plan_2026_11_07_dialog_sizes_and_row_shift, part Б). `key` is passed to
+    both halves unchanged; an ANONYMOUS `QDialog` must supply one, or every
+    such window shares the single `dialog_size:QDialog` entry."""
+    restore_dialog_size(dialog, width, height, key=key, screen=screen)
+    persist_dialog_size(dialog, key=key)

@@ -23,8 +23,8 @@ from PyQt6.QtWidgets import (QDialog, QFrame, QPlainTextEdit, QPushButton,
 
 from gui import settings, ui_utils
 from gui.ui_utils import (MinHeightScrollArea, busy, persist_dialog_size,
-                          resize_dialog_within_screen, restore_dialog_size,
-                          wrap_in_scroll_area)
+                          remember_dialog_size, resize_dialog_within_screen,
+                          restore_dialog_size, wrap_in_scroll_area)
 
 
 def test_busy_disables_and_restores_buttons(qapp):
@@ -167,6 +167,27 @@ def test_persist_dialog_size_stores_the_size_on_hide(qapp):
     expected = [dialog.width(), dialog.height()]
     dialog.hide()
     assert settings.state.get("dialog_size:_Dialog") == expected
+
+
+def test_remember_dialog_size_does_both_halves_in_one_call(qapp):
+    """The pair is only useful TOGETHER, and a half-pair fails silently in the
+    direction nobody notices: restore-without-persist looks right for ONE launch
+    and is back at the collapsed size on the next one. One call must therefore
+    do both — the DESIRED size when nothing is remembered, and the size the
+    dialog is LEFT at stored on hide, under the SAME key."""
+    dialog = _Dialog(_FakeScreen(1920, 1080))
+    remember_dialog_size(dialog, 640, 460, key="OneCall")
+    assert (dialog.width(), dialog.height()) == (640, 460)
+
+    dialog.resize(500, 300)
+    dialog.show()
+    dialog.hide()
+    assert settings.state.get("dialog_size:OneCall") == [500, 300]
+
+    # ...and the next launch comes back at THAT size, not at the constant.
+    second = _Dialog(_FakeScreen(1920, 1080))
+    remember_dialog_size(second, 640, 460, key="OneCall")
+    assert (second.width(), second.height()) == (500, 300)
 
 
 def test_restore_dialog_size_prefers_the_remembered_size(qapp):

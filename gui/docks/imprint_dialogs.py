@@ -26,6 +26,7 @@ from kicadstamp.i18n import _
 
 from ..worker import refresh_snapshot_then_with_retry
 from ._common import ERROR_STYLE as _ERROR_STYLE, show_message
+from ..ui_utils import remember_dialog_size
 from .imprint_record_scope import (_pivot_mm_text, all_sheet_paths,
                                    pivot_centre_frame_from_selection,
                                    refs_on_sheet, sheet_subtree_plan)
@@ -72,6 +73,7 @@ class RecordImprintDialog(QDialog):
                  selection_provider=None, snapshot_provider=None,
                  connection=None):
         super().__init__(parent)
+        remember_dialog_size(self, 900, 640)
         self._fixed_name = fixed_name
         # Pivot/Anchor tab context (Commit F): the live adapter + current board
         # selection feed "Take from selection"; pivot_initial prefills the tab
@@ -579,6 +581,7 @@ class BoundaryNetDialog(QDialog):
     def __init__(self, rows, parent=None):
         super().__init__(parent)
         self.setWindowTitle(_("Boundary nets"))
+        remember_dialog_size(self, 620, 420)
         self._combos: List[tuple] = []  # (net, QComboBox) in row order
         layout = QVBoxLayout(self)
         explain = QLabel(

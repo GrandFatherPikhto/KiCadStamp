@@ -50,7 +50,8 @@ from kicadstamp.config_writer import upsert_tree_instances
 from kicadstamp.i18n import _
 from kicadstamp.trees import anchor_from_dict, anchor_to_dict
 
-from ..ui_utils import persist_dialog_size, restore_dialog_size
+from ..ui_utils import (persist_dialog_size, remember_dialog_size,
+                        restore_dialog_size)
 from .instances_validation import (expansion_refusal, proposed_graph,
                                    sheet_warnings)
 
@@ -443,6 +444,9 @@ class TreeInstancesDialog(QDialog):
             if current else None
         dlg = QDialog(self)
         dlg.setWindowTitle(_("Instance anchor"))
+        # An ANONYMOUS QDialog: without an explicit key every such window in the
+        # app would share the one `dialog_size:QDialog` entry (07.11, part Б).
+        remember_dialog_size(dlg, 640, 520, key="InstanceAnchor")
         lay = QVBoxLayout(dlg)
         form = AnchorFormWidget(dlg, self._anchor_candidates(), cfg=self._cfg,
                                 existing=existing, declaration=True)

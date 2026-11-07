@@ -19,6 +19,7 @@ from PyQt6.QtWidgets import (QAbstractItemView, QComboBox, QDialog,
 
 from kicadstamp.i18n import _
 
+from ..ui_utils import remember_dialog_size
 from ._common import configure_searchable
 
 class _ImportPreviewDialog(QDialog):
@@ -31,7 +32,7 @@ class _ImportPreviewDialog(QDialog):
     def __init__(self, rows: List[List[str]], parent=None):
         super().__init__(parent)
         self.setWindowTitle(_("Add selected copper"))
-        self.resize(620, 360)
+        remember_dialog_size(self, 620, 360)
         layout = QVBoxLayout(self)
         table = QTableWidget(0, 3)
         table.setHorizontalHeaderLabels([_("Kind"), _("Position"), _("Net")])
@@ -64,7 +65,7 @@ class _CopyPlacementDialog(QDialog):
     def __init__(self, candidates: List[str], parent=None):
         super().__init__(parent)
         self.setWindowTitle(_("Copy placement from cell"))
-        self.resize(460, 130)
+        remember_dialog_size(self, 460, 130)
         layout = QVBoxLayout(self)
         form = QFormLayout()
         self.source_combo = QComboBox()

@@ -54,6 +54,7 @@ from ..board_layers import (
     selection_layer_names,
     skipped_empty_layers,
 )
+from ..ui_utils import remember_dialog_size
 from ..worker import socket_busy, start_long_op
 from .explode_page import adapter_of
 
@@ -74,7 +75,7 @@ class CellLayersDialog(QDialog):
     def __init__(self, rows, parent=None):
         super().__init__(parent)
         self.setWindowTitle(_("Layers to read"))
-        self.resize(460, 250)
+        remember_dialog_size(self, 460, 250)
         self._rows = list(rows)
         self._boxes = {}
         self._touched = set()

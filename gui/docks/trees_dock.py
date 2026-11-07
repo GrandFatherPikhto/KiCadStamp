@@ -77,8 +77,8 @@ from kicadstamp.utils.units import MM
 
 from .. import board_overlay, overlay_markers, settings
 from ..connection import ui_thread_board_read, worker_timeout_ms
-from ..ui_utils import (persist_dialog_size, restore_dialog_size,
-                        wrap_in_scroll_area)
+from ..ui_utils import (persist_dialog_size, remember_dialog_size,
+                        restore_dialog_size, wrap_in_scroll_area)
 from ..worker import socket_busy, start_long_op
 from ._anchor_origin import AnchorOriginWidget, build_role_anchor_fields
 from .trees_move_flow import (RehangPlan, _MOVE_OFFSET_REFUSED,
@@ -7063,10 +7063,10 @@ class _AnchorDialog(QDialog):
                  tree=None, cfg_supplier=None):
         super().__init__(parent)
         self.setWindowTitle(_("Set anchor"))
+        remember_dialog_size(self, 640, 520)
         self._result: Optional[TreeAnchor] = None
-        # The FORM is built with the original `parent` (the TreesDock, not this
-        # dialog) so its _dock resolves to the dock that owns _mark_dirty —
-        # addWidget below reparents the form visually without touching _dock.
+        # The FORM is built with the original `parent` (the TreesDock) so its
+        # _dock owns _mark_dirty; addWidget reparents it VISUALLY only.
         self._form = AnchorFormWidget(
             parent, ref_candidates, cfg=cfg, sheet_names=sheet_names,
             role_candidates=role_candidates,

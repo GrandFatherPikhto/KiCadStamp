@@ -28,6 +28,7 @@ from kicadstamp.config.profile_copy import copy_items, list_importable
 from kicadstamp.exceptions import ValidationError
 from kicadstamp.i18n import _
 
+from ..ui_utils import remember_dialog_size
 from ._common import ERROR_STYLE as _ERROR_STYLE, show_message
 
 logger = logging.getLogger(__name__)
@@ -67,7 +68,7 @@ class ProfileImportDialog(QDialog):
         self._rows: List[dict] = []
 
         self.setWindowTitle(_("Import from profile..."))
-        self.resize(560, 400)
+        remember_dialog_size(self, 560, 400)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(8, 8, 8, 8)
