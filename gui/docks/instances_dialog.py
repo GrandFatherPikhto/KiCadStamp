@@ -68,6 +68,29 @@ def _format_rotation(value: float | None) -> str:
     return "" if value is None else f"{value:g}"
 
 
+def _shift_from_fields(form) -> tuple[tuple[float, float] | None, str | None]:
+    """The shift row of the shared form as a DECLARATION stores it — config
+    (LOCAL) mm — or (None, error).
+
+    The form's own `build_anchor()` deliberately answers None for a row: it
+    converts the field through the ANCHOR's live angle and has no Tree here, so
+    its fields are not board-frame values at all. A declaration's `(shift x y)`
+    IS the local offset (the plan's own example: `(shift 0.0 40.0)`), so the row
+    reads the fields verbatim — the one place this dialog interprets them."""
+    tx = form.shift_x_edit.text().strip()
+    ty = form.shift_y_edit.text().strip()
+    if tx == "" and ty == "":
+        return None, None
+    try:
+        sx = float(tx) if tx != "" else 0.0
+        sy = float(ty) if ty != "" else 0.0
+    except ValueError:
+        return None, _("Shift: X and Y must be numbers.")
+    if sx == 0.0 and sy == 0.0:
+        return None, None
+    return (sx, sy), None
+
+
 def _anchor_summary(anchor: dict | None) -> str:
     """One-line summary of a declaration's own anchor for the Anchor cell — the
     GRAMMAR's own keywords (origin / ref / external / self / role / point) plus
@@ -151,6 +174,10 @@ class TreeInstancesDialog(QDialog):
         self._failures = {(f.get("template"), f.get("name")): f
                           for f in (instance_failures or [])}
         self._row_refusals: dict[int, dict] = {}
+        # The shared anchor form of the LAST opened row dialog (kept for tests
+        # and for the shift row's own reading; one at a time, the dialog is
+        # modal).
+        self._last_anchor_form = None
         self.setWindowTitle(_("Tree instances"))
         self.setMinimumWidth(620)
         # Э3 (plan_2026_09_12_node_dialog_usability): remember the size between
@@ -340,11 +367,19 @@ class TreeInstancesDialog(QDialog):
         lay = QVBoxLayout(dlg)
         form = AnchorFormWidget(dlg, self._anchor_candidates(), cfg=self._cfg,
                                 existing=existing)
-        # No tree here: hide the tree-settings box AND the shift row (its reason
-        # label talks about creating a tree, which does not apply to a row).
+        # No tree here: the tree-settings box is hidden, but the SHIFT row stays
+        # VISIBLE and EDITABLE (Н5, 07.11) — a declaration's own anchor has a
+        # shift axis (`(shift x y)`, config/local mm), and hiding it forced the
+        # user to invent a separate `Origin_B` point. The form's reason label is
+        # about creating a tree, which does not apply to a row.
+        self._last_anchor_form = form
         form.settings_box.setVisible(False)
-        form.shift_row.setVisible(False)
+        form.shift_x_edit.setEnabled(True)
+        form.shift_y_edit.setEnabled(True)
         form.shift_reason_label.setVisible(False)
+        if existing is not None and existing.shift_xy is not None:
+            form.shift_x_edit.setText(str(existing.shift_xy[0]))
+            form.shift_y_edit.setText(str(existing.shift_xy[1]))
         lay.addWidget(form)
         row = QHBoxLayout()
         inherit_btn = QPushButton(_("Inherit from template"))
@@ -376,9 +411,13 @@ class TreeInstancesDialog(QDialog):
         if err:
             QMessageBox.warning(self, dlg.windowTitle(), err)
             return _CANCELLED
+        shift, shift_err = _shift_from_fields(form)
+        if shift_err:
+            self._show_problem(shift_err)
+            return _CANCELLED
         new = anchor_to_dict(anchor)
-        if current and current.get("shift") is not None:
-            new["shift"] = current["shift"]
+        if shift is not None:
+            new["shift"] = [shift[0], shift[1]]
         return new
 
     # ── validation + write ──────────────────────────────────────────────

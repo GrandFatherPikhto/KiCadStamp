@@ -248,6 +248,42 @@ def test_blank_row_is_rejected(main_window, tmp_path, monkeypatch):
 
 # ── Н7/Н4: the row is PROVEN before it is written ──────────────────────────
 
+def test_the_anchor_form_keeps_an_editable_shift_and_saves_it(
+        main_window, tmp_path, monkeypatch):
+    """Cell 6 (Н5): a declaration's own anchor has a SHIFT axis, and the shared
+    form's shift row used to be hidden — the only way to express "+40 mm along
+    y" was to invent a second point. The row is now visible and editable, and
+    the value lands in the declaration as config (LOCAL) mm — the way
+    (anchor (point "Origin" ...) (shift 0.0 40.0)) is written by hand."""
+    from PyQt6.QtWidgets import QDialog
+
+    import gui.docks.instances_dialog as id_mod
+
+    dlg, p = _open_dialog(main_window, tmp_path)
+    dlg._add_row()
+    dlg.table.item(0, 0).setText("switch_b")
+    dlg.table.item(0, 1).setText("SW B")
+
+    def _fake_exec(self):
+        form = dlg._last_anchor_form
+        form.mode_combo.setCurrentIndex(form.mode_combo.findData("origin"))
+        form.shift_x_edit.setText("0.0")
+        form.shift_y_edit.setText("40.0")
+        return QDialog.DialogCode.Accepted
+
+    monkeypatch.setattr(id_mod.QDialog, "exec", _fake_exec)
+
+    anchor = dlg._edit_anchor(None)
+    assert anchor["origin"] is True
+    assert anchor["shift"] == [0.0, 40.0]
+
+    # The row's own anchor cell holds it (here it is set directly — the nested
+    # dialog is what normally does this through its "…" button).
+    dlg.table.cellWidget(0, 4).set_anchor(anchor)
+    assert dlg._apply() is True
+    assert _instances_on_disk(p)[0]["anchor"]["shift"] == [0.0, 40.0]
+
+
 def test_a_row_the_loader_would_refuse_is_not_written(main_window, tmp_path):
     """Cell 2 (Н7): a row without its own anchor under a POINT-anchored template
     is refused by the loader — so the dialog refuses it FIRST, with the loader's
@@ -462,9 +498,11 @@ def test_non_numeric_rotation_is_rejected_without_write(main_window, tmp_path,
 def test_edit_anchor_really_embeds_the_shared_anchor_form(main_window, tmp_path,
                                                           monkeypatch):
     """§И.5's core requirement: the editor is the SHARED AnchorFormWidget from
-    trees_dock (NOT a second anchor form), it builds with tree=None, and its
-    tree-only rows (Tree settings box, Shift) are hidden. `QDialog.exec` is
-    stubbed so the modal never opens — the real construction runs."""
+    trees_dock (NOT a second anchor form), and it builds with tree=None.
+    The tree-only box (pivot/angle) stays hidden; the SHIFT row is now
+    VISIBLE and editable (Н5 of plan_2026_11_07_tree_instances_dialog_and_
+    subtree — the old "no own shift row" rule is what forced a second point).
+    `QDialog.exec` is stubbed so the modal never opens."""
     from PyQt6.QtWidgets import QDialog
     from gui.docks import trees_dock
 
@@ -484,7 +522,7 @@ def test_edit_anchor_really_embeds_the_shared_anchor_form(main_window, tmp_path,
 
     assert isinstance(seen["form"], trees_dock.AnchorFormWidget)
     assert seen["settings_hidden"] is True     # a declaration has no pivot/angle
-    assert seen["shift_hidden"] is True        # and no own shift row
+    assert seen["shift_hidden"] is False       # but it DOES have its own shift
     assert seen["shift_reason_hidden"] is True
     assert result == {"origin": True}          # the form's own default mode
 

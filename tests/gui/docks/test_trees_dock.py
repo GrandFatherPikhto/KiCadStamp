@@ -1159,8 +1159,12 @@ def test_instances_delegate_preselects_the_tree_it_is_given(
     seen = {}
 
     class _Stub:
-        def __init__(self, parent, root_path, cfg, preferred_template=None):
+        def __init__(self, parent, root_path, cfg, preferred_template=None,
+                     **kwargs):
             seen["preferred"] = preferred_template
+            # Н8/Н4 (07.11): the delegate opens through the LENIENT loader
+            # and hands the dialog the refusals and the project's sheets.
+            seen["kwargs"] = kwargs
 
         def exec(self):
             return QDialog.DialogCode.Rejected
@@ -1168,6 +1172,8 @@ def test_instances_delegate_preselects_the_tree_it_is_given(
     monkeypatch.setattr(hub_mod, "TreeInstancesDialog", _Stub)
 
     hub.open_instances_dialog(dock._trees[1])
+    assert "instance_failures" in seen["kwargs"]
+    assert "sheet_names" in seen["kwargs"]
 
     assert seen["preferred"] == "tree_b"
 
