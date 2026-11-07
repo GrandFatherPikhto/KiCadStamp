@@ -877,7 +877,7 @@ def _expand_template(template: dict, template_name: str, instance_name: str,
         check_outward(template, [root_node], decl_root["ref"], old_sheet,
                       entities_by_name, net_traces_by_name, cells or {},
                       template_name, instance_name)
-        x, y, rot = subtree_pose(path)
+        x, y, rot = subtree_pose(path, instance_name, decl_root["ref"])
         placed = copy.deepcopy(root_node)
         placed['xy'] = [round(x, 6), round(y, 6)]
         placed.pop('polar', None)

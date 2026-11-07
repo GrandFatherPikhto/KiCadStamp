@@ -1478,7 +1478,7 @@ def _load_tree_instance(data: dict[str, Any]) -> TreeInstance:
                        _("unknown fields in tree_instances entry {name!r}")
                        .format(name=name))
     return TreeInstance(template=template, name=name, sheet=sheet, cluster=cluster,
-                        params=params, anchor=anchor,
+                        params=params, anchor=anchor, root=data.get('root'),
                         rotation=float(rotation) if rotation is not None else None)
 
 

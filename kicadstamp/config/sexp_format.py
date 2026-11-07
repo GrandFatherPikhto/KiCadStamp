@@ -76,6 +76,7 @@ from .models import (
     TreeInstance,
 )
 from .points import Point
+from .tree_instance_sexp import parse_root as _parse_ti_root, write_root as _write_ti_root
 from .retired_sections import (
     refuse_retired_node_kinds,
     refuse_retired_section_node,
@@ -509,15 +510,14 @@ def _parse_tree_instance_anchor(field_node, path: str) -> dict:
     return anchor_to_dict(parse_anchor(field_node))
 
 
-# (record class, field name) -> serializer/parser owned by ANOTHER grammar.
-# A field listed on one side must be listed on the other too, with the same
-# key, or the round-trip is asymmetric. Currently ONE entry: a tree_instances
-# declaration's `anchor` speaks the TREE anchor grammar (§И.2).
+# (record, field) -> serializer/parser owned by another grammar; BOTH sides list the key.
 _CUSTOM_FIELD_WRITERS = {
     (TreeInstance, "anchor"): _write_tree_instance_anchor,
+    (TreeInstance, "root"): _write_ti_root,
 }
 _CUSTOM_FIELD_PARSERS = {
     (TreeInstance, "anchor"): _parse_tree_instance_anchor,
+    (TreeInstance, "root"): _parse_ti_root,
 }
 
 

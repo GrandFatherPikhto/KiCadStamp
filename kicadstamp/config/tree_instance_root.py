@@ -101,6 +101,37 @@ def find_subtree(nodes: list, ref: str) -> tuple[dict, list[dict]] | None:
     return walk(nodes or [], [])
 
 
+def _ancestor_problem(path: list[dict], instance_name: str,
+                      root_ref: str) -> str | None:
+    """The refusal for a `root` whose ANCESTOR the config cannot pose, or None.
+
+    Only a PLACEMENT ancestor has an offset in the config. Every other kind
+    stands on something else: a mount node's base is a live part of the board
+    (`tree_position.mount_node_base` reads it from the board, or from the tree's
+    own layout when the role is internal), a component/copper node is addressed
+    by a role or a point. Composing the path through such a node would produce a
+    pose that is simply NOT where the copy stands — silently (acceptance §8.3:
+    mount m1 at (3, 0) under driver (10, 0), root under the mount, the copy
+    landed at driver+3 instead of on the board's part)."""
+    for node in path[:-1]:
+        kind = node.get('kind')
+        if kind in (None, 'placement'):
+            continue
+        ancestor = node.get('ref')
+        if kind == 'mount':
+            return _(
+                "tree_instance {name!r}: root {ref!r} hangs under mount node "
+                "{mount!r}, whose place comes from the board — name the mount's "
+                "parent or a node above it").format(
+                    name=instance_name, ref=root_ref, mount=ancestor)
+        return _(
+            "tree_instance {name!r}: root {ref!r} hangs under {kind} node "
+            "{ancestor!r}, whose place is not an offset in the config — name a "
+            "placement node above it").format(
+                name=instance_name, ref=root_ref, kind=kind, ancestor=ancestor)
+    return None
+
+
 def _offset_mm(node: dict) -> tuple[float, float]:
     """A raw node's own offset in mm — `xy` flattened, `polar` turned into the
     offset vector (the same `local_to_absolute` primitive `tree_position.
@@ -120,7 +151,8 @@ def _offset_mm(node: dict) -> tuple[float, float]:
     return 0.0, 0.0
 
 
-def subtree_pose(path: list[dict]) -> tuple[float, float, float]:
+def subtree_pose(path: list[dict], instance_name: str,
+                 root_ref: str) -> tuple[float, float, float]:
     """(x_mm, y_mm, rotation_deg) of the LAST node of `path`, in the template's
     own base frame — the composition every walk uses: a child's offset is
     rotated into the parent's frame and added, and the rotations accumulate.
@@ -128,7 +160,17 @@ def subtree_pose(path: list[dict]) -> tuple[float, float, float]:
     The copy keeps the template's anchor (a role/self/point one) or replaces it
     with the declaration's own, and in BOTH cases the root node must stand where
     it stood in the template — otherwise the declaration's shift would move it
-    away from its own place (§7.3 of the plan)."""
+    away from its own place (§7.3 of the plan).
+
+    An ancestor the config cannot pose is refused BEFORE any number is composed
+    (`_ancestor_problem`, acceptance §8.3) — a mount ancestor in particular."""
+    problem = _ancestor_problem(path, instance_name, root_ref)
+    if problem is not None:
+        raise ValidationError(format_fatal_error(problem, [
+            _("only a placement node's offset is a number in the config — with "
+               "another kind of ancestor the copy would stand somewhere the "
+               "declaration cannot predict; a mount node's place, in "
+               "particular, comes from the live board")]))
     x = y = 0.0
     rot = 0.0
     for node in path:

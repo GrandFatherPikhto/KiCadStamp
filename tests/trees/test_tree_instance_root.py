@@ -64,6 +64,43 @@ def _copy(out: dict, name: str = "b") -> dict:
     return next(t for t in out["trees"] if t["name"] == name)
 
 
+def _live_pose(nodes, root_ref):
+    """(x_mm, y_mm, rotation_deg) of `root_ref` by the LIVE rule: `node_position`
+    chained down the path, the rotation accumulated exactly as `entity_placement`
+    composes it (§8.4 — a cell must never lean on a literal alone, or the
+    mutation `if rot:` -> `if False:` inside `subtree_pose` survives it)."""
+    from kicadstamp.domain.geometry import Vector2
+    from kicadstamp.tree_position import node_position
+    from kicadstamp.trees import TreeNode
+    from kicadstamp.utils.units import MM
+
+    def walk(children, pos, rot):
+        for node in children:
+            tree_node = TreeNode(
+                ref=node["ref"], kind=node.get("kind"),
+                xy=tuple(node["xy"]) if node.get("xy") is not None else None,
+                polar=(tuple(node["polar"])
+                       if node.get("polar") is not None else None),
+                rotation=float(node.get("rotation") or 0.0),
+                name=None, group=None)
+            here = node_position(tree_node, pos, rot)
+            own_rot = rot + tree_node.rotation
+            if node["ref"] == root_ref:
+                return here, own_rot
+            found = walk(node.get("children") or [], here, own_rot)
+            if found is not None:
+                return found
+        return None
+
+    pos, rot = walk(nodes, Vector2.from_xy(0, 0), 0.0)
+    return pos.x / MM, pos.y / MM, rot
+
+
+def _rounded(nodes, root_ref) -> tuple[list, float]:
+    x, y, rot = _live_pose(nodes, root_ref)
+    return [round(x, 6), round(y, 6)], round(rot, 6)
+
+
 # ── 7: only the root and its subtree are copied ────────────────────────────
 
 def test_only_the_root_and_its_descendants_are_copied():
@@ -109,13 +146,38 @@ def test_the_root_stands_where_it_stood_in_the_template():
 
 def test_the_root_pose_accumulates_the_parent_rotation():
     """A 90-deg parent turns the child's frame: the root's own accumulated
-    rotation is 90 even though its stored `rotation` is absent."""
+    rotation is 90 even though its stored `rotation` is absent — and its XY is
+    checked against the live rule, so skipping the parent-frame rotation is
+    caught (§8.4)."""
     data = _data([_row(root={"ref": "sw"})])
     data["trees"][0]["nodes"][0]["rotation"] = 90.0
 
-    out = expand_tree_instances(data)
+    copy = _copy(expand_tree_instances(data))["nodes"][0]
 
-    assert _copy(out)["nodes"][0]["rotation"] == 90.0
+    assert copy["rotation"] == 90.0
+    xy, rot = _rounded(data["trees"][0]["nodes"], "sw")
+    assert copy["xy"] == xy
+    assert copy["rotation"] == rot
+
+
+def test_the_root_pose_matches_the_live_rule_through_two_rotations_and_a_polar_hop():
+    """Depth 3, two rotated ancestors and a POLAR offset: the copy's xy/rotation
+    are the live rule's numbers, not literals (§8.4)."""
+    data = _data([_row(root={"ref": "deep"})])
+    data["entities"].append({"name": "deep", "cell": "c_sub", "sheet": "SW A",
+                             "cluster": "ARM"})
+    nodes = data["trees"][0]["nodes"]
+    nodes[0]["rotation"] = 90.0
+    nodes[0]["children"][0]["rotation"] = 30.0            # sw
+    nodes[0]["children"][0]["children"] = [
+        {"ref": "deep", "kind": "placement", "polar": [4.0, 45.0]}]
+
+    copy = _copy(expand_tree_instances(data))["nodes"][0]
+    xy, rot = _rounded(nodes, "deep")
+
+    assert copy["xy"] == xy
+    assert copy["rotation"] == rot == 120.0
+    assert copy["xy"] != [0.0, 0.0]        # the polar hop contributed
 
 
 def test_a_declared_anchor_and_shift_land_on_the_copy_not_on_the_root():
@@ -175,6 +237,38 @@ def test_a_root_that_names_no_node_is_refused():
 def test_a_root_that_is_not_a_placement_node_is_refused():
     with pytest.raises(ValidationError, match="is not a placement node"):
         expand_tree_instances(_data([_row(root={"ref": "m1"})]))
+
+
+def test_a_root_under_a_mount_node_is_refused():
+    """§8.3: a mount node's base is the LIVE board's part, not `driver + 3`, so a
+    path through it cannot be composed from the config — the old code accepted
+    this and put the copy at the wrong place (xy [14.0, 1.0] for a mount at
+    (3, 0) under driver at (10, 0))."""
+    data = _data([_row(root={"ref": "under_mount"})])
+    data["entities"].append({"name": "under_mount", "cell": "c_sub",
+                             "sheet": "SW A", "cluster": "ARM"})
+    data["trees"][0]["nodes"][0]["children"][1]["xy"] = [3.0, 0.0]
+    data["trees"][0]["nodes"][0]["children"][1]["children"] = [
+        {"ref": "under_mount", "kind": "placement", "xy": [1.0, 1.0]}]
+
+    with pytest.raises(ValidationError, match="hangs under mount node 'm1'"):
+        expand_tree_instances(data)
+
+
+def test_the_mount_ancestor_message_says_what_to_do_instead():
+    data = _data([_row(root={"ref": "under_mount"})])
+    data["entities"].append({"name": "under_mount", "cell": "c_sub",
+                             "sheet": "SW A", "cluster": "ARM"})
+    data["trees"][0]["nodes"][0]["children"][1]["children"] = [
+        {"ref": "under_mount", "kind": "placement", "xy": [1.0, 1.0]}]
+
+    with pytest.raises(ValidationError) as caught:
+        expand_tree_instances(data)
+
+    text = str(caught.value)
+    assert "root 'under_mount'" in text
+    assert "place comes from the board" in text
+    assert "name the mount's parent or a node above it" in text
 
 
 def test_a_malformed_root_is_refused():

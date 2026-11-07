@@ -932,7 +932,11 @@ layer/mirror checks as hand-written ones — nothing is validated twice.
   The template's own sheet is then the `sheet` of the ROOT's own `entities:` record (Н3's derivation
   never runs), and the root node keeps the place it had in the template — its xy and accumulated
   rotation along the path from the template's base, with the rotations of its ancestors added exactly as
-  every tree walk composes them. A declaration's own `anchor:` still replaces the template's ANCHOR only
+  every tree walk composes them. Every ANCESTOR on that path must be a **placement** node: a mount node's
+  place comes from the live board (or, for an internal role, from the tree's own layout), and any other
+  kind is addressed by a role or a point, so a `root` hanging under one of them is a fatal that names the
+  ancestor instead of composing a pose the config cannot predict. A declaration's own `anchor:` still
+  replaces the template's ANCHOR only
   (the "where the copy stands" axis) — it does not move the root inside the copy. A reference that points
   OUTSIDE the copied subtree is a fatal at expansion time: a `pivot-ref` / `(self (ref ...))` naming a
   left-behind node, a mount or `(role ...)` component address whose part the subtree does not place, or a
