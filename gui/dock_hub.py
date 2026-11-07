@@ -1858,26 +1858,25 @@ class DockHub:
         via config_writer.upsert_tree_instances — the dialog GENERATES nothing;
         materialization happens at the next load — then reloads TreesDock (and
         refreshes the Config tree) so the regenerated read-only instance tabs
-        appear.
-
-        `tree` (plan_2026_10_13_trees_menus_cleanup Ч2): the tree ROOT's context
-        menu passes its OWN tree, which the dialog then PRESELECTS as the
+        appear. `tree` (plan_2026_10_13_trees_menus_cleanup Ч2): the tree ROOT's
+        context menu passes its OWN tree, which the dialog then PRESELECTS as the
         template; Tools passes nothing and the dialog keeps its own default."""
         root_path = self.root_metadata_dock.root_path
         if root_path is None:
             QMessageBox.warning(self.main_window, _("Tree instances"),
                                 _("Set the project root first."))
             return
-        from kicadstamp.config import load_config_lenient  # Н8: lenient door
+        from kicadstamp.config import load_config_lenient
         try:
-            cfg, _ctx, failures = load_config_lenient(str(root_path))
+            cfg, ctx, failures = load_config_lenient(str(root_path))
         except Exception as e:  # noqa: BLE001 — a broken config must not crash the GUI
             QMessageBox.warning(self.main_window, _("Tree instances"),
                                 _("Failed to load config: {error}").format(error=e))
             return
         dialog = TreeInstancesDialog(
             self.main_window, root_path, cfg, instance_failures=failures,
-            preferred_template=tree.name if tree is not None else None)
+            sheet_names=dict(ctx.sheet_names or {}), preferred_template=tree.name
+            if tree is not None else None)
         if dialog.exec() == QDialog.DialogCode.Accepted:
             self.trees_dock.reload_trees()
             self.config_tree_dock.refresh()

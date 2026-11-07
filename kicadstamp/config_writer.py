@@ -636,44 +636,22 @@ def append_tree_child_node(path: Path, tree_name: str,
 _INSTANCE_DIALOG_EDITABLE_KEYS = ("cluster", "rotation", "anchor")
 
 
-def upsert_tree_instances(path: Path, template: str, rows: list) -> bool:
-    """Replace every tree_instances: entry instantiating `template` with
-    `rows` (each a {name, sheet, cluster?} dict — cluster OPTIONAL, 2026-09-03,
-    plan tree_instances_cluster); entries of OTHER templates are preserved and
-    a section left with no entries at all is dropped. Read-merge-write like the
-    other config_writer helpers; returns whether anything changed (an
-    identical resulting list is a no-op write).
+def merged_tree_instances(entries: list, template: str, rows: list) -> list:
+    """The `tree_instances:` LIST as a write of `rows` for `template` leaves it —
+    PURE, the ONE rule of "what a row means" (Н7, plan_2026_11_07_tree_
+    instances_dialog_and_subtree).
 
-    `rows` are the dialog's pre-validated SHORT declarations (2026-09-02, P3:
-    Tools -> "Instances...") — this helper only persists them; materialization
-    into full Tree + Entity records happens at the NEXT load
-    (config/tree_instances.py::expand_tree_instances), never here. A blank/
-    missing `cluster` in a row is omitted from the persisted dict entirely
-    (the key is NOT written as null/"") so declarations that don't need the
-    cluster axis stay clean on disk.
+    Both doors use it: the writer (`upsert_tree_instances`, below) and the
+    dialog's pre-write check, which runs the EXPANSION over exactly these data
+    in memory before anything reaches the disk. A second copy of the merge would
+    let the two disagree about a blank cell — the dialog's own contract is
+    spelled out in the docstring of `upsert_tree_instances` and implemented
+    here once.
 
-    WRITE OVER, NOT INSTEAD (2026-09-12, plan_2026_09_12_tree_instance_own_place
-    §И.1): a row whose (template, name) matches an EXISTING declaration is
-    written ON TOP of that declaration — every field the row does not mention
-    survives verbatim — instead of being rebuilt from a hand-written literal.
-
-    The old literal shape was a silent DATA LOSS: any field outside the
-    hard-coded {name, sheet, cluster} set was gone after one Tools ->
-    "Instances..." OK (found live with `params:` — the v1.3 axis feeding the
-    {placeholder} substitution in net_template, erased unnoticed). Naming the
-    dialog's own fields one by one would have to be repeated for every future
-    axis (`anchor`/`rotation` are next), so the rule is structural: the ROW
-    describes the editable fields, the DECLARATION keeps everything else.
-
-    A key of the row whose value is None/"" means "not set" and REMOVES that
-    key from the persisted declaration; a key the row does not carry at all
-    leaves the declaration's value alone, EXCEPT for the fields named in
-    _INSTANCE_DIALOG_EDITABLE_KEYS — those the dialog OWNS, so their absence
-    from a row is the same "not set" (its blank-Cluster contract is exactly
-    this). A row naming a declaration that does not exist yet is created fresh
-    from the row, exactly as before."""
-    existing = _read_data(path)
-    before_list = list(existing.get("tree_instances") or [])
+    `entries` is the file's current section (may be None/empty); entries of
+    OTHER templates survive verbatim, and the order of the untouched ones is
+    kept."""
+    before_list = list(entries or [])
     # Index THIS template's existing declarations by name so each row can be
     # overlaid on its own declaration; setdefault keeps the first declaration
     # when a name is (invalidly) duplicated.
@@ -708,6 +686,26 @@ def upsert_tree_instances(path: Path, template: str, rows: list) -> bool:
             if key not in r:
                 merged.pop(key, None)
         new_items.append(merged)
+    return new_items
+
+
+def upsert_tree_instances(path: Path, template: str, rows: list) -> bool:
+    """Replace every tree_instances: entry instantiating `template` with
+    `rows`; entries of OTHER templates are preserved and a section left with no
+    entries at all is dropped. Read-merge-write like the other config_writer
+    helpers; returns whether anything changed (an identical resulting list is a
+    no-op write).
+
+    The merge itself — "what a row means", including WRITE OVER, NOT INSTEAD
+    (2026-09-12, plan_2026_09_12_tree_instance_own_place §И.1) and the blank-
+    cell contract of a field `_INSTANCE_DIALOG_EDITABLE_KEYS` lists — is
+    `merged_tree_instances` above: ONE rule, shared with the dialog's pre-write
+    check. This helper only persists the result; materialization into full Tree
+    + Entity records happens at the NEXT load
+    (config/tree_instances.py::expand_tree_instances), never here."""
+    existing = _read_data(path)
+    before_list = list(existing.get("tree_instances") or [])
+    new_items = merged_tree_instances(before_list, template, rows)
     # Д1/находка 5 (У3.5): compare by MEANING, not raw dicts. Under format 3 the
     # on-disk declaration's anchor carries a machine-added `point_uuid`
     # (config/format_version._step_2_to_3) that a dialog row cannot carry, so a

@@ -57,10 +57,12 @@ def _root(tmp_path, instances=None, extra=None) -> Path:
     return p
 
 
-def _open_dialog(main_window, tmp_path, instances=None, extra=None):
+def _open_dialog(main_window, tmp_path, instances=None, extra=None,
+                 sheet_names=None):
     p = _root(tmp_path, instances, extra)
     cfg, _ctx = load_config(str(p))
-    return TreeInstancesDialog(main_window, p, cfg), p
+    return TreeInstancesDialog(main_window, p, cfg,
+                               sheet_names=sheet_names), p
 
 
 def _instances_on_disk(p) -> list:
@@ -242,6 +244,92 @@ def test_blank_row_is_rejected(main_window, tmp_path, monkeypatch):
     assert dlg._apply() is False
     assert warnings
     assert _instances_on_disk(p) == []
+
+
+# ── Н7/Н4: the row is PROVEN before it is written ──────────────────────────
+
+def test_a_row_the_loader_would_refuse_is_not_written(main_window, tmp_path):
+    """Cell 2 (Н7): a row without its own anchor under a POINT-anchored template
+    is refused by the loader — so the dialog refuses it FIRST, with the loader's
+    OWN words, and the file is untouched."""
+    from kicadstamp.config.tree_instances import expand_tree_instances
+
+    from gui.docks.instances_validation import proposed_graph
+
+    p = _point_template_root(tmp_path, [])
+    cfg, _ctx, _failures = load_config_lenient(str(p))
+    dlg = TreeInstancesDialog(main_window, p, cfg, preferred_template="point_tpl")
+    dlg._add_row()
+    dlg.table.item(0, 0).setText("switch_b")
+    dlg.table.item(0, 1).setText("SW B")
+
+    assert dlg._apply() is False
+    assert _instances_on_disk(p) == []
+
+    # ONE rule: the dialog shows exactly what the loader would say about the
+    # very same proposed rows (§7.7 of the plan — no second validation).
+    failures: list[dict] = []
+    expand_tree_instances(proposed_graph(p, "point_tpl", dlg.rows()),
+                          failures=failures)
+    assert [f["name"] for f in failures] == ["switch_b"]
+    assert failures[0]["error"] == dlg.refusal_label.text()
+    assert "must be role-anchored OR self-anchored" in dlg.refusal_label.text()
+
+
+def test_a_row_with_its_own_anchor_is_written(main_window, tmp_path):
+    """Cell 3 (Н7 control): with the anchor the same row is fine and the write
+    goes through exactly as before."""
+    p = _point_template_root(tmp_path, [])
+    cfg, _ctx, _failures = load_config_lenient(str(p))
+    dlg = TreeInstancesDialog(main_window, p, cfg, preferred_template="point_tpl")
+    dlg._add_row()
+    dlg.table.item(0, 0).setText("switch_b")
+    dlg.table.item(0, 1).setText("SW B")
+    dlg.table.cellWidget(0, 4).set_anchor({"origin": True})
+
+    assert dlg._apply() is True
+    assert _instances_on_disk(p) == [{
+        "template": "point_tpl", "name": "switch_b", "sheet": "SW B",
+        "anchor": {"origin": True}}]
+
+
+def test_a_sheet_with_no_template_cluster_warns_but_is_written(
+        main_window, tmp_path, caplog):
+    """Cell 10а (Н4): the sheet exists, yet no cluster the template generates is
+    on it — a WARNING in the Log, never a refusal."""
+    import logging
+
+    dlg, p = _open_dialog(main_window, tmp_path,
+                          sheet_names={"u1": "Channel_1"})
+    dlg._add_row()
+    dlg.table.item(0, 0).setText("ch1_dac_buf")
+    dlg.table.item(0, 1).setText("Channel_1")
+
+    with caplog.at_level(logging.WARNING):
+        assert dlg._apply() is True
+
+    assert any("no clusters of template" in r.message for r in caplog.records)
+    assert _instances_on_disk(p) != []
+
+
+def test_a_sheet_the_project_does_not_have_warns_but_is_written(
+        main_window, tmp_path, caplog):
+    """Cell 10б (Н4): the row names a sheet that is not in the project — again a
+    WARNING only (the sheet may be created later; the write is not forbidden)."""
+    import logging
+
+    dlg, p = _open_dialog(main_window, tmp_path,
+                          sheet_names={"u1": "Channel_1"})
+    dlg._add_row()
+    dlg.table.item(0, 0).setText("ch1_dac_buf")
+    dlg.table.item(0, 1).setText("Channel_9")
+
+    with caplog.at_level(logging.WARNING):
+        assert dlg._apply() is True
+
+    assert any("is not among the project's sheets" in r.message
+               for r in caplog.records)
+    assert _instances_on_disk(p) != []
 
 
 # ── cluster column (2026-09-03, plan tree_instances_cluster) ────────────────

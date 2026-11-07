@@ -4966,6 +4966,20 @@ msgstr ""
 msgid "refused on load: {error}"
 msgstr "refused on load: {error}"
 
+#: gui/docks/instances_validation.py:78
+#, python-brace-format
+msgid "sheet {sheet!r} of instance {name!r} is not among the project's sheets"
+msgstr "sheet {sheet!r} of instance {name!r} is not among the project's sheets"
+
+#: gui/docks/instances_validation.py:84
+#, python-brace-format
+msgid ""
+"no clusters of template {template!r} ({clusters}) are on sheet {sheet!r} — "
+"the instance will place nothing there"
+msgstr ""
+"no clusters of template {template!r} ({clusters}) are on sheet {sheet!r} — "
+"the instance will place nothing there"
+
 #: gui/docks/instances_dialog.py:343
 msgid "Every instance row needs a non-empty instance name and sheet."
 msgstr ""

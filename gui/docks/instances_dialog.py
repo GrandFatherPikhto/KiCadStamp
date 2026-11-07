@@ -31,6 +31,8 @@ unsaved changes. A refused row is marked "⚠", carries the refusal in its toolt
 and shows the full text under the table; fixing or deleting it is an ordinary
 write through the same `upsert_tree_instances`.
 """
+import logging
+
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (QComboBox, QDialog, QDialogButtonBox,
                              QHBoxLayout, QHeaderView, QLabel, QMessageBox,
@@ -43,6 +45,10 @@ from kicadstamp.i18n import _
 from kicadstamp.trees import anchor_from_dict, anchor_to_dict
 
 from ..ui_utils import persist_dialog_size, restore_dialog_size
+from .instances_validation import (expansion_refusal, proposed_graph,
+                                   sheet_warnings)
+
+logger = logging.getLogger(__name__)
 
 # Column indices (one place, so the header list and every reader agree).
 _COL_NAME, _COL_SHEET, _COL_CLUSTER, _COL_ROTATION, _COL_ANCHOR = range(5)
@@ -130,10 +136,14 @@ class TreeInstancesDialog(QDialog):
     written back to."""
 
     def __init__(self, parent, root_path, cfg, preferred_template=None,
-                 instance_failures=None):
+                 instance_failures=None, sheet_names=None):
         super().__init__(parent)
         self._root_path = root_path
         self._cfg = cfg
+        # {uuid: Sheetname} from the project's schematic — the Н4 check needs
+        # the list of sheets that EXIST; empty = a profile without a schematic,
+        # where the sheet check is skipped rather than guessed.
+        self._sheet_names = dict(sheet_names or {})
         # {(template, instance name): {index, template, name, sheet, error}} —
         # the declarations the LENIENT expansion refused (Н8). The same
         # cfg.tree_instances carries them (the raw key is parsed regardless), so
@@ -405,14 +415,34 @@ class TreeInstancesDialog(QDialog):
         return None
 
     def _apply(self) -> bool:
-        """Validate + write the section; True when written (dialog may close)."""
+        """Validate + PROVE + write the section; True when written.
+
+        The proof is the loader's own expansion run in memory over the graph
+        "as it will be after the write" (Н7): a row the next load would refuse
+        is shown here and NOT written. The sheet/cluster lines (Н4) are warnings
+        and never block the write — they go to the Log (п.43: no modals)."""
         rows = self.rows()
         problem = self._validate(rows)
         if problem is not None:
             QMessageBox.warning(self, self.windowTitle(), problem)
             return False
-        upsert_tree_instances(self._root_path, self.current_template(), rows)
+        template = self.current_template()
+        data = proposed_graph(self._root_path, template, rows)
+        refusal = expansion_refusal(data, template, rows)
+        if refusal is not None:
+            self._show_problem(refusal)
+            return False
+        for line in sheet_warnings(rows, template, data, self._sheet_names):
+            logger.warning(line)
+        upsert_tree_instances(self._root_path, template, rows)
         return True
+
+    def _show_problem(self, text: str) -> None:
+        """Show a refusal IN the dialog (the current row is not written and the
+        dialog stays open) and repeat it in the Log as an error."""
+        logger.error(text)
+        self.refusal_label.setText(text)
+        self.refusal_label.setVisible(True)
 
     def accept(self) -> None:
         if self._apply():

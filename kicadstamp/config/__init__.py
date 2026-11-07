@@ -34,6 +34,7 @@ from ..runtime_context import RuntimeContext
 from .loader import (
     load_config,
     load_config_lenient,
+    resolved_graph,
     _load_template_via,
     _load_template_track,
     _load_template_component_slot,
@@ -103,6 +104,7 @@ __all__ = [
     "RuntimeContext",
     "load_config",
     "load_config_lenient",
+    "resolved_graph",
     "load_cell",
     "load_template_component_slot",
     "load_template_via",

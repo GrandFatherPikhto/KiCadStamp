@@ -181,10 +181,21 @@ def load_config_lenient(path: str) -> tuple[Config, RuntimeContext, list[dict]]:
     return result
 
 
-def _load_config_uncached(path: str,
-                          instance_failures: list | None = None
-                          ) -> tuple[Config, RuntimeContext]:
-    logger.info(_("Loading configuration from {path}").format(path=path))
+def resolved_graph(path: str) -> dict:
+    """The include-resolved, format-3-normalized, sheet-template-expanded graph —
+    the data every `tree_instances` question is asked about, WITHOUT building a
+    Config (Н7, plan_2026_11_07_tree_instances_dialog_and_subtree).
+
+    ONE host for those four steps: `_load_config_uncached` (below) runs exactly
+    these before the per-entry loaders, and the Instances dialog runs the SAME
+    sequence in memory to check a row "as it will be after the write" — a second
+    copy of the prelude would let the two disagree about what a row means.
+
+    The raw `tree_instances:` key and the unexpanded `trees:` survive: the
+    caller decides whether to run the declaration expansion (`expand_tree_
+    instances`) and with which failures list. Reads the working set like every
+    other read (`cached_file_read`), so a STAGED edit is what the dialog sees —
+    that is the whole point of §7.1."""
     data = cached_file_read(Path(path), _load_config_file)
     data = resolve_includes(path, data)
     # Format-3 (У2): the У1.3 checks read the RAW graph files, so their place is
@@ -208,7 +219,14 @@ def _load_config_uncached(path: str,
     # BEFORE any per-entry loader/duplicate-name check, so template-generated
     # entries are indistinguishable from hand-written ones (see
     # kicadstamp/config/sheet_templates.py).
-    data = expand_sheet_templates(data)
+    return expand_sheet_templates(data)
+
+
+def _load_config_uncached(path: str,
+                          instance_failures: list | None = None
+                          ) -> tuple[Config, RuntimeContext]:
+    logger.info(_("Loading configuration from {path}").format(path=path))
+    data = resolved_graph(path)
     # tree_instances: expansion (2026-09-02, plan tree_instances) — dict-level,
     # after include resolution AND after sheet_templates (a template may live
     # in an included file, or reference a sheet-template-generated entity),
