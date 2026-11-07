@@ -1255,7 +1255,12 @@ template tree shows one **"→ instance: {name}"** item per instance — double-
 duplication) — and it REBUILDS the instance tabs of every template it wrote, because the copy is
 generated at LOAD: without that rebuild an edited template would leave its instance tabs showing the
 geometry from BEFORE the edit (07.11 live case: a node added to `switch_a` reached the `switch_b` tab
-only after Tools → Trees → Instances… → OK). Manage the short declarations with
+only after Tools → Trees → Instances… → OK). Any other external write (Extract tree…, a second window)
+reaches a dock with unsaved edits the same way: the copies are replaced by the fresh expansion and one
+whose declaration was deleted disappears WITH it — hand-written trees keep their unsaved edits
+untouched. A copy is never written back as a literal `trees:` entry even after its declaration is gone
+(its `__{name}` refs would name records that no longer exist, and the next load would be fatal).
+Manage the short declarations with
 **Tools → Trees → Instances…**: pick a template
 (generated instances can't themselves be templates) and edit its
 {name, sheet, rotation?, anchor?, root?} rows. The old **Cluster** column is GONE (format 4, Н9): an

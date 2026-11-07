@@ -4072,6 +4072,144 @@ def test_save_rebuilds_the_instance_tabs_of_an_edited_template(
     assert dock._dirty is False
 
 
+def _dirty_instance_cfg(extra_template_node: bool = False) -> dict:
+    """INSTANCE_CFG's shape plus a HAND-WRITTEN tree and an unused entity, so a
+    cell can hold an UNSAVED edit of a manual tree while a template or its
+    declaration moves on disk."""
+    tree = {"name": "dac_buf_tpl", "anchor": {"role": "DAC_BUF"},
+            "nodes": [{"ref": "dac_buf", "kind": "placement", "xy": [1.0, 2.0],
+                       "children": [{"ref": "pif_avdd", "kind": "placement",
+                                     "xy": [0.5, 0.0]}]}]}
+    if extra_template_node:
+        tree["nodes"][0]["children"].append(
+            {"ref": "extra_sw", "kind": "placement", "xy": [0.0, 1.0]})
+    return {
+        "cells": {"c_dac": {}, "c_pif": {}, "c_extra": {}},
+        "entities": [
+            {"name": "dac_buf", "cell": "c_dac", "cluster": "DAC_BUF"},
+            {"name": "pif_avdd", "cell": "c_pif", "cluster": "PIF_AVDD"},
+            {"name": "extra_sw", "cell": "c_extra", "cluster": "EXTRA"},
+        ],
+        "trees": [tree, {"name": "manual", "anchor": {"origin": True},
+                         "nodes": [{"ref": "MANUAL_A", "kind": "external",
+                                    "xy": [0.0, 0.0]}]}],
+        "tree_instances": [{"template": "dac_buf_tpl", "name": "ch1_dac_buf",
+                            "sheet": "Channel_1"}],
+    }
+
+
+def _add_manual_node(dock):
+    """An UNSAVED structural edit of the hand-written `manual` tree (the buffer's
+    proof that a reload must not throw the user's work away)."""
+    manual = next(t for t in dock._trees if t.name == "manual")
+    manual.nodes.append(TreeNode(ref="MANUAL_B", kind="external", xy=(1.0, 1.0),
+                                 polar=None, rotation=0.0, name=None, group=None))
+    dock._mark_dirty()
+    return manual
+
+
+def test_a_dirty_reload_refreshes_generated_tabs_and_keeps_a_manual_edit(
+        main_window, tmp_path):
+    """07.11, defect 2: reload_trees() used to keep the WHOLE buffer when _dirty,
+    so a generated tab stayed at the geometry from before the template's edit.
+    Nobody edits a copy by hand (the tabs are read-only), so the fresh expansion
+    replaces it — while the hand-written tree keeps its unsaved node and its
+    very object."""
+    root = tmp_path / "dirty.sexp"
+    root.write_text(dict_to_sexp(_dirty_instance_cfg(), format_number=2),
+                    encoding="utf-8")
+    dock = TreesDock(main_window)
+    dock.set_root_file(root)
+    assert [t.name for t in dock._trees] == ["dac_buf_tpl", "manual", "ch1_dac_buf"]
+    assert "extra_sw__ch1_dac_buf" not in dock._node_items
+    manual = _add_manual_node(dock)
+
+    # The template gained a node ON DISK while this buffer is dirty.
+    root.write_text(dict_to_sexp(_dirty_instance_cfg(extra_template_node=True),
+                                 format_number=2), encoding="utf-8")
+    dock.reload_trees()
+
+    inst = next(t for t in dock._trees if t.name == "ch1_dac_buf")
+    assert [n.ref for n in inst.nodes[0].children] == [
+        "pif_avdd__ch1_dac_buf", "extra_sw__ch1_dac_buf"]
+    assert "extra_sw__ch1_dac_buf" in dock._node_items
+    kept = next(t for t in dock._trees if t.name == "manual")
+    assert kept is manual, "a hand-written tree must survive the reload untouched"
+    assert [n.ref for n in kept.nodes] == ["MANUAL_A", "MANUAL_B"]
+    assert dock._dirty is True, "the manual edit is still unsaved"
+
+
+def test_a_deleted_declaration_still_never_reaches_the_file(
+        main_window, tmp_path):
+    """07.11, defect 3 — the dangerous one. After Instances… deletes a
+    declaration, cfg no longer names the copy, so a marker derived from the
+    CURRENT declarations alone forgets it while it still sits in a dirty buffer:
+    the next staging wrote `…__ch1_dac_buf` nodes naming records that no longer
+    exist, and the next load was fatal. The marker is sticky instead, and the
+    reload that follows the dialog drops the tab."""
+    from kicadstamp.config.sexp_format import sexp_to_dict
+    root = tmp_path / "removed.sexp"
+    root.write_text(dict_to_sexp(_dirty_instance_cfg(), format_number=2),
+                    encoding="utf-8")
+    dock = TreesDock(main_window)
+    dock.set_root_file(root)
+    _add_manual_node(dock)
+
+    # The Instances dialog writes the file itself; a graph refresh reaches the
+    # dock BEFORE any reload (root_changed broadcast) — the tab is still there.
+    without = {k: v for k, v in _dirty_instance_cfg().items()
+               if k != "tree_instances"}
+    root.write_text(dict_to_sexp(without, format_number=2), encoding="utf-8")
+    dock.refresh_ref_candidates()
+    assert "ch1_dac_buf" in [t.name for t in dock._trees], "no reload yet"
+    assert "ch1_dac_buf" not in dock._instances, "its declaration is gone"
+
+    # A later editing gesture re-stages the whole section — this is where the
+    # stale copy used to be written out as a hand-written tree.
+    dock._trees[0].nodes.append(
+        TreeNode(ref="late", kind="external", xy=(2.0, 2.0), polar=None,
+                 rotation=0.0, name=None, group=None))
+    dock._mark_dirty()
+    raw = sexp_to_dict(root.read_text(encoding="utf-8"))
+    assert [t.get("name") for t in raw["trees"]] == ["dac_buf_tpl", "manual"]
+    cfg, _ = load_config(str(root))     # would be FATAL on dangling refs
+    assert [t.name for t in cfg.trees] == ["dac_buf_tpl", "manual"]
+
+    # And the reload that follows the dialog drops the orphan tab for good.
+    dock.reload_trees()
+    assert [t.name for t in dock._trees] == ["dac_buf_tpl", "manual"]
+    assert dock.tree_tabs.count() == 2
+    assert [n.ref for n in dock._trees[1].nodes] == ["MANUAL_A", "MANUAL_B"]
+
+
+def test_a_save_that_rebuilds_instances_keeps_a_manual_edit(
+        main_window, tmp_path, monkeypatch):
+    """The other side of the same coin: the Save's own reload (defect 1) must not
+    cost the user an unsaved edit of a DIFFERENT, hand-written tree."""
+    from kicadstamp.config.sexp_format import sexp_to_dict
+    monkeypatch.setattr(trees_dock_mod.QMessageBox, "warning", lambda *a, **k: None)
+    root = tmp_path / "save_keep.sexp"
+    root.write_text(dict_to_sexp(_dirty_instance_cfg(), format_number=2),
+                    encoding="utf-8")
+    dock = TreesDock(main_window)
+    dock.set_root_file(root)
+    _add_manual_node(dock)
+    tpl = next(t for t in dock._trees if t.name == "dac_buf_tpl")
+    tpl.nodes[0].children.append(
+        TreeNode(ref="extra_sw", kind="placement", xy=(0.0, 1.0), polar=None,
+                 rotation=0.0, name=None, group=None))
+    dock._mark_dirty()
+
+    dock._do_save()
+
+    assert "extra_sw__ch1_dac_buf" in dock._node_items
+    kept = next(t for t in dock._trees if t.name == "manual")
+    assert [n.ref for n in kept.nodes] == ["MANUAL_A", "MANUAL_B"]
+    raw = sexp_to_dict(root.read_text(encoding="utf-8"))
+    assert [t.get("name") for t in raw["trees"]] == ["dac_buf_tpl", "manual"]
+    assert dock._dirty is False and dock.tree_tabs.count() == 3
+
+
 # ── tree_instances: navigation (2026-09-02, P2) ─────────────────────────────
 
 INSTANCE_CFG2 = {**INSTANCE_CFG, "tree_instances": [

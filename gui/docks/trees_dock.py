@@ -94,6 +94,8 @@ from .trees_mounts_launch import add_mounts_item
 # here so every caller and test seam still reaches them through this module
 # (`.trees_mount_point` still fetches `_mount_marker_keys` through it).
 from .live_cfg import live_cfg
+from .trees_instances_sync import (declared_instance_names, mark_generated,
+                                   merge_reload)
 from .trees_markers import (  # noqa: F401 — re-export for callers and tests
     _MOUNT_POINT_NS,
     _TREE_ANCHOR_NS,
@@ -727,13 +729,13 @@ class TreesDock(QWidget):
         self._main_window = main_window
         self._trees: list[Tree] = []
         # tree_instances (2026-09-02, P1): the materialized instance trees live
-        # in cfg.trees — and therefore in self._trees, so redraw/embedding/
-        # forest treat them as ordinary trees — but the raw tree_instances:
-        # declarations (cfg.tree_instances) mark them as GENERATED: an instance
-        # tree is read-only here (geometry comes from template + declaration)
-        # and is NEVER persisted by _do_save/_stage_trees (regenerated on every
-        # load from the declaration). name -> TreeInstance.
+        # in cfg.trees — and therefore in self._trees — but the raw declarations
+        # mark them as GENERATED: read-only here, never persisted by _do_save/
+        # _stage_trees. _instances is name -> TreeInstance; _generated is the
+        # STICKY set of buffer names that came out of the expansion
+        # (_rebuild_instance_index) — it outlives its own declaration.
         self._instances: dict[str, TreeInstance] = {}
+        self._generated: set[str] = set()
         self._root_path: Optional[Path] = None   # for link_trees + Save, via root_changed
         self._cfg = None
         self._ctx = None
@@ -850,6 +852,7 @@ class TreesDock(QWidget):
         self._ctx = None
         self._trees = []
         self._instances = {}
+        self._generated = set()
         if path is None:
             self._dirty = False
             self._rebuild_tabs()
@@ -937,10 +940,12 @@ class TreesDock(QWidget):
         reassigned.
 
         Rebuilds cfg/ctx/_trees from the same root like set_root_file, but
-        NEVER wipes an in-progress dirty edit: when _dirty, the current buffer
-        stays exactly as it is and externally-added trees (present on disk, not
-        in the buffer) are appended by name — so an unsaved tree the user is
-        hand-editing is preserved and the new "Extract tree..." tab appears.
+        NEVER wipes an in-progress dirty edit: when _dirty, a hand-written buffer
+        tree stays exactly as it is and externally-added ones are appended — so
+        an unsaved tree is preserved and the new "Extract tree..." tab appears.
+        GENERATED trees are the one exception (nobody edits them by hand): they
+        are replaced wholesale by the fresh expansion, and one whose declaration
+        disappeared goes with it — see trees_instances_sync for both rules.
         No-op when no root is loaded; on a load failure the PREVIOUS cfg/ctx/
         _trees are kept and the failure is logged (same discipline as
         refresh_ref_candidates)."""
@@ -954,25 +959,21 @@ class TreesDock(QWidget):
             return
         self._cfg = cfg
         self._ctx = ctx
-        self._rebuild_instance_index()
         fresh = list(cfg.trees)
+        declared = declared_instance_names(cfg)
         if self._dirty:
-            # Unsaved edits stay untouched; append whatever appeared AFTER the
-            # current buffer. Index-based (not name-based): an unsaved RENAME
-            # makes the on-disk old name look like a brand-new tree and would
-            # duplicate it — external writers ("Extract tree...") only ever
-            # APPEND, so the buffer's tail is exactly what is new.
-            self._trees = self._trees + fresh[len(self._trees):]
+            self._trees = merge_reload(self._trees, fresh, declared, self._generated)
             logger.debug("Trees: external trees reloaded; unsaved tree edits "
                          "were left untouched")
         else:
             self._trees = fresh
         # Invariant (2026-09-03, plan trees_dock_cfg_trees_desync.md): `fresh`
         # was captured from cfg.trees ABOVE, before this rebind. Only now that
-        # _trees holds its FINAL value (dirty-merged or fresh) do we rebind
-        # cfg.trees to it — so redraw payloads and Save's link_trees round-trip
-        # always see the same tree objects the dock is showing/editing.
+        # _trees holds its FINAL value do we rebind cfg.trees to it — so redraw
+        # payloads and Save's link_trees round-trip see the same tree objects the
+        # dock shows. The index follows: its marker is sticky per BUFFER tree.
         self._cfg.trees = self._trees
+        self._rebuild_instance_index()
         self._rebuild_tabs()
         self._update_status_row()
 
@@ -2170,9 +2171,8 @@ class TreesDock(QWidget):
         backup_file(self._root_path)
         # tree_instances (P1/F3): generated instance trees are never persisted
         # as literal trees: — only hand-written (incl. template) trees go to
-        # disk; the untouched tree_instances: section regenerates instances on
-        # the next load.
-        trees_dict = [tree_to_dict(t) for t in self._trees if t.name not in self._instances]
+        # disk; the untouched tree_instances: section regenerates them on load.
+        trees_dict = [tree_to_dict(t) for t in self._trees if t.name not in self._generated]
         write_data(self._root_path, {**read_data(self._root_path), "trees": trees_dict})
         try:
             reloaded = [load_tree(t) for t in trees_dict]
@@ -2182,10 +2182,9 @@ class TreesDock(QWidget):
             QMessageBox.warning(self, _("Save"), str(e))
             return  # file written, .bak is fresh — report, don't roll back
         self._dirty = False
-        # Instances are GENERATED at load, so Save would leave their tabs showing the
-        # geometry from BEFORE the edit (live 07.11: switch_b gained the node only on load).
-        templates = {ti.template for ti in (self._cfg.tree_instances if self._cfg else [])}
-        if templates & {t.name for t in self._trees}:
+        # Instances are GENERATED at load: without the reload their tabs would
+        # keep showing the geometry from BEFORE this Save (live 07.11).
+        if self._instances:
             self.reload_trees()      # the buffer is clean now — nothing is lost
         self._update_status_row()
 
@@ -2238,11 +2237,11 @@ class TreesDock(QWidget):
             return
         data = read_data(self._root_path)
         # tree_instances (P1/F3): generated instance trees are NEVER staged/
-        # saved as literal trees: — they are derived records, regenerated on
-        # every load from the untouched tree_instances: declarations. Only
-        # hand-written (incl. template) trees are persisted here.
+        # saved as literal trees: — derived records, regenerated on every load.
+        # Only hand-written (incl. template) trees are persisted; `_generated`
+        # is sticky, so a copy whose declaration was just deleted is excluded.
         data["trees"] = [tree_to_dict(t) for t in self._trees
-                         if t.name not in self._instances]
+                         if t.name not in self._generated]
         # Phase E cascade: remove the net_traces orphaned by a deleted tree's
         # net_trace nodes (see _on_delete_tree). The comparison is by IDENTITY
         # (name:, else net:) — the same string a node's ref holds since
@@ -2280,15 +2279,16 @@ class TreesDock(QWidget):
     # ── tree_instances: read-only marker (2026-09-02, P1) ────────────────
 
     def _rebuild_instance_index(self) -> None:
-        """(Re)build the name -> TreeInstance map from cfg.tree_instances after
-        any (re)load of the root config. Instance trees are ORDINARY cfg.trees
-        entries (redraw/embedding see them — that is the point), but this index
-        marks them as generated: read-only in the node/tree editors and EXCLUDED
-        from _do_save/_stage_trees (the raw declarations regenerate them)."""
+        """(Re)build the name -> TreeInstance read-only index from
+        cfg.tree_instances after any (re)load, and the GENERATED marker beside it
+        (trees_instances_sync: the marker is sticky, so a copy whose declaration
+        was just deleted is still excluded from _do_save/_stage_trees)."""
         if self._cfg is None:
             self._instances = {}
+            self._generated = set()
             return
         self._instances = {ti.name: ti for ti in self._cfg.tree_instances}
+        self._generated = mark_generated(self._trees, set(self._instances), self._generated)
 
     def _instance_of(self, tree: Tree) -> Optional[TreeInstance]:
         """The TreeInstance declaration behind `tree`, or None when `tree` is a
