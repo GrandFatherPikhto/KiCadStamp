@@ -82,10 +82,9 @@ from typing import Any, Dict, List, Optional
 
 from PyQt6.QtCore import pyqtSignal
 from PyQt6.QtWidgets import (QAbstractItemView, QCheckBox, QComboBox, QDialog,
-                              QDialogButtonBox, QFormLayout, QHBoxLayout, QHeaderView,
-                              QLabel, QLineEdit, QMessageBox, QPushButton,
-                              QTableWidget, QTableWidgetItem, QTabWidget, QVBoxLayout,
-                              QWidget)
+                              QFormLayout, QHBoxLayout, QHeaderView, QLabel,
+                              QLineEdit, QMessageBox, QPushButton, QTableWidget,
+                              QTableWidgetItem, QTabWidget, QVBoxLayout, QWidget)
 
 from kicadstamp.cell_geometry_refresh import (
     build_import_plan,
@@ -120,6 +119,8 @@ from ..mixed_selection import narrow_mixed_selection
 from ..read_outcome import select_after_read
 from ..select_cell import pick_instance, resolve_action_instance
 from .cell_form_guard import anchor_role_selection, effective_anchor_role
+from .cell_editor_dialogs import (_CopyPlacementDialog,
+                                   _ImportPreviewDialog)
 from .select_cell_report import select_cell_report
 from ._common import (ERROR_STYLE as _ERROR_STYLE, SUCCESS_STYLE as _SUCCESS_STYLE,
                       WARN_STYLE as _WARN_STYLE, configure_searchable, display_path,
@@ -243,79 +244,6 @@ def _layer_combo(items) -> QComboBox:
 # select_identified_refs moved to gui/select_cell_copper.py (СЦ-1/СЦ-3,
 # plan_2026_10_05_select_cell_split) and is imported above — this file is a
 # giant (§45): no selection logic lives here any more, only wiring.
-
-
-class _ImportPreviewDialog(QDialog):
-    """Read-only "these NEW via/track records will be appended" preview for one
-    ImportPlan. One Kind/Position/Net table; Apply appends the listed records
-    to the dock's _vias/_tracks — the actual extend happens in the caller AFTER
-    this dialog returns Accepted, so mutation + autostage stay in the dock's
-    normal path."""
-
-    def __init__(self, rows: List[List[str]], parent=None):
-        super().__init__(parent)
-        self.setWindowTitle(_("Add selected copper"))
-        self.resize(620, 360)
-        layout = QVBoxLayout(self)
-        table = QTableWidget(0, 3)
-        table.setHorizontalHeaderLabels([_("Kind"), _("Position"), _("Net")])
-        table.horizontalHeader().setSectionResizeMode(
-            QHeaderView.ResizeMode.Stretch)
-        table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
-        for row_index, row in enumerate(rows):
-            table.insertRow(row_index)
-            for col, value in enumerate(row):
-                table.setItem(row_index, col, QTableWidgetItem(str(value)))
-        layout.addWidget(table, 1)
-        buttons = QDialogButtonBox()
-        apply_button = buttons.addButton(_("Apply"), QDialogButtonBox.ButtonRole.AcceptRole)
-        buttons.addButton(_("Cancel"), QDialogButtonBox.ButtonRole.RejectRole)
-        apply_button.setDefault(True)
-        buttons.accepted.connect(self.accept)
-        buttons.rejected.connect(self.reject)
-        layout.addWidget(buttons)
-
-
-class _CopyPlacementDialog(QDialog):
-    """MINIMAL donor picker for one "Copy placement from cell..." (2026-09-06,
-    Denis: "В диалоге максимум что должно быть — комбобокс"): a searchable
-    combobox of the cells that FIT the target by role set plus Copy/Cancel —
-    nothing else, no preview tables. Writes nothing itself; the caller applies
-    the plan after this returns Accepted (mutation + autostage stay in the
-    dock's normal path)."""
-
-    def __init__(self, candidates: List[str], parent=None):
-        super().__init__(parent)
-        self.setWindowTitle(_("Copy placement from cell"))
-        self.resize(460, 130)
-        layout = QVBoxLayout(self)
-        form = QFormLayout()
-        self.source_combo = QComboBox()
-        configure_searchable(self.source_combo)
-        form.addRow(_("Copy from cell:"), self.source_combo)
-        layout.addLayout(form)
-        buttons = QDialogButtonBox()
-        self.copy_button = buttons.addButton(
-            _("Copy"), QDialogButtonBox.ButtonRole.AcceptRole)
-        buttons.addButton(_("Cancel"), QDialogButtonBox.ButtonRole.RejectRole)
-        self.copy_button.setDefault(True)
-        buttons.accepted.connect(self.accept)
-        buttons.rejected.connect(self.reject)
-        layout.addWidget(buttons)
-        names = sorted(candidates)
-        if names:
-            self.source_combo.addItems(names)
-            self.source_combo.setCurrentIndex(0)
-        self.source_combo.currentIndexChanged.connect(self._on_source_changed)
-        self._on_source_changed()
-
-    def _on_source_changed(self) -> None:
-        self.copy_button.setEnabled(bool(self.source_combo.currentText().strip()))
-
-    def source(self) -> str:
-        """The chosen donor cell's name."""
-        return self.source_combo.currentText().strip()
 
 
 class CellDock(QWidget):

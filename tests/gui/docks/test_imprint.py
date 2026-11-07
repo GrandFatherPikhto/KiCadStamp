@@ -2923,7 +2923,7 @@ def test_record_dialog_pivot_take_from_selection_no_adapter_logs_error(
         assert not dialog.pivot_from_selection_button.isEnabled()  # no adapter
         caplog.clear()
         dialog._on_pivot_from_selection()
-        errors = [r for r in records_from("gui.docks.imprint")
+        errors = [r for r in records_from("gui.docks.imprint_dialogs")
                   if r.levelno == logging.ERROR]
         assert len(errors) == 1
         assert "Connect to KiCad first." in errors[0].message
@@ -3426,13 +3426,13 @@ def test_record_dialog_pivot_refuses_a_busy_socket_without_caching(
         assert ran == []                          # NO cached-snapshot pivot
         assert dialog.pivot_value() == before     # the fields stayed untouched
         errors = [r for r in caplog.records
-                  if r.name == "gui.docks.imprint"
+                  if r.name == "gui.docks.imprint_dialogs"
                   and r.levelno == logging.ERROR]
         assert len(errors) == 1
         assert "another operation is using the board" in errors[0].message
         # ...and the dock did NOT report a cache fallback.
         warns = [r for r in caplog.records
-                 if r.name == "gui.docks.imprint"
+                 if r.name == "gui.docks.imprint_dialogs"
                  and r.levelno == logging.WARNING]
         assert warns == []
     finally:

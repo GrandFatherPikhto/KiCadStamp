@@ -69,10 +69,9 @@ import logging
 from pathlib import Path
 from typing import Callable, Dict, List, Optional
 
-from PyQt6.QtWidgets import (QComboBox, QDialog, QDialogButtonBox, QFileDialog,
-                              QFormLayout, QHBoxLayout, QLabel, QListWidget,
-                              QMainWindow, QMessageBox, QPushButton, QVBoxLayout,
-                              QWidget)
+from PyQt6.QtWidgets import (QComboBox, QFileDialog, QFormLayout, QHBoxLayout,
+                              QLabel, QMainWindow, QMessageBox, QPushButton,
+                              QVBoxLayout, QWidget)
 
 from kicadstamp.constants import CLUSTER_FIELD_NAME, ROLE_FIELD_NAME
 from kicadstamp.exceptions import FieldsToolError, ValidationError
@@ -88,6 +87,8 @@ from .docks._common import (ERROR_STYLE as _ERROR_STYLE,
                             WARN_STYLE as _WARN_STYLE, configure_searchable,
                             show_message)
 from .docks.pending import PendingChangesDock, PendingEdit, compute_pending_edits, edits_to_fields_cfg
+from .fieldstool_confirm_dialogs import (confirm_apply_dialog,
+                                          confirm_sync_dialog)
 from .schema_model import SchematicComponent, SchematicInstance
 from .schematic_freshness import SchematicFreshness, adopt_read
 from .settings import Settings
@@ -822,33 +823,12 @@ class MainWindow(QMainWindow):
             self._on_sync_from_schematic_failed, payload)
 
     def _confirm_sync(self, edits: List[PendingEdit], stored_records: int = 0) -> bool:
-        """Same height-capped QListWidget summary pattern as _confirm_apply
-        (Apply), direction reversed: board's CURRENT value -> what's about to
-        be written (the schematic's value). Т5б adds the SECOND half in words
-        when there is something to lose — the stored records this action drops
-        for the same components."""
-        dialog = QDialog(self)
-        dialog.setWindowTitle(_("Confirm sync from schematic"))
-        layout = QVBoxLayout(dialog)
-        layout.addWidget(QLabel(
-            _("About to write {count} field(s) on the LIVE BOARD, reverting "
-              "them to match the schematic:").format(count=len(edits))))
-        if stored_records:
-            layout.addWidget(QLabel(
-                _("This also DROPS {count} of your stored value(s) for the same "
-                  "components — your notes give way to the schematic.").format(
-                      count=stored_records)))
-        summary_list = QListWidget()
-        for e in edits:
-            summary_list.addItem(f"{e.ref}.{e.field}: {e.new_value!r} -> {e.old_value!r}")
-        summary_list.setMaximumHeight(300)
-        layout.addWidget(summary_list)
-        buttons = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
-        buttons.accepted.connect(dialog.accept)
-        buttons.rejected.connect(dialog.reject)
-        layout.addWidget(buttons)
-        return dialog.exec() == QDialog.DialogCode.Accepted
+        """The "Confirm sync from schematic" window: its body and its own
+        docstring live in gui/fieldstool_confirm_dialogs.confirm_sync_dialog
+        (moved out 07.11, part Б of plan_2026_11_07_dialog_sizes_and_row_shift).
+        This method stays a one-line delegate so the cells that patch it keep
+        working."""
+        return confirm_sync_dialog(self, edits, stored_records)
 
     def _run_sync_from_schematic(self, payload: dict) -> dict:
         """Worker thread: board IPC only — never touches a widget. The has_field
@@ -1029,73 +1009,11 @@ class MainWindow(QMainWindow):
     # ── Apply (KiCad must be closed — instruction, not automation) ─────────
 
     def _confirm_apply(self, report: List) -> bool:
-        """Confirmation dialog for Apply — a plain QMessageBox with one line
-        of text per changed ref used to grow into an enormous window on a
-        real board (hundreds of pending edits), pushing its OK/Cancel
-        buttons off-screen. The summary lives in a height-capped QListWidget
-        instead — it gets its own scrollbar once the list outgrows that cap,
-        so the dialog itself (and its buttons) stays a sane, fixed size
-        regardless of how many refs are being applied.
-
-        DIRECTION, stated in the dialog itself (2026-09-16,
-        plan_2026_09_16_commit_document_and_pending_direction Э2/Т2.2, Р3/Р4):
-        Apply writes the BOARD value INTO the schematic, so the schematic's own
-        value is REPLACED. The old dialog said only "About to write N change(s)"
-        and listed `'old' -> 'new'` — on a board that lags behind the schematic
-        (the normal state while Role/Cluster are being edited in eeschema;
-        measured 16.09 on profile hipims-generator-v099: 42 rows where the
-        schematic was right and the board stale) one OK silently reverted the
-        schematic AND cleared the Role/Cluster of every component the board had
-        empty. Hence three changes, none of them a new window (Р4): the header
-        line names the direction, rows read "schematic … -> board …", and an
-        empty BOARD value gets its own line saying the schematic value will be
-        CLEARED — such rows are still applied (clearing the board and then
-        applying is a legitimate flow, Т2.2).
-
-        CANCEL is the default button here: an Enter press must not write
-        anything, because the safe answer to this dialog is "no" far more often
-        than "yes". The summary list keeps its height cap, so the new lines do
-        not grow the dialog (Р5)."""
-        dialog = QDialog(self)
-        dialog.setWindowTitle(_("Confirm apply"))
-        layout = QVBoxLayout(dialog)
-        layout.addWidget(QLabel(
-            _("This REPLACES the values in the SCHEMATIC with the values from the "
-              "BOARD ({count} change(s)).").format(count=len(report))))
-        layout.addWidget(QLabel(
-            _("If you edited Role/Cluster in the schematic editor, press Cancel and "
-              "run Update PCB from Schematic (F8) instead.")))
-        erased = [r for r in report if not r.new_value]
-        if erased:
-            layout.addWidget(QLabel(
-                _("⚠ {count} value(s) on the board are empty — the schematic "
-                  "value(s) will be CLEARED.").format(count=len(erased))))
-
-        summary_list = QListWidget()
-        for r in report:
-            summary_list.addItem(
-                _("{refs} .{field}: schematic {old!r} -> board {new!r}").format(
-                    refs=",".join(r.refs), field=r.field,
-                    old=r.old_value, new=r.new_value))
-        summary_list.setMaximumHeight(300)
-        layout.addWidget(summary_list)
-
-        buttons = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
-        buttons.accepted.connect(dialog.accept)
-        buttons.rejected.connect(dialog.reject)
-        # Cancel is the DEFAULT (see the docstring): Enter must cancel, and the
-        # OK button must not steal the default role back (Qt's autoDefault
-        # gives the first AcceptRole button the default otherwise).
-        ok_button = buttons.button(QDialogButtonBox.StandardButton.Ok)
-        cancel_button = buttons.button(QDialogButtonBox.StandardButton.Cancel)
-        ok_button.setDefault(False)
-        ok_button.setAutoDefault(False)
-        cancel_button.setDefault(True)
-        cancel_button.setAutoDefault(True)
-        layout.addWidget(buttons)
-
-        return dialog.exec() == QDialog.DialogCode.Accepted
+        """The "Confirm apply" window: its body and its own docstring live in
+        gui/fieldstool_confirm_dialogs.confirm_apply_dialog (moved out 07.11,
+        part Б of plan_2026_11_07_dialog_sizes_and_row_shift). This method stays
+        a one-line delegate so the cells that patch it keep working."""
+        return confirm_apply_dialog(self, report)
 
     def _on_apply(self) -> None:
         if self._root_sheet is None:
