@@ -4030,6 +4030,48 @@ def test_save_does_not_persist_instance_trees(main_window, tmp_path, monkeypatch
     assert sorted(names) == ["ch1_dac_buf", "dac_buf_tpl"]  # regenerated exactly once
 
 
+def test_save_rebuilds_the_instance_tabs_of_an_edited_template(
+        main_window, tmp_path, monkeypatch):
+    """07.11 live case (a node added to switch_a, saved, still missing in the
+    switch_b tab): an instance tab is GENERATED at load, so a Save of its edited
+    template used to leave that tab showing the geometry from BEFORE the edit —
+    the on-disk expansion already carried the new copy, the tab gained it only
+    after Tools → Trees → Instances… → OK. _do_save now calls reload_trees()
+    with the buffer already clean, so the copy is in the tab at once."""
+    monkeypatch.setattr(trees_dock_mod.QMessageBox, "warning", lambda *a, **k: None)
+    data = {**INSTANCE_CFG,
+            "cells": {**INSTANCE_CFG["cells"], "c_extra": {}},
+            "entities": INSTANCE_CFG["entities"] + [
+                {"name": "extra_sw", "cell": "c_extra", "cluster": "EXTRA"}]}
+    root = tmp_path / "inst_save.sexp"
+    root.write_text(dict_to_sexp(data, format_number=2), encoding="utf-8")
+    dock = TreesDock(main_window)
+    dock.set_root_file(root)
+    tpl = next(t for t in dock._trees if t.name == "dac_buf_tpl")
+    assert dock._instance_of(tpl) is None      # the TEMPLATE itself is editable
+
+    # The edit the user makes: one more placement node under the template root.
+    tpl.nodes[0].children.append(
+        TreeNode(ref="extra_sw", kind="placement", xy=(0.0, 1.0), polar=None,
+                 rotation=0.0, name=None, group=None))
+    dock._mark_dirty()
+    dock._rebuild_tabs()   # a structural edit re-renders every tab ...
+    assert "extra_sw" in dock._node_items
+    assert "extra_sw__ch1_dac_buf" not in dock._node_items, (
+        "... but a re-render draws the SAME instance Tree object: the copy is "
+        "generated at LOAD, so the instance tab still shows the old geometry")
+
+    dock._do_save()
+
+    inst = next(t for t in dock._trees if t.name == "ch1_dac_buf")
+    assert [n.ref for n in inst.nodes[0].children] == [
+        "pif_avdd__ch1_dac_buf", "extra_sw__ch1_dac_buf"]
+    assert "extra_sw__ch1_dac_buf" in dock._node_items, (
+        "after Save the instance tab must carry the template's new node")
+    assert dock.tree_tabs.count() == 2         # template + its one instance
+    assert dock._dirty is False
+
+
 # ── tree_instances: navigation (2026-09-02, P2) ─────────────────────────────
 
 INSTANCE_CFG2 = {**INSTANCE_CFG, "tree_instances": [

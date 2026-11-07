@@ -2159,15 +2159,11 @@ class TreesDock(QWidget):
 
     def _do_save(self) -> None:
         """Save the trees: section into the ROOT config through the single
-        config_writer chokepoint (design_2026_08_27_trees_in_config_file.md
-        §5.2): BACKUP the write target (the root config file) BEFORE writing
-        (entity_delete's timestamped backup_file — never overwrites an earlier
-        backup), then write_data(root, {**read_data(root), "trees": [...]}) —
-        the whole section is replaced, every other root key is preserved. Then
-        round-trip through read_data -> load_tree + link_trees to surface a
-        grammar/link violation. A round-trip failure leaves the file already
-        written (by design) but the fresh .bak is the recovery point — show the
-        message, do not roll back."""
+        config_writer chokepoint (§5.2): BACKUP the root config BEFORE writing,
+        then replace the whole section (every other root key is preserved), then
+        round-trip through load_tree + link_trees to surface a grammar/link
+        violation. A round-trip failure leaves the file written (by design) —
+        the fresh .bak is the recovery point, so report it, do not roll back."""
         if self._root_path is None:
             return  # Save unavailable without a root config
         self._enforce_no_self_ref()
@@ -2176,8 +2172,7 @@ class TreesDock(QWidget):
         # as literal trees: — only hand-written (incl. template) trees go to
         # disk; the untouched tree_instances: section regenerates instances on
         # the next load.
-        trees_dict = [tree_to_dict(t) for t in self._trees
-                      if t.name not in self._instances]
+        trees_dict = [tree_to_dict(t) for t in self._trees if t.name not in self._instances]
         write_data(self._root_path, {**read_data(self._root_path), "trees": trees_dict})
         try:
             reloaded = [load_tree(t) for t in trees_dict]
@@ -2187,6 +2182,11 @@ class TreesDock(QWidget):
             QMessageBox.warning(self, _("Save"), str(e))
             return  # file written, .bak is fresh — report, don't roll back
         self._dirty = False
+        # Instances are GENERATED at load, so Save would leave their tabs showing the
+        # geometry from BEFORE the edit (live 07.11: switch_b gained the node only on load).
+        templates = {ti.template for ti in (self._cfg.tree_instances if self._cfg else [])}
+        if templates & {t.name for t in self._trees}:
+            self.reload_trees()      # the buffer is clean now — nothing is lost
         self._update_status_row()
 
     @staticmethod

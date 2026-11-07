@@ -1239,12 +1239,11 @@ laid out from each tree's live anchor (role/auto/origin/point/ref). (The forest-
 (all trees and modules)…** item — every tree's records at once — was removed on 13.10: trees can be
 different layouts of the same thing, and a whole-tree redraw already covers what is embedded into it.)
 
-**Tree instances (`tree_instances:`, 2026-09-02, plan_2026_09_02_tree_instances.md; optional `cluster:`
-axis 2026-09-03, plan tree_instances_cluster):** a tree + its Entity records can be declared once as a
-TEMPLATE and instantiated per schematic sheet (and, optionally, per cluster) by `tree_instances:`
-declarations (see the config docs). Each generated instance shows here as an ordinary tab whose nodes
-are a deep copy of the template — refs suffixed `__{instance.name}`, the instance's `sheet` (and, when
-the declaration sets it, its `cluster`) substituted into the copied Entities and the role anchor.
+**Tree instances (`tree_instances:`, 2026-09-02, plan_2026_09_02_tree_instances.md):** a tree + its
+Entity records can be declared once as a TEMPLATE and instantiated per schematic sheet by
+`tree_instances:` declarations (see the config docs). Each generated instance shows here as an ordinary
+tab whose nodes are a deep copy of the template — refs suffixed `__{instance.name}`, the instance's
+`sheet` substituted into the copied Entities and the role anchor.
 Instance tabs are **READ-ONLY**: their
 node context menu offers no Add/Edit/Delete/Rename/Move (the geometry is owned by the template + the
 declaration), their master-detail panel shows the same read-only notice instead of an editor, and
@@ -1253,7 +1252,11 @@ placeable trees). An instance tab shows one top **"⇐ instance of {template} (s
 template tree shows one **"→ instance: {name}"** item per instance — double-click navigates either way
 (the same navigation primitive as "⇐ embedded in"). **Save never writes generated instances** as literal
 `trees:` entries — the untouched `tree_instances:` section regenerates them on every load (no
-duplication). Manage the short declarations with **Tools → Trees → Instances…**: pick a template
+duplication) — and it REBUILDS the instance tabs of every template it wrote, because the copy is
+generated at LOAD: without that rebuild an edited template would leave its instance tabs showing the
+geometry from BEFORE the edit (07.11 live case: a node added to `switch_a` reached the `switch_b` tab
+only after Tools → Trees → Instances… → OK). Manage the short declarations with
+**Tools → Trees → Instances…**: pick a template
 (generated instances can't themselves be templates) and edit its
 {name, sheet, rotation?, anchor?, root?} rows. The old **Cluster** column is GONE (format 4, Н9): an
 instance changes the SHEET only — a cluster belongs to the record, and two instances of one template
