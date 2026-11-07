@@ -100,6 +100,49 @@ def test_graph_wide_refusals_stay_fatal_even_in_the_lenient_mode():
         expand_tree_instances(_data(twice), failures=[])
 
 
+# ── К3а (8.1): EVERY refusal of ONE declaration is tolerable ───────────────
+
+@pytest.mark.parametrize("bad_row,needle", [
+    ({"template": "no_such_tree", "name": "bad", "sheet": "S2"}, "not found"),
+    ({"template": "tpl", "name": "bad"}, "missing required sheet"),
+    ({"template": "tpl", "name": "bad", "sheet": "S2", "anchor": "x"},
+     "non-mapping anchor"),
+    ({"template": "tpl", "name": "point_tpl", "sheet": "S2"},
+     "duplicate tree name"),
+    ({"template": "tpl", "name": "bad", "sheet": "S2", "cluster": ""},
+     "empty cluster"),
+    ({"template": "tpl", "name": "bad", "sheet": "S2", "params": "x"},
+     "non-mapping params"),
+    ({"template": "tpl", "name": "bad", "sheet": "S2", "rotation": "90"},
+     "non-numeric rotation"),
+    ({"template": "tpl", "name": "bad", "sheet": "S2", "root": "driver"},
+     "root: must be a mapping"),
+    ("not-a-dict", "must be a mapping"),
+])
+def test_every_refusal_of_one_declaration_is_tolerable(bad_row, needle):
+    """§8.1: a rename or a delete in Trees does not touch the rows that point at
+    the old template, so "template not found" is ordinary work — and it used to
+    kill the whole profile, dialog included. Every per-row refusal is recorded
+    and the rest of the graph materializes; the answer is byte-identical to the
+    strict load of the file without that row."""
+    failures: list[dict] = []
+
+    out = expand_tree_instances(_data([bad_row, _GOOD]), failures=failures)
+
+    assert len(failures) == 1
+    assert needle in failures[0]["error"]
+    assert "bad" not in {t["name"] for t in out["trees"]}
+    assert "good" in {t["name"] for t in out["trees"]}
+    assert out["trees"] == expand_tree_instances(_data([_GOOD]))["trees"]
+
+
+def test_the_strict_mode_still_raises_for_every_one_of_them():
+    """Control: without the failures list the same row is the same fatal."""
+    with pytest.raises(ValidationError, match="template tree 'no_such_tree'"):
+        expand_tree_instances(_data([
+            {"template": "no_such_tree", "name": "bad", "sheet": "S2"}]))
+
+
 # ── the loader: the lenient door ───────────────────────────────────────────
 
 def test_load_config_lenient_opens_on_a_file_the_strict_door_refuses(tmp_path):

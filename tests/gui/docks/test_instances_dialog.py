@@ -145,6 +145,27 @@ def _open_lenient(main_window, p, template="point_tpl"):
                                instance_failures=failures)
 
 
+def test_a_row_whose_template_was_renamed_is_reachable_and_marked(
+        main_window, tmp_path):
+    """К3а (8.1): Rename/Delete in Trees never touches these rows, so a row may
+    point at a template that is gone. It is OFFERED as a template here (else the
+    row could not be reached at all), opens marked and shows why."""
+    p = _root(tmp_path, [{"template": "renamed_away", "name": "ch1",
+                          "sheet": "Channel_1"}])
+    cfg, _ctx, failures = load_config_lenient(str(p))
+
+    dlg = TreeInstancesDialog(main_window, p, cfg,
+                              preferred_template="renamed_away",
+                              instance_failures=failures)
+
+    assert "renamed_away" in dlg._templates
+    assert dlg.current_template() == "renamed_away"
+    assert dlg.table.rowCount() == 1
+    assert dlg.table.item(0, 0).text().startswith("⚠ ")
+    dlg.table.selectRow(0)
+    assert "not found" in dlg.refusal_label.text()
+
+
 def test_a_refused_row_opens_marked_and_shows_its_text(main_window, tmp_path):
     """Н8 (7.11): the strict loader refuses this file, yet the dialog opens, the
     row is marked and its refusal is shown — not a modal, a label (п.43)."""

@@ -192,6 +192,13 @@ class TreeInstancesDialog(QDialog):
         self._templates = sorted(t.name for t in cfg.trees
                                  if t.name not in instance_names)
         self._tree_names = {t.name for t in cfg.trees}
+        # К3а (8.1): Rename/Delete in Trees never touches the rows that point at
+        # the old template, so a row may name a template that is GONE. Offer that
+        # name here anyway — otherwise the refused row is unreachable and cannot
+        # be fixed at all. The pre-write proof keeps refusing it until it is.
+        self._templates = sorted(set(self._templates) | {
+            ti.template for ti in cfg.tree_instances
+            if ti.template and ti.template not in self._tree_names})
 
         layout = QVBoxLayout(self)
         layout.addWidget(QLabel(_("Template tree (instances are read-only "

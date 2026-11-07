@@ -234,10 +234,10 @@ from ..i18n import _
 from .format_version import current_format
 from .tree_instance_checks import (derive_old_sheet, template_generated_clusters,
                                    template_needs_old_sheet)
+from .tree_instance_expand import expand_one_declaration
 from .tree_instance_refs import (rewrite_pivot_ref as _rewrite_pivot_ref,
                                  rewrite_self_ref as _rewrite_self_ref)
-from .tree_instance_root import (check_outward, find_subtree, parse_root,
-                                 subtree_pose)
+from .tree_instance_root import (check_outward, find_subtree, subtree_pose)
 from .uuids import derived_uuid
 
 # Kept under its historical PRIVATE name: the composite-guard cells import it
@@ -1045,121 +1045,26 @@ def expand_tree_instances(data: dict, *, failures: list | None = None) -> dict:
             trees_by_name[t['name']] = t
 
     for idx, inst in enumerate(instances):
-        if not isinstance(inst, dict):
-            raise ValidationError(format_fatal_error(
-                _("tree_instances: entry #{idx} must be a mapping").format(idx=idx + 1),
-                [_("each entry is a dict with template:/name:/sheet:")]))
-        template_name = inst.get('template')
-        instance_name = inst.get('name')
-        sheet = inst.get('sheet')
-        for field_label, value in (("template", template_name),
-                                   ("name", instance_name),
-                                   ("sheet", sheet)):
-            if not isinstance(value, str) or not value:
-                raise ValidationError(format_fatal_error(
-                    _("tree_instances: entry #{idx} missing required {field}:")
-                    .format(idx=idx + 1, field=field_label),
-                    [_("every tree_instances: entry needs template:/name:/sheet: "
-                       "(non-empty strings)")]))
-        cluster = inst.get('cluster')
-        if cluster is not None and (not isinstance(cluster, str) or not cluster):
-            raise ValidationError(format_fatal_error(
-                _("tree_instances: entry #{idx} has an empty cluster:")
-                .format(idx=idx + 1),
-                [_("cluster:, when present, must be a non-empty string — omit "
-                   "the key entirely to inherit the template's own cluster "
-                   "unchanged")]))
-        # v1.3 (plan tree_instances_params_override): OPTIONAL per-instance
-        # params merge. Validation duplicated here on purpose — this function
-        # runs on the raw dict BEFORE the _load_tree_instance loader (see the
-        # module docstring), so it cannot rely on entries.py having already
-        # validated the declaration (same duplication discipline as `cluster`
-        # just above). Only the "is it a mapping" guard — no per-value checks,
-        # same level as Entity.params elsewhere.
-        params = inst.get('params')
-        if params is not None and not isinstance(params, dict):
-            raise ValidationError(format_fatal_error(
-                _("tree_instances: entry #{idx} has a non-mapping params:")
-                .format(idx=idx + 1),
-                [_("params:, when present, must be a mapping of string keys to "
-                   "string values — omit the key entirely to inherit the "
-                   "template Entity's own params unchanged")]))
-        # §И.2 (plan_2026_09_12_tree_instance_own_place): OPTIONAL own place and
-        # angle. Same deliberate duplication of the loader's guards as `cluster`/
-        # `params` above — this runs on the RAW dict before entries.py sees it.
-        # The anchor is only checked to BE a mapping here; its grammar is
-        # validated by the TREE loader (trees.anchor_from_dict), which sees the
-        # very same dict on the generated tree and reports it under that tree's
-        # (== the instance's) name.
-        decl_anchor = inst.get('anchor')
-        if decl_anchor is not None and not isinstance(decl_anchor, dict):
-            raise ValidationError(format_fatal_error(
-                _("tree_instances: entry #{idx} has a non-mapping anchor:")
-                .format(idx=idx + 1),
-                [_("anchor:, when present, must be a mapping in the TREE anchor "
-                   "grammar (origin / ref / role / point / self, plus optional "
-                   "sheet / cluster / pad / shift) — omit the key entirely to "
-                   "keep the template's own place")]))
-        # Н6: an OPTIONAL `root` — the template node the copy starts from. Its
-        # shape is validated in the root module (§7.4: entries.py stays as it is).
-        decl_root = parse_root(inst.get('root'), instance_name)
-        decl_rotation = inst.get('rotation')
-        if decl_rotation is not None and (
-                not isinstance(decl_rotation, (int, float))
-                or isinstance(decl_rotation, bool)):
-            raise ValidationError(format_fatal_error(
-                _("tree_instances: entry #{idx} has a non-numeric rotation:")
-                .format(idx=idx + 1),
-                [_("rotation:, when present, must be a number (degrees) — omit "
-                   "the key entirely to inherit the template's own angle")]))
-        # Э2.1 (same plan): the instance's name must be FREE — it is the name of
-        # the tree this declaration materializes. trees_by_name is the index of
-        # every tree that exists at this point (literal trees: entries, the
-        # templates, and the trees generated by earlier declarations — it is
-        # updated at the bottom of this loop), so a collision with any of the
-        # three is caught HERE, before anything is built. Without this guard the
-        # collision surfaced far away and mislabelled: two same-named trees share
-        # their rewritten node refs, and the loader then reported rule 2's
-        # "a record's position source must be exactly one" (the live report).
-        if instance_name in trees_by_name:
-            raise ValidationError(format_fatal_error(
-                _("duplicate tree name from tree_instance {name!r}").format(
-                    name=instance_name),
-                [_("every tree in one config needs a unique name, and a tree "
-                   "with that name already exists here — a trees: entry, the "
-                   "template itself, or an earlier tree_instances: declaration — "
-                   "rename this instance, or rename/remove the tree that already "
-                   "carries the name")]))
-        template = trees_by_name.get(template_name)
-        if template is None:
-            raise ValidationError(format_fatal_error(
-                _("tree_instance {name!r}: template tree {template!r} not found")
-                .format(name=instance_name, template=template_name),
-                [_("known trees: {names}").format(
-                    names=", ".join(sorted(trees_by_name)) or _("(none)"))]))
         try:
-            (generated_tree, generated_entities,
-             generated_net_traces) = _expand_template(
-                template, template_name, instance_name, sheet, entities_by_name,
-                net_traces_by_name, cluster, params, decl_anchor,
-                decl_rotation, decl_root, cells)
+            expand_one_declaration(
+                idx, inst, trees=trees, entities=entities,
+                net_traces=net_traces, trees_by_name=trees_by_name,
+                entities_by_name=entities_by_name,
+                net_traces_by_name=net_traces_by_name, cells=cells)
         except ValidationError as e:
+            # К3а (8.1): EVERYTHING that belongs to one declaration is tolerable
+            # here — its fields, its `root`, a template that is not there, a name
+            # already used by a hand-written tree, and the expansion itself. The
+            # graph-wide refusals stay above this loop (a non-list section, two
+            # declarations sharing one name): those are not "one row's" property.
             if failures is None:
                 raise
-            failures.append({"index": idx + 1, "template": template_name,
-                             "name": instance_name, "sheet": sheet,
-                             "error": str(e)})
-            continue
-        trees.append(generated_tree)
-        entities.extend(generated_entities)
-        net_traces.extend(generated_net_traces)
-        # Register generated names so a second instance of the SAME template
-        # (or a later declaration) resolving by name sees a consistent index;
-        # duplicates are still caught downstream by the trees/entities
-        # duplicate-name checks.
-        trees_by_name[instance_name] = generated_tree
-        for ent in generated_entities:
-            entities_by_name[ent['name']] = ent
+            failures.append({
+                "index": idx + 1,
+                "template": inst.get('template') if isinstance(inst, dict) else None,
+                "name": inst.get('name') if isinstance(inst, dict) else None,
+                "sheet": inst.get('sheet') if isinstance(inst, dict) else None,
+                "error": str(e)})
 
     result['trees'] = trees
     result['entities'] = entities
