@@ -433,11 +433,10 @@ class TreeInstancesDialog(QDialog):
         new anchor dict, None for "inherit the template's anchor", or the
         _CANCELLED sentinel.
 
-        The form is embedded with tree=None (a declaration has no suspension
-        point or angle of its own — the Tree-settings box is hidden): its own
-        "shift" row is unavailable there, so the row's EXISTING shift is carried
-        over verbatim rather than silently dropped (the same "a disabled form
-        never reinterprets the stored value" rule the form itself follows)."""
+        The form is embedded with tree=None AND declaration=True (a declaration
+        has no suspension point or angle of its own — the Tree-settings box is
+        hidden, while the shift row is ALWAYS editable: `(shift x y)` in config/
+        local mm is exactly what a declaration stores)."""
         from .trees_dock import AnchorFormWidget   # local: import-cycle-safe
 
         existing = anchor_from_dict(current, self.current_template() or "?") \
@@ -446,17 +445,14 @@ class TreeInstancesDialog(QDialog):
         dlg.setWindowTitle(_("Instance anchor"))
         lay = QVBoxLayout(dlg)
         form = AnchorFormWidget(dlg, self._anchor_candidates(), cfg=self._cfg,
-                                existing=existing)
-        # No tree here: the tree-settings box is hidden, but the SHIFT row stays
-        # VISIBLE and EDITABLE (Н5, 07.11) — a declaration's own anchor has a
-        # shift axis (`(shift x y)`, config/local mm), and hiding it forced the
-        # user to invent a separate `Origin_B` point. The form's reason label is
-        # about creating a tree, which does not apply to a row.
+                                existing=existing, declaration=True)
+        # The shift rule lives in the FORM (declaration=True), NOT in a one-shot
+        # enable here: every refresh — a mode switch included — re-disables an
+        # ordinary tree-less form with "create the tree first", which is what
+        # made the row editable only from the SECOND opening. The tree-only box
+        # (pivot/angle) stays hidden: a row has no suspension point of its own.
         self._last_anchor_form = form
         form.settings_box.setVisible(False)
-        form.shift_x_edit.setEnabled(True)
-        form.shift_y_edit.setEnabled(True)
-        form.shift_reason_label.setVisible(False)
         if existing is not None and existing.shift_xy is not None:
             form.shift_x_edit.setText(str(existing.shift_xy[0]))
             form.shift_y_edit.setText(str(existing.shift_xy[1]))

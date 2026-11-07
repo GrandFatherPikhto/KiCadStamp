@@ -6903,6 +6903,23 @@ def test_anchor_shift_disabled_with_reason_when_anchor_does_not_resolve(
     assert tree.anchor.shift_xy == (1.0, 2.0)
 
 
+def test_a_tree_less_anchor_form_keeps_the_shift_disabled_with_its_reason(
+        main_window):
+    """А5: declaration=True is OPT-IN. A create-tree form (no tree, no flag)
+    must behave BYTE-FOR-BYTE as before: the row is disabled and the reason is
+    the one the form has always shown — the declaration rule does not leak into
+    the trees the user edits."""
+    form = AnchorFormWidget(main_window, [("point", "P")], cfg=object())
+    assert form.shift_x_edit.isEnabled() is False
+    assert form.shift_y_edit.isEnabled() is False
+    assert form.shift_reason_label.text() == (
+        "The anchor shift is stored on an existing tree — create the tree first.")
+    # And a mode switch keeps it disabled — the same refresh that used to kill a
+    # declaration's row must keep killing an ordinary tree-less one.
+    form.mode_combo.setCurrentIndex(form.mode_combo.findData("point"))
+    assert form.shift_x_edit.isEnabled() is False
+
+
 def test_every_tree_anchor_mode_roundtrips(main_window):
     """X.5.3 #15: every mode remaining in the grammar is reachable and
     round-trips without loss (adding a mode = one _TREE_ANCHOR_MODES entry)."""

@@ -1283,7 +1283,11 @@ in the same table:
   anchor are both OMITTED on save — never written as `null`/`""`. The form's tree-settings box
   (suspension point and angle) stays hidden here — a declaration has none of its own — but its **shift**
   row is VISIBLE and editable: a declaration's own anchor does have a `(shift x y)` axis, written in
-  config (LOCAL) millimetres, and hiding it used to force a separate point record.
+  config (LOCAL) millimetres, and hiding it used to force a separate point record. That row is editable
+  from the FIRST open and stays editable through every mode switch — the rule lives in the form
+  (`AnchorFormWidget(declaration=True)`), not in a one-shot enable — and what the user typed is never
+  rewritten by a board-frame refresh: a declaration has no live base to convert against, so its fields
+  ARE the value.
 
 A third column (07.11, Н6 + acceptance 8.5) chooses WHICH part of the template is copied:
 

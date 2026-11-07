@@ -305,6 +305,87 @@ def test_the_anchor_form_keeps_an_editable_shift_and_saves_it(
     assert _instances_on_disk(p)[0]["anchor"]["shift"] == [0.0, 40.0]
 
 
+def test_a_declaration_anchor_shift_is_editable_on_the_first_open(
+        main_window, tmp_path, monkeypatch):
+    """А1/А4 (plan_2026_11_07_dialog_sizes_and_row_shift): on the LIVE dialog the
+    shift row was dead on the FIRST open — choosing Point made the form re-run
+    its board-frame refresh, and with no tree it disabled the row with "create
+    the tree first", so `0, 40` could not be typed at all. The cell above missed
+    it because a DISABLED QLineEdit still accepts setText(). The rule now lives
+    in the form (declaration=True), and the value is read verbatim."""
+    from PyQt6.QtWidgets import QDialog
+
+    import gui.docks.instances_dialog as id_mod
+
+    dlg, _p = _open_dialog(main_window, tmp_path)
+    dlg._add_row()
+    dlg.table.item(0, 0).setText("switch_b")
+    dlg.table.item(0, 1).setText("SW B")
+    seen = {}
+
+    def fake_exec(self):
+        form = dlg._last_anchor_form
+        form.mode_combo.setCurrentIndex(form.mode_combo.findData("point"))
+        form.point_edit.setCurrentText("p_home")
+        seen["enabled"] = (form.shift_x_edit.isEnabled(),
+                           form.shift_y_edit.isEnabled())
+        seen["reason"] = form.shift_reason_label.text()
+        form.shift_x_edit.setText("0")
+        form.shift_y_edit.setText("40")
+        return QDialog.DialogCode.Accepted
+
+    monkeypatch.setattr(id_mod.QDialog, "exec", fake_exec)
+    anchor = dlg._edit_anchor(None)
+
+    assert seen["enabled"] == (True, True), (
+        "the shift row must be editable on the FIRST open, not from the second")
+    assert seen["reason"] == ""
+    assert anchor["point"] == "p_home"
+    assert anchor["shift"] == [0.0, 40.0]
+
+
+def test_a_declaration_anchor_shift_survives_mode_switches(
+        main_window, tmp_path, monkeypatch):
+    """А2/А3: every mode switch re-runs the board-frame refresh, and a tree-less
+    form used to disable the row there AND rewrite the fields from the (empty)
+    stored shift. Point -> Origin -> Point must keep the row editable and keep
+    what the user typed — otherwise the value silently disappears mid-edit."""
+    from PyQt6.QtWidgets import QDialog
+
+    import gui.docks.instances_dialog as id_mod
+
+    dlg, _p = _open_dialog(main_window, tmp_path)
+    dlg._add_row()
+    dlg.table.item(0, 0).setText("switch_b")
+    dlg.table.item(0, 1).setText("SW B")
+    seen = {}
+
+    def fake_exec(self):
+        form = dlg._last_anchor_form
+        form.mode_combo.setCurrentIndex(form.mode_combo.findData("point"))
+        form.point_edit.setCurrentText("p_home")
+        form.shift_x_edit.setText("0")
+        form.shift_y_edit.setText("40")
+        steps = []
+        for mode in ("origin", "point"):
+            form.mode_combo.setCurrentIndex(form.mode_combo.findData(mode))
+            steps.append((mode, form.shift_x_edit.isEnabled(),
+                          form.shift_y_edit.isEnabled(),
+                          form.shift_reason_label.text(),
+                          form.shift_x_edit.text(), form.shift_y_edit.text()))
+        seen["steps"] = steps
+        return QDialog.DialogCode.Accepted
+
+    monkeypatch.setattr(id_mod.QDialog, "exec", fake_exec)
+    anchor = dlg._edit_anchor(None)
+
+    for mode, x_enabled, y_enabled, reason, x_text, y_text in seen["steps"]:
+        assert x_enabled is True and y_enabled is True, mode
+        assert reason == "", mode
+        assert (x_text, y_text) == ("0", "40"), mode
+    assert anchor["shift"] == [0.0, 40.0]
+
+
 def test_a_row_the_loader_would_refuse_is_not_written(main_window, tmp_path):
     """Cell 2 (Н7): a row without its own anchor under a POINT-anchored template
     is refused by the loader — so the dialog refuses it FIRST, with the loader's

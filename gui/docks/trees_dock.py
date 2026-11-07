@@ -5850,7 +5850,7 @@ class AnchorFormWidget(QWidget):
 
     def __init__(self, parent, ref_candidates, *, cfg=None, sheet_names=None,
                  role_candidates=None, cluster_candidates=None, existing=None,
-                 tree=None, adapter=None, all_trees=None, cfg_supplier=None):
+                 tree=None, adapter=None, all_trees=None, cfg_supplier=None, declaration=False):
         super().__init__(parent)
         self._ref_candidates = list(ref_candidates or [])
         self._cfg_supplier = cfg_supplier or (lambda: cfg)
@@ -5858,6 +5858,8 @@ class AnchorFormWidget(QWidget):
         self._role_candidates = list(role_candidates or [])
         self._cluster_candidates = list(cluster_candidates or [])
         self._tree = tree
+        # declaration=True — an INSTANCE DECLARATION's own anchor (always editable).
+        self._declaration = declaration
         # Board-frame conversion base (plan §W.4): the anchor is resolved LIVE
         # from the anchor rows of THIS form, and all_trees lets a pivot-ref
         # snapshot lay this tree out (tree_pivot_offset needs the forest).
@@ -5975,11 +5977,9 @@ class AnchorFormWidget(QWidget):
         self_form.addRow(_("Pad:"), self.self_pad_edit)
         form.addRow(self.self_row)
 
-        # Shift row (§X.2.3): the anchor's OWN (shift x y). Stored in LOCAL mm
-        # of the base, SHOWN in board mm — the same five conversion functions
-        # as the tree settings, converted at the ANCHOR's own angle (never a
-        # cached one). Applies to every mode; disabled with a reason when the
-        # anchor does not resolve on the live board.
+        # Shift row (§X.2.3): the anchor's OWN (shift x y), stored in LOCAL mm
+        # of the base and SHOWN in board mm at the ANCHOR's own angle (never a
+        # cached one). Every mode; disabled with a reason when it cannot resolve.
         self.shift_row = QWidget()
         shift_layout = QHBoxLayout(self.shift_row)
         shift_layout.setContentsMargins(0, 0, 0, 0)
@@ -5997,12 +5997,10 @@ class AnchorFormWidget(QWidget):
         self.shift_reason_label.setVisible(False)
         form.addRow(self.shift_reason_label)
 
-        # The button row is NOT part of the form — plan
-        # plan_2026_09_04_trees_dock_master_detail.md §2.1: a plain QWidget form
-        # is modal-agnostic, the OK/Cancel (Create-tree/Set-anchor master) or
-        # Apply/Redraw (master-detail Anchor tab of §3) row is added by the
-        # embedding context. What stays here: the picker rows + the non-blocking
-        # apply-status label that apply()/redraw() write to (design §9.4).
+        # The button row is NOT part of the form (plan_2026_09_04_trees_dock_
+        # master_detail.md §2.1, design §9.4): a plain QWidget form is modal-
+        # agnostic — the OK/Cancel or Apply/Redraw row belongs to the embedding
+        # context, and what stays here is the picker rows + the apply-status label.
         root.addLayout(form)
 
         # ── Tree settings (plan_2026_09_11_tree_settings_form §W.2): the tree's
@@ -6560,11 +6558,14 @@ class AnchorFormWidget(QWidget):
         """Enable/disable the anchor-shift row (§X.2.3). Disabled means the
         board frame is unavailable, so the fields hold the RAW stored value and
         editing them would silently change their meaning — the same rule
-        _set_settings_editable applies to the tree settings."""
-        self.shift_x_edit.setEnabled(editable)
-        self.shift_y_edit.setEnabled(editable)
-        self.shift_reason_label.setText(reason)
-        self.shift_reason_label.setVisible(bool(reason))
+        _set_settings_editable applies to the tree settings.
+        A declaration's row (declaration=True) is ALWAYS editable and carries no
+        reason: its value is config (LOCAL) mm, read verbatim by the dialog that
+        owns it, so no live base is needed and "create the tree first" is false."""
+        self.shift_x_edit.setEnabled(editable or self._declaration)
+        self.shift_y_edit.setEnabled(editable or self._declaration)
+        self.shift_reason_label.setText("" if self._declaration else reason)
+        self.shift_reason_label.setVisible(bool(reason) and not self._declaration)
 
     def _show_raw_settings(self) -> None:
         """Show the RAW stored (config-frame) settings — used when no live base
@@ -6583,10 +6584,10 @@ class AnchorFormWidget(QWidget):
                 self.pivot_widget.load()
             # The RAW (config-frame, LOCAL-mm) shift — the same "show the stored
             # truth when the board frame is unavailable" rule as the pivot.
-            if self._stored_anchor_shift is not None:
+            if self._stored_anchor_shift is not None and not self._declaration:
                 self.shift_x_edit.setText(str(self._stored_anchor_shift[0]))
                 self.shift_y_edit.setText(str(self._stored_anchor_shift[1]))
-            else:
+            elif not self._declaration:
                 self.shift_x_edit.setText("")
                 self.shift_y_edit.setText("")
         finally:
@@ -6650,8 +6651,7 @@ class AnchorFormWidget(QWidget):
         self._refresh_show_markers_button()
         if self._tree is None:
             self.settings_box.setVisible(False)
-            # No tree yet (create-tree dialog): there is no stored anchor to
-            # carry a shift, and no live base to express one in board mm.
+            # No tree yet (create-tree dialog): no stored shift, no live base.
             self._set_shift_editable(False, reason=_(
                 "The anchor shift is stored on an existing tree — create the "
                 "tree first."))
