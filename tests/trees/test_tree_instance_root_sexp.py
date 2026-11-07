@@ -100,9 +100,11 @@ def test_a_root_name_hint_is_normalized_by_its_uuid(tmp_path):
     assert declaration.root["ref_uuid"]
 
 
-def test_the_dialog_write_keeps_the_root_of_a_row_it_does_not_edit(tmp_path):
-    """Н6 + §7.4: `root` is not one of the dialog's editable axes, so an
-    ordinary OK on another field must not drop it (WRITE OVER, NOT INSTEAD)."""
+def test_the_dialog_write_keeps_the_root_the_row_carries(tmp_path):
+    """Н6 + §7.4/8.5: `root` is an editable axis of the SAME merge rule, so a
+    dialog row that carries it keeps it while another column changes (WRITE
+    OVER, NOT INSTEAD), and a row WITHOUT it drops the key — the blank-cell
+    contract every other optional axis follows."""
     from kicadstamp.config_working_set import set_active_graph_root
 
     p = _write(tmp_path, [dict(_ROW, root={"ref": "driver"})])
@@ -110,7 +112,7 @@ def test_the_dialog_write_keeps_the_root_of_a_row_it_does_not_edit(tmp_path):
     try:
         changed = upsert_tree_instances(p, "tpl", [
             {"template": "tpl", "name": "b", "sheet": "SW B_NEW",
-             "anchor": {"origin": True}}])
+             "anchor": {"origin": True}, "root": {"ref": "driver"}}])
     finally:
         set_active_graph_root(None)
     assert changed is True
@@ -118,6 +120,17 @@ def test_the_dialog_write_keeps_the_root_of_a_row_it_does_not_edit(tmp_path):
     row = sexp_to_dict(p.read_text(encoding="utf-8"))["tree_instances"][0]
     assert row["sheet"] == "SW B_NEW"
     assert row["root"]["ref"] == "driver"
+
+    # ... and a row WITHOUT the axis clears it ("— whole tree —").
+    set_active_graph_root(p)
+    try:
+        upsert_tree_instances(p, "tpl", [
+            {"template": "tpl", "name": "b", "sheet": "SW B_NEW",
+             "anchor": {"origin": True}}])
+    finally:
+        set_active_graph_root(None)
+    row = sexp_to_dict(p.read_text(encoding="utf-8"))["tree_instances"][0]
+    assert "root" not in row
 
 
 def test_a_root_without_a_uuid_still_loads_in_format_2(tmp_path):

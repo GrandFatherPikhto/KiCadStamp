@@ -3,7 +3,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version:  kicadstamp\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-11-07 14:32+0300\n"
+"POT-Creation-Date: 2026-11-07 14:39+0300\n"
 "PO-Revision-Date: 2026-07-27 12:00+0000\n"
 "Last-Translator: \n"
 "Language: ru\n"
@@ -455,7 +455,7 @@ msgstr ""
 msgid "Pick an Imprint in the Config tree first."
 msgstr "Сначала выберите Imprint в дереве Config."
 
-#: gui/dock_hub.py:1866 gui/dock_hub.py:1873 gui/docks/instances_dialog.py:181
+#: gui/dock_hub.py:1866 gui/dock_hub.py:1873 gui/docks/instances_dialog.py:216
 msgid "Tree instances"
 msgstr "Копии шаблона"
 
@@ -969,7 +969,7 @@ msgid "Remove from include:"
 msgstr "Убрать из include:"
 
 #: gui/docks/cell_editor.py:273 gui/docks/cell_editor.py:301
-#: gui/docks/cell_layers.py:110 gui/docks/instances_dialog.py:400
+#: gui/docks/cell_layers.py:110 gui/docks/instances_dialog.py:476
 #: gui/docks/profile_import.py:175 gui/docks/settings_dialog.py:52
 #: gui/docks/trees_dock.py:5685 gui/docks/trees_dock.py:7080
 #: gui/include_recovery.py:122
@@ -2104,13 +2104,13 @@ msgstr "Добавить сущности"
 msgid "Name"
 msgstr "Имя"
 
-#: gui/docks/add_entities.py:117 gui/docks/instances_dialog.py:217
+#: gui/docks/add_entities.py:117 gui/docks/instances_dialog.py:252
 #: gui/docks/role_cluster_tree.py:240
 #: gui/docks/tree_from_selection_dialog.py:145
 msgid "Cluster"
 msgstr "Cluster"
 
-#: gui/docks/add_entities.py:117 gui/docks/instances_dialog.py:217
+#: gui/docks/add_entities.py:117 gui/docks/instances_dialog.py:252
 #: gui/docks/tree_from_selection_dialog.py:145
 msgid "Sheet"
 msgstr "Лист"
@@ -2634,7 +2634,7 @@ msgstr "Сначала выберите шаблон."
 msgid "Pick a Role first."
 msgstr "Сначала выберите Role."
 
-#: gui/docks/cell_editor.py:1388 gui/docks/instances_dialog.py:217
+#: gui/docks/cell_editor.py:1388 gui/docks/instances_dialog.py:252
 msgid "Rotation"
 msgstr "Поворот"
 
@@ -2958,7 +2958,7 @@ msgstr ""
 "Прочитать выделенные на плате компоненты и ДОПИСАТЬ те, которых в таблице"
 " ещё нет."
 
-#: gui/docks/cell_refs_tab.py:426 gui/docks/instances_dialog.py:233
+#: gui/docks/cell_refs_tab.py:426 gui/docks/instances_dialog.py:268
 msgid "Remove row"
 msgstr "Удалить строку"
 
@@ -5237,32 +5237,36 @@ msgstr "ещё не подходят ячеек: {count}"
 msgid "{count} other instances lack roles"
 msgstr "Ещё экземпляров без нужных ролей: {count}"
 
-#: gui/docks/instances_dialog.py:88 gui/docks/trees_dock.py:6764
+#: gui/docks/instances_dialog.py:96 gui/docks/trees_dock.py:6764
 msgid "Shift: X and Y must be numbers."
 msgstr "Сдвиг: X и Y должны быть числами."
 
-#: gui/docks/instances_dialog.py:138
+#: gui/docks/instances_dialog.py:173
 msgid "Edit this instance's own place (anchor)"
 msgstr "Изменить собственное место экземпляра (якорь)"
 
-#: gui/docks/instances_dialog.py:204
+#: gui/docks/instances_dialog.py:239
 msgid "Template tree (instances are read-only generated copies of it):"
 msgstr "Дерево-шаблон (копии — его генерируемые read-only деревья):"
 
-#: gui/docks/instances_dialog.py:217
+#: gui/docks/instances_dialog.py:252
 msgid "Instance name"
 msgstr "Имя копии"
 
-#: gui/docks/instances_dialog.py:218
+#: gui/docks/instances_dialog.py:253
 #: gui/docks/tree_from_selection_dialog.py:123 gui/entity/page.py:524
 msgid "Anchor"
 msgstr "Якорь"
 
-#: gui/docks/instances_dialog.py:231
+#: gui/docks/instances_dialog.py:253
+msgid "Root"
+msgstr "Корень"
+
+#: gui/docks/instances_dialog.py:266
 msgid "Add row"
 msgstr "Добавить строку"
 
-#: gui/docks/instances_dialog.py:281
+#: gui/docks/instances_dialog.py:317
 #, python-brace-format
 msgid ""
 "Instance {name!r} is refused on load and is NOT materialized — fix or "
@@ -5271,20 +5275,28 @@ msgstr ""
 "Копия {name!r} отвергнута при загрузке и НЕ материализуется — исправь или"
 " удали эту строку: {error}"
 
-#: gui/docks/instances_dialog.py:295
+#: gui/docks/instances_dialog.py:331
 #, python-brace-format
 msgid "refused on load: {error}"
 msgstr "отвергнута при загрузке: {error}"
 
-#: gui/docks/instances_dialog.py:373
+#: gui/docks/instances_dialog.py:360
+msgid "Copy only this node of the template and everything under it"
+msgstr "Копировать только этот узел шаблона и всё под ним"
+
+#: gui/docks/instances_dialog.py:365
+msgid "— whole tree —"
+msgstr "— всё дерево —"
+
+#: gui/docks/instances_dialog.py:449
 msgid "Instance anchor"
 msgstr "Якорь экземпляра"
 
-#: gui/docks/instances_dialog.py:392
+#: gui/docks/instances_dialog.py:468
 msgid "Inherit from template"
 msgstr "Унаследовать от шаблона"
 
-#: gui/docks/instances_dialog.py:396
+#: gui/docks/instances_dialog.py:472
 msgid ""
 "Drop this row's own anchor — the instance goes back to standing where the"
 " template's anchor resolves."
@@ -5292,25 +5304,25 @@ msgstr ""
 "Убрать собственный якорь этой строки — экземпляр снова встанет туда, куда"
 " разрешается якорь шаблона."
 
-#: gui/docks/instances_dialog.py:398 gui/docks/settings_dialog.py:49
+#: gui/docks/instances_dialog.py:474 gui/docks/settings_dialog.py:49
 #: gui/docks/trees_dock.py:5683 gui/docks/trees_dock.py:7078
 msgid "OK"
 msgstr ""
 
-#: gui/docks/instances_dialog.py:436
+#: gui/docks/instances_dialog.py:512
 msgid "No tree is loaded to use as a template."
 msgstr "Нет загруженного дерева, чтобы использовать его как шаблон."
 
-#: gui/docks/instances_dialog.py:448
+#: gui/docks/instances_dialog.py:524
 msgid "Every instance row needs a non-empty instance name and sheet."
 msgstr "Каждой строке копии нужны непустые имя копии и лист."
 
-#: gui/docks/instances_dialog.py:451
+#: gui/docks/instances_dialog.py:527
 #, python-brace-format
 msgid "Instance name {name!r} is used twice for template {template!r}."
 msgstr "Имя копии {name!r} используется дважды для шаблона {template!r}."
 
-#: gui/docks/instances_dialog.py:455
+#: gui/docks/instances_dialog.py:531
 #, python-brace-format
 msgid ""
 "Instance name {name!r} already exists as a tree — instance names must "
@@ -5319,7 +5331,7 @@ msgstr ""
 "Имя копии {name!r} уже существует как дерево — имена копий должны быть "
 "уникальны среди всех деревьев."
 
-#: gui/docks/instances_dialog.py:459
+#: gui/docks/instances_dialog.py:535
 #, python-brace-format
 msgid "Rotation must be a number — got {value!r}."
 msgstr "Rotation должен быть числом — получено {value!r}."
@@ -10415,7 +10427,7 @@ msgstr "дерево {name!r} не найдено в {path}"
 msgid "tree {name!r} has no node {ref!r} to append under"
 msgstr "у дерева {name!r} нет узла {ref!r}, под который добавить"
 
-#: kicadstamp/config_writer.py:748
+#: kicadstamp/config_writer.py:749
 #, python-brace-format
 msgid "include: in {path} is not a list — refusing to touch it"
 msgstr "include: в {path} не является списком — не трогаю"

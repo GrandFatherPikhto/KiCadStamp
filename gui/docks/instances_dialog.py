@@ -18,6 +18,12 @@ AnchorFormWidget (gui/docks/trees_dock.py) — the same form the tree's own anch
 tab uses, deliberately NOT a second anchor form (the plan's §И.5 requirement;
 the form is modal-agnostic, so embedding it costs no rework of trees_dock).
 
+The Root column (Н6 + acceptance 8.5) picks WHICH node of the template the copy
+starts from: a combo of the template's placeable nodes, its first entry
+"— whole tree —" meaning "no `root`". It is an ordinary editable axis of the same
+merge rule, so the pre-write proof (instances_validation) checks it exactly like
+every other column.
+
 The dialog GENERATES NOTHING and copies nothing — it only edits the short
 declarations; materialization into full Tree + Entity records happens at the
 NEXT load/Save (config/tree_instances.py::expand_tree_instances), exactly like
@@ -50,8 +56,10 @@ from .instances_validation import (expansion_refusal, proposed_graph,
 
 logger = logging.getLogger(__name__)
 
-# Column indices (one place, so the header list and every reader agree).
-_COL_NAME, _COL_SHEET, _COL_CLUSTER, _COL_ROTATION, _COL_ANCHOR = range(5)
+# Column indices (one place, so the header list and every reader agree). Root is
+# APPENDED last (8.5 of the acceptance) so the anchor cell keeps its index — the
+# axis is "which node of the template to copy", not a place axis.
+_COL_NAME, _COL_SHEET, _COL_CLUSTER, _COL_ROTATION, _COL_ANCHOR, _COL_ROOT = range(6)
 
 # The record kinds an anchor's (ref ...) mode may name — the same set the
 # AnchorFormWidget's kind filter offers (trees_dock._PLACEABLE_KINDS).
@@ -89,6 +97,33 @@ def _shift_from_fields(form) -> tuple[tuple[float, float] | None, str | None]:
     if sx == 0.0 and sy == 0.0:
         return None, None
     return (sx, sy), None
+
+
+def root_candidates(tree) -> list:
+    """The template's nodes a `root:` may name — [{ref, ref_uuid?}] — in tree
+    order (8.5 of the acceptance).
+
+    Only a PLACEMENT node whose ancestors are placements too: any other kind has
+    no offset in the config (a mount's base is the live board's part, a
+    component/copper node is addressed by a role or a point), and the loader
+    refuses such a root — offering it here would be offering a refusal."""
+    out: list[dict] = []
+    if tree is None:
+        return out
+
+    def walk(nodes, blocked: bool) -> None:
+        for node in nodes or []:
+            kind = getattr(node, "kind", None)
+            placement = kind in (None, "placement")
+            if placement and not blocked and getattr(node, "ref", None):
+                entry = {"ref": node.ref}
+                if getattr(node, "ref_uuid", None):
+                    entry["ref_uuid"] = node.ref_uuid
+                out.append(entry)
+            walk(getattr(node, "children", None) or [], blocked or not placement)
+
+    walk(getattr(tree, "nodes", None) or [], False)
+    return out
 
 
 def _anchor_summary(anchor: dict | None) -> str:
@@ -212,10 +247,10 @@ class TreeInstancesDialog(QDialog):
             self.template_combo.setCurrentText(preferred_template)
         layout.addWidget(self.template_combo)
 
-        self.table = QTableWidget(0, 5)
+        self.table = QTableWidget(0, 6)
         self.table.setHorizontalHeaderLabels(
             [_("Instance name"), _("Sheet"), _("Cluster"), _("Rotation"),
-             _("Anchor")])
+             _("Anchor"), _("Root")])
         self.table.horizontalHeader().setSectionResizeMode(
             QHeaderView.ResizeMode.Stretch)
         self.table.verticalHeader().setVisible(False)
@@ -266,7 +301,8 @@ class TreeInstancesDialog(QDialog):
             self._set_row(i, {"name": ti.name, "sheet": ti.sheet,
                               "cluster": ti.cluster or "",
                               "rotation": _format_rotation(ti.rotation),
-                              "anchor": ti.anchor, "refused": refusal})
+                              "anchor": ti.anchor, "root": ti.root,
+                              "refused": refusal})
         self._show_refusal(self.table.currentRow() if rows else -1)
 
     def _show_refusal(self, row: int) -> None:
@@ -300,6 +336,41 @@ class TreeInstancesDialog(QDialog):
             cell = _AnchorCell(self)
             self.table.setCellWidget(row, _COL_ANCHOR, cell)
         cell.set_anchor(entry.get("anchor"))
+        self._set_root_cell(row, entry.get("root"))
+
+    def _root_choices(self) -> list:
+        """The nodes the current template offers as a `root` — recomputed when
+        the template picker changes, never cached (the tree may be edited in
+        another dock in the meantime)."""
+        if self._cfg is None:
+            return []
+        tree = next((t for t in self._cfg.trees
+                     if t.name == self.current_template()), None)
+        return root_candidates(tree)
+
+    def _set_root_cell(self, row: int, root: dict | None) -> None:
+        """Fill one row's Root combo: "— whole tree —" (no `root`), then the
+        template's placeable nodes, then — when the stored `root` names none of
+        them — the stored value itself. That last item matters: a hand-written
+        root must never be silently replaced by the first entry just because the
+        template changed under it (the pre-write proof will refuse it by name)."""
+        combo = self.table.cellWidget(row, _COL_ROOT)
+        if not isinstance(combo, QComboBox):
+            combo = QComboBox()
+            combo.setToolTip(_("Copy only this node of the template and "
+                               "everything under it"))
+            self.table.setCellWidget(row, _COL_ROOT, combo)
+        combo.blockSignals(True)
+        combo.clear()
+        combo.addItem(_("— whole tree —"), None)
+        for entry in self._root_choices():
+            combo.addItem(entry["ref"], dict(entry))
+        wanted = (root or {}).get("ref")
+        if wanted and combo.findText(wanted) < 0:
+            combo.addItem(wanted, dict(root))
+        if wanted:
+            combo.setCurrentIndex(max(0, combo.findText(wanted)))
+        combo.blockSignals(False)
 
     def _add_row(self) -> None:
         row = self.table.rowCount()
@@ -342,6 +413,11 @@ class TreeInstancesDialog(QDialog):
                 anchor = getattr(cell, "anchor", None)
                 if anchor:
                     row["anchor"] = dict(anchor)
+                root_cell = self.table.cellWidget(r, _COL_ROOT)
+                root = (root_cell.currentData()
+                        if isinstance(root_cell, QComboBox) else None)
+                if root:
+                    row["root"] = dict(root)
                 out.append(row)
         return out
 

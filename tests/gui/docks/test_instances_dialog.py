@@ -392,16 +392,19 @@ def test_a_sheet_the_project_does_not_have_warns_but_is_written(
 # ── cluster column (2026-09-03, plan tree_instances_cluster) ────────────────
 
 
-def test_table_has_five_columns_with_cluster_rotation_and_anchor(main_window, tmp_path):
-    """2026-09-12 (§И.5): two more columns — Rotation and Anchor — appended
-    AFTER the cluster column, so the existing indices 0/1/2 are unchanged."""
+def test_table_has_six_columns_with_cluster_rotation_anchor_and_root(
+        main_window, tmp_path):
+    """2026-09-12 (§И.5): Rotation and Anchor after the cluster column; the Root
+    column (acceptance 8.5) is APPENDED last, so every earlier index is
+    unchanged."""
     dlg, _p = _open_dialog(main_window, tmp_path)
-    assert dlg.table.columnCount() == 5
+    assert dlg.table.columnCount() == 6
     assert dlg.table.horizontalHeaderItem(0).text() == "Instance name"
     assert dlg.table.horizontalHeaderItem(1).text() == "Sheet"
     assert dlg.table.horizontalHeaderItem(2).text() == "Cluster"
     assert dlg.table.horizontalHeaderItem(3).text() == "Rotation"
     assert dlg.table.horizontalHeaderItem(4).text() == "Anchor"
+    assert dlg.table.horizontalHeaderItem(5).text() == "Root"
 
 
 def test_existing_cluster_loaded_into_third_column(main_window, tmp_path):
@@ -621,6 +624,155 @@ def test_inherit_from_template_clears_the_anchor_key(main_window, tmp_path,
     assert _instances_on_disk(p) == [{
         "template": "dac_buf_tpl", "name": "ch1_dac_buf",
         "sheet": "Channel_1", "rotation": 30.0}]
+
+
+# ── the Root column (Н6 + acceptance 8.5) ──────────────────────────────────
+
+
+def _multi_root(tmp_path, instances=None, pivot_ref=None) -> Path:
+    """A template with a real PATH: driver -> sw and driver -> m1 (a MOUNT), a
+    placement `under_mount` BELOW that mount, plus a sibling `other`. The Root
+    column must offer the placement nodes whose ancestors are placements too —
+    `m1` and everything under it has no config pose (acceptance 8.3)."""
+    tree = {
+        "name": "tpl", "anchor": {"role": "DAC_BUF", "sheet": "SW A"},
+        "nodes": [
+            {"ref": "driver", "kind": "placement", "xy": [10.0, 0.0],
+             "children": [
+                 {"ref": "sw", "kind": "placement", "xy": [2.0, 0.0]},
+                 {"ref": "m1", "kind": "mount", "xy": [3.0, 0.0],
+                  "anchor": {"role": "R_SW", "sheet": "SW A"},
+                  "children": [{"ref": "under_mount", "kind": "placement",
+                                "xy": [1.0, 1.0]}]},
+             ]},
+            {"ref": "other", "kind": "placement", "xy": [0.0, 5.0]},
+        ],
+    }
+    if pivot_ref is not None:
+        tree["pivot_ref"] = pivot_ref
+    # `R_SW` is placed by ONE cell of the tree — the mount anchor's drift check
+    # refuses an internal role the tree places in more than one cell.
+    data = {
+        "cells": {"c_dac": {"components": [{"role": "DAC_BUF"}]},
+                  "c_sw": {"components": [{"role": "R_SW"}]}},
+        "entities": [
+            {"name": "driver", "cell": "c_dac", "sheet": "SW A",
+             "cluster": "DAC_BUF"},
+            {"name": "sw", "cell": "c_sw", "sheet": "SW A", "cluster": "DAC_BUF"},
+            {"name": "under_mount", "cell": "c_dac", "sheet": "SW A",
+             "cluster": "DAC_BUF"},
+            {"name": "other", "cell": "c_dac", "sheet": "SW A",
+             "cluster": "DAC_BUF"},
+        ],
+        "trees": [tree],
+        "tree_instances": list(instances or []),
+    }
+    p = tmp_path / "root.sexp"
+    p.write_text(dict_to_sexp(data, format_number=2), encoding="utf-8")
+    return p
+
+
+def _open_multi(main_window, tmp_path, instances=None, pivot_ref=None,
+                lenient=False):
+    p = _multi_root(tmp_path, instances, pivot_ref)
+    if lenient:
+        # A row the strict loader already refuses (a root under a mount, say):
+        # the dialog still opens on it — that is Н8, and the row must be
+        # reachable to be fixed.
+        cfg, _ctx, failures = load_config_lenient(str(p))
+        return TreeInstancesDialog(main_window, p, cfg,
+                                   instance_failures=failures), p
+    cfg, _ctx = load_config(str(p))
+    return TreeInstancesDialog(main_window, p, cfg), p
+
+
+def test_the_root_column_offers_placement_nodes_only(main_window, tmp_path):
+    """First entry is "— whole tree —" (= no `root`), then every placement node in
+    tree order; the mount `m1` is NOT offered (a mount's place comes from the
+    board, so the loader refuses a root under or at it)."""
+    dlg, _p = _open_multi(main_window, tmp_path)
+    dlg._add_row()
+
+    combo = dlg.table.cellWidget(0, 5)
+    assert [combo.itemText(i) for i in range(combo.count())] == [
+        "— whole tree —", "driver", "sw", "other"]
+    assert combo.currentIndex() == 0
+    assert combo.currentData() is None
+
+
+def test_a_chosen_root_reaches_the_declaration_with_its_uuid(main_window, tmp_path):
+    """Cell: the selected node lands in the declaration, and under format 3 the
+    reference carries its uuid; the next load copies THAT subtree only."""
+    dlg, p = _open_multi(main_window, tmp_path)
+    dlg._add_row()
+    dlg.table.item(0, 0).setText("b")
+    dlg.table.item(0, 1).setText("SW B")
+    combo = dlg.table.cellWidget(0, 5)
+    combo.setCurrentIndex(combo.findText("driver"))
+
+    assert dlg._apply() is True
+
+    row = _instances_on_disk(p)[0]
+    assert row["root"]["ref"] == "driver"
+    assert row["root"]["ref_uuid"], "format 3 must carry the reference's uuid"
+
+    cfg, _ctx = load_config(str(p))
+    copy = next(t for t in cfg.trees if t.name == "b")
+    assert [n.ref for n in copy.nodes] == ["driver__b"]
+
+
+def test_whole_tree_removes_the_root_key(main_window, tmp_path):
+    """Cell: picking "— whole tree —" on an existing row drops `root` — the same
+    blank-cell contract as a cleared Cluster or Rotation."""
+    dlg, p = _open_multi(main_window, tmp_path, [
+        {"template": "tpl", "name": "b", "sheet": "SW B",
+         "root": {"ref": "driver"}}])
+    combo = dlg.table.cellWidget(0, 5)
+    assert combo.currentText() == "driver"
+
+    combo.setCurrentIndex(0)
+
+    assert dlg._apply() is True
+    assert "root" not in _instances_on_disk(p)[0]
+
+
+def test_a_stored_root_the_template_no_longer_offers_is_kept_and_refused(
+        main_window, tmp_path):
+    """The combo shows a stored `root` that is not among the template's placeable
+    nodes (`under_mount` hangs under a mount), so an edit of ANOTHER column never
+    silently rewrites it into "whole tree" — and the pre-write proof refuses it
+    by the ancestor's name instead."""
+    dlg, p = _open_multi(main_window, tmp_path, [
+        {"template": "tpl", "name": "b", "sheet": "SW B",
+         "root": {"ref": "under_mount"}}], lenient=True)
+
+    combo = dlg.table.cellWidget(0, 5)
+    assert combo.currentText() == "under_mount"
+    assert dlg.rows()[0]["root"]["ref"] == "under_mount"
+
+    dlg.table.item(0, 1).setText("SW B2")
+    assert dlg._apply() is False
+    assert "hangs under mount node 'm1'" in dlg.refusal_label.text()
+    assert _instances_on_disk(p)[0]["sheet"] == "SW B"
+
+
+def test_a_root_leaving_a_reference_outside_the_subtree_is_not_written(
+        main_window, tmp_path):
+    """Cell: the Н7 proof covers the Root column too — the loader's own "outside
+    the copied subtree" text (the template's pivot_ref points at the sibling we
+    are leaving behind) is shown IN the dialog and nothing reaches the disk."""
+    dlg, p = _open_multi(main_window, tmp_path, pivot_ref="other")
+    dlg._add_row()
+    dlg.table.item(0, 0).setText("b")
+    dlg.table.item(0, 1).setText("SW B")
+    combo = dlg.table.cellWidget(0, 5)
+    combo.setCurrentIndex(combo.findText("driver"))
+
+    assert dlg._apply() is False
+
+    assert "outside the copied subtree" in dlg.refusal_label.text()
+    dlg.table.selectRow(0)
+    assert _instances_on_disk(p) == []
 
 
 def test_anchor_written_by_the_dialog_materializes_on_the_point(main_window,

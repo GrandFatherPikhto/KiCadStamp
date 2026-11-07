@@ -1255,7 +1255,7 @@ template tree shows one **"→ instance: {name}"** item per instance — double-
 `trees:` entries — the untouched `tree_instances:` section regenerates them on every load (no
 duplication). Manage the short declarations with **Tools → Trees → Instances…**: pick a template
 (generated instances can't themselves be templates) and edit its
-{name, sheet, cluster?, rotation?, anchor?} rows — the
+{name, sheet, cluster?, rotation?, anchor?, root?} rows — the
 Cluster column is OPTIONAL (blank = inherit the template's own cluster unchanged); a non-empty value is
 substituted into the generated copies' `cluster` and the role anchor, mirroring `sheet`. The dialog
 only persists the declarations, the instances materialize on the next load.
@@ -1272,9 +1272,29 @@ in the same table:
   external refdes / self / role / point) and its optional `shift` are reachable. Its "Inherit from
   template" button drops the row's own anchor (the key is removed from the declaration, the instance
   goes back to standing where the template's anchor resolves). A blank Rotation cell and an inherited
-  anchor are both OMITTED on save — never written as `null`/`""`. The form's tree-settings box and the
-  anchor's `shift` row are hidden here (a declaration has no suspension point or angle of its own; an
-  existing `shift` is preserved verbatim).
+  anchor are both OMITTED on save — never written as `null`/`""`. The form's tree-settings box
+  (suspension point and angle) stays hidden here — a declaration has none of its own — but its **shift**
+  row is VISIBLE and editable: a declaration's own anchor does have a `(shift x y)` axis, written in
+  config (LOCAL) millimetres, and hiding it used to force a separate point record.
+
+A third column (07.11, Н6 + acceptance 8.5) chooses WHICH part of the template is copied:
+
+- **Root** — a dropdown whose first entry is **"— whole tree —"** (no `root`, the behaviour of every
+  older declaration), followed by the template's placement nodes. The chosen node and everything under
+  it become the copy; picking "— whole tree —" on an existing row REMOVES the key. Only nodes the
+  loader can pose are offered — a node under a mount is not, because a mount stands on a live part of
+  the board and the config cannot say where such a root would end up.
+
+**A row is PROVEN before it is written** (Н7/Н4, 07.11). OK runs the loader's own expansion IN MEMORY
+over the graph "as it will be after this write": a row the next load would refuse is shown in the
+dialog — in the label under the table and in the Log — and NOTHING is written. The same run produces
+the Н4 WARNING lines (a sheet the project does not have, a sheet where none of the clusters the
+template generates is present); warnings never block the write.
+
+**A broken declaration does not lock the dialog** (Н8, 07.11). The dialog is opened through the
+LENIENT loader, so a row the strict load refuses (a template that was renamed away, an anchor that does
+not parse, a sheet that no longer exists, ...) still opens, marked **"⚠"** with its refusal in the
+tooltip and in full under the table. Fixing or deleting it is an ordinary write — no File → Discard.
 
 **Instantiate from Cell… (2026-09-03, plan instantiate_from_entity) — REMOVED (13.10,
 plan_2026_10_13_trees_menus_cleanup).** The dialog added one more physical group of an existing Cell's

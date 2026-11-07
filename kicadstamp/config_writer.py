@@ -630,10 +630,10 @@ def append_tree_child_node(path: Path, tree_name: str,
 # dialog's own blank-cell contract, see its rows()), while every OTHER key of
 # an existing declaration survives a write verbatim (2026-09-12,
 # plan_2026_09_12_tree_instance_own_place §И.1). A future editable axis is
-# declared HERE, in one place, and nowhere else — `anchor`/`rotation` (the
-# §И.5 columns: an empty Rotation cell and the "Inherit from template" action
-# both mean "drop the key") are the reason this list is data, not a literal.
-_INSTANCE_DIALOG_EDITABLE_KEYS = ("cluster", "rotation", "anchor")
+# declared HERE, in one place, and nowhere else — an empty Rotation cell, the
+# "Inherit from template" action and the Root column's "— whole tree —" all
+# mean "drop the key", which is why this list is data, not a literal.
+_INSTANCE_DIALOG_EDITABLE_KEYS = ("cluster", "rotation", "anchor", "root")
 
 
 def merged_tree_instances(entries: list, template: str, rows: list) -> list:
