@@ -128,7 +128,8 @@ def test_the_lenient_answer_is_not_cached_under_the_strict_key(tmp_path):
         load_config(str(p))
 
 
-def test_a_broken_row_in_the_working_set_is_seen_and_can_be_fixed(tmp_path):
+def test_a_broken_row_in_the_working_set_is_seen_and_can_be_fixed(
+        tmp_path, monkeypatch):
     """§7.1 of the plan — the LIVE case: the broken row was staged, not on disk.
     The lenient load reads the same graph Save would flush, so the row shows up
     as a refusal and disappears as soon as it is corrected (cells 1б)."""
@@ -139,7 +140,7 @@ def test_a_broken_row_in_the_working_set_is_seen_and_can_be_fixed(tmp_path):
     # The format-3 writer resolves references against the ACTIVE graph root —
     # the dialog's own fixture does the same.
     set_active_graph_root(p)
-    WORKING_SET.enabled = True
+    monkeypatch.setattr(WORKING_SET, "enabled", True)
     try:
         upsert_tree_instances(p, "point_tpl", [{
             "name": "bad", "sheet": "S2", "anchor": {"origin": True}}])
@@ -155,5 +156,4 @@ def test_a_broken_row_in_the_working_set_is_seen_and_can_be_fixed(tmp_path):
         assert failures == []
     finally:
         WORKING_SET.clear()
-        WORKING_SET.enabled = False
         set_active_graph_root(None)

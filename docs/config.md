@@ -915,6 +915,29 @@ layer/mirror checks as hand-written ones — nothing is validated twice.
   sheets among the records, or one record without a sheet, stay the historical refusal — its hint now
   lists every way out: a role anchor's `sheet`, an explicit sheet on the root Entity, the mount nodes
   gathered under one root, or the declaration's own `root` node (see below).
+- **An instance from a NODE — `root:` (2026-11-07, Н6):** a declaration may name ONE placement node of
+  its template; the copy then holds that node and everything under it, and the rest of the template is
+  neither copied nor touched:
+
+  ```sexp
+  (tree_instances
+    (tree_instance
+      (template "switch_a")
+      (root     (ref "driver_sw_a"))   ; this node and its descendants only (optional)
+      (name     "switch_b")
+      (sheet    "SW B")
+      (anchor   (point "Origin") (shift 0.0 40.0))))
+  ```
+
+  The template's own sheet is then the `sheet` of the ROOT's own `entities:` record (Н3's derivation
+  never runs), and the root node keeps the place it had in the template — its xy and accumulated
+  rotation along the path from the template's base, with the rotations of its ancestors added exactly as
+  every tree walk composes them. A declaration's own `anchor:` still replaces the template's ANCHOR only
+  (the "where the copy stands" axis) — it does not move the root inside the copy. A reference that points
+  OUTSIDE the copied subtree is a fatal at expansion time: a `pivot-ref` / `(self (ref ...))` naming a
+  left-behind node, a mount or `(role ...)` component address whose part the subtree does not place, or a
+  `net_trace` record naming such a role. A reference to another SHEET stays a board-wide reference and is
+  kept verbatim, exactly as without `root`. An instance without `root` behaves exactly as before.
 - **A declaration's own PLACE (`anchor:`) and own angle (`rotation:`)** (v1.6, 2026-09-12, plan
   tree_instance_own_place §И.2, task C2): besides "the same role on another sheet", a declaration can
   say WHERE the instance stands — the one thing the sheet substitution cannot express. Both keys are

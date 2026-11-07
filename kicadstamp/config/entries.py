@@ -1404,7 +1404,7 @@ def _load_coordinate_placement(data: dict[str, Any]) -> CoordinatePlacement:
 # read-only-instance index and the persistence source. Missing fields here are
 # fatal with the same discipline as every other list-section record.
 _TREE_INSTANCE_KNOWN_KEYS = {"template", "name", "sheet", "cluster", "params",
-                             "anchor", "rotation"}
+                             "anchor", "rotation", "root"}
 
 
 def _load_tree_instance(data: dict[str, Any]) -> TreeInstance:

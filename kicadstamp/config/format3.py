@@ -180,6 +180,13 @@ def _f3_refs(data: dict):
         if isinstance(anchor, dict) and anchor.get("point") is not None:
             yield _F3Ref(f"tree_instances {ti.get('name')!r} anchor", "points",
                          anchor, "point", "point_uuid")
+        # Н6: `root` names a PLACEMENT node of the template, i.e. an entities:
+        # record — the same target `_F3_NODE_KIND_TARGET["placement"]` uses, and
+        # the same check/normalization as any other format-3 reference.
+        root = ti.get("root")
+        if isinstance(root, dict) and root.get("ref") is not None:
+            yield _F3Ref(f"tree_instances {ti.get('name')!r} root", "entities",
+                         root, "ref", "ref_uuid")
     for name, p in (data.get("points") or {}).items():
         if isinstance(p, dict) and p.get("anchor_point") is not None:
             yield _F3Ref(f"point {name!r}", "points", p,

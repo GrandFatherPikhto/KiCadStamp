@@ -166,7 +166,8 @@ def test_a_refused_row_opens_marked_and_shows_its_text(main_window, tmp_path):
     assert "must be role-anchored OR self-anchored" in text
 
 
-def test_fixing_the_refused_row_clears_the_refusal(main_window, tmp_path):
+def test_fixing_the_refused_row_clears_the_refusal(main_window, tmp_path,
+                                                   monkeypatch):
     """Cell 1б in its STAGED form (§7.1): the broken row lives in the working
     set, the lenient load sees it, and setting the row's own anchor makes the
     next load clean — no Discard anywhere."""
@@ -175,7 +176,7 @@ def test_fixing_the_refused_row_clears_the_refusal(main_window, tmp_path):
 
     p = _point_template_root(tmp_path, [])
     set_active_graph_root(p)
-    WORKING_SET.enabled = True
+    monkeypatch.setattr(WORKING_SET, "enabled", True)
     try:
         upsert_tree_instances(p, "point_tpl", [
             {"name": "switch_b", "sheet": "SW B"}])
@@ -194,7 +195,6 @@ def test_fixing_the_refused_row_clears_the_refusal(main_window, tmp_path):
         assert failures == []
     finally:
         WORKING_SET.clear()
-        WORKING_SET.enabled = False
         set_active_graph_root(None)
 
 

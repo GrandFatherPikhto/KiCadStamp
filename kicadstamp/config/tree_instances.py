@@ -234,6 +234,10 @@ from ..i18n import _
 from .format_version import current_format
 from .tree_instance_checks import (derive_old_sheet, template_generated_clusters,
                                    template_needs_old_sheet)
+from .tree_instance_refs import (rewrite_pivot_ref as _rewrite_pivot_ref,
+                                 rewrite_self_ref as _rewrite_self_ref)
+from .tree_instance_root import (check_outward, find_subtree, parse_root,
+                                 subtree_pose)
 from .uuids import derived_uuid
 
 # Kept under its historical PRIVATE name: the composite-guard cells import it
@@ -472,63 +476,6 @@ def _expand_component_node(node: dict, instance_name: str, sheet: str,
     return gen
 
 
-def _rewrite_pivot_ref(gen: dict, template_name: str, instance_name: str,
-                       ref_map: dict[str, str]) -> None:
-    """Follow the node renames for a template's `pivot_ref` (v1.5, Б3.2 §В.4).
-
-    A template's pivot_ref names a node of the SAME tree; expansion renames
-    nodes (placement -> __{instance}, net_trace -> leading-sheet substitution,
-    mount -> unchanged), so the copied pivot_ref must follow the SAME map the
-    expansion walk collected. A name missing from it is a template bug and is a
-    fatal HERE, naming the template and the instance — otherwise the generated
-    tree fails to load with "pivot-ref names no node of this tree", blaming the
-    generated tree instead of the template."""
-    pivot_ref = gen.get('pivot_ref')
-    if pivot_ref is None:
-        return
-    new_ref = ref_map.get(pivot_ref)
-    if new_ref is None:
-        raise ValidationError(format_fatal_error(
-            _("tree_instance {name!r}: template {template!r} pivot_ref {ref!r} "
-              "names no node of the template tree").format(
-                  name=instance_name, template=template_name, ref=pivot_ref),
-            [_("the tree's inner point (pivot-ref) must name a node of the same "
-               "tree — check the template's pivot-ref")]))
-    gen['pivot_ref'] = new_ref
-
-
-def _rewrite_self_ref(gen: dict, template_name: str, instance_name: str,
-                      ref_map: dict[str, str]) -> None:
-    """Follow the node renames for a template's (self (ref "...")) anchor
-    (2026-09-11, plan tree_self_anchor, task Д.6).
-
-    A self anchor's ref names a node of the SAME tree; expansion renames nodes
-    (placement -> __{instance}, net_trace -> lead-sheet substitution, mount ->
-    unchanged), so the copied ref must follow the SAME map the expansion walk
-    collected. A name missing from it is a template bug and a fatal HERE, naming
-    the template and the instance — otherwise the generated tree fails to load
-    with "self anchor ref ... names no node of this tree", blaming the generated
-    tree instead of the template."""
-    anchor = gen.get('anchor')
-    if not isinstance(anchor, dict):
-        return
-    self_data = anchor.get('self')
-    if not isinstance(self_data, dict):
-        return
-    ref = self_data.get('ref')
-    if ref is None:
-        return
-    new_ref = ref_map.get(ref)
-    if new_ref is None:
-        raise ValidationError(format_fatal_error(
-            _("tree_instance {name!r}: template {template!r} self anchor ref "
-              "{ref!r} names no node of the template tree").format(
-                  name=instance_name, template=template_name, ref=ref),
-            [_("the self anchor's (ref ...) must name a placement node of the "
-               "same tree — check the template's anchor")]))
-    self_data['ref'] = new_ref
-
-
 def _expand_node(node: dict, instance_name: str, sheet: str,
                  entities_by_name: dict, net_traces_by_name: dict,
                  generated_entities: list, generated_net_traces: list,
@@ -753,7 +700,9 @@ def _expand_template(template: dict, template_name: str, instance_name: str,
                      cluster: str | None = None,
                      params: dict[str, str] | None = None,
                      decl_anchor: dict | None = None,
-                     decl_rotation: float | None = None) -> tuple[dict, list, list]:
+                     decl_rotation: float | None = None,
+                     decl_root: dict | None = None,
+                     cells: dict | None = None) -> tuple[dict, list, list]:
     """Materialize ONE instance from a template Tree dict: returns
     (tree dict, [entity dicts], [net_trace dicts]). The template dict is never
     mutated — deep copies only.
@@ -855,7 +804,16 @@ def _expand_template(template: dict, template_name: str, instance_name: str,
     # it from the anchor; any other template that has a resolvable subject takes
     # it from that subject Entity's OWN record (the template keeps its own sheet
     # for its own live re-readability, see Q2).
-    if is_role_anchor:
+    if decl_root is not None:
+        # §7.3: a `root` names the node the copy starts from, so ITS record's
+        # sheet is the template's own — ahead of the role anchor, the single-root
+        # rule and Н3's derivation (a root standing on another sheet than its
+        # siblings would otherwise be "ambiguous", and a role anchor without a
+        # sheet would leave the mounts unable to decide inside/outside).
+        root_entity = entities_by_name.get(decl_root["ref"])
+        old_sheet = (root_entity.get('sheet')
+                     if isinstance(root_entity, dict) else None)
+    elif is_role_anchor:
         old_sheet = anchor.get('sheet')
     elif root_ref is not None:
         # The missing-record fatal deliberately duplicates _expand_node's
@@ -896,6 +854,35 @@ def _expand_template(template: dict, template_name: str, instance_name: str,
                "root Entity; gather the mount nodes under ONE root node; or name "
                "a `root` node for this instance (the sheet of that node's record "
                "is then the template's own)")]))
+    nodes = template.get('nodes') or []
+    if decl_root is not None:
+        found = find_subtree(nodes, decl_root["ref"])
+        if found is None:
+            raise ValidationError(format_fatal_error(
+                _("tree_instance {name!r}: root {ref!r} names no node of "
+                  "template {template!r}").format(
+                      name=instance_name, ref=decl_root["ref"],
+                      template=template_name),
+                [_("name a placement node of the template tree — the copy holds "
+                   "it and everything under it")]))
+        root_node, path = found
+        if root_node.get('kind') not in (None, 'placement'):
+            raise ValidationError(format_fatal_error(
+                _("tree_instance {name!r}: root {ref!r} of template "
+                  "{template!r} is not a placement node").format(
+                      name=instance_name, ref=decl_root["ref"],
+                      template=template_name),
+                [_("a `root` names the placement node the copy starts from; "
+                   "mount/copper/net_trace nodes place no record of their own")]))
+        check_outward(template, [root_node], decl_root["ref"], old_sheet,
+                      entities_by_name, net_traces_by_name, cells or {},
+                      template_name, instance_name)
+        x, y, rot = subtree_pose(path)
+        placed = copy.deepcopy(root_node)
+        placed['xy'] = [round(x, 6), round(y, 6)]
+        placed.pop('polar', None)
+        placed['rotation'] = round(rot, 6)
+        nodes = [placed]
     gen = copy.deepcopy(template)
     gen['name'] = instance_name
     if has_decl_anchor:
@@ -969,7 +956,7 @@ def _expand_template(template: dict, template_name: str, instance_name: str,
                                  net_traces_by_name, generated_entities,
                                  generated_net_traces, template_name, old_sheet,
                                  effective_node_cluster, params, ref_map, cluster)
-                    for n in (template.get('nodes') or [])]
+                    for n in nodes]
     _rewrite_pivot_ref(gen, template_name, instance_name, ref_map)
     _rewrite_self_ref(gen, template_name, instance_name, ref_map)
     return gen, generated_entities, generated_net_traces
@@ -1037,6 +1024,7 @@ def expand_tree_instances(data: dict, *, failures: list | None = None) -> dict:
     trees = list(data.get('trees') or [])
     entities = list(data.get('entities') or [])
     net_traces = list(data.get('net_traces') or [])
+    cells = data.get('cells') or {}
     entities_by_name: dict = {}
     for ent in entities:
         if isinstance(ent, dict) and isinstance(ent.get('name'), str):
@@ -1112,6 +1100,9 @@ def expand_tree_instances(data: dict, *, failures: list | None = None) -> dict:
                    "grammar (origin / ref / role / point / self, plus optional "
                    "sheet / cluster / pad / shift) — omit the key entirely to "
                    "keep the template's own place")]))
+        # Н6: an OPTIONAL `root` — the template node the copy starts from. Its
+        # shape is validated in the root module (§7.4: entries.py stays as it is).
+        decl_root = parse_root(inst.get('root'), instance_name)
         decl_rotation = inst.get('rotation')
         if decl_rotation is not None and (
                 not isinstance(decl_rotation, (int, float))
@@ -1151,7 +1142,7 @@ def expand_tree_instances(data: dict, *, failures: list | None = None) -> dict:
              generated_net_traces) = _expand_template(
                 template, template_name, instance_name, sheet, entities_by_name,
                 net_traces_by_name, cluster, params, decl_anchor,
-                decl_rotation)
+                decl_rotation, decl_root, cells)
         except ValidationError as e:
             if failures is None:
                 raise

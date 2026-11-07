@@ -15534,7 +15534,127 @@ msgstr ""
 "under ONE root node; or name a `root` node for this instance (the sheet of "
 "that node's record is then the template's own)"
 
-#: kicadstamp/config/tree_instances.py:989
+#: kicadstamp/config/tree_instance_root.py:52
+#, python-brace-format
+msgid "tree_instance {name!r}: root: must be a mapping"
+msgstr "tree_instance {name!r}: root: must be a mapping"
+
+#: kicadstamp/config/tree_instance_root.py:55
+msgid ""
+"write (root (ref \"...\")) — the placement node of the template this "
+"instance copies, together with everything under it"
+msgstr ""
+"write (root (ref \"...\")) — the placement node of the template this "
+"instance copies, together with everything under it"
+
+#: kicadstamp/config/tree_instance_root.py:60
+#, python-brace-format
+msgid "tree_instance {name!r}: root: names no node"
+msgstr "tree_instance {name!r}: root: names no node"
+
+#: kicadstamp/config/tree_instance_root.py:63
+msgid ""
+"write (root (ref \"...\")) — the placement node of the template this "
+"instance copies"
+msgstr ""
+"write (root (ref \"...\")) — the placement node of the template this "
+"instance copies"
+
+#: kicadstamp/config/tree_instance_root.py:124
+#, python-brace-format
+msgid ""
+"tree_instance {name!r}: template {template!r} pivot_ref {ref!r} is outside "
+"the copied subtree"
+msgstr ""
+"tree_instance {name!r}: template {template!r} pivot_ref {ref!r} is outside "
+"the copied subtree"
+
+#: kicadstamp/config/tree_instance_root.py:129
+msgid ""
+"a tree's inner point must be a node of the same tree — with a `root` it must "
+"also be inside the copied subtree"
+msgstr ""
+"a tree's inner point must be a node of the same tree — with a `root` it must "
+"also be inside the copied subtree"
+
+#: kicadstamp/config/tree_instance_root.py:138
+#, python-brace-format
+msgid ""
+"tree_instance {name!r}: template {template!r} self anchor ref {ref!r} is "
+"outside the copied subtree"
+msgstr ""
+"tree_instance {name!r}: template {template!r} self anchor ref {ref!r} is "
+"outside the copied subtree"
+
+#: kicadstamp/config/tree_instance_root.py:143
+msgid ""
+"the self anchor's (ref ...) must be a node of the same tree — with a `root` "
+"it must also be inside the copied subtree"
+msgstr ""
+"the self anchor's (ref ...) must be a node of the same tree — with a `root` "
+"it must also be inside the copied subtree"
+
+#: kicadstamp/config/tree_instance_root.py:155
+msgid ""
+"with a `root` the copy holds only that subtree, so a part outside it is not "
+"there under the instance's sheet — name a bigger root, or take the reference "
+"out of the subtree"
+msgstr ""
+"with a `root` the copy holds only that subtree, so a part outside it is not "
+"there under the instance's sheet — name a bigger root, or take the reference "
+"out of the subtree"
+
+#: kicadstamp/config/tree_instance_root.py:196
+#, python-brace-format
+msgid ""
+"tree_instance {name!r}: template {template!r} node {ref!r} anchors role "
+"{role!r} that the copied subtree does not place"
+msgstr ""
+"tree_instance {name!r}: template {template!r} node {ref!r} anchors role "
+"{role!r} that the copied subtree does not place"
+
+#: kicadstamp/config/tree_instance_root.py:207
+#, python-brace-format
+msgid ""
+"tree_instance {name!r}: template {template!r} node {ref!r} copies a "
+"net_traces record whose role(s) {roles} the copied subtree does not place"
+msgstr ""
+"tree_instance {name!r}: template {template!r} node {ref!r} copies a "
+"net_traces record whose role(s) {roles} the copied subtree does not place"
+
+#: kicadstamp/config/tree_instances.py:786
+#, python-brace-format
+msgid ""
+"tree_instance {name!r}: root {ref!r} names no node of template {template!r}"
+msgstr ""
+"tree_instance {name!r}: root {ref!r} names no node of template {template!r}"
+
+#: kicadstamp/config/tree_instances.py:791
+msgid ""
+"name a placement node of the template tree — the copy holds it and "
+"everything under it"
+msgstr ""
+"name a placement node of the template tree — the copy holds it and "
+"everything under it"
+
+#: kicadstamp/config/tree_instances.py:800
+#, python-brace-format
+msgid ""
+"tree_instance {name!r}: root {ref!r} of template {template!r} is not a "
+"placement node"
+msgstr ""
+"tree_instance {name!r}: root {ref!r} of template {template!r} is not a "
+"placement node"
+
+#: kicadstamp/config/tree_instances.py:804
+msgid ""
+"a `root` names the placement node the copy starts from; "
+"mount/copper/net_trace nodes place no record of their own"
+msgstr ""
+"a `root` names the placement node the copy starts from; "
+"mount/copper/net_trace nodes place no record of their own"
+
+#: kicadstamp/config/tree_instances.py:1015
 #, python-brace-format
 msgid ""
 "tree_instance {name!r}: template {template!r} is composite ({count} "
