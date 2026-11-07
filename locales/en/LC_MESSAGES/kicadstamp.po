@@ -3,7 +3,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version:  kicadstamp\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-11-07 17:25+0300\n"
+"POT-Creation-Date: 2026-11-07 18:41+0300\n"
 "PO-Revision-Date: 2026-07-27 12:00+0000\n"
 "Last-Translator: \n"
 "Language: en\n"
@@ -2228,7 +2228,8 @@ msgstr ""
 #: gui/docks/cell_editor.py:404 gui/docks/profile_import.py:78
 #: gui/docks/role_cluster_tree.py:791 gui/docks/role_cluster_tree.py:813
 #: kicadstamp/config/profile_copy.py:88 kicadstamp/config/profile_copy.py:272
-#: kicadstamp/config/tree_instance_cluster_axis.py:146
+#: kicadstamp/config/tree_instance_cluster_axis.py:60
+#: kicadstamp/config/tree_instance_cluster_axis.py:168
 #: kicadstamp/config/tree_instance_expand.py:113
 #: kicadstamp/diagnostics/get_selected_component.py:80
 msgid "(none)"
@@ -14356,7 +14357,10 @@ msgid ""
 "in {path}: format 4 instances change the SHEET only — an entity already "
 "carries its own cluster. Remove the key yourself and re-run, or keep the "
 "file at format 3 with an older KiCadStamp"
-msgstr "in {path}: format 4 instances change the SHEET only — an entity already carries its own cluster. Remove the key yourself and re-run, or keep the file at format 3 with an older KiCadStamp"
+msgstr ""
+"in {path}: format 4 instances change the SHEET only — an entity already "
+"carries its own cluster. Remove the key yourself and re-run, or keep the "
+"file at format 3 with an older KiCadStamp"
 
 #: kicadstamp/config/format_version.py:417
 #, python-brace-format
@@ -15327,34 +15331,39 @@ msgstr ""
 "from the sheets of its placement records (no role anchor and no single "
 "root to read it off)"
 
-#: kicadstamp/config/tree_instance_cluster_axis.py:119
+#: kicadstamp/config/tree_instance_cluster_axis.py:140
 #, python-brace-format
 msgid ""
 "tree_instance {name!r}: template {template!r} is not in this file, so "
 "whether cluster: did anything cannot be checked here"
-msgstr "tree_instance {name!r}: template {template!r} is not in this file, so whether cluster: did anything cannot be checked here"
+msgstr ""
+"tree_instance {name!r}: template {template!r} is not in this file, so "
+"whether cluster: did anything cannot be checked here"
 
-#: kicadstamp/config/tree_instance_cluster_axis.py:126
+#: kicadstamp/config/tree_instance_cluster_axis.py:147
 #, python-brace-format
 msgid ""
-"tree_instance {name!r}: template {template!r} is role-anchored, so "
-"cluster: narrowed the generated role anchor as well"
-msgstr "tree_instance {name!r}: template {template!r} is role-anchored, so cluster: narrowed the generated role anchor as well"
+"tree_instance {name!r}: the template's role anchor {role!r} carries "
+"cluster {was}, which cluster: {cluster!r} would have rewritten"
+msgstr ""
 
-#: kicadstamp/config/tree_instance_cluster_axis.py:134
+#: kicadstamp/config/tree_instance_cluster_axis.py:155
 #, python-brace-format
 msgid ""
-"tree_instance {name!r}: template {template!r} addresses {refs} on its own"
-" sheet, so cluster: narrowed those searches too"
-msgstr "tree_instance {name!r}: template {template!r} addresses {refs} on its own sheet, so cluster: narrowed those searches too"
+"tree_instance {name!r}: {kind} node {ref!r} of template {template!r} "
+"carries cluster {was}, which cluster: {cluster!r} would have rewritten"
+msgstr ""
 
-#: kicadstamp/config/tree_instance_cluster_axis.py:142
+#: kicadstamp/config/tree_instance_cluster_axis.py:164
 #, python-brace-format
 msgid ""
 "tree_instance {name!r}: template {template!r} is homogeneous (clusters "
 "{clusters}), so cluster: {cluster!r} rewrote every generated copy — "
 "dropping the key would change what this instance IS"
-msgstr "tree_instance {name!r}: template {template!r} is homogeneous (clusters {clusters}), so cluster: {cluster!r} rewrote every generated copy — dropping the key would change what this instance IS"
+msgstr ""
+"tree_instance {name!r}: template {template!r} is homogeneous (clusters "
+"{clusters}), so cluster: {cluster!r} rewrote every generated copy — "
+"dropping the key would change what this instance IS"
 
 #: kicadstamp/config/tree_instance_expand.py:43
 #, python-brace-format
@@ -18480,3 +18489,22 @@ msgstr "footprint {ref!r} not found on the board"
 #~ "tree's own role-anchor cluster is "
 #~ "still overridden as requested"
 #~ msgstr ""
+
+#~ msgid ""
+#~ "tree_instance {name!r}: template {template!r} "
+#~ "is role-anchored, so cluster: narrowed"
+#~ " the generated role anchor as well"
+#~ msgstr ""
+#~ "tree_instance {name!r}: template {template!r} "
+#~ "is role-anchored, so cluster: narrowed"
+#~ " the generated role anchor as well"
+
+#~ msgid ""
+#~ "tree_instance {name!r}: template {template!r} "
+#~ "addresses {refs} on its own sheet, "
+#~ "so cluster: narrowed those searches too"
+#~ msgstr ""
+#~ "tree_instance {name!r}: template {template!r} "
+#~ "addresses {refs} on its own sheet, "
+#~ "so cluster: narrowed those searches too"
+

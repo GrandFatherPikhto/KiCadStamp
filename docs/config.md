@@ -987,12 +987,13 @@ layer/mirror checks as hand-written ones — nothing is validated twice.
   cluster is a property of the RECORD (an `entities:` entry already carries it), fieldstool tags the
   shared sheet FILE, so the Cluster/Role marks are identical on every copy of a sheet and two
   instances are told apart by `sheet`. A format-3 declaration that still carried the key is handled by
-  the 3 → 4 converter: the key is DROPPED where it provably changed nothing (a self-anchored template
-  whose records span several clusters, or a homogeneous one whose single cluster IS the declaration's)
-  and the file is REFUSED — naming the declaration — where it did something (a role-anchored template,
-  a mount/component address on the template's own sheet, a homogeneous template with a different
-  cluster, a template that lives in another file). A current-format declaration carrying `cluster:` is
-  refused by the loader's known-key check.
+  the 3 → 4 converter, which compares VALUES: the axis only ever assigned a cluster, so it is dropped
+  exactly when every assignment it would have made lands on the value already there — the template's
+  role anchor (if any), every `mount`/`component` address on the template's own sheet, and the
+  generated Entity copies (composite template, or one cluster equal to the declaration's). A refusal
+  names the assignment that would have changed (the node or role anchor, what stands there now, what
+  the axis would have written), and a homogeneous template whose cluster differs is one too. A
+  current-format declaration carrying `cluster:` is refused by the loader's known-key check.
 - **Per-declaration `params:` override** (v1.3 2026-09-07): besides `sheet` (always substituted), a
   declaration may carry OPTIONAL `params:` merged into EVERY generated Entity copy — same "override
   wins, rest inherited" semantics as `sheet`, per-key. `params:` is what makes a Cell role's

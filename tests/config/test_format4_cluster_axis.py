@@ -15,6 +15,7 @@ import pytest
 from kicadstamp.config import load_config
 from kicadstamp.config.format_version import CURRENT_FORMAT, upgrade_data
 from kicadstamp.config.sexp_format import dict_to_sexp, sexp_to_dict
+from kicadstamp.config.tree_instances import expand_tree_instances
 from kicadstamp.exceptions import ValidationError
 
 from tests.fakes.format3 import mint_format3_files
@@ -108,23 +109,46 @@ def test_the_step_refuses_a_homogeneous_override():
     assert data["tree_instances"][0]["cluster"] == "GRP_a"
 
 
-def test_the_step_refuses_a_role_anchored_template():
-    """A role anchor is an EXTERNAL live search — the axis narrowed it too, and
-    nothing in the file can prove that was harmless."""
-    template = {"name": "tpl", "anchor": {"role": "R1", "sheet": "Own"},
+def test_the_step_refuses_a_role_anchor_it_would_rewrite():
+    """П.1 of §10 is about the VALUE: a role anchor whose own cluster differs
+    from the declaration's is a real rewrite (the axis also narrowed that
+    external search), so the file is refused and the role anchor is named."""
+    template = {"name": "tpl", "anchor": {"role": "R1", "sheet": "Own",
+                                         "cluster": "OTHER"},
                 "nodes": [{"ref": "main", "kind": "placement"}]}
     data = _data({"template": "tpl", "name": "ch1", "sheet": "Channel_1",
                   "cluster": "DAC_BUF"}, template=template,
                  entities=[{"name": "main", "cell": "c", "sheet": "Own",
                             "cluster": "DAC_BUF"}])
 
-    with pytest.raises(ValidationError, match="role-anchored"):
+    with pytest.raises(ValidationError) as caught:
         _lift(data)
+
+    text = str(caught.value)
+    assert "role anchor 'R1'" in text and "'OTHER'" in text and "'DAC_BUF'" in text
+
+
+def test_a_role_anchor_already_carrying_the_same_cluster_is_no_rewrite():
+    """The VALUE-based half of п.1: the axis would have written what is already
+    there, so the key is dropped and the anchor is untouched."""
+    template = {"name": "tpl", "anchor": {"role": "R1", "sheet": "Own",
+                                         "cluster": "DAC_BUF"},
+                "nodes": [{"ref": "main", "kind": "placement"}]}
+    data = _data({"template": "tpl", "name": "ch1", "sheet": "Channel_1",
+                  "cluster": "DAC_BUF"}, template=template,
+                 entities=[{"name": "main", "cell": "c", "sheet": "Own",
+                            "cluster": "DAC_BUF"}])
+
+    out = _lift(data)
+
+    assert "cluster" not in out["tree_instances"][0]
+    assert out["trees"][0]["anchor"]["cluster"] == "DAC_BUF"
 
 
 def test_the_step_refuses_an_address_on_the_templates_own_sheet():
-    """A mount node anchored to the template's OWN sheet had its `cluster`
-    rewritten by the same declaration key."""
+    """П.2 of §10: a mount node anchored to the template's OWN sheet had its
+    `cluster` rewritten by the same declaration key. A MISSING cluster is a
+    rewrite too — the axis would have ADDED one."""
     template = {
         "name": "tpl", "anchor": {"self": {"ref": "main"}},
         "nodes": [{"ref": "main", "kind": "placement", "children": [
@@ -136,8 +160,11 @@ def test_the_step_refuses_an_address_on_the_templates_own_sheet():
                  entities=[{"name": "main", "cell": "c", "sheet": "Own",
                             "cluster": "DAC_BUF"}])
 
-    with pytest.raises(ValidationError, match="addresses 'm1'"):
+    with pytest.raises(ValidationError) as caught:
         _lift(data)
+
+    text = str(caught.value)
+    assert "mount node 'm1'" in text and "(none)" in text and "'DAC_BUF'" in text
 
 
 def test_the_step_refuses_when_the_template_is_not_in_this_file():
@@ -148,6 +175,91 @@ def test_the_step_refuses_when_the_template_is_not_in_this_file():
 
     with pytest.raises(ValidationError, match="not in this file"):
         _lift(data)
+
+
+# ── cells 14/14б/14в: the LIVE ch0_dac_buf shape, whole ────────────────────
+
+def _ch0_shape(declaration_cluster: str = "DAC_BUF",
+               mount_cluster: str | None = "DAC_BUF") -> dict:
+    """The live shape of `profiles/3ch-awg-tia-v103`'s `ch0_dac_buf`, whole: a
+    SELF-anchored template, a COMPOSITE set of records and five MOUNT nodes whose
+    anchors name the template's OWN sheet — the very case the shape-based
+    criterion refused by mistake (§10).
+
+    `mount_cluster` None removes the cluster from ONE mount anchor (cell 14в);
+    `declaration_cluster` different from the anchors' is the real rewrite (14б)."""
+    mounts = [{"ref": f"dac_{i}", "kind": "mount",
+               "anchor": {"role": "AD_DAC", "sheet": "Channel_0"}}
+              for i in (3, 11, 18)]
+    if mount_cluster is not None:
+        for mount in mounts:
+            mount["anchor"]["cluster"] = mount_cluster
+    template = {
+        "name": "ch0_dac_buf", "anchor": {"self": {"ref": "dac_buf_channel_0"}},
+        "nodes": [{
+            "ref": "dac_buf_channel_0", "kind": "placement",
+            "children": [
+                *mounts,
+                {"ref": "pif_avdd_channel_0", "kind": "placement"},
+            ],
+        }],
+    }
+    return _data(
+        {"template": "ch0_dac_buf", "name": "ch1_dac_buf",
+         "sheet": "Channel_1", "cluster": declaration_cluster},
+        template=template,
+        entities=[
+            {"name": "dac_buf_channel_0", "cell": "c", "sheet": "Channel_0",
+             "cluster": "DAC_BUF"},
+            {"name": "pif_avdd_channel_0", "cell": "c", "sheet": "Channel_0",
+             "cluster": "PIF_AVDD"},
+        ])
+
+
+def test_cell_14_the_live_shape_is_no_rewrite_and_materializes_the_same():
+    """Cell 14 (§10): every assignment the axis would have made — the mount
+    anchors — already carries `DAC_BUF`, and the template is composite, so the
+    key goes. The materialized graph is IDENTICAL with the key and without it:
+    that is exactly the claim "the axis changed nothing"."""
+    data = _ch0_shape()
+    assert data["tree_instances"][0]["cluster"] == "DAC_BUF"
+
+    before = expand_tree_instances(data)          # the key present (now ignored)
+    out = _lift(data)
+
+    assert "cluster" not in out["tree_instances"][0]
+    # the step works on a deep copy: the caller's dict keeps its key
+    assert data["tree_instances"][0]["cluster"] == "DAC_BUF"
+    # the axis WAS on the declaration, yet the two expansions agree
+    assert expand_tree_instances(out)["trees"] == before["trees"]
+    generated = {e["name"]: e for e in expand_tree_instances(out)["entities"]}
+    assert generated["dac_buf_channel_0__ch1_dac_buf"]["cluster"] == "DAC_BUF"
+    assert generated["pif_avdd_channel_0__ch1_dac_buf"]["cluster"] == "PIF_AVDD"
+
+
+def test_cell_14b_a_mount_anchor_with_another_cluster_refuses_and_is_named():
+    """Cell 14б (§10): one mount anchor says `OTHER`, the declaration says
+    `DAC_BUF` — a REAL rewrite, so the step refuses and names that node."""
+    data = _ch0_shape(declaration_cluster="DAC_BUF", mount_cluster="OTHER")
+
+    with pytest.raises(ValidationError) as caught:
+        _lift(data)
+
+    text = str(caught.value)
+    assert "mount node 'dac_3'" in text
+    assert "'OTHER'" in text and "'DAC_BUF'" in text
+
+
+def test_cell_14c_a_mount_anchor_without_a_cluster_refuses():
+    """Cell 14в (§10): an anchor with NO cluster is not "equal to anything" —
+    the axis would have ADDED one, which is a change like any other."""
+    data = _ch0_shape(declaration_cluster="DAC_BUF", mount_cluster=None)
+
+    with pytest.raises(ValidationError) as caught:
+        _lift(data)
+
+    text = str(caught.value)
+    assert "mount node 'dac_3'" in text and "(none)" in text
 
 
 # ── through a REAL .sexp file ──────────────────────────────────────────────
