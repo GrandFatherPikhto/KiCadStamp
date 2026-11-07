@@ -94,9 +94,11 @@ class TestFindHardcodedNetTemplates:
                  "sheet": "Channel_0", "cluster": "PIF_AVDD"},
             ],
             "trees": [template_tree],
+            # Н9 (format 4): the declaration carries no `cluster:` — the copy
+            # keeps the RECORD's own cluster, and only the sheet is new.
             "tree_instances": [
                 {"template": "ch0_pif", "name": "ch1_pif",
-                 "sheet": "Channel_1", "cluster": "DAC_BUF"},
+                 "sheet": "Channel_1"},
             ],
         }
         path = _write(tmp_path / "cfg.sexp", cfg_dict)

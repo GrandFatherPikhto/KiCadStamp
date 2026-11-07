@@ -77,6 +77,7 @@ from .models import (
 )
 from .points import Point
 from .tree_instance_sexp import parse_root as _parse_ti_root, write_root as _write_ti_root
+from .tree_instance_cluster_axis import RETIRED_RECORD_KEYS as _RETIRED_RECORD_KEYS
 from .retired_sections import (
     refuse_retired_node_kinds,
     refuse_retired_section_node,
@@ -460,18 +461,16 @@ def _field_to_sexp(name: str, value, desc: tuple):
 
 def _record_to_sexp(dc, data: dict):
     """One schema record, e.g. (rule (net "x") (spokes ...)). Unknown keys are
-    fatal (mirrors check_unknown_keys on the YAML side). Default-valued fields
-    are omitted (per-field rule, design grammar §3.1).
-
-    One field is delegated to ANOTHER module's grammar instead of the generic
-    free-form machinery (see _CUSTOM_FIELD_WRITERS): a tree_instances
-    declaration's `anchor` is a TREE anchor, so it must be written as
-    (anchor (point "p")) — bare tags — not as the free-form type-driven shape
-    (anchor ("point" "p")) which the generic "any" path would produce. The
-    delegation is the reason a second anchor grammar never exists."""
+    fatal (mirrors check_unknown_keys on the YAML side); default-valued fields
+    are omitted (design grammar §3.1); a field in `_CUSTOM_FIELD_WRITERS` is
+    delegated to another module's grammar (a declaration's `anchor` is a TREE
+    anchor — bare tags, never the generic type-driven shape)."""
     known = {f.name for f in dataclasses.fields(dc)}
     node = [sym(_TAG_BY_CLASS[dc])]
     for key, value in data.items():
+        if key not in known and (dc, key) in _RETIRED_RECORD_KEYS:
+            node.append(_field_to_sexp(key, value, "str"))   # Н9: verbatim, see below
+            continue
         if key not in known:
             raise ValidationError(format_fatal_error(
                 _("s-expr: unknown key {key!r} in {tag}").format(key=key, tag=_TAG_BY_CLASS[dc]),
@@ -496,17 +495,12 @@ def _record_to_sexp(dc, data: dict):
 
 
 def _write_tree_instance_anchor(value, record: dict):
-    """(anchor ...) for a tree_instances declaration — the TREE anchor grammar
-    (trees.anchor_to_sexp), the declaration's dict going through the SAME
-    validating dict->TreeAnchor bridge a tree uses (2026-09-12,
-    plan_2026_09_12_tree_instance_own_place §И.2)."""
+    """(anchor ...) in the TREE anchor grammar (§И.2)."""
     return anchor_to_sexp(anchor_from_dict(value, record.get("name") or "?"))
 
 
 def _parse_tree_instance_anchor(field_node, path: str) -> dict:
-    """Parse-side mirror of _write_tree_instance_anchor: the (anchor ...) node
-    is read by the TREE anchor grammar (trees.parse_anchor, validating) and
-    stored in the canonical dict shape (trees.anchor_to_dict)."""
+    """Parse-side mirror: the TREE anchor grammar, canonical dict out."""
     return anchor_to_dict(parse_anchor(field_node))
 
 
@@ -937,6 +931,12 @@ def _parse_record(dc, node, path: str) -> dict:
                 [_("in {path}: the legacy spelling of {canonical!r} was already "
                    "given on this record — keep one").format(
                        path=path, canonical=key)])
+        if key not in known and (dc, key) in _RETIRED_RECORD_KEYS:
+            # Н9: a RETIRED key is kept in the raw dict — the 3 -> 4 converter
+            # decides (drop where inert, refuse where it mattered), and a
+            # current-format file carrying it is refused by the loader.
+            out[key] = _parse_field(field_node, _field_type(dc, "sheet"), f"{path}.{key}")
+            continue
         if key not in known:
             raise _fatal(
                 "s-expr: unknown key in a record",

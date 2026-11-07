@@ -50,7 +50,7 @@ Field names match `kicadstamp/config/models.py` exactly as of 2026-08-01.
 | `clone_placements` | list | **RETIRED (2026-10-13) — REFUSED**; TemplatePlacer placements, once — see **`clone_placements:`** below. |
 | `entities` | list | Entity records — the "what" of a placement, WITHOUT any position — see **`entities:`** below. |
 | `trees` | list | Placement trees — the ONLY place a position can live — see **`trees:`** below. |
-| `tree_instances` | list | Sheet-/cluster-/params-parameterized references to a template tree, each optionally carrying its own place (`anchor`) and angle (`rotation`) — see **`tree_instances:`** below. |
+| `tree_instances` | list | Sheet-/params-parameterized references to a template tree, each optionally carrying its own place (`anchor`), angle (`rotation`) and starting node (`root`) — see **`tree_instances:`** below. |
 | `thermal_via_arrays` | list | Any number of thermal via grids, each independently named/anchored — see **`thermal_via_arrays:`** below. |
 | `place_components` | bool | Default `true`. `false` moves/creates vias and tracks but leaves component positions untouched. |
 | `skip_existing_components` | bool | Default `false`. Skip components (and their vias/tracks) already at the target position — cheap idempotency for re-runs. Note (2026-08-31): the TRACK positional pre-check runs regardless of this flag — it only skips a planned track that already exists at the exact position/net/width/layer, so it can never remove copper, only prevent literal duplicates. Since 2026-09-08 the same holds for the VIA positional pre-check (`filter_existing_vias`, Phase 2) — it only skips a planned via that already exists at the exact position/net/drill/diameter. |
@@ -897,9 +897,8 @@ layer/mirror checks as hand-written ones — nothing is validated twice.
   name, unique per tree, never resolved against the config — each generated instance is its own tree,
   so the same mount name there is unambiguous). Its anchor's `sheet` decides whether it looks INSIDE
   the template or OUT at the board, STRUCTURALLY: equal to the template's own sheet (the role anchor's
-  `sheet`, or the root Entity's for an auto template) → replaced by the instance `sheet`, and ONLY
-  then the declaration's `cluster:` follows it (the same external-search narrowing the role anchor's
-  cluster gets — NOT the composite-guarded per-copy cluster); a DIFFERENT `sheet` is a board-wide
+  `sheet`, or the root Entity's for an auto template) → replaced by the instance `sheet`; a DIFFERENT
+  `sheet` is a board-wide
   reference and is kept VERBATIM (an info line in the Log, never rewritten) — unlike a `net_trace`
   net, where a foreign sheet is a fatal; a mount anchor with NO `(sheet ...)` at all is a fatal,
   because the role would be ambiguous across the instances' sheets. A generated instance INHERITS the
@@ -963,9 +962,9 @@ layer/mirror checks as hand-written ones — nothing is validated twice.
   written by the very same code a tree's own `anchor:` uses (there is no second anchor grammar).
   Consequences, all deliberate:
 
-  * a declaration anchor **replaces the copy's anchor WHOLE**, and neither the instance `sheet` nor
-    the declaration's `cluster:` is substituted into it — a human named the place explicitly, and
-    guessing on top of an explicit answer is not allowed;
+  * a declaration anchor **replaces the copy's anchor WHOLE**, and the instance `sheet` is NOT
+    substituted into it — a human named the place explicitly, and guessing on top of an explicit
+    answer is not allowed;
   * because the place no longer has to come from a sheet, the **template may be of ANY anchor mode**
     when the declaration carries its own `anchor:` — an `origin`/`ref`/`point` template stops being a
     fatal. That is the whole point of the axis: a one-off instance with no role of its own on its
@@ -984,30 +983,27 @@ layer/mirror checks as hand-written ones — nothing is validated twice.
   * the **suspension point (`pivot-*`) is deliberately NOT a declaration key**: it is a property of
     the template's geometry, and the instance inherits it.
 
-- **Per-declaration overrides** (`cluster:` v1.2 2026-09-03, `params:` v1.3 2026-09-07): besides
-  `sheet` (always substituted), a declaration may carry OPTIONAL `cluster:` and/or `params:` merged
-  into EVERY generated Entity copy — same "override wins, rest inherited" semantics as `sheet`, just
-  per-Entity (`cluster`) / per-key (`params`). `params:` is what makes a Cell role's net_template
-  parametrized by a placeholder resolve PER INSTANCE: e.g. a Cell role with
+- **The `cluster:` AXIS IS GONE (format 4, 2026-11-07, Н9).** An instance changes the SHEET only: a
+  cluster is a property of the RECORD (an `entities:` entry already carries it), fieldstool tags the
+  shared sheet FILE, so the Cluster/Role marks are identical on every copy of a sheet and two
+  instances are told apart by `sheet`. A format-3 declaration that still carried the key is handled by
+  the 3 → 4 converter: the key is DROPPED where it provably changed nothing (a self-anchored template
+  whose records span several clusters, or a homogeneous one whose single cluster IS the declaration's)
+  and the file is REFUSED — naming the declaration — where it did something (a role-anchored template,
+  a mount/component address on the template's own sheet, a homogeneous template with a different
+  cluster, a template that lives in another file). A current-format declaration carrying `cluster:` is
+  refused by the loader's known-key check.
+- **Per-declaration `params:` override** (v1.3 2026-09-07): besides `sheet` (always substituted), a
+  declaration may carry OPTIONAL `params:` merged into EVERY generated Entity copy — same "override
+  wins, rest inherited" semantics as `sheet`, per-key. `params:` is what makes a Cell role's
+  net_template parametrized by a placeholder resolve PER INSTANCE: e.g. a Cell role with
   `net_template: "/{channel_sheet}/DAC/+3V3_AVDD"`, the template Entity carrying
   `params: {channel_sheet: Channel_0}`, and a `tree_instances:` declaration
   `sheet: Channel_1, params: {channel_sheet: Channel_1}` → the generated copy's role resolves to
   `/Channel_1/DAC/+3V3_AVDD` (net_resolution.resolve_net reads Entity.params). A declaration without
-  `params:`/`cluster:` keeps the template's own values unchanged (100% back-compatible). Overrides are
-  NOT applied to `net_trace` materialization (a net_trace's nets are rewritten by leading-sheet
+  `params:` keeps the template's own values unchanged (100% back-compatible). Overrides are NOT
+  applied to `net_trace` materialization (a net_trace's nets are rewritten by leading-sheet
   substitution, and its anchor_* narrows an external search — not {placeholder}-parametrized).
-- **Composite-guard on the per-copy `cluster:` override** (v1.2.1 2026-09-08, plan
-  tree_instances_cluster_composite_guard): the "`cluster:` into EVERY generated Entity copy" sentence
-  above is exact only for a HOMOGENEOUS template — one whose placement nodes carry at most one
-  distinct non-empty cluster value. A COMPOSITE template (several nodes with genuinely different
-  cluster values, e.g. `ch0_dac_buf`'s single `DAC_BUF` main entity + `PIF_AVDD`/`PIF_CLKVDD`/
-  `PIF_DVDD` sub-blocks) detects structurally (walking the template's own nodes BEFORE any override)
-  and SKIPS the per-copy `cluster:` override entirely: each generated copy keeps its own template
-  cluster, because a blanket overwrite would erase exactly the per-node distinction the Cluster step
-  of role resolution depends on (sheet → Cluster → selection cascade). Deterministic, never guesses
-  intent — a homogeneous template keeps the unconditional per-copy override byte-for-byte as before.
-  The generated tree's role-anchor `cluster` is a SEPARATE, external-anchor narrowing and is still
-  overridden whenever `cluster:` is given (composite or not).
 - **Generated instances are never persisted** as literal `trees:` entries: the TreesDock Save writes
   only hand-written trees, and the untouched `tree_instances:` section regenerates the instances on
   every load — no duplication. An instance's geometry is edited by editing the template (in the Trees

@@ -1,5 +1,5 @@
 (kicadstamp-config
-  (version 3)
+  (version 4)
   (trees
     (tree
       (name "tpl")
@@ -144,13 +144,11 @@
       (template "tpl")
       (name "tpl_a")
       (sheet "Own_a")
-      (cluster "GRP_a")
     )
     (tree_instance
       (template "tpl")
       (name "tpl_b")
       (sheet "Own_b")
-      (cluster "GRP_b")
     )
   )
 )

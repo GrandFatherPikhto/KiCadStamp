@@ -34,7 +34,13 @@ def _restore_active_graph_root():
 
 
 def _write(path, data) -> None:
-    path.write_text(dict_to_sexp(data, format_number=3), encoding="utf-8")
+    """The CURRENT number: an older one makes the loader LIFT the file on
+    startup, and "the refusal left the file untouched" would then measure the
+    lift instead of the refusal."""
+    from kicadstamp.config.format_version import current_format
+
+    path.write_text(dict_to_sexp(data, format_number=current_format()),
+                    encoding="utf-8")
     from kicadstamp.config_working_set import set_active_graph_root
 
     set_active_graph_root(path)

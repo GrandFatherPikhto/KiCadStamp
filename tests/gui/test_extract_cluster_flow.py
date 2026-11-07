@@ -38,9 +38,13 @@ def _write(path, data=None):
     """A FORMAT 3 root: opening a format-2 file under the gate LIFTS it on disk
     (a legitimate open-time write + .bak), which would drown the "reuse writes
     nothing" property in an unrelated one."""
+    from kicadstamp.config.format_version import current_format
     from kicadstamp.config.sexp_format import dict_to_sexp
+    # The CURRENT number: the on-disk lift must be a no-op here, or "the reuse
+    # branch leaves the file byte-identical" would measure the lift instead.
     path.write_text(dict_to_sexp(data if data is not None else {},
-                                 format_number=3), encoding="utf-8")
+                                 format_number=current_format()),
+                    encoding="utf-8")
 
 
 def _connection(snapshot=(), connected=True):

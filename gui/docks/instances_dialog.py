@@ -1,17 +1,17 @@
 # gui/docks/instances_dialog.py
-"""Tools -> "Instances..." dialog (2026-09-02, plan tree_instances P3; cluster
-column 2026-09-03, plan tree_instances_cluster; Rotation + Anchor columns
-2026-09-12, plan_2026_09_12_tree_instance_own_place §И.5).
+"""Tools -> "Instances..." dialog (2026-09-02, plan tree_instances P3; Rotation +
+Anchor columns 2026-09-12, plan_2026_09_12_tree_instance_own_place §И.5; Root
+column 07.11, Н6).
 
 Manages the `tree_instances:` short declarations of ONE template tree: pick a
 template (a hand-written trees: entry — a generated instance can NOT be a
 template, its geometry is already derived from its own template), edit the
-{name, sheet, cluster?, rotation?, anchor?} row list (add/remove), OK
+{name, sheet, rotation?, anchor?, root?} row list (add/remove), OK
 writes/updates the section through config_writer.upsert_tree_instances.
-`cluster` is the OPTIONAL override column — blank means "not set" and the key is
-omitted on save. `rotation`/`anchor` are the OPTIONAL own PLACE axes (§И.2): a
-blank rotation cell and an unset anchor cell both mean "inherit the template's
-own", and the key is omitted on save — never written as null/"".
+`rotation`/`anchor` are the OPTIONAL own PLACE axes (§И.2): a blank rotation
+cell and an unset anchor cell both mean "inherit the template's own", and the
+key is omitted on save — never written as null/"". The old Cluster column is
+GONE (format 4, Н9): an instance changes the SHEET only.
 
 The Anchor cell is a summary + a "…" button that opens the SHARED
 AnchorFormWidget (gui/docks/trees_dock.py) — the same form the tree's own anchor
@@ -57,9 +57,9 @@ from .instances_validation import (expansion_refusal, proposed_graph,
 logger = logging.getLogger(__name__)
 
 # Column indices (one place, so the header list and every reader agree). Root is
-# APPENDED last (8.5 of the acceptance) so the anchor cell keeps its index — the
-# axis is "which node of the template to copy", not a place axis.
-_COL_NAME, _COL_SHEET, _COL_CLUSTER, _COL_ROTATION, _COL_ANCHOR, _COL_ROOT = range(6)
+# the LAST column — the axis is "which node of the template to copy", not a
+# place axis.
+_COL_NAME, _COL_SHEET, _COL_ROTATION, _COL_ANCHOR, _COL_ROOT = range(5)
 
 # The record kinds an anchor's (ref ...) mode may name — the same set the
 # AnchorFormWidget's kind filter offers (trees_dock._PLACEABLE_KINDS).
@@ -247,10 +247,10 @@ class TreeInstancesDialog(QDialog):
             self.template_combo.setCurrentText(preferred_template)
         layout.addWidget(self.template_combo)
 
-        self.table = QTableWidget(0, 6)
+        self.table = QTableWidget(0, 5)
         self.table.setHorizontalHeaderLabels(
-            [_("Instance name"), _("Sheet"), _("Cluster"), _("Rotation"),
-             _("Anchor"), _("Root")])
+            [_("Instance name"), _("Sheet"), _("Rotation"), _("Anchor"),
+             _("Root")])
         self.table.horizontalHeader().setSectionResizeMode(
             QHeaderView.ResizeMode.Stretch)
         self.table.verticalHeader().setVisible(False)
@@ -299,7 +299,6 @@ class TreeInstancesDialog(QDialog):
             if refusal is not None:
                 self._row_refusals[i] = refusal
             self._set_row(i, {"name": ti.name, "sheet": ti.sheet,
-                              "cluster": ti.cluster or "",
                               "rotation": _format_rotation(ti.rotation),
                               "anchor": ti.anchor, "root": ti.root,
                               "refused": refusal})
@@ -321,7 +320,7 @@ class TreeInstancesDialog(QDialog):
 
     def _set_row(self, row: int, entry: dict) -> None:
         refusal = entry.get("refused")
-        for col, key in enumerate(("name", "sheet", "cluster", "rotation")):
+        for col, key in enumerate(("name", "sheet", "rotation")):
             text = str(entry.get(key, ""))
             if key == "name" and refusal is not None:
                 text = "⚠ " + text
@@ -388,21 +387,19 @@ class TreeInstancesDialog(QDialog):
 
         Keys are OMITTED when the axis is not set — never persisted as null/""
         — so declarations that do not need an axis stay clean on disk:
-          - `cluster`: a blank cell means "not set";
           - `rotation`: a NUMBER parsed from the cell (the raw STRING when the
             cell is not a number, so _validate() can report it);
-          - `anchor`: the dict from the row's Anchor cell (None -> omitted).
+          - `anchor`: the dict from the row's Anchor cell (None -> omitted);
+          - `root`: the picked node (the combo's first entry -> omitted).
         """
         out = []
         for r in range(self.table.rowCount()):
             def _cell(c):
                 item = self.table.item(r, c)
                 return item.text().strip() if item is not None else ""
-            name, sheet, cluster = _cell(0), _cell(1), _cell(2)
+            name, sheet = _cell(0), _cell(1)
             if name or sheet:
                 row = {"name": name, "sheet": sheet}
-                if cluster:
-                    row["cluster"] = cluster
                 rotation = _cell(_COL_ROTATION)
                 if rotation:
                     try:
@@ -541,7 +538,7 @@ class TreeInstancesDialog(QDialog):
 
         The proof is the loader's own expansion run in memory over the graph
         "as it will be after the write" (Н7): a row the next load would refuse
-        is shown here and NOT written. The sheet/cluster lines (Н4) are warnings
+        is shown here and NOT written. The sheet lines (Н4) are warnings
         and never block the write — they go to the Log (п.43: no modals)."""
         rows = self.rows()
         problem = self._validate(rows)

@@ -805,29 +805,13 @@ class TreeInstance:
     sheet — substituted into every generated Entity's `sheet` and (for a role
         anchor) the generated tree's anchor sheet.
 
-    cluster — OPTIONAL (2026-09-03, plan tree_instances_cluster): substituted
-        into every generated Entity's `cluster` AND (when the template's anchor
-        is role-based) the generated tree's anchor cluster — the same override
-        pattern as `sheet`, but OFF by default (None = inherit the template's
-        own cluster unchanged, today's behaviour). An independent axis from
-        `sheet`: same-sheet/different-cluster, different-sheet/same-cluster
-        and both-different are all expressible. Deliberately NOT applied to
-        net_traces: a net_trace's anchor_cluster narrows an EXTERNAL anchor
-        search — a different concept from "which physical group this is"
-        (see design_cell_template_reuse §3).
-
-        COMPOSITE-guard (2026-09-08, plan tree_instances_cluster_composite_guard):
-        the per-Entity-copy half of the substitution is skipped when the
-        referenced template is COMPOSITE — its placement nodes would generate
-        >1 distinct non-empty cluster values (e.g. ch0_dac_buf: a DAC_BUF main
-        entity + PIF_AVDD/PIF_CLKVDD/PIF_DVDD sub-blocks). A blanket per-copy
-        override there would erase exactly the per-node distinction
-        role_narrowing's Cluster step resolves on, so each copy keeps its own
-        template cluster instead (deterministic, structural detection — never
-        guesses intent). The generated role anchor's cluster is STILL
-        overridden unconditionally (an external-anchor narrowing, a separate
-        concept). A homogeneous template (0 or 1 distinct value) keeps the
-        unconditional per-copy override exactly as before.
+    The old OPTIONAL `cluster:` axis is GONE (format 4, 07.11, Н9): an instance
+    changes the SHEET only. A cluster is a property of the RECORD (an Entity
+    already carries it), and fieldstool tags the shared sheet FILE, so the
+    Cluster/Role marks are identical on every copy of a sheet — two instances
+    are told apart by `sheet`, not by a cluster override. A format-3 declaration
+    that still carries the key is refused by the converter unless the axis
+    provably changed nothing (see config/tree_instance_cluster_axis.py).
 
     params — OPTIONAL per-instance override (2026-09-07, plan
         tree_instances_params_override): merged into EVERY generated Entity
@@ -839,22 +823,22 @@ class TreeInstance:
         "/{channel_sheet}/DAC/+3V3_AVDD" resolves per-instance to
         "/Channel_1/DAC/+3V3_AVDD"). MERGE, not replace: keys not mentioned
         here keep the template Entity's own params value unchanged — the same
-        "override wins, rest inherited" semantics as `cluster`, just per-key
+        "override wins, rest inherited" semantics as `sheet`, just per-key
         instead of whole-field. None (the default) changes nothing: the deep
         copy keeps the template's own params verbatim, today's behaviour.
-        Deliberately NOT applied to net_traces (same reason as `cluster` — a
-        net_trace's anchor_* narrows an EXTERNAL search, not
-        {placeholder}-parametrized geometry, and its nets are either resolved
-        live through (role, pad) references or rewritten by leading-sheet
-        substitution — see config/tree_instances.py's module docstring).
+        Deliberately NOT applied to net_traces (a net_trace's anchor_* narrows
+        an EXTERNAL search, not {placeholder}-parametrized geometry, and its
+        nets are either resolved live through (role, pad) references or
+        rewritten by leading-sheet substitution — see
+        config/tree_instances.py's module docstring).
 
     anchor — OPTIONAL (2026-09-12, plan_2026_09_12_tree_instance_own_place
         §И.2): the generated tree's OWN place, in the TREE anchor dict grammar
         (trees.anchor_from_dict / anchor_to_dict — the SAME modes, shift
         included). When set, expansion REPLACES the copy's anchor WHOLE and does
-        NOT substitute `sheet`/`cluster` into it (И.3.1); the template's own
-        anchor may then be of ANY mode. None (the default) keeps today's
-        behaviour byte-for-byte.
+        NOT substitute `sheet` into it (И.3.1); the template's own anchor may
+        then be of ANY mode. None (the default) keeps today's behaviour
+        byte-for-byte.
 
         The template's own sheet is STILL what drives the `old_sheet` of a
         mount node and of a LEGACY (literal-net) net_trace node (И.3.2) —
@@ -877,7 +861,6 @@ class TreeInstance:
     template: str
     name: str
     sheet: str
-    cluster: str | None = None
     params: dict[str, str] | None = None
     anchor: dict | None = None
     rotation: float | None = None

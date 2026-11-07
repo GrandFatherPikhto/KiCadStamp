@@ -80,6 +80,22 @@ def _pivot_keys_on_nodes(trees: list) -> list:
     return bad
 
 
+def _drop_the_cluster_axis(path: Path) -> None:
+    """Take `(cluster "GRP_a")` / `(cluster "GRP_b")` out of a converted fixture.
+
+    Н9 (format 4) removed the axis, and the 3 -> 4 step REFUSES this fixture's
+    two declarations on purpose: the template is HOMOGENEOUS (every record is
+    `GRP`) and each declaration rewrote both copies to `GRP_a`/`GRP_b`, so the
+    axis really did something and a silent drop would move copper. The committed
+    reference therefore carries the POST-Н9 grammar, and the comparison applies
+    the very edit a human must make to that file — the refusal itself is pinned
+    by its own cell (test_the_converter_step_refuses_a_homogeneous_override)."""
+    text = _read_text_lf(path)
+    kept = [line for line in text.splitlines()
+            if line.strip() not in ('(cluster "GRP_a")', '(cluster "GRP_b")')]
+    path.write_text("\n".join(kept) + "\n", encoding="utf-8")
+
+
 def _read_text_lf(path: Path) -> str:
     """The file's TEXT with CRLF/CR normalized to LF.
 
@@ -111,8 +127,8 @@ def _auto_template_with_mount(mount_anchor: dict, *, pivot_ref=None) -> dict:
         "entities": [{"name": "ROOT", "cell": "c", "sheet": "Own"},
                      {"name": "E1", "cell": "c", "sheet": "Own"}],
         "cells": {"c": {"components": [{"role": "R1"}]}},
-        "tree_instances": [{"template": "tpl", "name": "tpl_a", "sheet": "Own_a",
-                            "cluster": "CL"}],
+        "tree_instances": [{"template": "tpl", "name": "tpl_a",
+                            "sheet": "Own_a"}],
     }
 
 
@@ -220,6 +236,7 @@ def test_the_fixture_converts_expands_and_is_idempotent(tmp_path):
     # the committed reference IS a CONFIG: the Т5 guard keeps it at the CURRENT
     # format (Денис 04.10.2026), so the converter's own output is lifted the SAME
     # way the product lifts a config before the two texts are compared.
+    _drop_the_cluster_axis(out)          # Н9: the step refuses it, see the helper
     upgrade_graph_on_disk(out)
     assert _read_text_lf(out) == _read_text_lf(FIXTURES / "config.converted.sexp")
 
@@ -238,6 +255,7 @@ def test_conversion_is_independent_of_the_input_line_endings(tmp_path):
     convert_config_file(root=str(crlf_in), output=str(out))
     # the reference is a CONFIG (Т5: current format) — lift the output the same
     # way the product lifts a config, then compare (К4, Денис 04.10.2026).
+    _drop_the_cluster_axis(out)          # Н9: the step refuses it, see the helper
     upgrade_graph_on_disk(out)
     assert _read_text_lf(out) == _read_text_lf(FIXTURES / "config.converted.sexp")
 
@@ -255,15 +273,16 @@ def test_mount_ref_is_not_suffixed_but_its_children_are():
     _pivot_keys_on_nodes([tree])                       # no leftover pivots
 
 
-def test_mount_anchor_sheet_and_cluster_are_substituted_by_value():
-    """§В.3.2(б)/(в): a sheet EQUAL to the template's own follows the instance,
-    and the declaration's cluster follows WITH it — by VALUE, not merely "no
-    exception"."""
+def test_mount_anchor_sheet_is_substituted_by_value():
+    """§В.3.2(б): a sheet EQUAL to the template's own follows the instance — by
+    VALUE, not merely "no exception". The anchor's `cluster` is NOT touched: the
+    declaration's `cluster:` axis is gone (format 4, Н9) and a cluster belongs
+    to the RECORD, so the address keeps the one it was written with."""
     out = expand_tree_instances(
         _auto_template_with_mount({"role": "HOST", "sheet": "Own",
                                    "cluster": "GRP"}))
     assert _first_mount(_tree(out, "tpl_a"))["anchor"] == {
-        "role": "HOST", "sheet": "Own_a", "cluster": "CL"}
+        "role": "HOST", "sheet": "Own_a", "cluster": "GRP"}
 
 
 def test_a_foreign_sheet_mount_anchor_is_kept_verbatim(caplog):
@@ -287,14 +306,15 @@ def test_two_instances_get_their_own_mount_anchor_sheets():
     data = _auto_template_with_mount({"role": "HOST", "sheet": "Own",
                                       "cluster": "GRP"})
     data["tree_instances"] = [
-        {"template": "tpl", "name": "tpl_a", "sheet": "Own_a", "cluster": "A"},
-        {"template": "tpl", "name": "tpl_b", "sheet": "Own_b", "cluster": "B"},
+        {"template": "tpl", "name": "tpl_a", "sheet": "Own_a"},
+        {"template": "tpl", "name": "tpl_b", "sheet": "Own_b"},
     ]
     out = expand_tree_instances(data)
     assert _first_mount(_tree(out, "tpl_a"))["anchor"]["sheet"] == "Own_a"
-    assert _first_mount(_tree(out, "tpl_a"))["anchor"]["cluster"] == "A"
     assert _first_mount(_tree(out, "tpl_b"))["anchor"]["sheet"] == "Own_b"
-    assert _first_mount(_tree(out, "tpl_b"))["anchor"]["cluster"] == "B"
+    # Н9: the cluster is the RECORD's own — two instances differ by SHEET only.
+    assert _first_mount(_tree(out, "tpl_a"))["anchor"]["cluster"] == "GRP"
+    assert _first_mount(_tree(out, "tpl_b"))["anchor"]["cluster"] == "GRP"
 
 
 def test_a_template_without_mounts_expands_as_before():
@@ -349,8 +369,8 @@ def _auto_template_with_component(address: dict) -> dict:
         "entities": [{"name": "ROOT", "cell": "c", "sheet": "Own"},
                      {"name": "E1", "cell": "c", "sheet": "Own"}],
         "cells": {"c": {"components": [{"role": "R1"}]}},
-        "tree_instances": [{"template": "tpl", "name": "tpl_a", "sheet": "Own_a",
-                            "cluster": "CL"}],
+        "tree_instances": [{"template": "tpl", "name": "tpl_a",
+                            "sheet": "Own_a"}],
     }
 
 
@@ -368,13 +388,13 @@ def test_component_node_ref_is_not_suffixed_but_its_children_are():
 
 
 def test_component_node_role_address_takes_the_instance_sheet():
-    """Т4.3 п.1/п.2 (М13): a (role ...) address whose sheet IS the template's own
-    takes the instance sheet, and — only with it — the declaration's cluster. By
-    VALUE, not merely "no exception"."""
+    """Т4.3 п.1 (М13): a (role ...) address whose sheet IS the template's own
+    takes the instance sheet — by VALUE, not merely "no exception". Its `cluster`
+    is the address's OWN (Н9: the declaration has no cluster axis any more)."""
     out = expand_tree_instances(_auto_template_with_component(
         {"role": "AD_DAC", "sheet": "Own", "cluster": "GRP"}))
     assert _first_component(_tree(out, "tpl_a"))["anchor"] == {
-        "role": "AD_DAC", "sheet": "Own_a", "cluster": "CL"}
+        "role": "AD_DAC", "sheet": "Own_a", "cluster": "GRP"}
 
 
 def test_component_node_cluster_follows_the_sheet_only():

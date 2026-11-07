@@ -7,8 +7,8 @@ EVERY per-declaration refusal tolerable.
 The split is what makes the rule expressible in one place: `expand_tree_
 instances` keeps the two GRAPH-WIDE refusals (the section is not a list; two
 declarations share one name), and everything that belongs to ONE declaration —
-a missing field, an empty `cluster`, a non-mapping `params`/`anchor`, a
-non-numeric `rotation`, a malformed `root`, a template that is not there, a
+a missing field, a non-mapping `params`/`anchor`, a non-numeric `rotation`, a
+malformed `root`, a template that is not there, a
 name already used by a hand-written tree, and every refusal of the expansion
 itself — is raised HERE, where the caller can catch it per declaration and go
 on.
@@ -54,14 +54,6 @@ def expand_one_declaration(idx: int, inst, *, trees: list, entities: list,
                 .format(idx=idx + 1, field=field_label),
                 [_("every tree_instances: entry needs template:/name:/sheet: "
                    "(non-empty strings)")]))
-    cluster = inst.get('cluster')
-    if cluster is not None and (not isinstance(cluster, str) or not cluster):
-        raise ValidationError(format_fatal_error(
-            _("tree_instances: entry #{idx} has an empty cluster:")
-            .format(idx=idx + 1),
-            [_("cluster:, when present, must be a non-empty string — omit "
-               "the key entirely to inherit the template's own cluster "
-               "unchanged")]))
     # v1.3 (plan tree_instances_params_override): OPTIONAL per-instance params
     # merge. Only the "is it a mapping" guard — no per-value checks, same level
     # as Entity.params elsewhere.
@@ -122,8 +114,7 @@ def expand_one_declaration(idx: int, inst, *, trees: list, entities: list,
     (generated_tree, generated_entities,
      generated_net_traces) = _expand_template(
         template, template_name, instance_name, sheet, entities_by_name,
-        net_traces_by_name, cluster, params, decl_anchor,
-        decl_rotation, decl_root, cells)
+        net_traces_by_name, params, decl_anchor, decl_rotation, decl_root, cells)
     trees.append(generated_tree)
     entities.extend(generated_entities)
     net_traces.extend(generated_net_traces)

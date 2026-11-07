@@ -109,8 +109,6 @@ def test_graph_wide_refusals_stay_fatal_even_in_the_lenient_mode():
      "non-mapping anchor"),
     ({"template": "tpl", "name": "point_tpl", "sheet": "S2"},
      "duplicate tree name"),
-    ({"template": "tpl", "name": "bad", "sheet": "S2", "cluster": ""},
-     "empty cluster"),
     ({"template": "tpl", "name": "bad", "sheet": "S2", "params": "x"},
      "non-mapping params"),
     ({"template": "tpl", "name": "bad", "sheet": "S2", "rotation": "90"},

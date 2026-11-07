@@ -473,7 +473,11 @@ def convert_config_file(root: str, output: Optional[str] = None,
     # converter output the standard loader refuses must fail HERE, leaving the
     # user's file untouched.
     new_text = dict_to_sexp(converted, format_number=version)
-    sexp_to_dict(new_text, path=str(target))
+    # Self-verify WITHOUT lifting: this tool converts the tree GRAMMAR, not the
+    # format, so a file that is still older than CURRENT_FORMAT must read back
+    # as written. Lifting here would run the current converters and could refuse
+    # (or silently modernise) exactly the content the tool is preserving.
+    sexp_to_dict(new_text, path=str(target), upgrade=False)
 
     # §В.1.2 step 3: in-place overwrite snapshots the old content first
     # (timestamped, never clobbers an earlier backup). With --output the root

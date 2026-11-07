@@ -1,5 +1,5 @@
 (kicadstamp-config
-  (version 3)
+  (version 4)
   (layer "B.Cu")
   (thermal_via_arrays
     (thermal_via_array

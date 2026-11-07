@@ -57,27 +57,24 @@ never run — dead code is not kept. A format-2 file of that shape is now refuse
 the format-3 dangling-reference check, whose message names the template, the node
 and the net_traces record it could not find.
 
-v1.2 (2026-09-03, plan tree_instances_cluster): a declaration may OPTIONALLY
-carry `cluster:` — an override substituted into every generated Entity copy's
-`cluster` AND (the template is role-anchored by a v1 fatal) the generated
-tree's role-anchor `cluster`, exactly mirroring how `sheet` is substituted.
-The axis is independent from `sheet` (same-sheet/different-cluster,
-different-sheet/same-cluster and both-different are all expressible). When a
-declaration has NO `cluster` (None) nothing changes: each generated copy keeps
-the cluster of its template Entity (or lacks one), and the anchor keeps its
-template cluster — 100% back-compatible with pre-v1.2 declarations. The
-override is deliberately NOT applied to net_trace materialization: a
-net_trace's `anchor_cluster` narrows an EXTERNAL anchor search (which
-component the copper is anchored to) — a different concept from "which
-physical group this Entity is", and conflating them would be a semantic bug
-(see design_cell_template_reuse §3, "Явно ВНЕ рамок").
+REMOVED 2026-11-07 (format 4, Н9 of plan_2026_11_07_tree_instances_dialog_and_
+subtree): the v1.2 `cluster:` declaration axis and its v1.2.1 COMPOSITE-guard.
+An instance changes the SHEET only — a cluster is a property of the RECORD (an
+Entity already carries it), fieldstool tags the shared sheet FILE, so the
+Cluster/Role marks are identical on every copy of a sheet and two instances are
+told apart by `sheet`. The axis was also inert on the only live declaration
+(`ch1_dac_buf`: self-anchored template, composite, axis == the record's cluster
+— verified in §6.6 of the plan). A format-3 declaration that still carries the
+key is refused by the 3->4 converter unless it provably changed nothing
+(config/tree_instance_cluster_axis.py). The `anchor_cluster` substitution into a
+mount/component address goes with it: that was the SAME declaration key.
 
 v1.3 (2026-09-07, plan tree_instances_params_override): a declaration may
 OPTIONALLY carry `params:` — a mapping MERGED into every generated Entity
 copy's OWN `params` dict (per-key: a key mentioned here overrides the template
 Entity's value, a key not mentioned keeps the template's — the same
-"override wins, rest inherited" semantics as the v1.2 `cluster` override,
-just per-key instead of whole-field). The values are what
+"override wins, rest inherited" semantics as `sheet`, just per-key instead of
+whole-field). The values are what
 net_resolution.resolve_net substitutes into {placeholder}s of a component's
 net_template, so this is the code half of making a net_template parametrized
 by e.g. `/{channel_sheet}/DAC/+3V3_AVDD` resolve PER-INSTANCE (template
@@ -86,25 +83,9 @@ Entity params: {channel_sheet: Channel_0} + declaration params:
 `/Channel_1/DAC/+3V3_AVDD`). When a declaration has NO `params` (None) nothing
 changes: the deep copy keeps the template Entity's own params verbatim — 100%
 back-compatible with pre-v1.3 declarations. Deliberately NOT applied to
-net_trace materialization (same reason as `cluster` in v1.2 — a net_trace's
-nets are rewritten by leading-sheet substitution, not {placeholder}-resolved).
+net_trace materialization (a net_trace's nets are resolved live through
+(role, pad) references, not {placeholder}-resolved).
 
-v1.2.1 (2026-09-08, plan tree_instances_cluster_composite_guard): the v1.2
-per-copy `cluster:` override now carries a COMPOSITE-guard. A template whose
-placement nodes carry genuinely DIFFERENT non-empty cluster values (e.g.
-ch0_dac_buf: one DAC_BUF main entity + three PIF_AVDD/PIF_CLKVDD/PIF_DVDD
-sub-blocks) is composite — a blanket override would erase the very per-node
-distinction the Cluster step of role_narrowing's cascade depends on
-(confirmed live: ch1_dac_buf, done_2026_09_08_role_narrowing_live_probe.md).
-The rule is deterministic and structural (never guesses the author's intent):
-the set of distinct non-empty clusters the template's OWN nodes would generate
-is computed BEFORE any override; a HOMOGENEOUS template (0 or 1 distinct
-value) keeps the unconditional per-copy override exactly as v1.2 (back-compat);
-a COMPOSITE one (>1) skips the per-copy override entirely — each copy keeps
-its own template cluster. The generated tree's role-anchor cluster
-substitution (the EXTERNAL anchor_cluster narrowing) is a separate concept and
-is NOT affected by this guard (set unconditionally whenever `cluster:` is
-given, see _expand_template).
 
 v1.4 (2026-09-08, plan tree_instances_auto_root_template_support; reworked
 2026-09-11, plan tree_self_anchor task Д): a SELF-anchored template — an
@@ -113,11 +94,9 @@ explicit (anchor (self [(ref "...")])) OR no (anchor ...) at all
 role-anchored one. A BARE (self) needs EXACTLY ONE top-level placement node
 (the anchor subject); a NAMED (self (ref "...")) does not. For a self template
 the subject Entity's cell mount IS the anchor, so there is no separate
-anchor.sheet/anchor.cluster substitution to make: the instance sheet lands on
-every generated copy — root
-included — through the SAME unconditional _expand_node `ent['sheet'] = sheet`
-path, and the v1.2.1 composite-guard walks template nodes generically (the
-root is not special-cased), so cluster behaves identically for both shapes.
+anchor.sheet substitution to make: the instance sheet lands on every generated
+copy — root included — through the SAME unconditional _expand_node
+`ent['sheet'] = sheet` path.
 The only genuinely new work: (a) the entry gate admits the shape — checked
 HERE with the same EXACTLY-ONE rule auto-anchor resolution itself requires
 (_template_root_entity_ref), and (b) `old_sheet` for a MOUNT node, which for an
@@ -137,12 +116,10 @@ make a template pivot_ref pointing at it unresolvable). The SAME holds for a
 kind "copper" container's ref (2026-09-16, plan_2026_09_16_copper_node_order_
 and_container P.2.6 — see _expand_copper_node). (б) The mount anchor's
 `sheet` decides "inside/outside" STRUCTURALLY: equal to the template's own
-sheet (old_sheet) -> replaced by the instance sheet, and — ONLY together with
-that — the declaration's `cluster:` (the same external-search narrowing the
-role anchor's cluster gets, deliberately NOT the composite-guarded per-copy
-cluster); a DIFFERENT sheet is a board-wide reference and is kept VERBATIM
-(info-logged, never rewritten) — a mount is a reference POINT, not the
-template's own copper, so a foreign sheet is legal there; a MISSING sheet is a
+sheet (old_sheet) -> replaced by the instance sheet; a DIFFERENT sheet is a
+board-wide reference and is kept VERBATIM (info-logged, never rewritten) — a
+mount is a reference POINT, not the template's own copper, so a foreign sheet
+is legal there; a MISSING sheet is a
 fatal, because the role would be ambiguous across
 the instances' sheets (the "all three channels mounted to channel 0" trap).
 (в) A template's pivot_ref names a node of THIS tree, and expansion renames
@@ -160,12 +137,11 @@ written by trees.anchor_to_sexp) and `rotation:` (degrees). Both OPTIONAL and
 both None = today's behaviour, byte for byte (the профиль's two declarations
 carry neither). Four rules, all in _expand_template:
   (а) §И.3.1 — a declaration anchor REPLACES the generated copy's anchor WHOLE
-      and the sheet/cluster substitution is then NOT done into it: a human
-      named the place, guessing on top of an explicit answer is not allowed.
-      The sheet/cluster substitution into the Entity copies, the mount anchor
-      sheet comparison and the copper net rewriting stay exactly as they were
-      — those are the "what the instance IS" axis, the anchor is the "where it
-      stands" one;
+      and the sheet substitution is then NOT done into it: a human named the
+      place, guessing on top of an explicit answer is not allowed. The sheet
+      substitution into the Entity copies, the mount anchor sheet comparison
+      and the copper net rewriting stay exactly as they were — those are the
+      "what the instance IS" axis, the anchor is the "where it stands" one;
   (б) §И.3.2/§И.4 — `old_sheet` is STILL derived from the TEMPLATE (a role
       anchor's sheet, or the subject Entity's own sheet for a self/otherwise
       anchored template). A declaration anchor therefore OPENS the entry gate
@@ -232,19 +208,12 @@ import logging
 from ..exceptions import ValidationError, format_fatal_error
 from ..i18n import _
 from .format_version import current_format
-from .tree_instance_checks import (derive_old_sheet, template_generated_clusters,
-                                   template_needs_old_sheet)
+from .tree_instance_checks import derive_old_sheet, template_needs_old_sheet
 from .tree_instance_expand import expand_one_declaration
 from .tree_instance_refs import (rewrite_pivot_ref as _rewrite_pivot_ref,
                                  rewrite_self_ref as _rewrite_self_ref)
 from .tree_instance_root import (check_outward, find_subtree, subtree_pose)
 from .uuids import derived_uuid
-
-# Kept under its historical PRIVATE name: the composite-guard cells import it
-# from here (Н8 moved the body out; the name stays so those cells keep guarding
-# the same code).
-_template_generated_clusters = template_generated_clusters
-_template_needs_old_sheet = template_needs_old_sheet
 
 logger = logging.getLogger(__name__)
 
@@ -310,8 +279,7 @@ def _expand_copper_node(node: dict, instance_name: str, sheet: str,
                         entities_by_name: dict, net_traces_by_name: dict,
                         generated_entities: list, generated_net_traces: list,
                         template_name: str, old_sheet: str | None,
-                        cluster: str | None, params: dict[str, str] | None,
-                        anchor_cluster: str | None,
+                        params: dict[str, str] | None,
                         ref_map: dict[str, str]) -> dict:
     """Expand ONE kind "copper" template node (2026-09-16, plan_2026_09_16_
     copper_node_order_and_container P.2.6).
@@ -337,8 +305,7 @@ def _expand_copper_node(node: dict, instance_name: str, sheet: str,
         gen['children'] = [_expand_node(c, instance_name, sheet, entities_by_name,
                                         net_traces_by_name, generated_entities,
                                         generated_net_traces, template_name,
-                                        old_sheet, cluster, params, ref_map,
-                                        anchor_cluster)
+                                        old_sheet, params, ref_map)
                            for c in children]
     return gen
 
@@ -347,8 +314,7 @@ def _expand_mount_node(node: dict, instance_name: str, sheet: str,
                        entities_by_name: dict, net_traces_by_name: dict,
                        generated_entities: list, generated_net_traces: list,
                        template_name: str, old_sheet: str | None,
-                       cluster: str | None, params: dict[str, str] | None,
-                       anchor_cluster: str | None,
+                       params: dict[str, str] | None,
                        ref_map: dict[str, str]) -> dict:
     """Expand ONE kind "mount" template node (v1.5, Б3.2 §В.3).
 
@@ -360,8 +326,7 @@ def _expand_mount_node(node: dict, instance_name: str, sheet: str,
         instance is its own tree — the same mount name there is unambiguous.
     (б) the anchor's `sheet` decides whether it looks INSIDE the template or
         OUT at the board: equal to old_sheet (the template's own sheet) -> the
-        instance's sheet, and ONLY then the declaration's `cluster:`
-        (anchor_cluster); a DIFFERENT sheet is a board-wide reference, kept
+        instance's sheet; a DIFFERENT sheet is a board-wide reference, kept
         VERBATIM and info-logged; a MISSING sheet is a fatal (the role would be
         ambiguous across the instances' sheets — the "all three channels
         mounted to channel 0" trap).
@@ -384,8 +349,6 @@ def _expand_mount_node(node: dict, instance_name: str, sheet: str,
                    "ambiguous across the instances' sheets")]))
         if anchor_sheet == old_sheet:
             anchor['sheet'] = sheet
-            if anchor_cluster is not None:
-                anchor['cluster'] = anchor_cluster
         else:
             logger.info(_("tree_instance {name!r}: mount node {ref!r} anchors to "
                           "sheet {sheet!r}, not the template's {old!r} — kept "
@@ -396,8 +359,7 @@ def _expand_mount_node(node: dict, instance_name: str, sheet: str,
         gen['children'] = [_expand_node(c, instance_name, sheet, entities_by_name,
                                         net_traces_by_name, generated_entities,
                                         generated_net_traces, template_name,
-                                        old_sheet, cluster, params, ref_map,
-                                        anchor_cluster)
+                                        old_sheet, params, ref_map)
                            for c in children]
     return gen
 
@@ -406,8 +368,7 @@ def _expand_component_node(node: dict, instance_name: str, sheet: str,
                            entities_by_name: dict, net_traces_by_name: dict,
                            generated_entities: list, generated_net_traces: list,
                            template_name: str, old_sheet: str | None,
-                           cluster: str | None, params: dict[str, str] | None,
-                           anchor_cluster: str | None,
+                           params: dict[str, str] | None,
                            ref_map: dict[str, str]) -> dict:
     """Expand ONE kind "component" template node (2026-09-17, plan_2026_09_17
     Э3, mirroring the mount node's v1.5 rules).
@@ -419,9 +380,8 @@ def _expand_component_node(node: dict, instance_name: str, sheet: str,
         LOCAL name, unique per TREE (trees.py::_validate_local_refs) and every
         generated instance is its own tree (the mount/copper rule);
     (б) a (role ...) address whose `sheet` equals the template's own sheet (the
-        SAME inside/outside test a mount anchor uses) takes the instance sheet,
-        and — only together with it — the declaration's `cluster:` narrowing; a
-        DIFFERENT sheet is a board-wide reference and is kept VERBATIM
+        SAME inside/outside test a mount anchor uses) takes the instance sheet;
+        a DIFFERENT sheet is a board-wide reference and is kept VERBATIM
         (info-logged); a role address with NO sheet is a fatal, because the role
         would be ambiguous across the instances' sheets — the same "all three
         channels to channel 0" trap the mount rule refuses;
@@ -456,8 +416,6 @@ def _expand_component_node(node: dict, instance_name: str, sheet: str,
                    "ambiguous across the instances' sheets")]))
         if anchor_sheet == old_sheet:
             anchor['sheet'] = sheet
-            if anchor_cluster is not None:
-                anchor['cluster'] = anchor_cluster
         else:
             logger.info(_("tree_instance {name!r}: component node {ref!r} "
                           "addresses sheet {sheet!r}, not the template's {old!r} "
@@ -470,8 +428,7 @@ def _expand_component_node(node: dict, instance_name: str, sheet: str,
         gen['children'] = [_expand_node(c, instance_name, sheet, entities_by_name,
                                         net_traces_by_name, generated_entities,
                                         generated_net_traces, template_name,
-                                        old_sheet, cluster, params, ref_map,
-                                        anchor_cluster)
+                                        old_sheet, params, ref_map)
                            for c in children]
     return gen
 
@@ -480,10 +437,8 @@ def _expand_node(node: dict, instance_name: str, sheet: str,
                  entities_by_name: dict, net_traces_by_name: dict,
                  generated_entities: list, generated_net_traces: list,
                  template_name: str, old_sheet: str | None,
-                 cluster: str | None = None,
                  params: dict[str, str] | None = None,
-                 ref_map: dict[str, str] | None = None,
-                 anchor_cluster: str | None = None) -> dict:
+                 ref_map: dict[str, str] | None = None) -> dict:
     """Deep-copy one template node dict into the instance shape.
 
     kind=placement (or unset/auto): the node's ref is suffixed with
@@ -507,13 +462,6 @@ def _expand_node(node: dict, instance_name: str, sheet: str,
     NOT a fatal and NOT copied — the template keeps it for its own live
     re-readability, the generated copy unconditionally gets the instance
     sheet (same overwrite pattern as the role-anchor sheet).
-
-    cluster (2026-09-03, plan tree_instances_cluster): a declaration-level
-    override applied ONLY in the placement branch — when not None it
-    overwrites the generated Entity copy's `cluster`; when None the deep copy
-    keeps the template Entity's own cluster unchanged (today's behaviour).
-    The net_trace branch deliberately ignores it (a net_trace's
-    anchor_cluster is a different concept — see the module docstring).
 
     params (2026-09-07, plan tree_instances_params_override): a
     declaration-level mapping MERGED into the generated Entity copy's OWN
@@ -540,12 +488,7 @@ def _expand_node(node: dict, instance_name: str, sheet: str,
     below.
 
     ref_map (v1.5, Б3.2 §В.4): old ref -> new ref for every expanded node, so
-    _expand_template can rewrite the tree's pivot_ref through the SAME renames.
-
-    anchor_cluster (v1.5, Б3.2 §В.3.2в): the DECLARATION's own `cluster:`, used
-    ONLY for a mount anchor whose sheet was substituted (the same
-    external-search narrowing the role anchor's cluster gets — deliberately NOT
-    the composite-guarded per-copy `cluster`)."""
+    _expand_template can rewrite the tree's pivot_ref through the SAME renames."""
     if ref_map is None:
         ref_map = {}
     orig_ref = node.get('ref')
@@ -560,18 +503,17 @@ def _expand_node(node: dict, instance_name: str, sheet: str,
         return _expand_mount_node(node, instance_name, sheet, entities_by_name,
                                   net_traces_by_name, generated_entities,
                                   generated_net_traces, template_name, old_sheet,
-                                  cluster, params, anchor_cluster, ref_map)
+                                  params, ref_map)
     if kind == 'copper':
         return _expand_copper_node(node, instance_name, sheet, entities_by_name,
                                    net_traces_by_name, generated_entities,
                                    generated_net_traces, template_name, old_sheet,
-                                   cluster, params, anchor_cluster, ref_map)
+                                   params, ref_map)
     if kind == 'component':
         return _expand_component_node(node, instance_name, sheet,
                                       entities_by_name, net_traces_by_name,
                                       generated_entities, generated_net_traces,
-                                      template_name, old_sheet, cluster, params,
-                                      anchor_cluster, ref_map)
+                                      template_name, old_sheet, params, ref_map)
     if kind == 'net_trace':
         # The record is found by its IDENTITY — name:, else a legacy record's
         # net: (config/models.py::net_trace_effective_name). That is the same
@@ -634,8 +576,7 @@ def _expand_node(node: dict, instance_name: str, sheet: str,
                                             generated_entities,
                                             generated_net_traces,
                                             template_name, old_sheet,
-                                            ref_map=ref_map,
-                                            anchor_cluster=anchor_cluster)
+                                            ref_map=ref_map)
                                for c in children]
         return gen
 
@@ -664,16 +605,11 @@ def _expand_node(node: dict, instance_name: str, sheet: str,
         gen['children'] = [_expand_node(c, instance_name, sheet, entities_by_name,
                                         net_traces_by_name, generated_entities,
                                         generated_net_traces, template_name,
-                                        old_sheet, cluster, params, ref_map,
-                                        anchor_cluster)
+                                        old_sheet, params, ref_map)
                            for c in children]
     ent = copy.deepcopy(entity)
     ent['name'] = new_ref
     ent['sheet'] = sheet
-    if cluster is not None:
-        # Only when the declaration overrides — otherwise the deep copy keeps
-        # the template Entity's own cluster unchanged (back-compat).
-        ent['cluster'] = cluster
     if params is not None:
         # Per-key MERGE into the generated copy's OWN params — keys not named
         # in the declaration keep the template Entity's value (back-compat);
@@ -697,7 +633,6 @@ def _expand_node(node: dict, instance_name: str, sheet: str,
 def _expand_template(template: dict, template_name: str, instance_name: str,
                      sheet: str, entities_by_name: dict,
                      net_traces_by_name: dict,
-                     cluster: str | None = None,
                      params: dict[str, str] | None = None,
                      decl_anchor: dict | None = None,
                      decl_rotation: float | None = None,
@@ -716,30 +651,15 @@ def _expand_template(template: dict, template_name: str, instance_name: str,
     (gen['anchor']['sheet']) and `old_sheet` (what a MOUNT node's anchor sheet
     is compared against) is anchor.sheet. For an AUTO template there is no
     'anchor' key to mutate — the generated tree stays auto-anchored and
-    `old_sheet` is the root Entity record's own sheet; the instance sheet/cluster reach the
-    copies through the SAME per-node mechanism as any other node (_expand_node),
-    because for an auto template the anchor IS its root node.
-
-    cluster (2026-09-03, plan tree_instances_cluster): when a declaration
-    carries `cluster:`, it lands on the generated ROLE anchor (only when the
-    template is role-anchored — an auto template has no anchor to carry it) AND,
-    via _expand_node, every generated Entity copy. The per-copy half got a
-    COMPOSITE-guard (v1.2.1, 2026-09-08, plan
-    tree_instances_cluster_composite_guard): a template whose placement nodes
-    would generate >1 distinct non-empty cluster values is composite, and a
-    blanket per-copy override there would erase exactly the per-node distinction
-    role_narrowing's Cluster step depends on — so for a composite template the
-    per-copy override is skipped (effective_node_cluster becomes None) and each
-    copy keeps its own template cluster, while a role anchor is STILL overridden
-    (the two substitutions are separate concepts — external-anchor narrowing vs
-    each copy's own identity). A homogeneous template (<=1 distinct value) keeps
-    the unconditional per-copy override exactly as before (back-compat).
+    `old_sheet` is the root Entity record's own sheet; the instance sheet
+    reaches the copies through the SAME per-node mechanism as any other node
+    (_expand_node), because for an auto template the anchor IS its root node.
 
     decl_anchor / decl_rotation (2026-09-12, plan_2026_09_12_tree_instance_own_place
     §И.3, task C2): the DECLARATION's own place and angle. When `decl_anchor` is
-    not None it REPLACES the copy's anchor WHOLE (§И.3.1) — and `sheet`/`cluster`
-    are then NOT substituted into it, because a human named the place explicitly
-    and guessing on top of that is not allowed. The template may then be of ANY
+    not None it REPLACES the copy's anchor WHOLE (§И.3.1) — and `sheet` is then
+    NOT substituted into it, because a human named the place explicitly and
+    guessing on top of that is not allowed. The template may then be of ANY
     anchor mode (§И.4): that is the whole point of the axis ("the same template,
     standing here / at this node" was inexpressible while a role-/self-anchored
     template was mandatory). `old_sheet` is STILL the TEMPLATE's (§И.3.2) — it
@@ -887,21 +807,14 @@ def _expand_template(template: dict, template_name: str, instance_name: str,
     gen['name'] = instance_name
     if has_decl_anchor:
         # §И.3.1: the declaration's anchor REPLACES the copy's WHOLE, and the
-        # sheet/cluster substitution below is deliberately NOT applied to it — a
-        # human named the place explicitly, guessing on top of that is not
-        # allowed. Its own (self (ref ...)), when it has one, still follows the
-        # node renames — done after the walk by _rewrite_self_ref (§И.3.3, the
-        # SAME ref_map as pivot_ref: no third map).
+        # sheet substitution below is deliberately NOT applied to it — a human
+        # named the place explicitly, guessing on top of that is not allowed.
+        # Its own (self (ref ...)), when it has one, still follows the node
+        # renames — done after the walk by _rewrite_self_ref (§И.3.3, the SAME
+        # ref_map as pivot_ref: no third map).
         gen['anchor'] = copy.deepcopy(decl_anchor)
     elif is_role_anchor:
         gen['anchor']['sheet'] = sheet
-        if cluster is not None and isinstance(gen['anchor'].get('role'), str):
-            # Cluster override lands on the role anchor too (we are in the role
-            # branch, so the isinstance guard only documents that cluster
-            # substitution is a role-anchor concept). Set UNCONDITIONALLY when
-            # cluster is given, same pattern as sheet — even if the template
-            # anchor carried no cluster of its own.
-            gen['anchor']['cluster'] = cluster
     # else (self template): the generated tree keeps its self anchor (deep copy).
     # Its OWN (ref ...), when present, must follow the node renames — done after
     # the node walk, via _rewrite_self_ref (the SAME ref_map as pivot_ref, plan
@@ -914,48 +827,15 @@ def _expand_template(template: dict, template_name: str, instance_name: str,
         # the declaration alone.
         gen['rotation'] = decl_rotation
 
-    # 2026-09-08 (plan tree_instances_cluster_composite_guard): the per-node
-    # Entity cluster override below is a DIFFERENT concept from the anchor's
-    # own cluster just set above (external-anchor narrowing vs each copy's OWN
-    # internal identity — role_narrowing.py's anchor_cluster/cluster split).
-    # Unconditional substitution is only correct for a HOMOGENEOUS template; a
-    # COMPOSITE one (multiple nodes with genuinely different template clusters)
-    # would have the override erase real per-node distinctions that
-    # role_narrowing's Cluster step depends on — confirmed live
-    # (done_2026_09_08_role_narrowing_live_probe.md). Deterministic, structural
-    # detection — never guesses the declaration author's intent: a homogeneous
-    # template keeps today's unconditional-override behaviour exactly (0
-    # distinct or 1 distinct value), a composite one skips the per-node
-    # override entirely (each copy keeps its own template cluster).
-    effective_node_cluster = cluster
-    if cluster is not None:
-        generated_clusters = template_generated_clusters(
-            template.get('nodes') or [], entities_by_name)
-        if len(generated_clusters) > 1:
-            logger.info(_("tree_instance {name!r}: template {template!r} is "
-                          "composite ({count} distinct clusters among its "
-                          "nodes: {clusters}) — cluster override {cluster!r} is "
-                          "NOT applied to individual Entity copies (each keeps "
-                          "its own template cluster); the tree's own role-anchor "
-                          "cluster is still overridden as requested")
-                        .format(name=instance_name, template=template_name,
-                                count=len(generated_clusters),
-                                clusters=", ".join(sorted(generated_clusters)),
-                                cluster=cluster))
-            effective_node_cluster = None
-
     generated_entities: list = []
     generated_net_traces: list = []
     # v1.5 (Б3.2 §В.4): old node ref -> new node ref, filled by the SAME walk
     # that expands the nodes; the template's pivot_ref is rewritten through it.
-    # `cluster` (the declaration's RAW value) is passed as anchor_cluster for
-    # mount nodes, while the copies get the composite-guarded
-    # effective_node_cluster — two DIFFERENT concepts (see _expand_mount_node).
     ref_map: dict[str, str] = {}
     gen['nodes'] = [_expand_node(n, instance_name, sheet, entities_by_name,
                                  net_traces_by_name, generated_entities,
                                  generated_net_traces, template_name, old_sheet,
-                                 effective_node_cluster, params, ref_map, cluster)
+                                 params, ref_map)
                     for n in nodes]
     _rewrite_pivot_ref(gen, template_name, instance_name, ref_map)
     _rewrite_self_ref(gen, template_name, instance_name, ref_map)
@@ -1004,8 +884,8 @@ def expand_tree_instances(data: dict, *, failures: list | None = None) -> dict:
     # "a record's position source must be exactly one" under a tree name the user
     # never typed twice (the live report this guard comes from).
     # Raw-dict validation, duplicated on purpose — this function runs BEFORE
-    # entries.py (see the module docstring), same discipline as cluster/params/
-    # anchor/rotation below. Entries that are not mappings, or whose name is not
+    # entries.py (see the module docstring), same discipline as params/anchor/
+    # rotation below. Entries that are not mappings, or whose name is not
     # a string, are skipped: the per-entry guards below have the better message.
     declared_names: dict[str, int] = {}
     for inst in instances:

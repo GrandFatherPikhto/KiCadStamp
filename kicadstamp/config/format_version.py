@@ -69,7 +69,14 @@ logger = logging.getLogger(__name__)
 # `.bak`. The tree converter's INPUT fixtures are excluded there by name: the
 # product refuses them as configs (they must be run through the tree converter
 # first), so they keep the number they were written with.
-CURRENT_FORMAT = 3
+#
+# 3 -> 4 (the `cluster:` axis of a tree_instances declaration is GONE, Н9 of
+# plan_2026_11_07_tree_instances_dialog_and_subtree): switched to 4 on
+# 07.11.2026. The step DROPS the key where it provably changed nothing and
+# REFUSES, naming the declaration, where it did something — see
+# config/tree_instance_cluster_axis.py. A file the step refuses is left
+# untouched (the on-disk path refuses before writing, `.bak` included).
+CURRENT_FORMAT = 4
 
 
 def current_format() -> int:
@@ -329,10 +336,58 @@ def _step_2_to_3(data: dict[str, Any], ctx: UpgradeContext) -> dict[str, Any]:
     return data
 
 
+def _step_3_to_4(data: dict[str, Any], ctx: UpgradeContext) -> dict[str, Any]:
+    """Format 3 -> 4: the `cluster:` axis of a tree_instances declaration is gone.
+
+    An instance changes the SHEET only — a cluster is a property of the RECORD,
+    and fieldstool tags the shared sheet FILE, so two instances of one template
+    are told apart by `sheet` and never by an override (Denis, 07.11: "нам
+    инстанцировать кластеры без нужды. У нас для этого сущности есть").
+
+    The step is the converter rule "upgrade, never guess": the key is DROPPED
+    only where it provably changed nothing, and the file is REFUSED, naming the
+    declaration, where the axis did something real (a role-anchored template, a
+    mount/component address on the template's own sheet, a homogeneous template
+    whose cluster differs from the declaration's). A refused file is not
+    written at all — the on-disk path backs up only what it is about to
+    replace. The question itself lives in
+    config/tree_instance_cluster_axis.py (imported lazily: it is a config
+    question, and this module is imported by every reader)."""
+    from .tree_instance_cluster_axis import axis_removal_refusal
+
+    data = copy.deepcopy(data)
+    instances = data.get("tree_instances")
+    if not isinstance(instances, list):
+        return data
+    entities_by_name = {
+        rec["name"]: rec for rec in data.get("entities") or []
+        if isinstance(rec, dict) and isinstance(rec.get("name"), str)}
+    templates_by_name = {
+        tree["name"]: tree for tree in data.get("trees") or []
+        if isinstance(tree, dict) and isinstance(tree.get("name"), str)}
+    for instance in instances:
+        if not isinstance(instance, dict) or "cluster" not in instance:
+            continue
+        problem = axis_removal_refusal(instance, templates_by_name,
+                                       entities_by_name)
+        if problem is not None:
+            raise ValidationError(format_fatal_error(
+                _("the cluster: axis cannot be removed from this declaration")
+                .format(),
+                [problem,
+                 _("in {path}: format 4 instances change the SHEET only — an "
+                   "entity already carries its own cluster. Remove the key "
+                   "yourself and re-run, or keep the file at format 3 with an "
+                   "older KiCadStamp").format(path=ctx.path)]))
+        del instance["cluster"]
+    return data
+
+
 # version -> the converter taking that version to the next one.
 STEPS: dict[int, Callable[[dict[str, Any], UpgradeContext], dict[str, Any]]] = {
     1: _step_1_to_2,
     2: _step_2_to_3,
+    3: _step_3_to_4,
 }
 
 

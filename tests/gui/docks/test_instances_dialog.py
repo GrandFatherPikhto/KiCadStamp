@@ -209,7 +209,7 @@ def test_fixing_the_refused_row_clears_the_refusal(main_window, tmp_path,
         assert not dlg.refusal_label.isHidden()
 
         # The row's own place — exactly what the live user had to add.
-        dlg.table.cellWidget(0, 4).set_anchor({"origin": True})
+        dlg.table.cellWidget(0, 3).set_anchor({"origin": True})
         assert dlg._apply() is True
 
         _cfg, _ctx, failures = load_config_lenient(str(p))
@@ -300,7 +300,7 @@ def test_the_anchor_form_keeps_an_editable_shift_and_saves_it(
 
     # The row's own anchor cell holds it (here it is set directly — the nested
     # dialog is what normally does this through its "…" button).
-    dlg.table.cellWidget(0, 4).set_anchor(anchor)
+    dlg.table.cellWidget(0, 3).set_anchor(anchor)
     assert dlg._apply() is True
     assert _instances_on_disk(p)[0]["anchor"]["shift"] == [0.0, 40.0]
 
@@ -342,7 +342,7 @@ def test_a_row_with_its_own_anchor_is_written(main_window, tmp_path):
     dlg._add_row()
     dlg.table.item(0, 0).setText("switch_b")
     dlg.table.item(0, 1).setText("SW B")
-    dlg.table.cellWidget(0, 4).set_anchor({"origin": True})
+    dlg.table.cellWidget(0, 3).set_anchor({"origin": True})
 
     assert dlg._apply() is True
     assert _instances_on_disk(p) == [{
@@ -392,74 +392,16 @@ def test_a_sheet_the_project_does_not_have_warns_but_is_written(
 # ── cluster column (2026-09-03, plan tree_instances_cluster) ────────────────
 
 
-def test_table_has_six_columns_with_cluster_rotation_anchor_and_root(
-        main_window, tmp_path):
-    """2026-09-12 (§И.5): Rotation and Anchor after the cluster column; the Root
-    column (acceptance 8.5) is APPENDED last, so every earlier index is
-    unchanged."""
+def test_table_has_four_axes_besides_name_and_sheet(main_window, tmp_path):
+    """Rotation and Anchor (2026-09-12, §И.5) plus the Root column (8.5). The
+    Cluster column is GONE (Н9, format 4): an instance changes the sheet only."""
     dlg, _p = _open_dialog(main_window, tmp_path)
-    assert dlg.table.columnCount() == 6
+    assert dlg.table.columnCount() == 5
     assert dlg.table.horizontalHeaderItem(0).text() == "Instance name"
     assert dlg.table.horizontalHeaderItem(1).text() == "Sheet"
-    assert dlg.table.horizontalHeaderItem(2).text() == "Cluster"
-    assert dlg.table.horizontalHeaderItem(3).text() == "Rotation"
-    assert dlg.table.horizontalHeaderItem(4).text() == "Anchor"
-    assert dlg.table.horizontalHeaderItem(5).text() == "Root"
-
-
-def test_existing_cluster_loaded_into_third_column(main_window, tmp_path):
-    dlg, _p = _open_dialog(main_window, tmp_path, [
-        {"template": "dac_buf_tpl", "name": "ch1_dac_buf", "sheet": "Channel_1",
-         "cluster": "CLUST_A"}])
-    assert dlg.table.rowCount() == 1
-    assert dlg.table.item(0, 0).text() == "ch1_dac_buf"
-    assert dlg.table.item(0, 1).text() == "Channel_1"
-    assert dlg.table.item(0, 2).text() == "CLUST_A"
-    assert dlg.rows() == [{"name": "ch1_dac_buf", "sheet": "Channel_1",
-                           "cluster": "CLUST_A"}]
-
-
-def test_row_with_cluster_writes_cluster_key(main_window, tmp_path):
-    dlg, p = _open_dialog(main_window, tmp_path)
-    dlg._add_row()
-    dlg.table.item(0, 0).setText("ch1_dac_buf")
-    dlg.table.item(0, 1).setText("Channel_1")
-    dlg.table.item(0, 2).setText("CLUST_A")
-    assert dlg._apply() is True
-    assert _instances_on_disk(p) == [{
-        "template": "dac_buf_tpl", "name": "ch1_dac_buf", "sheet": "Channel_1",
-        "cluster": "CLUST_A"}]
-
-
-def test_row_with_blank_cluster_omits_the_key(main_window, tmp_path):
-    dlg, p = _open_dialog(main_window, tmp_path)
-    dlg._add_row()
-    dlg.table.item(0, 0).setText("ch1_dac_buf")
-    dlg.table.item(0, 1).setText("Channel_1")
-    dlg.table.item(0, 2).setText("   ")   # blank cluster
-    assert dlg._apply() is True
-    assert _instances_on_disk(p) == [{
-        "template": "dac_buf_tpl", "name": "ch1_dac_buf", "sheet": "Channel_1"}]
-
-
-def test_blank_cluster_is_not_required(main_window, tmp_path, monkeypatch):
-    """Cluster is OPTIONAL — a valid name+sheet row with an empty cluster cell
-    must NOT be rejected (only name/sheet are required), and saves without a
-    cluster key."""
-    import gui.docks.instances_dialog as id_mod
-    warnings = []
-    monkeypatch.setattr(id_mod.QMessageBox, "warning",
-                        lambda *a, **k: warnings.append(a)
-                        or id_mod.QMessageBox.StandardButton.Ok)
-    dlg, p = _open_dialog(main_window, tmp_path)
-    dlg._add_row()
-    dlg.table.item(0, 0).setText("ch1")
-    dlg.table.item(0, 1).setText("Channel_1")
-    dlg.table.item(0, 2).setText("")   # blank cluster
-    assert dlg._apply() is True
-    assert not warnings
-    assert _instances_on_disk(p) == [{
-        "template": "dac_buf_tpl", "name": "ch1", "sheet": "Channel_1"}]
+    assert dlg.table.horizontalHeaderItem(2).text() == "Rotation"
+    assert dlg.table.horizontalHeaderItem(3).text() == "Anchor"
+    assert dlg.table.horizontalHeaderItem(4).text() == "Root"
 
 
 # ── Rotation + Anchor columns (2026-09-12, plan_..._tree_instance_own_place §И.5) ──
@@ -471,11 +413,11 @@ def test_existing_place_and_angle_loaded_into_the_new_columns(main_window, tmp_p
     dlg, _p = _open_dialog(main_window, tmp_path, [
         {"template": "dac_buf_tpl", "name": "ch1_dac_buf", "sheet": "Channel_1",
          "anchor": {"point": "p_home"}, "rotation": 90}])
-    assert dlg.table.item(0, 3).text() == "90"
+    assert dlg.table.item(0, 2).text() == "90"
     # The subject is the anchor's point NAME, not its uuid (which a lifted
     # format-3 declaration carries), so compare without the identity keys.
-    assert without_identity(dlg.table.cellWidget(0, 4).anchor) == {"point": "p_home"}
-    assert dlg.table.cellWidget(0, 4).label.text().startswith("point")
+    assert without_identity(dlg.table.cellWidget(0, 3).anchor) == {"point": "p_home"}
+    assert dlg.table.cellWidget(0, 3).label.text().startswith("point")
     assert without_identity(dlg.rows()) == [
         {"name": "ch1_dac_buf", "sheet": "Channel_1",
          "rotation": 90.0, "anchor": {"point": "p_home"}}]
@@ -489,14 +431,14 @@ def test_rotation_cell_writes_a_number_and_a_blank_cell_omits_the_key(
     dlg._add_row()
     dlg.table.item(0, 0).setText("ch1_dac_buf")
     dlg.table.item(0, 1).setText("Channel_1")
-    dlg.table.item(0, 3).setText("45.5")
+    dlg.table.item(0, 2).setText("45.5")
     assert dlg._apply() is True
     assert _instances_on_disk(p) == [{
         "template": "dac_buf_tpl", "name": "ch1_dac_buf",
         "sheet": "Channel_1", "rotation": 45.5}]
 
     # ... clearing the cell drops the key on the next write
-    dlg.table.item(0, 3).setText("")
+    dlg.table.item(0, 2).setText("")
     assert dlg._apply() is True
     assert _instances_on_disk(p) == [{
         "template": "dac_buf_tpl", "name": "ch1_dac_buf", "sheet": "Channel_1"}]
@@ -513,7 +455,7 @@ def test_non_numeric_rotation_is_rejected_without_write(main_window, tmp_path,
     dlg._add_row()
     dlg.table.item(0, 0).setText("ch1_dac_buf")
     dlg.table.item(0, 1).setText("Channel_1")
-    dlg.table.item(0, 3).setText("ninety")
+    dlg.table.item(0, 2).setText("ninety")
     assert dlg._apply() is False
     assert warnings, "a non-numeric rotation must explain the problem"
     assert _instances_on_disk(p) == []
@@ -585,8 +527,8 @@ def test_anchor_cell_button_writes_the_chosen_place(main_window, tmp_path, monke
     dlg.table.item(0, 1).setText("Channel_1")
     monkeypatch.setattr(TreeInstancesDialog, "_edit_anchor",
                         lambda self, current: {"origin": True})
-    dlg.table.cellWidget(0, 4).button.click()
-    assert dlg.table.cellWidget(0, 4).anchor == {"origin": True}
+    dlg.table.cellWidget(0, 3).button.click()
+    assert dlg.table.cellWidget(0, 3).anchor == {"origin": True}
     assert dlg._apply() is True
     assert _instances_on_disk(p) == [{
         "template": "dac_buf_tpl", "name": "ch1_dac_buf",
@@ -601,8 +543,8 @@ def test_anchor_cell_cancel_keeps_the_previous_place(main_window, tmp_path,
          "anchor": {"point": "p_home"}}])
     monkeypatch.setattr(TreeInstancesDialog, "_edit_anchor",
                         lambda self, current: _CANCELLED)
-    dlg.table.cellWidget(0, 4).button.click()
-    assert without_identity(dlg.table.cellWidget(0, 4).anchor) == {"point": "p_home"}
+    dlg.table.cellWidget(0, 3).button.click()
+    assert without_identity(dlg.table.cellWidget(0, 3).anchor) == {"point": "p_home"}
     assert dlg._apply() is True   # an untouched row stays untouched
     assert without_identity(_instances_on_disk(p)) == [{
         "template": "dac_buf_tpl", "name": "ch1_dac_buf",
@@ -618,8 +560,8 @@ def test_inherit_from_template_clears_the_anchor_key(main_window, tmp_path,
          "anchor": {"point": "p_home"}, "rotation": 30}])
     monkeypatch.setattr(TreeInstancesDialog, "_edit_anchor",
                         lambda self, current: None)
-    dlg.table.cellWidget(0, 4).button.click()
-    assert dlg.table.cellWidget(0, 4).anchor is None
+    dlg.table.cellWidget(0, 3).button.click()
+    assert dlg.table.cellWidget(0, 3).anchor is None
     assert dlg._apply() is True
     assert _instances_on_disk(p) == [{
         "template": "dac_buf_tpl", "name": "ch1_dac_buf",
@@ -693,7 +635,7 @@ def test_the_root_column_offers_placement_nodes_only(main_window, tmp_path):
     dlg, _p = _open_multi(main_window, tmp_path)
     dlg._add_row()
 
-    combo = dlg.table.cellWidget(0, 5)
+    combo = dlg.table.cellWidget(0, 4)
     assert [combo.itemText(i) for i in range(combo.count())] == [
         "— whole tree —", "driver", "sw", "other"]
     assert combo.currentIndex() == 0
@@ -707,7 +649,7 @@ def test_a_chosen_root_reaches_the_declaration_with_its_uuid(main_window, tmp_pa
     dlg._add_row()
     dlg.table.item(0, 0).setText("b")
     dlg.table.item(0, 1).setText("SW B")
-    combo = dlg.table.cellWidget(0, 5)
+    combo = dlg.table.cellWidget(0, 4)
     combo.setCurrentIndex(combo.findText("driver"))
 
     assert dlg._apply() is True
@@ -727,7 +669,7 @@ def test_whole_tree_removes_the_root_key(main_window, tmp_path):
     dlg, p = _open_multi(main_window, tmp_path, [
         {"template": "tpl", "name": "b", "sheet": "SW B",
          "root": {"ref": "driver"}}])
-    combo = dlg.table.cellWidget(0, 5)
+    combo = dlg.table.cellWidget(0, 4)
     assert combo.currentText() == "driver"
 
     combo.setCurrentIndex(0)
@@ -746,7 +688,7 @@ def test_a_stored_root_the_template_no_longer_offers_is_kept_and_refused(
         {"template": "tpl", "name": "b", "sheet": "SW B",
          "root": {"ref": "under_mount"}}], lenient=True)
 
-    combo = dlg.table.cellWidget(0, 5)
+    combo = dlg.table.cellWidget(0, 4)
     assert combo.currentText() == "under_mount"
     assert dlg.rows()[0]["root"]["ref"] == "under_mount"
 
@@ -765,7 +707,7 @@ def test_a_root_leaving_a_reference_outside_the_subtree_is_not_written(
     dlg._add_row()
     dlg.table.item(0, 0).setText("b")
     dlg.table.item(0, 1).setText("SW B")
-    combo = dlg.table.cellWidget(0, 5)
+    combo = dlg.table.cellWidget(0, 4)
     combo.setCurrentIndex(combo.findText("driver"))
 
     assert dlg._apply() is False
@@ -787,7 +729,7 @@ def test_anchor_written_by_the_dialog_materializes_on_the_point(main_window,
     dlg.table.item(0, 1).setText("Channel_1")
     monkeypatch.setattr(TreeInstancesDialog, "_edit_anchor",
                         lambda self, current: {"point": "p_home"})
-    dlg.table.cellWidget(0, 4).button.click()
+    dlg.table.cellWidget(0, 3).button.click()
     assert dlg._apply() is True
 
     from kicadstamp.tree_position import layout_tree_from_anchor

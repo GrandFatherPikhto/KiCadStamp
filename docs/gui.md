@@ -1255,10 +1255,10 @@ template tree shows one **"→ instance: {name}"** item per instance — double-
 `trees:` entries — the untouched `tree_instances:` section regenerates them on every load (no
 duplication). Manage the short declarations with **Tools → Trees → Instances…**: pick a template
 (generated instances can't themselves be templates) and edit its
-{name, sheet, cluster?, rotation?, anchor?, root?} rows — the
-Cluster column is OPTIONAL (blank = inherit the template's own cluster unchanged); a non-empty value is
-substituted into the generated copies' `cluster` and the role anchor, mirroring `sheet`. The dialog
-only persists the declarations, the instances materialize on the next load.
+{name, sheet, rotation?, anchor?, root?} rows. The old **Cluster** column is GONE (format 4, Н9): an
+instance changes the SHEET only — a cluster belongs to the record, and two instances of one template
+are told apart by their sheets. The dialog only persists the declarations, the instances materialize on
+the next load.
 
 Two more OPTIONAL columns (2026-09-12, plan tree_instance_own_place §И.5) put the instance's OWN place
 in the same table:

@@ -57,7 +57,9 @@ def _cell_data(role: str) -> dict:
     ]}
 
 
-def _write(path, data, format_number: int = 2) -> None:
+def _write(path, data, format_number: int | None = None) -> None:
+    """`format_number` None = the CURRENT one: an older number would make the
+    startup LIFT the file (an extra parse) and this cell counts parses."""
     path.write_text(dict_to_sexp(data, format_number=format_number),
                     encoding="utf-8")
 
@@ -105,7 +107,9 @@ def _write_test_project(tmp_path):
     if current_format() >= 3:
         files = mint_format3_files(
             {"sub1.sexp": sub1, "sub2.sexp": sub2, "root.sexp": root_data})
-        fmt = 3
+        # The CURRENT number, not 3: an older number makes the startup LIFT the
+        # file, and this cell counts parses — the lift would be counted too.
+        fmt = current_format()
     else:
         files = {"sub1.sexp": sub1, "sub2.sexp": sub2, "root.sexp": root_data}
         fmt = 2

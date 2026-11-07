@@ -87,7 +87,8 @@ Tree
       pivot_xy / pivot_polar — только kind="module"
 ```
 
-**`tree_instances:`** — декларация `{template, name, sheet, cluster?, params?, anchor?, rotation?}`;
+**`tree_instances:`** — декларация `{template, name, sheet, params?, anchor?, rotation?, root?}`
+(оси `cluster:` больше нет — формат 4, Н9);
 разворачивается в полноценное дерево + Entity(и) заново при КАЖДОЙ загрузке, копией не хранится.
 
 ## Импринты (`imprints:`) — захваченный отпечаток постановки

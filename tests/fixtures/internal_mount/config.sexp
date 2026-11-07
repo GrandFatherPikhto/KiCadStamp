@@ -1,5 +1,5 @@
 (kicadstamp-config
-  (version 3)
+  (version 4)
   (trees
     (tree
       (name "internal_mount")

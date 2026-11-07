@@ -1390,20 +1390,21 @@ def _load_coordinate_placement(data: dict[str, Any]) -> CoordinatePlacement:
     )
 
 
-# tree_instances: — short sheet-/cluster-/params-/anchor-parameterized
-# references to a template tree (2026-09-02, plan tree_instances; cluster axis
-# added 2026-09-03, plan tree_instances_cluster; params axis added 2026-09-07,
+# tree_instances: — short sheet-/params-/anchor-parameterized references to a
+# template tree (2026-09-02, plan tree_instances; params axis added 2026-09-07,
 # plan tree_instances_params_override; anchor/rotation axes added 2026-09-12,
 # plan_2026_09_12_tree_instance_own_place §И.2 — a declaration can name the
-# instance's OWN place instead of inheriting it from a role). Three required
-# string fields (template/name/sheet) plus OPTIONAL cluster/params overrides and
-# the OPTIONAL anchor (the TREE anchor dict grammar) / rotation; the actual
-# expansion into full Tree+Entity dicts happens dict-level in
-# config/tree_instances.py (expand_tree_instances, BEFORE these loaders run);
-# this loader only parses the DECLARATION into cfg.tree_instances — the GUI's
-# read-only-instance index and the persistence source. Missing fields here are
-# fatal with the same discipline as every other list-section record.
-_TREE_INSTANCE_KNOWN_KEYS = {"template", "name", "sheet", "cluster", "params",
+# instance's OWN place instead of inheriting it from a role; `root` added
+# 2026-11-07, Н6). Three required string fields (template/name/sheet) plus
+# OPTIONAL params and the OPTIONAL anchor (the TREE anchor dict grammar) /
+# rotation / root; the actual expansion into full Tree+Entity dicts happens
+# dict-level in config/tree_instances.py (expand_tree_instances, BEFORE these
+# loaders run); this loader only parses the DECLARATION into
+# cfg.tree_instances — the GUI's read-only-instance index and the persistence
+# source. Missing fields here are fatal with the same discipline as every other
+# list-section record. The `cluster:` axis is GONE from format 4 (Н9, 07.11):
+# an instance changes the SHEET only.
+_TREE_INSTANCE_KNOWN_KEYS = {"template", "name", "sheet", "params",
                              "anchor", "rotation", "root"}
 
 
@@ -1412,11 +1413,8 @@ def _load_tree_instance(data: dict[str, Any]) -> TreeInstance:
     materialized tree). All three fields (template/name/sheet) are required and
     must be non-empty strings: expansion needs template (which tree to copy),
     name (the generated tree's unique name) and sheet (what gets substituted).
-    `cluster` is OPTIONAL (2026-09-03): when present it must be a non-empty
-    string — it is substituted into the generated Entity copies' `cluster`
-    (and the role-anchor cluster); when absent (None) the generated copies
-    inherit the template's own cluster unchanged (today's behaviour). `params`
-    is OPTIONAL (2026-09-07): when present it must be a mapping — it is MERGED
+    `params` is OPTIONAL (2026-09-07): when present it must be a mapping — it is
+    MERGED
     into every generated Entity copy's `params` (the {placeholder}-substitution
     values resolve_net reads); when absent (None) the generated copies inherit
     the template's own params unchanged. `anchor`/`rotation` are OPTIONAL
@@ -1440,12 +1438,6 @@ def _load_tree_instance(data: dict[str, Any]) -> TreeInstance:
                 [_("every tree_instances: entry needs template:/name:/sheet: (all "
                    "non-empty strings) — template names the source tree, name is the "
                    "generated tree's name, sheet is substituted into the copies")]))
-    cluster = data.get('cluster')
-    if cluster is not None and (not isinstance(cluster, str) or not cluster):
-        raise ValidationError(format_fatal_error(
-            _("tree_instances: entry {name!r} has an empty cluster:").format(name=name),
-            [_("cluster:, when present, must be a non-empty string — omit the key "
-               "entirely to inherit the template's own cluster unchanged")]))
     params = data.get('params')
     if params is not None and not isinstance(params, dict):
         raise ValidationError(format_fatal_error(
@@ -1477,7 +1469,7 @@ def _load_tree_instance(data: dict[str, Any]) -> TreeInstance:
     check_unknown_keys(data, _TREE_INSTANCE_KNOWN_KEYS,
                        _("unknown fields in tree_instances entry {name!r}")
                        .format(name=name))
-    return TreeInstance(template=template, name=name, sheet=sheet, cluster=cluster,
+    return TreeInstance(template=template, name=name, sheet=sheet,
                         params=params, anchor=anchor, root=data.get('root'),
                         rotation=float(rotation) if rotation is not None else None)
 

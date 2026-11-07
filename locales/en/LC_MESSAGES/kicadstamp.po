@@ -3,7 +3,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version:  kicadstamp\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-11-07 14:39+0300\n"
+"POT-Creation-Date: 2026-11-07 17:25+0300\n"
 "PO-Revision-Date: 2026-07-27 12:00+0000\n"
 "Last-Translator: \n"
 "Language: en\n"
@@ -913,7 +913,7 @@ msgid "Remove from include:"
 msgstr "Remove from include:"
 
 #: gui/docks/cell_editor.py:273 gui/docks/cell_editor.py:301
-#: gui/docks/cell_layers.py:110 gui/docks/instances_dialog.py:476
+#: gui/docks/cell_layers.py:110 gui/docks/instances_dialog.py:473
 #: gui/docks/profile_import.py:175 gui/docks/settings_dialog.py:52
 #: gui/docks/trees_dock.py:5685 gui/docks/trees_dock.py:7080
 #: gui/include_recovery.py:122
@@ -1963,8 +1963,7 @@ msgstr ""
 msgid "Name"
 msgstr "Name"
 
-#: gui/docks/add_entities.py:117 gui/docks/instances_dialog.py:252
-#: gui/docks/role_cluster_tree.py:240
+#: gui/docks/add_entities.py:117 gui/docks/role_cluster_tree.py:240
 #: gui/docks/tree_from_selection_dialog.py:145
 msgid "Cluster"
 msgstr "Cluster"
@@ -2229,7 +2228,8 @@ msgstr ""
 #: gui/docks/cell_editor.py:404 gui/docks/profile_import.py:78
 #: gui/docks/role_cluster_tree.py:791 gui/docks/role_cluster_tree.py:813
 #: kicadstamp/config/profile_copy.py:88 kicadstamp/config/profile_copy.py:272
-#: kicadstamp/config/tree_instance_expand.py:121
+#: kicadstamp/config/tree_instance_cluster_axis.py:146
+#: kicadstamp/config/tree_instance_expand.py:113
 #: kicadstamp/diagnostics/get_selected_component.py:80
 msgid "(none)"
 msgstr "(none)"
@@ -4929,7 +4929,7 @@ msgstr ""
 msgid "Instance name"
 msgstr ""
 
-#: gui/docks/instances_dialog.py:253
+#: gui/docks/instances_dialog.py:252
 #: gui/docks/tree_from_selection_dialog.py:123 gui/entity/page.py:524
 msgid "Anchor"
 msgstr "Anchor"
@@ -4942,7 +4942,7 @@ msgstr "Root"
 msgid "Add row"
 msgstr ""
 
-#: gui/docks/instances_dialog.py:317
+#: gui/docks/instances_dialog.py:316
 #, python-brace-format
 msgid ""
 "Instance {name!r} is refused on load and is NOT materialized — fix or "
@@ -4951,59 +4951,59 @@ msgstr ""
 "Instance {name!r} is refused on load and is NOT materialized — fix or "
 "delete this row: {error}"
 
-#: gui/docks/instances_dialog.py:331
+#: gui/docks/instances_dialog.py:330
 #, python-brace-format
 msgid "refused on load: {error}"
 msgstr "refused on load: {error}"
 
-#: gui/docks/instances_dialog.py:360
+#: gui/docks/instances_dialog.py:359
 msgid "Copy only this node of the template and everything under it"
 msgstr "Copy only this node of the template and everything under it"
 
-#: gui/docks/instances_dialog.py:365
+#: gui/docks/instances_dialog.py:364
 msgid "— whole tree —"
 msgstr "— whole tree —"
 
-#: gui/docks/instances_dialog.py:449
+#: gui/docks/instances_dialog.py:446
 msgid "Instance anchor"
 msgstr ""
 
-#: gui/docks/instances_dialog.py:468
+#: gui/docks/instances_dialog.py:465
 msgid "Inherit from template"
 msgstr ""
 
-#: gui/docks/instances_dialog.py:472
+#: gui/docks/instances_dialog.py:469
 msgid ""
 "Drop this row's own anchor — the instance goes back to standing where the"
 " template's anchor resolves."
 msgstr ""
 
-#: gui/docks/instances_dialog.py:474 gui/docks/settings_dialog.py:49
+#: gui/docks/instances_dialog.py:471 gui/docks/settings_dialog.py:49
 #: gui/docks/trees_dock.py:5683 gui/docks/trees_dock.py:7078
 msgid "OK"
 msgstr "OK"
 
-#: gui/docks/instances_dialog.py:512
+#: gui/docks/instances_dialog.py:509
 msgid "No tree is loaded to use as a template."
 msgstr ""
 
-#: gui/docks/instances_dialog.py:524
+#: gui/docks/instances_dialog.py:521
 msgid "Every instance row needs a non-empty instance name and sheet."
 msgstr ""
 
-#: gui/docks/instances_dialog.py:527
+#: gui/docks/instances_dialog.py:524
 #, python-brace-format
 msgid "Instance name {name!r} is used twice for template {template!r}."
 msgstr ""
 
-#: gui/docks/instances_dialog.py:531
+#: gui/docks/instances_dialog.py:528
 #, python-brace-format
 msgid ""
 "Instance name {name!r} already exists as a tree — instance names must "
 "stay unique across all trees."
 msgstr ""
 
-#: gui/docks/instances_dialog.py:535
+#: gui/docks/instances_dialog.py:532
 #, python-brace-format
 msgid "Rotation must be a number — got {value!r}."
 msgstr ""
@@ -9780,7 +9780,7 @@ msgstr ""
 msgid "tree {name!r} has no node {ref!r} to append under"
 msgstr ""
 
-#: kicadstamp/config_writer.py:749
+#: kicadstamp/config_writer.py:748
 #, python-brace-format
 msgid "include: in {path} is not a list — refusing to touch it"
 msgstr "include: in {path} is not a list — refusing to touch it"
@@ -10144,12 +10144,12 @@ msgstr "Root keys: {keys}"
 msgid "Would write to: {path}"
 msgstr "Would write to: {path}"
 
-#: kicadstamp/flatten.py:157 kicadstamp/tree_mount_convert.py:487
+#: kicadstamp/flatten.py:157 kicadstamp/tree_mount_convert.py:491
 #, python-brace-format
 msgid "Written to: {path}"
 msgstr "Written to: {path}"
 
-#: kicadstamp/flatten.py:159 kicadstamp/tree_mount_convert.py:489
+#: kicadstamp/flatten.py:159 kicadstamp/tree_mount_convert.py:493
 #, python-brace-format
 msgid "Backup: {path}"
 msgstr "Backup: {path}"
@@ -11825,7 +11825,7 @@ msgid ""
 "converted; convert each included file separately"
 msgstr ""
 
-#: kicadstamp/tree_mount_convert.py:490
+#: kicadstamp/tree_mount_convert.py:494
 #, python-brace-format
 msgid "convert-trees: wrote {path}"
 msgstr ""
@@ -14001,46 +14001,34 @@ msgstr ""
 "anchor_pad only has meaning with anchor: pad — either add that, or remove"
 " anchor_pad"
 
-#: kicadstamp/config/entries.py:1430
+#: kicadstamp/config/entries.py:1428
 #, python-brace-format
 msgid "tree_instances: entry must be a mapping, got {type}"
 msgstr ""
 
-#: kicadstamp/config/entries.py:1432
+#: kicadstamp/config/entries.py:1430
 msgid "a tree_instances: entry is a dict with 'template'/'name'/'sheet'"
 msgstr ""
 
-#: kicadstamp/config/entries.py:1439
+#: kicadstamp/config/entries.py:1437
 #, python-brace-format
 msgid "tree_instances: entry missing required {field}:"
 msgstr ""
 
-#: kicadstamp/config/entries.py:1440
+#: kicadstamp/config/entries.py:1438
 msgid ""
 "every tree_instances: entry needs template:/name:/sheet: (all non-empty "
 "strings) — template names the source tree, name is the generated tree's "
 "name, sheet is substituted into the copies"
 msgstr ""
 
-#: kicadstamp/config/entries.py:1446
-#, python-brace-format
-msgid "tree_instances: entry {name!r} has an empty cluster:"
-msgstr ""
-
-#: kicadstamp/config/entries.py:1447
-#: kicadstamp/config/tree_instance_expand.py:62
-msgid ""
-"cluster:, when present, must be a non-empty string — omit the key "
-"entirely to inherit the template's own cluster unchanged"
-msgstr ""
-
-#: kicadstamp/config/entries.py:1452
+#: kicadstamp/config/entries.py:1444
 #, python-brace-format
 msgid "tree_instances: entry {name!r} has a non-mapping params:"
 msgstr ""
 
-#: kicadstamp/config/entries.py:1453
-#: kicadstamp/config/tree_instance_expand.py:73
+#: kicadstamp/config/entries.py:1445
+#: kicadstamp/config/tree_instance_expand.py:65
 msgid ""
 "params:, when present, must be a mapping of string keys to string values "
 "— omit the key entirely to inherit the template Entity's own params "
@@ -14049,66 +14037,66 @@ msgstr ""
 
 # ── tree_instances: a declaration's own place
 # (plan_2026_09_12_tree_instance_own_place) ──
-#: kicadstamp/config/entries.py:1462
+#: kicadstamp/config/entries.py:1454
 #, python-brace-format
 msgid "tree_instances: entry {name!r} has a non-mapping anchor:"
 msgstr ""
 
-#: kicadstamp/config/entries.py:1463
-#: kicadstamp/config/tree_instance_expand.py:85
+#: kicadstamp/config/entries.py:1455
+#: kicadstamp/config/tree_instance_expand.py:77
 msgid ""
 "anchor:, when present, must be a mapping in the TREE anchor grammar "
 "(origin / ref / role / point / self, plus optional sheet / cluster / pad "
 "/ shift) — omit the key entirely to keep the template's own place"
 msgstr ""
 
-#: kicadstamp/config/entries.py:1473
+#: kicadstamp/config/entries.py:1465
 #, python-brace-format
 msgid "tree_instances: entry {name!r} has a non-numeric rotation:"
 msgstr ""
 
-#: kicadstamp/config/entries.py:1475
-#: kicadstamp/config/tree_instance_expand.py:99
+#: kicadstamp/config/entries.py:1467
+#: kicadstamp/config/tree_instance_expand.py:91
 msgid ""
 "rotation:, when present, must be a number (degrees) — omit the key "
 "entirely to inherit the template's own angle"
 msgstr ""
 
-#: kicadstamp/config/entries.py:1478
+#: kicadstamp/config/entries.py:1470
 #, python-brace-format
 msgid "unknown fields in tree_instances entry {name!r}"
 msgstr ""
 
-#: kicadstamp/config/entries.py:1541
+#: kicadstamp/config/entries.py:1533
 #, python-brace-format
 msgid "unknown fields in {label}"
 msgstr "unknown fields in {label}"
 
-#: kicadstamp/config/entries.py:1547
+#: kicadstamp/config/entries.py:1539
 #, python-brace-format
 msgid "unknown fields in {label} own anchor"
 msgstr "unknown fields in {label} own anchor"
 
-#: kicadstamp/config/entries.py:1562
+#: kicadstamp/config/entries.py:1554
 #, python-brace-format
 msgid "trees: entry must be a mapping, got {type}"
 msgstr "trees: entry must be a mapping, got {type}"
 
-#: kicadstamp/config/entries.py:1563
+#: kicadstamp/config/entries.py:1555
 msgid "a trees: entry is a dict with 'name'/'anchor'/'nodes'"
 msgstr "a trees: entry is a dict with 'name'/'anchor'/'nodes'"
 
-#: kicadstamp/config/entries.py:1566
+#: kicadstamp/config/entries.py:1558
 #, python-brace-format
 msgid "unknown fields in trees entry {name!r}"
 msgstr "unknown fields in trees entry {name!r}"
 
-#: kicadstamp/config/entries.py:1571
+#: kicadstamp/config/entries.py:1563
 #, python-brace-format
 msgid "unknown fields in tree anchor {name!r}"
 msgstr "unknown fields in tree anchor {name!r}"
 
-#: kicadstamp/config/entries.py:1580
+#: kicadstamp/config/entries.py:1572
 #, python-brace-format
 msgid "invalid trees entry {name!r}"
 msgstr "invalid trees entry {name!r}"
@@ -14302,40 +14290,40 @@ msgid ""
 "or fix the references first"
 msgstr ""
 
-#: kicadstamp/config/format_version.py:108
+#: kicadstamp/config/format_version.py:115
 #, python-brace-format
 msgid "the config format number must be a positive whole number, got {value}"
 msgstr ""
 
-#: kicadstamp/config/format_version.py:110
+#: kicadstamp/config/format_version.py:117
 #, python-brace-format
 msgid ""
 "in {path}: the number is a plain whole number of 1 or more (like (version"
 " 2))"
 msgstr ""
 
-#: kicadstamp/config/format_version.py:143
+#: kicadstamp/config/format_version.py:150
 #, python-brace-format
 msgid ""
 "config {path} is written in format {found}; this version of KiCadStamp "
 "understands the format up to {supported}"
 msgstr ""
 
-#: kicadstamp/config/format_version.py:145
+#: kicadstamp/config/format_version.py:152
 msgid ""
 "update KiCadStamp: the file is not read on purpose, so that nothing this "
 "version does not know about is lost. Once a newer KiCadStamp has lifted "
 "the profile, do not open it with an older one"
 msgstr ""
 
-#: kicadstamp/config/format_version.py:181
+#: kicadstamp/config/format_version.py:188
 #, python-brace-format
 msgid ""
 "the converter from format {from_version} to {to_version} cannot run here:"
 " it needs {requirement}"
 msgstr ""
 
-#: kicadstamp/config/format_version.py:184
+#: kicadstamp/config/format_version.py:191
 #, python-brace-format
 msgid ""
 "in {path}: this step needs {requirement}, which parsing the file alone "
@@ -14344,26 +14332,38 @@ msgid ""
 "of an older format as if it were current"
 msgstr ""
 
-#: kicadstamp/config/format_version.py:241
+#: kicadstamp/config/format_version.py:248
 #, python-brace-format
 msgid ""
 "format 2->3: {section}[{index}] in {path} has no name — the converter "
 "minted {name!r}"
 msgstr ""
 
-#: kicadstamp/config/format_version.py:289
+#: kicadstamp/config/format_version.py:296
 #, python-brace-format
 msgid ""
 "the kind of tree node {ref!r} — without it the converter cannot tell "
 "which section its ref points into"
 msgstr ""
 
-#: kicadstamp/config/format_version.py:362
+#: kicadstamp/config/format_version.py:375
+msgid "the cluster: axis cannot be removed from this declaration"
+msgstr ""
+
+#: kicadstamp/config/format_version.py:378
+#, python-brace-format
+msgid ""
+"in {path}: format 4 instances change the SHEET only — an entity already "
+"carries its own cluster. Remove the key yourself and re-run, or keep the "
+"file at format 3 with an older KiCadStamp"
+msgstr "in {path}: format 4 instances change the SHEET only — an entity already carries its own cluster. Remove the key yourself and re-run, or keep the file at format 3 with an older KiCadStamp"
+
+#: kicadstamp/config/format_version.py:417
 #, python-brace-format
 msgid "no format converter from {from_version} to {to_version}"
 msgstr ""
 
-#: kicadstamp/config/format_version.py:364
+#: kicadstamp/config/format_version.py:419
 msgid ""
 "the converter chain has a hole — this is an internal error, not a problem"
 " with the file"
@@ -14956,24 +14956,24 @@ msgstr ""
 "config {path}: tree {tree!r} has a node {ref!r} of the retired kind "
 "{kind!r} ({label})"
 
-#: kicadstamp/config/sexp_format.py:176
+#: kicadstamp/config/sexp_format.py:177
 #, python-brace-format
 msgid ""
 "in {path}: got {value!r}; write (cell \"name\") or (cell \"name\" (uuid "
 "\"…\"))"
 msgstr ""
 
-#: kicadstamp/config/sexp_format.py:185 kicadstamp/config/sexp_format.py:583
+#: kicadstamp/config/sexp_format.py:186 kicadstamp/config/sexp_format.py:577
 #, python-brace-format
 msgid "in {path}: got {value!r}"
 msgstr ""
 
-#: kicadstamp/config/sexp_format.py:389
+#: kicadstamp/config/sexp_format.py:390
 #, python-brace-format
 msgid "s-expr: unsupported value {value!r} in a free-form field"
 msgstr "s-expr: unsupported value {value!r} in a free-form field"
 
-#: kicadstamp/config/sexp_format.py:390
+#: kicadstamp/config/sexp_format.py:391
 msgid ""
 "only strings, numbers, booleans, mappings and lists are supported in the "
 "free-form sections (extract_profiles/clone_profiles/sheet_templates)"
@@ -14981,12 +14981,12 @@ msgstr ""
 "only strings, numbers, booleans, mappings and lists are supported in the "
 "free-form sections (extract_profiles/clone_profiles/sheet_templates)"
 
-#: kicadstamp/config/sexp_format.py:477
+#: kicadstamp/config/sexp_format.py:476
 #, python-brace-format
 msgid "s-expr: unknown key {key!r} in {tag}"
 msgstr "s-expr: unknown key {key!r} in {tag}"
 
-#: kicadstamp/config/sexp_format.py:478
+#: kicadstamp/config/sexp_format.py:477
 msgid ""
 "the s-expr config uses the same per-record known-key rule as YAML "
 "(check_unknown_keys) — a key outside the record dataclass is a typo"
@@ -14994,12 +14994,12 @@ msgstr ""
 "the s-expr config uses the same per-record known-key rule as YAML "
 "(check_unknown_keys) — a key outside the record dataclass is a typo"
 
-#: kicadstamp/config/sexp_format.py:545
+#: kicadstamp/config/sexp_format.py:539
 #, python-brace-format
 msgid "s-expr: unsupported mixed list {name!r} in a free-form field"
 msgstr "s-expr: unsupported mixed list {name!r} in a free-form field"
 
-#: kicadstamp/config/sexp_format.py:546
+#: kicadstamp/config/sexp_format.py:540
 msgid ""
 "a free-form list must be either all scalars or all mappings, so it can "
 "round-trip unambiguously"
@@ -15007,21 +15007,21 @@ msgstr ""
 "a free-form list must be either all scalars or all mappings, so it can "
 "round-trip unambiguously"
 
-#: kicadstamp/config/sexp_format.py:590
+#: kicadstamp/config/sexp_format.py:584
 #, python-brace-format
 msgid "in {path}: folder {name!r} has no (uuid ...)"
 msgstr ""
 
-#: kicadstamp/config/sexp_format.py:721
+#: kicadstamp/config/sexp_format.py:715
 #, python-brace-format
 msgid "s-expr: top level must be a mapping, got {type}"
 msgstr "s-expr: top level must be a mapping, got {type}"
 
-#: kicadstamp/config/sexp_format.py:722
+#: kicadstamp/config/sexp_format.py:716
 msgid "(kicadstamp-config ...) must wrap a config mapping"
 msgstr "(kicadstamp-config ...) must wrap a config mapping"
 
-#: kicadstamp/config/sexp_format.py:777
+#: kicadstamp/config/sexp_format.py:771
 #, python-brace-format
 msgid ""
 "in {path}: got {value!r}; a boolean field accepts only the bare atoms "
@@ -15029,47 +15029,47 @@ msgid ""
 msgstr ""
 "in {path}: got {value!r}; a boolean field accepts only the bare atoms "
 "true or false"
+
+#: kicadstamp/config/sexp_format.py:776
+#, python-brace-format
+msgid ""
+"in {path}: got {value!r} — a string field must be written in double "
+"quotes (like \"{value}\"); the bare atom means a forgotten quote"
+msgstr ""
+"in {path}: got {value!r} — a string field must be written in double "
+"quotes (like \"{value}\"); the bare atom means a forgotten quote"
 
 #: kicadstamp/config/sexp_format.py:782
-#, python-brace-format
-msgid ""
-"in {path}: got {value!r} — a string field must be written in double "
-"quotes (like \"{value}\"); the bare atom means a forgotten quote"
-msgstr ""
-"in {path}: got {value!r} — a string field must be written in double "
-"quotes (like \"{value}\"); the bare atom means a forgotten quote"
-
-#: kicadstamp/config/sexp_format.py:788
 #, python-brace-format
 msgid "in {path}: got {value!r}; numbers must be written bare, without quotes"
 msgstr "in {path}: got {value!r}; numbers must be written bare, without quotes"
 
-#: kicadstamp/config/sexp_format.py:797
+#: kicadstamp/config/sexp_format.py:791
 #, python-brace-format
 msgid "in {path}: got {value!r} — a string value must be written in double quotes"
 msgstr "in {path}: got {value!r} — a string value must be written in double quotes"
 
-#: kicadstamp/config/sexp_format.py:806
+#: kicadstamp/config/sexp_format.py:800
 #, python-brace-format
 msgid "in {path}: a numeric field must hold a bare number, not a quoted string"
 msgstr "in {path}: a numeric field must hold a bare number, not a quoted string"
 
-#: kicadstamp/config/sexp_format.py:811
+#: kicadstamp/config/sexp_format.py:805
 #, python-brace-format
 msgid "in {path}: a boolean field must hold the bare atom true or false"
 msgstr "in {path}: a boolean field must hold the bare atom true or false"
 
-#: kicadstamp/config/sexp_format.py:821
+#: kicadstamp/config/sexp_format.py:815
 #, python-brace-format
 msgid "in {path}: true/false cannot stand for a string — use quotes"
 msgstr "in {path}: true/false cannot stand for a string — use quotes"
 
-#: kicadstamp/config/sexp_format.py:825
+#: kicadstamp/config/sexp_format.py:819
 #, python-brace-format
 msgid "in {path}: true/false cannot stand for a number"
 msgstr "in {path}: true/false cannot stand for a number"
 
-#: kicadstamp/config/sexp_format.py:833
+#: kicadstamp/config/sexp_format.py:827
 #, python-brace-format
 msgid ""
 "in {path}: a string field must be written in double quotes, got a bare "
@@ -15078,17 +15078,17 @@ msgstr ""
 "in {path}: a string field must be written in double quotes, got a bare "
 "number"
 
-#: kicadstamp/config/sexp_format.py:838
+#: kicadstamp/config/sexp_format.py:832
 #, python-brace-format
 msgid "in {path}: a boolean field accepts only the bare atoms true or false"
 msgstr "in {path}: a boolean field accepts only the bare atoms true or false"
 
-#: kicadstamp/config/sexp_format.py:848
+#: kicadstamp/config/sexp_format.py:842
 #, python-brace-format
 msgid "in {path}: got {n} child atom(s); a scalar field holds exactly one value"
 msgstr "in {path}: got {n} child atom(s); a scalar field holds exactly one value"
 
-#: kicadstamp/config/sexp_format.py:858
+#: kicadstamp/config/sexp_format.py:852
 #, python-brace-format
 msgid ""
 "in {path}: got {n} atom(s); a pair like (xy 0.0 0.0) needs exactly two "
@@ -15097,12 +15097,12 @@ msgstr ""
 "in {path}: got {n} atom(s); a pair like (xy 0.0 0.0) needs exactly two "
 "numbers"
 
-#: kicadstamp/config/sexp_format.py:871
+#: kicadstamp/config/sexp_format.py:865
 #, python-brace-format
 msgid "in {path}: every element of a string list must be in double quotes"
 msgstr "in {path}: every element of a string list must be in double quotes"
 
-#: kicadstamp/config/sexp_format.py:886
+#: kicadstamp/config/sexp_format.py:880
 #, python-brace-format
 msgid ""
 "in {path}: got {value!r}; a list[list[str]] field must be a list of "
@@ -15111,12 +15111,12 @@ msgstr ""
 "in {path}: got {value!r}; a list[list[str]] field must be a list of "
 "quoted-string lists"
 
-#: kicadstamp/config/sexp_format.py:893
+#: kicadstamp/config/sexp_format.py:887
 #, python-brace-format
 msgid "in {path}: every path segment must be a quoted string"
 msgstr "in {path}: every path segment must be a quoted string"
 
-#: kicadstamp/config/sexp_format.py:910 kicadstamp/config/sexp_format.py:1053
+#: kicadstamp/config/sexp_format.py:904 kicadstamp/config/sexp_format.py:1053
 #: kicadstamp/config/sexp_format.py:1072
 #, python-brace-format
 msgid ""
@@ -15126,12 +15126,12 @@ msgstr ""
 "in {path}: got {value!r}; every field of a record must be a (name ...) "
 "node"
 
-#: kicadstamp/config/sexp_format.py:928
+#: kicadstamp/config/sexp_format.py:922
 #, python-brace-format
 msgid "in {path}: {legacy!r} and {canonical!r} on the same record — keep one"
 msgstr "in {path}: {legacy!r} and {canonical!r} on the same record — keep one"
 
-#: kicadstamp/config/sexp_format.py:937
+#: kicadstamp/config/sexp_format.py:931
 #, python-brace-format
 msgid ""
 "in {path}: the legacy spelling of {canonical!r} was already given on this"
@@ -15327,6 +15327,35 @@ msgstr ""
 "from the sheets of its placement records (no role anchor and no single "
 "root to read it off)"
 
+#: kicadstamp/config/tree_instance_cluster_axis.py:119
+#, python-brace-format
+msgid ""
+"tree_instance {name!r}: template {template!r} is not in this file, so "
+"whether cluster: did anything cannot be checked here"
+msgstr "tree_instance {name!r}: template {template!r} is not in this file, so whether cluster: did anything cannot be checked here"
+
+#: kicadstamp/config/tree_instance_cluster_axis.py:126
+#, python-brace-format
+msgid ""
+"tree_instance {name!r}: template {template!r} is role-anchored, so "
+"cluster: narrowed the generated role anchor as well"
+msgstr "tree_instance {name!r}: template {template!r} is role-anchored, so cluster: narrowed the generated role anchor as well"
+
+#: kicadstamp/config/tree_instance_cluster_axis.py:134
+#, python-brace-format
+msgid ""
+"tree_instance {name!r}: template {template!r} addresses {refs} on its own"
+" sheet, so cluster: narrowed those searches too"
+msgstr "tree_instance {name!r}: template {template!r} addresses {refs} on its own sheet, so cluster: narrowed those searches too"
+
+#: kicadstamp/config/tree_instance_cluster_axis.py:142
+#, python-brace-format
+msgid ""
+"tree_instance {name!r}: template {template!r} is homogeneous (clusters "
+"{clusters}), so cluster: {cluster!r} rewrote every generated copy — "
+"dropping the key would change what this instance IS"
+msgstr "tree_instance {name!r}: template {template!r} is homogeneous (clusters {clusters}), so cluster: {cluster!r} rewrote every generated copy — dropping the key would change what this instance IS"
+
 #: kicadstamp/config/tree_instance_expand.py:43
 #, python-brace-format
 msgid "tree_instances: entry #{idx} must be a mapping"
@@ -15347,32 +15376,27 @@ msgid ""
 "strings)"
 msgstr ""
 
-#: kicadstamp/config/tree_instance_expand.py:60
-#, python-brace-format
-msgid "tree_instances: entry #{idx} has an empty cluster:"
-msgstr ""
-
-#: kicadstamp/config/tree_instance_expand.py:71
+#: kicadstamp/config/tree_instance_expand.py:63
 #, python-brace-format
 msgid "tree_instances: entry #{idx} has a non-mapping params:"
 msgstr ""
 
-#: kicadstamp/config/tree_instance_expand.py:83
+#: kicadstamp/config/tree_instance_expand.py:75
 #, python-brace-format
 msgid "tree_instances: entry #{idx} has a non-mapping anchor:"
 msgstr ""
 
-#: kicadstamp/config/tree_instance_expand.py:97
+#: kicadstamp/config/tree_instance_expand.py:89
 #, python-brace-format
 msgid "tree_instances: entry #{idx} has a non-numeric rotation:"
 msgstr ""
 
-#: kicadstamp/config/tree_instance_expand.py:108
+#: kicadstamp/config/tree_instance_expand.py:100
 #, python-brace-format
 msgid "duplicate tree name from tree_instance {name!r}"
 msgstr ""
 
-#: kicadstamp/config/tree_instance_expand.py:110
+#: kicadstamp/config/tree_instance_expand.py:102
 msgid ""
 "every tree in one config needs a unique name, and a tree with that name "
 "already exists here — a trees: entry, the template itself, or an earlier "
@@ -15380,12 +15404,12 @@ msgid ""
 "tree that already carries the name"
 msgstr ""
 
-#: kicadstamp/config/tree_instance_expand.py:118
+#: kicadstamp/config/tree_instance_expand.py:110
 #, python-brace-format
 msgid "tree_instance {name!r}: template tree {template!r} not found"
 msgstr ""
 
-#: kicadstamp/config/tree_instance_expand.py:120
+#: kicadstamp/config/tree_instance_expand.py:112
 #, python-brace-format
 msgid "known trees: {names}"
 msgstr ""
@@ -15540,7 +15564,7 @@ msgstr ""
 msgid "in {path}: write (root (ref \"node\"))"
 msgstr ""
 
-#: kicadstamp/config/tree_instances.py:379
+#: kicadstamp/config/tree_instances.py:344
 #, python-brace-format
 msgid ""
 "tree_instance: template {template!r} mount node {ref!r} has no sheet in "
@@ -15549,7 +15573,7 @@ msgstr ""
 "tree_instance: template {template!r} mount node {ref!r} has no sheet in "
 "its anchor"
 
-#: kicadstamp/config/tree_instances.py:382
+#: kicadstamp/config/tree_instances.py:347
 msgid ""
 "add (sheet ...) to this mount node's anchor so it can be parameterized "
 "per instance — without a sheet the role is ambiguous across the "
@@ -15559,7 +15583,7 @@ msgstr ""
 "per instance — without a sheet the role is ambiguous across the "
 "instances' sheets"
 
-#: kicadstamp/config/tree_instances.py:390
+#: kicadstamp/config/tree_instances.py:353
 #, python-brace-format
 msgid ""
 "tree_instance {name!r}: mount node {ref!r} anchors to sheet {sheet!r}, "
@@ -15568,7 +15592,7 @@ msgstr ""
 "tree_instance {name!r}: mount node {ref!r} anchors to sheet {sheet!r}, "
 "not the template's {old!r} — kept verbatim"
 
-#: kicadstamp/config/tree_instances.py:441
+#: kicadstamp/config/tree_instances.py:401
 #, python-brace-format
 msgid ""
 "tree_instance: template {template!r} component node {ref!r} addresses its"
@@ -15577,7 +15601,7 @@ msgstr ""
 "tree_instance: template {template!r} component node {ref!r} addresses its"
 " component by refdes"
 
-#: kicadstamp/config/tree_instances.py:444
+#: kicadstamp/config/tree_instances.py:404
 msgid ""
 "a refdes names ONE physical component on the board, so it cannot be "
 "instantiated per sheet — address the component by (role ...) (sheet ...) "
@@ -15587,7 +15611,7 @@ msgstr ""
 "instantiated per sheet — address the component by (role ...) (sheet ...) "
 "instead, or take this node out of the template"
 
-#: kicadstamp/config/tree_instances.py:451
+#: kicadstamp/config/tree_instances.py:411
 #, python-brace-format
 msgid ""
 "tree_instance: template {template!r} component node {ref!r} has no sheet "
@@ -15596,7 +15620,7 @@ msgstr ""
 "tree_instance: template {template!r} component node {ref!r} has no sheet "
 "in its anchor"
 
-#: kicadstamp/config/tree_instances.py:454
+#: kicadstamp/config/tree_instances.py:414
 msgid ""
 "add (sheet ...) to this component node's address so it can be "
 "parameterized per instance — without a sheet the role is ambiguous across"
@@ -15606,7 +15630,7 @@ msgstr ""
 "parameterized per instance — without a sheet the role is ambiguous across"
 " the instances' sheets"
 
-#: kicadstamp/config/tree_instances.py:462
+#: kicadstamp/config/tree_instances.py:420
 #, python-brace-format
 msgid ""
 "tree_instance {name!r}: component node {ref!r} addresses sheet {sheet!r},"
@@ -15615,32 +15639,32 @@ msgstr ""
 "tree_instance {name!r}: component node {ref!r} addresses sheet {sheet!r},"
 " not the template's {old!r} — kept verbatim"
 
-#: kicadstamp/config/tree_instances.py:554
+#: kicadstamp/config/tree_instances.py:497
 #, python-brace-format
 msgid "tree_instance: template {template!r} has a node without a ref"
 msgstr ""
 
-#: kicadstamp/config/tree_instances.py:556
+#: kicadstamp/config/tree_instances.py:499
 msgid ""
 "every template node needs a ref naming an entities: entry (placement) or "
 "a net_traces: entry by its net (net_trace)"
 msgstr ""
 
-#: kicadstamp/config/tree_instances.py:583
+#: kicadstamp/config/tree_instances.py:525
 #, python-brace-format
 msgid ""
 "tree_instance: template {template!r} node {ref!r} has no matching "
 "net_traces: record"
 msgstr ""
 
-#: kicadstamp/config/tree_instances.py:586
+#: kicadstamp/config/tree_instances.py:528
 msgid ""
 "every net_trace node of a tree template must reference an existing "
 "net_traces: entry by its name (name:, or the net: of a legacy record)"
 msgstr ""
 
 # ── Э3.2: a named (role, pad) net_trace record needs no sheet rewrite ──
-#: kicadstamp/config/tree_instances.py:615
+#: kicadstamp/config/tree_instances.py:557
 #, python-brace-format
 msgid ""
 "tree_instance {name!r}: net_trace record {record!r} is named ((role, "
@@ -15649,42 +15673,42 @@ msgid ""
 "captured"
 msgstr ""
 
-#: kicadstamp/config/tree_instances.py:644
+#: kicadstamp/config/tree_instances.py:585
 #, python-brace-format
 msgid ""
 "tree_instance: template {template!r} has unsupported node kind {kind!r} "
 "(ref {ref!r})"
 msgstr ""
 
-#: kicadstamp/config/tree_instances.py:647
+#: kicadstamp/config/tree_instances.py:588
 msgid ""
 "v1 tree templates support only kind=placement (Entity) and kind=net_trace"
 " nodes — chain/coordinate/clone/module nodes inside a template are not "
 "instantiated yet"
 msgstr ""
 
-#: kicadstamp/config/tree_instances.py:653
-#: kicadstamp/config/tree_instances.py:825
+#: kicadstamp/config/tree_instances.py:594
+#: kicadstamp/config/tree_instances.py:745
 #, python-brace-format
 msgid ""
 "tree_instance: template {template!r} node {ref!r} has no matching "
 "entities: record"
 msgstr ""
 
-#: kicadstamp/config/tree_instances.py:655
+#: kicadstamp/config/tree_instances.py:596
 msgid ""
 "a placement node of a tree template must reference an existing entities: "
 "entry by its name"
 msgstr ""
 
-#: kicadstamp/config/tree_instances.py:782
+#: kicadstamp/config/tree_instances.py:702
 #, python-brace-format
 msgid ""
 "tree_instance: template {template!r} must be role-anchored OR self-"
 "anchored (an explicit (self ...), or no (anchor ...) at all)"
 msgstr ""
 
-#: kicadstamp/config/tree_instances.py:785
+#: kicadstamp/config/tree_instances.py:705
 msgid ""
 "either an (anchor (role ...)) template, or a self anchor — an explicit "
 "(anchor (self [(ref \"...\")])) OR no (anchor ...) at all with exactly "
@@ -15692,33 +15716,33 @@ msgid ""
 "parameterized by sheet"
 msgstr ""
 
-#: kicadstamp/config/tree_instances.py:795
+#: kicadstamp/config/tree_instances.py:715
 #, python-brace-format
 msgid ""
 "tree_instance: template {template!r} is self-anchored but names no "
 "resolvable subject node"
 msgstr ""
 
-#: kicadstamp/config/tree_instances.py:797
+#: kicadstamp/config/tree_instances.py:717
 msgid ""
 "a bare (self) needs EXACTLY ONE top-level placement node; with several, "
 "name the subject explicitly: (anchor (self (ref \"...\")))"
 msgstr ""
 
-#: kicadstamp/config/tree_instances.py:828
+#: kicadstamp/config/tree_instances.py:748
 msgid ""
 "the self-anchored template's subject node must reference an existing "
 "entities: entry by its name"
 msgstr ""
 
-#: kicadstamp/config/tree_instances.py:848
+#: kicadstamp/config/tree_instances.py:768
 #, python-brace-format
 msgid ""
 "tree_instance {name!r}: template {template!r} declares its own place, but"
 " the template's own sheet cannot be derived"
 msgstr ""
 
-#: kicadstamp/config/tree_instances.py:851
+#: kicadstamp/config/tree_instances.py:771
 msgid ""
 "the template has a mount node, whose expansion needs the template's own "
 "sheet. Four ways to give it one: (sheet \"...\") on a (role ...) anchor "
@@ -15732,7 +15756,7 @@ msgstr ""
 "nodes under ONE root node; or name a `root` node for this instance (the "
 "sheet of that node's record is then the template's own)"
 
-#: kicadstamp/config/tree_instances.py:862
+#: kicadstamp/config/tree_instances.py:782
 #, python-brace-format
 msgid ""
 "tree_instance {name!r}: root {ref!r} names no node of template "
@@ -15741,46 +15765,36 @@ msgstr ""
 "tree_instance {name!r}: root {ref!r} names no node of template "
 "{template!r}"
 
-#: kicadstamp/config/tree_instances.py:866
+#: kicadstamp/config/tree_instances.py:786
 msgid ""
 "name a placement node of the template tree — the copy holds it and "
 "everything under it"
 msgstr ""
 "name a placement node of the template tree — the copy holds it and "
 "everything under it"
+
+#: kicadstamp/config/tree_instances.py:791
+#, python-brace-format
+msgid ""
+"tree_instance {name!r}: root {ref!r} of template {template!r} is not a "
+"placement node"
+msgstr ""
+"tree_instance {name!r}: root {ref!r} of template {template!r} is not a "
+"placement node"
+
+#: kicadstamp/config/tree_instances.py:795
+msgid ""
+"a `root` names the placement node the copy starts from; "
+"mount/copper/net_trace nodes place no record of their own"
+msgstr ""
+"a `root` names the placement node the copy starts from; "
+"mount/copper/net_trace nodes place no record of their own"
 
 #: kicadstamp/config/tree_instances.py:871
-#, python-brace-format
-msgid ""
-"tree_instance {name!r}: root {ref!r} of template {template!r} is not a "
-"placement node"
-msgstr ""
-"tree_instance {name!r}: root {ref!r} of template {template!r} is not a "
-"placement node"
-
-#: kicadstamp/config/tree_instances.py:875
-msgid ""
-"a `root` names the placement node the copy starts from; "
-"mount/copper/net_trace nodes place no record of their own"
-msgstr ""
-"a `root` names the placement node the copy starts from; "
-"mount/copper/net_trace nodes place no record of their own"
-
-#: kicadstamp/config/tree_instances.py:935
-#, python-brace-format
-msgid ""
-"tree_instance {name!r}: template {template!r} is composite ({count} "
-"distinct clusters among its nodes: {clusters}) — cluster override "
-"{cluster!r} is NOT applied to individual Entity copies (each keeps its "
-"own template cluster); the tree's own role-anchor cluster is still "
-"overridden as requested"
-msgstr ""
-
-#: kicadstamp/config/tree_instances.py:991
 msgid "'tree_instances' must be a list of template/name/sheet declarations"
 msgstr ""
 
-#: kicadstamp/config/tree_instances.py:993
+#: kicadstamp/config/tree_instances.py:873
 #, python-brace-format
 msgid ""
 "got {type} — expected a list of declarations, each with "
@@ -15788,19 +15802,19 @@ msgid ""
 " Channel_1)"
 msgstr ""
 
-#: kicadstamp/config/tree_instances.py:1018
+#: kicadstamp/config/tree_instances.py:898
 #, python-brace-format
 msgid "duplicate name(s) in tree_instances: {names}"
 msgstr ""
 
-#: kicadstamp/config/tree_instances.py:1020
+#: kicadstamp/config/tree_instances.py:900
 msgid ""
 "every tree_instances: declaration needs a unique name — each one "
 "materializes exactly one tree (plus its entity copies), so give the "
 "second declaration its own name:, or drop it"
 msgstr ""
 
-#: kicadstamp/config/tree_instances.py:1072
+#: kicadstamp/config/tree_instances.py:952
 #, python-brace-format
 msgid ""
 "Expanded {count} tree_instances: declarations into "
@@ -18443,3 +18457,26 @@ msgstr "footprint {ref!r} not found on the board"
 #~ msgid "Unapplied changes were discarded."
 #~ msgstr "Unapplied changes were discarded."
 
+#~ msgid "tree_instances: entry {name!r} has an empty cluster:"
+#~ msgstr ""
+
+#~ msgid ""
+#~ "cluster:, when present, must be a "
+#~ "non-empty string — omit the key "
+#~ "entirely to inherit the template's own"
+#~ " cluster unchanged"
+#~ msgstr ""
+
+#~ msgid "tree_instances: entry #{idx} has an empty cluster:"
+#~ msgstr ""
+
+#~ msgid ""
+#~ "tree_instance {name!r}: template {template!r} "
+#~ "is composite ({count} distinct clusters "
+#~ "among its nodes: {clusters}) — cluster"
+#~ " override {cluster!r} is NOT applied "
+#~ "to individual Entity copies (each keeps"
+#~ " its own template cluster); the "
+#~ "tree's own role-anchor cluster is "
+#~ "still overridden as requested"
+#~ msgstr ""

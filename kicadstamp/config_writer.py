@@ -632,8 +632,8 @@ def append_tree_child_node(path: Path, tree_name: str,
 # plan_2026_09_12_tree_instance_own_place §И.1). A future editable axis is
 # declared HERE, in one place, and nowhere else — an empty Rotation cell, the
 # "Inherit from template" action and the Root column's "— whole tree —" all
-# mean "drop the key", which is why this list is data, not a literal.
-_INSTANCE_DIALOG_EDITABLE_KEYS = ("cluster", "rotation", "anchor", "root")
+# mean "drop the key". `cluster` left the list with format 4 (Н9).
+_INSTANCE_DIALOG_EDITABLE_KEYS = ("rotation", "anchor", "root")
 
 
 def merged_tree_instances(entries: list, template: str, rows: list) -> list:
