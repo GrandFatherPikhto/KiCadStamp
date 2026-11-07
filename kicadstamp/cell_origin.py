@@ -45,12 +45,13 @@ missing pad — a refusal in words, never a guess.
 """
 from __future__ import annotations
 
+from .constants import ROLE_FIELD_NAME
 from .exceptions import ValidationError, format_read_fatal
 from .i18n import _
 
-__all__ = ["cell_slot_dicts", "cell_zero_slot_role", "mount_of", "mount_slots",
-           "plan_components", "refresh_origin", "require_measurable_origin",
-           "require_one_zero_origin", "zero_slots"]
+__all__ = ["cell_slot_dicts", "cell_zero_slot_role", "live_origin_part",
+           "mount_of", "mount_slots", "plan_components", "refresh_origin",
+           "require_measurable_origin", "require_one_zero_origin", "zero_slots"]
 
 
 def zero_slots(components: list[dict]) -> list[dict]:
@@ -221,11 +222,59 @@ def _the_pad_is_there(adapter, footprints, role_to_ref, role: str,
     return fp is not None and adapter.get_pad_by_number(fp, pad) is not None
 
 
+def live_origin_part(components: list[dict], planned: list[dict], *,
+                     adapter=None, cluster: str | None = None,
+                     sheet: str | None = None,
+                     sheet_names: dict | None = None
+                     ) -> tuple[str, str] | None:
+    """(role, ref) of a LEGACY cell's origin part when it is still on the board
+    in THIS (Cluster, Sheet) instance but has left the PLAN — the fact that turns
+    "the origin went away" into "add this part to the selection" (Н1, 07.11).
+
+    Asked only where the answer can exist: the cell's own (0,0) role must be
+    unique in the STORED components (`zero_slots` — the read's own predicate) and
+    absent from the planned list; the instance comes from
+    `cell_instance.resolve_context_footprints` (the ONE (Cluster, Sheet) rule),
+    and the part is the one whose live Role field is that role. Any missing piece
+    (no adapter, no cluster hint, no whole-board read, an older fake adapter) is
+    `None` — the caller then keeps the historical "extract the cluster again"
+    wording, which is the honest answer when the part really is gone."""
+    if adapter is None or not cluster:
+        return None
+    zero = zero_slots(components)
+    if len(zero) != 1:
+        return None
+    role = zero[0].get("role")
+    if not role:
+        return None
+    if any(c.get("role") == role for c in planned):
+        return None
+    read_board = getattr(adapter, "get_footprints", None)
+    if read_board is None:
+        return None
+    from .cell_instance import resolve_context_footprints
+
+    try:
+        members = resolve_context_footprints(
+            adapter, read_board(), cluster, sheet, sheet_names or {})
+        for fp in members:
+            if adapter.get_field_value(fp, ROLE_FIELD_NAME) == role:
+                ref = getattr(fp, "ref", None)
+                if ref:
+                    return (role, ref)
+    except Exception:  # noqa: BLE001 — a best-effort hint, never a new failure
+        return None
+    return None
+
+
 def require_measurable_origin(planned: list[dict], current: list[dict],
                               origin_role: str | None = None,
                               anchor_pad: str | None = None,
                               adapter=None, role_to_ref: dict | None = None,
                               footprints: list | None = None,
+                              cluster: str | None = None,
+                              sheet: str | None = None,
+                              sheet_names: dict | None = None,
                               ) -> tuple[str, str] | None:
     """The role that takes the cell's origin over after this plan — `(role,
     log_line)` for a TRANSFER, None when nothing moves — or a READ-ONLY refusal.
@@ -243,7 +292,9 @@ def require_measurable_origin(planned: list[dict], current: list[dict],
     read-only verdict, no write: a silently re-rooted v2 cell would be
     unmeasurable on its very next read."""
     if origin_role is None:
-        require_one_zero_origin(planned)
+        require_one_zero_origin(planned, live_origin=live_origin_part(
+            current, planned, adapter=adapter, cluster=cluster, sheet=sheet,
+            sheet_names=sheet_names))
         return None
     if any(c.get("role") == origin_role for c in planned):
         return None
@@ -280,7 +331,7 @@ def require_measurable_origin(planned: list[dict], current: list[dict],
         _("cannot refresh cell geometry from the current selection"), [problem]))
 
 
-def require_one_zero_origin(components: list[dict]) -> str:
+def require_one_zero_origin(components: list[dict], *, live_origin=None) -> str:
     """The role that will sit on the cell's local (0, 0) after the write — or a
     READ-ONLY refusal in words.
 
@@ -288,11 +339,22 @@ def require_one_zero_origin(components: list[dict]) -> str:
     check uses the same predicate (`zero_slots`) on the values the plan already
     rounded: any tolerance here would let a write through whose very next read
     refuses. No re-rooting on purpose: moving the origin would move EVERY
-    instance of the cell on the board (2026-10-21, Denis)."""
+    instance of the cell on the board (2026-10-21, Denis).
+
+    `live_origin` — (role, ref) of the origin part the board STILL carries in
+    this instance (`live_origin_part`). Then the refusal names that part instead
+    of telling the user to extract the cell again: the origin did not go away,
+    it simply is not in the selection (Н1, 07.11). The refusal itself stands —
+    only the words change."""
     zero = zero_slots(components)
     if len(zero) == 1:
         return zero[0]["role"]
-    if not zero:
+    if not zero and live_origin is not None:
+        problem = _("the origin role {role!r} is on the board as {ref} in this "
+                    "instance but not in the selection — add it and repeat; "
+                    "nothing was written").format(role=live_origin[0],
+                                                  ref=live_origin[1])
+    elif not zero:
         problem = _("no component would stand at the cell's local (0, 0) after "
                     "this update — the origin went away with the removed role; "
                     "nothing was written, and the cell needs a new origin "

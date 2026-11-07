@@ -20,7 +20,7 @@ import pytest
 from kicadstamp.cell_frame import frame_for_live_selection, rotate_ydown_mm
 from kicadstamp.cell_geometry_refresh import build_refresh_plan
 from kicadstamp.cell_origin import plan_components
-from kicadstamp.constants import ROLE_FIELD_NAME
+from kicadstamp.constants import CLUSTER_FIELD_NAME, ROLE_FIELD_NAME
 from kicadstamp.domain.board import Footprint, Track
 from kicadstamp.domain.geometry import BoardLayer, Vector2
 from kicadstamp.exceptions import ValidationError
@@ -73,6 +73,24 @@ class _FakeAdapter:
     def get_footprint_pads(self, fp):
         return [_Pad(net) for net in (self.pads.get(fp.ref) or {}).values()
                 if net is not None]
+
+
+class _BoardAdapter(_FakeAdapter):
+    """+ the whole-board read and the Cluster field the origin search of Н1 asks
+    for (`cell_instance.resolve_context_footprints` takes exactly these)."""
+
+    def __init__(self, roles, clusters=None, board=()):
+        super().__init__(roles)
+        self.clusters = clusters or {}
+        self.board = list(board)
+
+    def get_field_value(self, fp, name):
+        if name == CLUSTER_FIELD_NAME:
+            return self.clusters.get(fp.ref)
+        return super().get_field_value(fp, name)
+
+    def get_footprints(self):
+        return list(self.board)
 
 
 def _plan(components, footprints, adapter, tracks=(), live_tracks=(), **kw):
@@ -215,6 +233,47 @@ def test_a_plan_that_empties_the_origin_is_refused_with_the_read_only_verdict():
     assert "extract the cluster again" in text
     assert "Nothing was placed or modified on the board" in text
     assert "Fix the config" not in text
+
+
+def test_the_origin_part_on_the_board_but_not_in_the_selection_is_named():
+    """Н1 (plan_2026_11_07_tree_instances_dialog_and_subtree): the origin role
+    `A` is absent from the selection while its part `A2` still stands on the
+    board in this (Cluster, Sheet) instance. The refusal STANDS (re-rooting the
+    cell would move every instance), but it names the part and says what to do
+    instead of sending the user to "extract the cluster again"."""
+    components = [{"role": "A"}, {"role": "B", "offset_across_mm": 5.0}]
+    selected = [_fp("B", 100.0, 105.0)]
+    origin = _fp("A2", 102.0, 100.0)
+    adapter = _BoardAdapter({"A2": "A", "B": "B"},
+                            clusters={"A2": "GRP", "B": "GRP"},
+                            board=[origin, *selected])
+
+    with pytest.raises(ValidationError) as exc:
+        _plan(components, selected, adapter, chosen_cluster="GRP",
+              chosen_sheet="S1", sheet_names={})
+
+    text = str(exc.value)
+    assert "'A'" in text and "as A2" in text
+    assert "add it and repeat" in text
+    assert "extract the cluster again" not in text
+    assert "Nothing was placed or modified on the board" in text
+
+
+def test_an_origin_part_that_left_the_board_keeps_the_extract_wording():
+    """Н1 control: the origin role is gone from the BOARD too — then "extract the
+    cluster again" is the honest answer, and no part may be named."""
+    components = [{"role": "A"}, {"role": "B", "offset_across_mm": 5.0}]
+    selected = [_fp("B", 100.0, 105.0)]
+    adapter = _BoardAdapter({"B": "B"}, clusters={"B": "GRP"},
+                            board=list(selected))
+
+    with pytest.raises(ValidationError) as exc:
+        _plan(components, selected, adapter, chosen_cluster="GRP",
+              chosen_sheet="S1", sheet_names={})
+
+    text = str(exc.value)
+    assert "extract the cluster again" in text
+    assert "add it and repeat" not in text
 
 
 def test_two_components_on_the_origin_are_refused_too():

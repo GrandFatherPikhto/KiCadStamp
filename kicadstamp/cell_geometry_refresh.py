@@ -1114,7 +1114,7 @@ def build_refresh_plan(components: list[dict], vias: list[dict], tracks: list[di
     # exactly on the saved mount point takes the anchor over — or it is a refusal.
     transfer = require_measurable_origin(
         planned_components, components, origin_role, anchor_pad, adapter,
-        role_to_ref, footprints)
+        role_to_ref, footprints, chosen_cluster, chosen_sheet, sheet_names)
 
     # Additive mode: turn the tier-4 leftover live copper into NEW records.
     # Exactly the Import path (build_import_plan) — _selection_role_nets once

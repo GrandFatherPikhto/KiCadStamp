@@ -8940,7 +8940,16 @@ msgstr ""
 "этой детали нет пада {pad!r} — это замена, а не переименование; ничего не"
 " записано — задайте якорь ячейки на странице Cell anchor"
 
-#: kicadstamp/cell_origin.py:296
+#: kicadstamp/cell_origin.py:353
+#, python-brace-format
+msgid ""
+"the origin role {role!r} is on the board as {ref} in this instance but not "
+"in the selection — add it and repeat; nothing was written"
+msgstr ""
+"роль начала координат {role!r} есть на плате как {ref} в этом экземпляре, "
+"но не в выделении — добавь её и повтори; ничего не записано"
+
+#: kicadstamp/cell_origin.py:358
 msgid ""
 "no component would stand at the cell's local (0, 0) after this update — "
 "the origin went away with the removed role; nothing was written, and the "
