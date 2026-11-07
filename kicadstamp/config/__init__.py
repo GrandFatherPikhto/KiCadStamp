@@ -33,6 +33,7 @@ from .points import Point
 from ..runtime_context import RuntimeContext
 from .loader import (
     load_config,
+    load_config_lenient,
     _load_template_via,
     _load_template_track,
     _load_template_component_slot,
@@ -101,6 +102,7 @@ __all__ = [
     "Config",
     "RuntimeContext",
     "load_config",
+    "load_config_lenient",
     "load_cell",
     "load_template_component_slot",
     "load_template_via",

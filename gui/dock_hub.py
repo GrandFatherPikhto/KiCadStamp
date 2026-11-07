@@ -1868,15 +1868,15 @@ class DockHub:
             QMessageBox.warning(self.main_window, _("Tree instances"),
                                 _("Set the project root first."))
             return
-        from kicadstamp.config import load_config
+        from kicadstamp.config import load_config_lenient  # Н8: lenient door
         try:
-            cfg, _ctx = load_config(str(root_path))
+            cfg, _ctx, failures = load_config_lenient(str(root_path))
         except Exception as e:  # noqa: BLE001 — a broken config must not crash the GUI
             QMessageBox.warning(self.main_window, _("Tree instances"),
                                 _("Failed to load config: {error}").format(error=e))
             return
         dialog = TreeInstancesDialog(
-            self.main_window, root_path, cfg,
+            self.main_window, root_path, cfg, instance_failures=failures,
             preferred_template=tree.name if tree is not None else None)
         if dialog.exec() == QDialog.DialogCode.Accepted:
             self.trees_dock.reload_trees()

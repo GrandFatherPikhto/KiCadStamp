@@ -9,8 +9,9 @@ from pathlib import Path
 
 import pytest
 
-from kicadstamp.config import load_config
+from kicadstamp.config import load_config, load_config_lenient
 from kicadstamp.config.sexp_format import dict_to_sexp, sexp_to_dict
+from kicadstamp.exceptions import ValidationError
 
 from gui.docks.instances_dialog import TreeInstancesDialog
 
@@ -115,6 +116,99 @@ def test_remove_row_deletes_declaration(main_window, tmp_path):
     assert dlg.rows() == []
     assert dlg._apply() is True
     assert _instances_on_disk(p) == []
+
+
+def _point_template_root(tmp_path, instances) -> Path:
+    """A POINT-anchored template plus the given declarations: a row without its
+    own `anchor` is REFUSED at load (the live `switch_b` shape of Н7), so the
+    strict loader refuses the whole file — the dialog's Н8 case."""
+    data = {
+        "cells": {"c_dac": {}},
+        "points": {"p_home": {"xy": [10.0, 20.0]}},
+        "entities": [{"name": "tpl_root", "cell": "c_dac", "sheet": "SW A"}],
+        "trees": [{"name": "point_tpl", "anchor": {"point": "p_home"},
+                   "nodes": [{"ref": "tpl_root", "kind": "placement",
+                              "xy": [0.0, 0.0]}]}],
+        "tree_instances": list(instances),
+    }
+    p = tmp_path / "root.sexp"
+    p.write_text(dict_to_sexp(data, format_number=2), encoding="utf-8")
+    return p
+
+
+def _open_lenient(main_window, p, template="point_tpl"):
+    cfg, _ctx, failures = load_config_lenient(str(p))
+    return TreeInstancesDialog(main_window, p, cfg,
+                               preferred_template=template,
+                               instance_failures=failures)
+
+
+def test_a_refused_row_opens_marked_and_shows_its_text(main_window, tmp_path):
+    """Н8 (7.11): the strict loader refuses this file, yet the dialog opens, the
+    row is marked and its refusal is shown — not a modal, a label (п.43)."""
+    p = _point_template_root(tmp_path, [
+        {"template": "point_tpl", "name": "switch_b", "sheet": "SW B"}])
+    with pytest.raises(ValidationError):
+        load_config(str(p))
+
+    dlg = _open_lenient(main_window, p)
+
+    assert dlg.table.rowCount() == 1
+    assert dlg.table.item(0, 0).text().startswith("⚠ ")
+    assert "refused on load" in dlg.table.item(0, 0).toolTip()
+
+    dlg.table.selectRow(0)
+    assert not dlg.refusal_label.isHidden()
+    text = dlg.refusal_label.text()
+    assert "switch_b" in text and "fix or delete" in text
+    assert "must be role-anchored OR self-anchored" in text
+
+
+def test_fixing_the_refused_row_clears_the_refusal(main_window, tmp_path):
+    """Cell 1б in its STAGED form (§7.1): the broken row lives in the working
+    set, the lenient load sees it, and setting the row's own anchor makes the
+    next load clean — no Discard anywhere."""
+    from kicadstamp.config_writer import upsert_tree_instances
+    from kicadstamp.config_working_set import WORKING_SET, set_active_graph_root
+
+    p = _point_template_root(tmp_path, [])
+    set_active_graph_root(p)
+    WORKING_SET.enabled = True
+    try:
+        upsert_tree_instances(p, "point_tpl", [
+            {"name": "switch_b", "sheet": "SW B"}])
+        assert "switch_b" not in p.read_text(encoding="utf-8")  # staged only
+
+        dlg = _open_lenient(main_window, p)
+        assert dlg.refusal_label is not None
+        dlg.table.selectRow(0)
+        assert not dlg.refusal_label.isHidden()
+
+        # The row's own place — exactly what the live user had to add.
+        dlg.table.cellWidget(0, 4).set_anchor({"origin": True})
+        assert dlg._apply() is True
+
+        _cfg, _ctx, failures = load_config_lenient(str(p))
+        assert failures == []
+    finally:
+        WORKING_SET.clear()
+        WORKING_SET.enabled = False
+        set_active_graph_root(None)
+
+
+def test_deleting_the_refused_row_clears_the_refusal(main_window, tmp_path):
+    """Cell 1в: deleting the refused row is an ordinary write and the file loads
+    strictly again."""
+    p = _point_template_root(tmp_path, [
+        {"template": "point_tpl", "name": "switch_b", "sheet": "SW B"}])
+
+    dlg = _open_lenient(main_window, p)
+    dlg.table.selectRow(0)
+    dlg._remove_row()
+    assert dlg._apply() is True
+    assert _instances_on_disk(p) == []
+    cfg, _ctx = load_config(str(p))  # strict door is happy again
+    assert [t.name for t in cfg.trees] == ["point_tpl"]
 
 
 def test_duplicate_name_is_rejected_without_write(main_window, tmp_path, monkeypatch):

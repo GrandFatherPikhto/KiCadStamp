@@ -4952,6 +4952,20 @@ msgstr "OK"
 msgid "No tree is loaded to use as a template."
 msgstr ""
 
+#: gui/docks/instances_dialog.py:238
+#, python-brace-format
+msgid ""
+"Instance {name!r} is refused on load and is NOT materialized — fix or delete "
+"this row: {error}"
+msgstr ""
+"Instance {name!r} is refused on load and is NOT materialized — fix or delete "
+"this row: {error}"
+
+#: gui/docks/instances_dialog.py:262
+#, python-brace-format
+msgid "refused on load: {error}"
+msgstr "refused on load: {error}"
+
 #: gui/docks/instances_dialog.py:343
 msgid "Every instance row needs a non-empty instance name and sheet."
 msgstr ""

@@ -151,7 +151,39 @@ def load_config(path: str) -> tuple[Config, RuntimeContext]:
     return result
 
 
-def _load_config_uncached(path: str) -> tuple[Config, RuntimeContext]:
+def load_config_lenient(path: str) -> tuple[Config, RuntimeContext, list[dict]]:
+    """`load_config` that keeps a BROKEN `tree_instances:` declaration out of the
+    way instead of refusing the whole profile (Н8, plan_2026_11_07_tree_
+    instances_dialog_and_subtree).
+
+    The ONE difference is the expansion's mode: `expand_tree_instances(...,
+    failures=)` refuses PER DECLARATION, adds NOTHING of a refused one and hands
+    its {index, template, name, sheet, error} back, while the rest of the graph
+    loads exactly as it does through `load_config`. The Instances dialog opens
+    on that pair and marks the offending row, so the user can fix or delete it;
+    TreesDock, Save and every other reader keep the STRICT door — this function
+    has no other caller by design.
+
+    Cached under its OWN key, so the strict and the lenient answers can never
+    shadow each other (the cache returns a deep copy, failures included)."""
+    from .registry_upgrade import upgrade_registries_on_disk  # lazy — no cycle
+    from .upgrade_on_disk import upgrade_graph_on_disk
+
+    upgrade_graph_on_disk(path)
+
+    def _compute():
+        found: list[dict] = []
+        cfg, ctx = _load_config_uncached(path, instance_failures=found)
+        return cfg, ctx, found
+
+    result = cached_graph_result("load_config_lenient", path, _compute)
+    upgrade_registries_on_disk(path, result[0])
+    return result
+
+
+def _load_config_uncached(path: str,
+                          instance_failures: list | None = None
+                          ) -> tuple[Config, RuntimeContext]:
     logger.info(_("Loading configuration from {path}").format(path=path))
     data = cached_file_read(Path(path), _load_config_file)
     data = resolve_includes(path, data)
@@ -186,7 +218,7 @@ def _load_config_uncached(path: str) -> tuple[Config, RuntimeContext]:
     # Unlike expand_sheet_templates, the raw 'tree_instances:' key is KEPT —
     # the loader parses it into cfg.tree_instances below (see
     # kicadstamp/config/tree_instances.py).
-    data = expand_tree_instances(data)
+    data = expand_tree_instances(data, failures=instance_failures)
     if current_format() >= 3:
         # У5.2: the two expansions above GENERATE copies carrying COMPUTED
         # uuids (Р-У5.3); the raw-file check (_check_format3_graph) ran BEFORE

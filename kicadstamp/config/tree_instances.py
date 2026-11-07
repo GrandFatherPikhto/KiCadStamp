@@ -232,7 +232,13 @@ import logging
 from ..exceptions import ValidationError, format_fatal_error
 from ..i18n import _
 from .format_version import current_format
+from .tree_instance_checks import template_generated_clusters
 from .uuids import derived_uuid
+
+# Kept under its historical PRIVATE name: the composite-guard cells import it
+# from here (Н8 moved the body out; the name stays so those cells keep guarding
+# the same code).
+_template_generated_clusters = template_generated_clusters
 
 logger = logging.getLogger(__name__)
 
@@ -273,36 +279,6 @@ def _literal_item_nets(record: dict) -> list[str]:
             if isinstance(item, dict) and item.get('net'):
                 out.append(f"{kind}[{idx}]")
     return out
-
-
-def _template_generated_clusters(nodes: list, entities_by_name: dict) -> set[str]:
-    """The set of distinct non-empty `cluster` values the given template
-    placement nodes (recursively through children) would generate BEFORE any
-    declaration-level cluster: override — used to detect whether a template is
-    homogeneous (<=1 distinct value, override safe to apply everywhere, today's
-    behaviour) or composite (>1 distinct value — e.g. ch0_dac_buf's DAC_BUF main
-    entity + PIF_AVDD/PIF_CLKVDD/PIF_DVDD sub-blocks — where a blanket override
-    would erase the very distinction role_narrowing.py's Cluster step depends
-    on, confirmed live 2026-09-08, done_2026_09_08_role_narrowing_live_probe.md).
-
-    net_trace nodes are skipped (their ref names a net, not an entity, and the
-    override never applies to them anyway — see the module docstring's v1.2
-    note); a placement node whose ref has no entities: entry is skipped too (it
-    would be a load-time fatal elsewhere, here it must not crash the probe)."""
-    clusters: set[str] = set()
-    for node in nodes:
-        if node.get('kind') == 'net_trace':
-            continue
-        ref = node.get('ref')
-        entity = entities_by_name.get(ref) if ref is not None else None
-        if entity is not None:
-            c = entity.get('cluster')
-            if c:
-                clusters.add(c)
-        children = node.get('children') or []
-        if children:
-            clusters |= _template_generated_clusters(children, entities_by_name)
-    return clusters
 
 
 def _template_needs_old_sheet(nodes: list) -> bool:
@@ -983,7 +959,7 @@ def _expand_template(template: dict, template_name: str, instance_name: str,
     # override entirely (each copy keeps its own template cluster).
     effective_node_cluster = cluster
     if cluster is not None:
-        generated_clusters = _template_generated_clusters(
+        generated_clusters = template_generated_clusters(
             template.get('nodes') or [], entities_by_name)
         if len(generated_clusters) > 1:
             logger.info(_("tree_instance {name!r}: template {template!r} is "
@@ -1016,14 +992,26 @@ def _expand_template(template: dict, template_name: str, instance_name: str,
     return gen, generated_entities, generated_net_traces
 
 
-def expand_tree_instances(data: dict) -> dict:
+def expand_tree_instances(data: dict, *, failures: list | None = None) -> dict:
     """Append one materialized Tree dict + its Entity/NetTrace dicts per
     tree_instances: declaration to a COPY of `data`'s 'trees'/'entities'/
     'net_traces' and return the copy. The input dict is never mutated and the
     raw 'tree_instances:' key survives untouched (the loader still parses it
     into cfg.tree_instances).
 
-    Returns `data` unchanged when there are no tree_instances: declarations."""
+    Returns `data` unchanged when there are no tree_instances: declarations.
+
+    `failures` (Н8, plan_2026_11_07_tree_instances_dialog_and_subtree): None —
+    the historical strict behaviour, the FIRST refused declaration raises and
+    the whole load dies. A LIST — the lenient door the Instances dialog opens
+    through `loader.load_config_lenient`: a declaration whose expansion refuses
+    appends {index, template, name, sheet, error} to that list and adds
+    NOTHING to the result — no tree, no Entity, no net_traces record, no
+    `ref_map` entry of its own (the walk is pure and its outputs are appended
+    only on success, so a refusal is atomic by construction). The answer is
+    then byte-identical to a strict load of a file with that declaration
+    deleted. Graph-wide refusals (a non-list section, two declarations sharing
+    one name) stay fatal: they are not "one declaration's" property.)"""
     result = dict(data)
     instances = data.get('tree_instances')
     if not instances:
@@ -1175,10 +1163,19 @@ def expand_tree_instances(data: dict) -> dict:
                 .format(name=instance_name, template=template_name),
                 [_("known trees: {names}").format(
                     names=", ".join(sorted(trees_by_name)) or _("(none)"))]))
-        (generated_tree, generated_entities,
-         generated_net_traces) = _expand_template(
-            template, template_name, instance_name, sheet, entities_by_name,
-            net_traces_by_name, cluster, params, decl_anchor, decl_rotation)
+        try:
+            (generated_tree, generated_entities,
+             generated_net_traces) = _expand_template(
+                template, template_name, instance_name, sheet, entities_by_name,
+                net_traces_by_name, cluster, params, decl_anchor,
+                decl_rotation)
+        except ValidationError as e:
+            if failures is None:
+                raise
+            failures.append({"index": idx + 1, "template": template_name,
+                             "name": instance_name, "sheet": sheet,
+                             "error": str(e)})
+            continue
         trees.append(generated_tree)
         entities.extend(generated_entities)
         net_traces.extend(generated_net_traces)

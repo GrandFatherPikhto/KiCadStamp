@@ -23,6 +23,13 @@ declarations; materialization into full Tree + Entity records happens at the
 NEXT load/Save (config/tree_instances.py::expand_tree_instances), exactly like
 every other config section. TreesDock.reload_trees() after OK shows the new
 read-only instance tabs.
+
+A BROKEN declaration no longer locks the dialog (Н8, 07.11): the caller opens it
+through `load_config_lenient` and passes `instance_failures` — the strict loader
+refuses the whole profile, and the only way out used to be File → Discard
+unsaved changes. A refused row is marked "⚠", carries the refusal in its tooltip
+and shows the full text under the table; fixing or deleting it is an ordinary
+write through the same `upsert_tree_instances`.
 """
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (QComboBox, QDialog, QDialogButtonBox,
@@ -122,10 +129,18 @@ class TreeInstancesDialog(QDialog):
     surfaces before the dialog opens) + the root config path the section is
     written back to."""
 
-    def __init__(self, parent, root_path, cfg, preferred_template=None):
+    def __init__(self, parent, root_path, cfg, preferred_template=None,
+                 instance_failures=None):
         super().__init__(parent)
         self._root_path = root_path
         self._cfg = cfg
+        # {(template, instance name): {index, template, name, sheet, error}} —
+        # the declarations the LENIENT expansion refused (Н8). The same
+        # cfg.tree_instances carries them (the raw key is parsed regardless), so
+        # the row is theirs to fix or delete.
+        self._failures = {(f.get("template"), f.get("name")): f
+                          for f in (instance_failures or [])}
+        self._row_refusals: dict[int, dict] = {}
         self.setWindowTitle(_("Tree instances"))
         self.setMinimumWidth(620)
         # Э3 (plan_2026_09_12_node_dialog_usability): remember the size between
@@ -161,6 +176,12 @@ class TreeInstancesDialog(QDialog):
             QHeaderView.ResizeMode.Stretch)
         self.table.verticalHeader().setVisible(False)
         layout.addWidget(self.table, 1)
+        # The refusal of the selected row, in full (Н8). A Log line instead of a
+        # window is the house rule (п.43): this label is the dialog's own.
+        self.refusal_label = QLabel("")
+        self.refusal_label.setWordWrap(True)
+        self.refusal_label.setVisible(False)
+        layout.addWidget(self.refusal_label)
 
         row_buttons = QHBoxLayout()
         add_btn = QPushButton(_("Add row"))
@@ -179,6 +200,8 @@ class TreeInstancesDialog(QDialog):
         layout.addWidget(buttons)
 
         self.template_combo.currentTextChanged.connect(lambda _t: self._load_template())
+        self.table.itemSelectionChanged.connect(
+            lambda: self._show_refusal(self.table.currentRow()))
         self._load_template()
 
     # ── rows ────────────────────────────────────────────────────────────
@@ -190,17 +213,43 @@ class TreeInstancesDialog(QDialog):
         """Fill the table with the selected template's existing rows."""
         tpl = self.current_template()
         rows = [ti for ti in self._cfg.tree_instances if ti.template == tpl]
+        self._row_refusals = {}
         self.table.setRowCount(len(rows))
         for i, ti in enumerate(rows):
+            refusal = self._failures.get((tpl, ti.name))
+            if refusal is not None:
+                self._row_refusals[i] = refusal
             self._set_row(i, {"name": ti.name, "sheet": ti.sheet,
                               "cluster": ti.cluster or "",
                               "rotation": _format_rotation(ti.rotation),
-                              "anchor": ti.anchor})
+                              "anchor": ti.anchor, "refused": refusal})
+        self._show_refusal(self.table.currentRow() if rows else -1)
+
+    def _show_refusal(self, row: int) -> None:
+        """Put the selected row's load refusal under the table (Н8), or hide the
+        label when the row loaded fine."""
+        refusal = self._row_refusals.get(row)
+        if refusal is None:
+            self.refusal_label.setText("")
+            self.refusal_label.setVisible(False)
+            return
+        self.refusal_label.setText(_(
+            "Instance {name!r} is refused on load and is NOT materialized — "
+            "fix or delete this row: {error}").format(
+                name=refusal.get("name"), error=refusal.get("error")))
+        self.refusal_label.setVisible(True)
 
     def _set_row(self, row: int, entry: dict) -> None:
+        refusal = entry.get("refused")
         for col, key in enumerate(("name", "sheet", "cluster", "rotation")):
-            item = QTableWidgetItem(str(entry.get(key, "")))
+            text = str(entry.get(key, ""))
+            if key == "name" and refusal is not None:
+                text = "⚠ " + text
+            item = QTableWidgetItem(text)
             item.setFlags(item.flags() | Qt.ItemFlag.ItemIsEditable)
+            if key == "name" and refusal is not None:
+                item.setToolTip(_("refused on load: {error}").format(
+                    error=refusal.get("error")))
             self.table.setItem(row, col, item)
         cell = self.table.cellWidget(row, _COL_ANCHOR)
         if cell is None:

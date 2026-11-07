@@ -69,7 +69,7 @@ CEILINGS = {
     "kicadstamp/config/entries.py": 1581,
     "kicadstamp/config/models.py": 1167,
     "kicadstamp/config/sexp_format.py": 1363,
-    "kicadstamp/config/tree_instances.py": 1198,
+    "kicadstamp/config/tree_instances.py": 1195,
     "kicadstamp/config_writer.py": 844,
     "kicadstamp/diagnostics/net_from_role_audit.py": 897,
     "kicadstamp/diagnostics/probe_gui_min_sizes.py": 874,

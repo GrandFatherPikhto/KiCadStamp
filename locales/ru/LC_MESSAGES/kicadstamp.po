@@ -5278,6 +5278,20 @@ msgstr ""
 msgid "No tree is loaded to use as a template."
 msgstr "Нет загруженного дерева, чтобы использовать его как шаблон."
 
+#: gui/docks/instances_dialog.py:238
+#, python-brace-format
+msgid ""
+"Instance {name!r} is refused on load and is NOT materialized — fix or delete "
+"this row: {error}"
+msgstr ""
+"Копия {name!r} отвергнута при загрузке и НЕ материализуется — исправь или "
+"удали эту строку: {error}"
+
+#: gui/docks/instances_dialog.py:262
+#, python-brace-format
+msgid "refused on load: {error}"
+msgstr "отвергнута при загрузке: {error}"
+
 #: gui/docks/instances_dialog.py:343
 msgid "Every instance row needs a non-empty instance name and sheet."
 msgstr "Каждой строке копии нужны непустые имя копии и лист."
