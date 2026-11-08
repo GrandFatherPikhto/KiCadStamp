@@ -10449,31 +10449,31 @@ msgid ""
 "back to the cell"
 msgstr ""
 
-#: kicadstamp/internode_cell_copper.py:262
+#: kicadstamp/internode_cell_copper.py:354
 #, python-brace-format
 msgid ""
 "net_traces entry (net {net!r}) duplicates cell copper — that copper now "
 "belongs to a cell's record; delete the entry if it is not needed"
 msgstr ""
 
-#: kicadstamp/internode_cell_copper.py:278
+#: kicadstamp/internode_cell_copper.py:375
 #, python-brace-format
 msgid ""
 "cell copper left to cells: {tracks} tracks, {vias} vias across {cells} "
-"cell(s); {whole} piece(s) are cell copper entirely; {by_place} cell "
-"record(s) were given back by PLACE (no registry key); {nokey} cell "
-"record(s) were not given back at all — no registry key and no live piece at "
-"their place"
+"cell(s); {whole} piece(s) are cell copper entirely; {by_place} piece(s) were "
+"given back by PLACE — no registry key, or a key pointing at another piece; "
+"{nokey} cell record(s) were not given back at all — no live registry key, and "
+"no piece of their own net and layer at their place"
 msgstr ""
 
-#: kicadstamp/internode_cell_copper.py:292
+#: kicadstamp/internode_cell_copper.py:246
 msgid ""
 "cell {cell!r}: the place of its records cannot be measured on this instance "
 "— its copper is not given back by place (a registry key is the only proof "
 "left)"
 msgstr ""
 
-#: kicadstamp/internode_cell_copper.py:297
+#: kicadstamp/internode_cell_copper.py:251
 msgid ""
 "cell {cell!r}: its cell frame is not rigid (residual {residual} mm) — its "
 "copper is not given back by place (a registry key is the only proof left)"

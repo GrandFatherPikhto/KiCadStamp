@@ -499,6 +499,9 @@ def test_one_piece_matching_two_records_is_given_back_once(tmp_path):
 
     assert mapping.uuids == {"uv"}
     assert mapping.by_place == 1                  # two records, ONE piece of copper
+    # ... and the piece itself is counted ONCE: `found` is a set, so the uuids alone cannot
+    # show a doubled count — the per-kind counters are what the `taken` set carries.
+    assert (mapping.vias, mapping.tracks) == (1, 0)
 
 
 def test_a_piece_beside_the_record_place_stays_internode(tmp_path):
@@ -572,7 +575,9 @@ def test_the_place_pass_adds_no_board_or_registry_reads(tmp_path):
 def test_both_doors_run_the_same_place_pass(tmp_path, monkeypatch):
     """Cell 9 — the invariant «selected == what the re-read takes». Both doors go through
     `_classify_area`, so the proof that they cannot drift is that the RE-READ reaches the same
-    place pass the SELECT door does (spied on the one helper, not on a copy)."""
+    place pass the SELECT door does (spied on the one helper `cell_copper_place.place_pass`, not
+    on a copy — the spy sits where the orchestrator CALLS it, and it records the slots the pass
+    actually asked)."""
     from kicadstamp.internode_capture import internode_units, plan_internode_reread
     from tests.selection.test_registry_pair_frame import FPGA_LIVE
 
@@ -586,13 +591,14 @@ def test_both_doors_run_the_same_place_pass(tmp_path, monkeypatch):
     path = str(tmp_path / "config.sexp")
 
     ran = []
-    real = module._give_by_place
+    real = module.place_pass
 
-    def spy(cell, slots, live, frame, taken):
-        ran.append(sorted(slots))
-        return real(cell, slots, live, frame, taken)
+    def spy(*args, **kwargs):
+        result = real(*args, **kwargs)
+        ran.append(sorted(result.asked))
+        return result
 
-    monkeypatch.setattr(module, "_give_by_place", spy)
+    monkeypatch.setattr(module, "place_pass", spy)
     # An EMPTY area: the point of this cell is the door wiring, not the unit extraction (the
     # toy adapter carries no pad geometry, and `find_copper_units` rightly refuses without it).
     internode_units(adapter, cfg, tree, config_path=path, area_items=[],
@@ -633,3 +639,231 @@ def test_a_piece_that_is_cell_copper_entirely_is_counted_and_dropped(
     assert classification.cell_only == 1
     assert any("1 piece(s) are cell copper entirely" in w
                for w in classification.warnings), classification.warnings
+
+
+# ── §2 of the acceptance (08.11): a SHIFTED key, the LAYER, honest counters ──────────
+#
+# Plan plan_2026_11_08_internode_cell_copper_by_place, §2. A READING shifts the record
+# numbers, so a key may point at ANOTHER record's piece — and then the PLACE is the only
+# proof of that record. The place asks the LAYER too: an F.Cu record must not take the B.Cu
+# piece lying exactly underneath it. The KEY stays a proof on its own — the piece it found
+# is given back whatever its layer or net; the layer only decides whether that piece STANDS
+# at the record's place (and thus whether the slot must be asked at all).
+
+def _track_on(layer, uuid, x1, y1, x2, y2, net="N"):
+    """A live track ON A GIVEN COPPER LAYER — `_live_track` hard-codes F.Cu."""
+    return Track(uuid=uuid, net_name=net, start=Vector2.from_xy_mm(x1, y1),
+                 end=Vector2.from_xy_mm(x2, y2), width_mm=0.25, layer=layer)
+
+
+def _track_cell(layer=None, *, record_layer=None, second_slot=None):
+    """The fixture cell reduced to its ONE cell-level track (no via): the cells below are
+    about that record. `layer` — the CELL's layer (the fixture carries none on purpose, which
+    is what cell г's leniency half reads); `record_layer` — the record's OWN, where None means
+    «inherit the cell's»."""
+    cell = _cell(second_slot=second_slot)
+    cell.vias = []
+    if layer is not None:
+        cell.layer = layer
+    if record_layer is not None:
+        cell.tracks[0].layer = record_layer
+    return cell
+
+
+def test_a_shifted_key_still_asks_the_slot_by_place(tmp_path):
+    """Cell а: the key is ALIVE but points at a piece in another part of the cell (the record
+    numbers shifted after a re-read — live `dcdc24p15n5` had 15 such keys). The piece its key
+    found IS given back, AND the record's own place is asked, where an ownerless piece of the
+    same net is given back too."""
+    cell = _track_cell()
+    _registries(tmp_path, {},
+                {_own_key(cell, 0): _track_entry("away", 30.0, 30.0, 31.0, 30.0)})
+    adapter = _adapter_with(tracks=[_live_track("away", 30.0, 30.0, 31.0, 30.0),
+                                    _live_track("here", 10.0, 10.0, 11.0, 10.0)])
+
+    mapping = tree_cell_copper(adapter, _Cfg(cell), str(tmp_path / "config.sexp"), _tree())
+
+    assert mapping.uuids == {"away", "here"}
+    assert (mapping.by_place, mapping.without_registry) == (1, 0)
+
+
+def test_a_keyed_piece_at_the_place_keeps_its_neighbour_internode(tmp_path):
+    """Cell б: the key's piece STANDS at the record's place, so the slot is NOT asked — a
+    second piece inside the tolerance stays inter-node. (A mutation that asks the keyed slot
+    anyway takes «near» as well: the keyed piece is already `taken`, so the pass moves on to
+    the neighbour.)"""
+    cell = _track_cell()
+    _registries(tmp_path, {},
+                {_own_key(cell, 0): _track_entry("key", 10.0, 10.0, 11.0, 10.0)})
+    adapter = _adapter_with(tracks=[_live_track("key", 10.0, 10.0, 11.0, 10.0),
+                                    _live_track("near", 10.0, 10.03, 11.0, 10.03)])
+
+    mapping = tree_cell_copper(adapter, _Cfg(cell), str(tmp_path / "config.sexp"), _tree())
+
+    assert mapping.uuids == {"key"}
+    assert (mapping.by_place, mapping.without_registry) == (0, 0)
+
+
+@pytest.mark.parametrize("key_on_an_f_cu_piece", (False, True))
+def test_an_ownerless_piece_on_the_other_side_stays_internode(tmp_path,
+                                                              key_on_an_f_cu_piece):
+    """Cell в: an F.Cu record and an OWNERLESS piece of the same net at the same XY but on
+    B.Cu — a two-sided power track. It stays inter-node: with NO key, and also when the key
+    points at an F.Cu piece standing at the place (that piece is the KEY's copper and is given
+    back; the B.Cu one is nobody's)."""
+    cell = _track_cell("F.Cu", record_layer="F.Cu")
+    other_side = _track_on(BoardLayer.BL_B_Cu, "b_cu", 10.0, 10.0, 11.0, 10.0)
+    if key_on_an_f_cu_piece:
+        _registries(tmp_path, {},
+                    {_own_key(cell, 0): _track_entry("f_cu", 10.0, 10.0, 11.0, 10.0)})
+        tracks, expected = [_live_track("f_cu", 10.0, 10.0, 11.0, 10.0), other_side], {"f_cu"}
+    else:
+        _registries(tmp_path, {}, {})
+        tracks, expected = [other_side], set()
+    adapter = _adapter_with(tracks=tracks)
+
+    mapping = tree_cell_copper(adapter, _Cfg(cell), str(tmp_path / "config.sexp"), _tree())
+
+    assert mapping.uuids == expected
+    assert (mapping.by_place, mapping.without_registry) == (
+        0, 0 if key_on_an_f_cu_piece else 1)
+
+
+def test_a_key_on_the_other_side_keeps_its_piece_and_still_asks_the_place(tmp_path):
+    """Cell в2: the key of an F.Cu record points at a B.Cu piece with the same XY. That piece
+    IS given back — a key is proof on its own, layer and net are not asked of it. But it does
+    NOT stand at the record's place (the layer differs), so the slot is asked by place as well,
+    and the ownerless F.Cu piece lying there is given back too."""
+    cell = _track_cell("F.Cu", record_layer="F.Cu")
+    _registries(tmp_path, {},
+                {_own_key(cell, 0): _track_entry("b_cu", 10.0, 10.0, 11.0, 10.0)})
+    adapter = _adapter_with(tracks=[
+        _track_on(BoardLayer.BL_B_Cu, "b_cu", 10.0, 10.0, 11.0, 10.0),
+        _live_track("f_cu", 10.0, 10.0, 11.0, 10.0)])
+
+    mapping = tree_cell_copper(adapter, _Cfg(cell), str(tmp_path / "config.sexp"), _tree())
+
+    assert mapping.uuids == {"b_cu", "f_cu"}
+    assert (mapping.by_place, mapping.without_registry) == (1, 0)
+
+
+@pytest.mark.parametrize("cell_layer, live_layer, given", [
+    ("F.Cu", BoardLayer.BL_F_Cu, True),
+    ("F.Cu", BoardLayer.BL_B_Cu, False),
+    ("B.Cu", BoardLayer.BL_B_Cu, True),
+    ("B.Cu", BoardLayer.BL_F_Cu, False),
+])
+def test_a_record_without_its_own_layer_takes_the_cells(tmp_path, cell_layer, live_layer,
+                                                        given):
+    """Cell г: `rec.layer` None means «inherit the cell layer» — the SAME inheritance the clone
+    path applies — so a B.Cu cell's record is proven by a B.Cu piece and refused by an F.Cu
+    one."""
+    cell = _track_cell(cell_layer)              # the record itself keeps layer=None
+    _registries(tmp_path, {}, {})
+    adapter = _adapter_with(tracks=[_track_on(live_layer, "t", 10.0, 10.0, 11.0, 10.0)])
+
+    mapping = tree_cell_copper(adapter, _Cfg(cell), str(tmp_path / "config.sexp"), _tree())
+
+    assert mapping.uuids == ({"t"} if given else set())
+    assert mapping.by_place == (1 if given else 0)
+
+
+def test_a_cell_that_names_no_layer_is_judged_by_xy_and_net_alone(tmp_path):
+    """Cell г's leniency half: with NO layer on either side the piece is never accused — a
+    datum the run does not have must not take copper from its own record (the very rule
+    `same_net` applies to a missing net). The fixture cell carries no `layer` attribute at
+    all, which is exactly how this case is reached."""
+    cell = _track_cell()
+    _registries(tmp_path, {}, {})
+    adapter = _adapter_with(
+        tracks=[_track_on(BoardLayer.BL_B_Cu, "t", 10.0, 10.0, 11.0, 10.0)])
+
+    mapping = tree_cell_copper(adapter, _Cfg(cell), str(tmp_path / "config.sexp"), _tree())
+
+    assert (mapping.uuids, mapping.by_place) == ({"t"}, 1)
+
+
+def test_a_mirrored_instance_expects_the_other_side_of_the_board(tmp_path):
+    """Cell д: the SAME F.Cu record on a MIRRORED instance — the cell's copper stands on the
+    other side of the board, so the expected layer goes through `mirror_layer` with the frame's
+    own mirror, and the B.Cu piece is given back: the very piece cell «в» refuses on an
+    unmirrored instance.
+
+    The frame here is the REAL fit: FPGA is the cell's (0,0), DA is stored at (10, 4), and the
+    live DA at (14, 20) fits ONLY theta=-90 + mirror — rotate_ydown(10, 4, -90) = (-4, 10), and
+    the mirror flips x, giving the live delta (4, 10)."""
+    from tests.selection.test_registry_pair_frame import FPGA_LIVE, _Fp
+
+    cell = _track_cell("F.Cu", record_layer="F.Cu", second_slot=(10.0, 4.0))
+    _registries(tmp_path, {}, {})
+    adapter = _Adapter(footprints=[_Fp("IC9", "FPGA", CLUSTER, *FPGA_LIVE),
+                                   _Fp("R1", "DA", CLUSTER, 14.0, 20.0)],
+                       vias=[],
+                       tracks=[_track_on(BoardLayer.BL_B_Cu, "tb", 10.0, 10.0, 10.0, 11.0)])
+
+    mapping = tree_cell_copper(adapter, _Cfg(cell), str(tmp_path / "config.sexp"), _tree())
+
+    assert mapping.uuids == {"tb"}
+    assert (mapping.by_place, mapping.without_registry) == (1, 0)
+
+
+def test_a_place_holding_an_already_given_piece_is_not_called_not_given_back(tmp_path):
+    """Cell е: `without_registry` is a SET of slots, never a subtraction of pieces. TWO records
+    put their via at the same place and ONE piece lies there: that piece is given once
+    (`by_place == 1`), and the SECOND record is still ANSWERED — its place demonstrably holds
+    its own copper — so it is not reported as «not given back», and the count cannot go
+    negative."""
+    from tests.selection.test_registry_pair_frame import FPGA_LIVE
+
+    cell = _cell()
+    cell.tracks = []
+    cell.vias = [SimpleNamespace(offset_along_mm=0.0, offset_across_mm=0.0),
+                 SimpleNamespace(offset_along_mm=0.0, offset_across_mm=0.0)]
+    _registries(tmp_path, {}, {})
+    adapter = _adapter_with(vias=[_live_via("uv", *FPGA_LIVE)])
+
+    mapping = tree_cell_copper(adapter, _Cfg(cell), str(tmp_path / "config.sexp"), _tree())
+
+    assert mapping.uuids == {"uv"}
+    assert (mapping.by_place, mapping.without_registry) == (1, 0)
+
+
+def test_the_not_given_back_count_is_the_slot_count_when_the_place_cannot_be_checked(
+        tmp_path):
+    """Cell е's other half: with a NON-RIGID frame nothing is given by place, and the count is
+    the number of SLOTS — the truthful «we could not check», never a negative number produced
+    by subtracting pieces."""
+    from tests.selection.test_registry_pair_frame import FPGA_LIVE, _Fp
+
+    cell = _cell(second_slot=(20.0, 20.0))       # slots: via 0 + track 0
+    _registries(tmp_path, {}, {})
+    adapter = _Adapter(footprints=[_Fp("IC9", "FPGA", CLUSTER, *FPGA_LIVE),
+                                   _Fp("R1", "DA", CLUSTER, 40.0, 40.0)],
+                       vias=[_live_via("uv", *FPGA_LIVE)], tracks=[])
+
+    mapping = tree_cell_copper(adapter, _Cfg(cell), str(tmp_path / "config.sexp"), _tree())
+
+    assert (mapping.by_place, mapping.without_registry) == (0, 2)
+
+
+def test_a_non_rigid_frame_with_every_key_live_says_nothing(tmp_path):
+    """Cell ж: every slot has a LIVE key, so nothing needs the place — and a non-rigid frame
+    then refuses nothing and says nothing: the keys keep their pieces back and the report adds
+    no line about the frame (§2 п.4)."""
+    from tests.selection.test_registry_pair_frame import FPGA_LIVE, _Fp
+
+    cell = _cell(second_slot=(20.0, 20.0))
+    _registries(tmp_path,
+                {_own_key(cell, 0): _via_entry("uv", 30.0, 30.0)},
+                {_own_key(cell, 0): _track_entry("tk", 30.0, 30.0, 31.0, 30.0)})
+    adapter = _Adapter(footprints=[_Fp("IC9", "FPGA", CLUSTER, *FPGA_LIVE),
+                                   _Fp("R1", "DA", CLUSTER, 40.0, 40.0)],
+                       vias=[_live_via("uv", 30.0, 30.0)],
+                       tracks=[_live_track("tk", 30.0, 30.0, 31.0, 30.0)])
+
+    mapping = tree_cell_copper(adapter, _Cfg(cell), str(tmp_path / "config.sexp"), _tree())
+
+    assert mapping.uuids == {"uv", "tk"}
+    assert [line for line in mapping.warnings
+            if "not rigid" in line or "cannot be measured" in line] == []
+    assert (mapping.by_place, mapping.without_registry) == (0, 0)

@@ -1646,20 +1646,34 @@ than guessed.
 
 **A cell's own copper is given BACK to the cell** (2026-10-23, plan
 `plan_2026_10_23_internode_without_cell_copper`; a PLACE pass added 08.11, plan
-`plan_2026_11_08_internode_cell_copper_by_place`): the classification is still pad-to-pad, and every
-INTERNODE piece then loses the copper a CELL's record owns — by TWO proofs that never overlap. First the
-registry KEY, the same ownership «Select cell» uses (the place is not asked on that pass). Then, for the
-records the key answered nothing about (no key at all, an ORPHAN key, or a key whose uuid left the
-board), the PLACE: a live piece standing in that record's frame at `RIGID_TOLERANCE_MM` and carrying
-the record's net (the same lenient `same_net` the select door uses). A non-rigid frame gives nothing by
-place and says so ONCE per cell. The reason the second pass exists was measured live on HP-Power-v099
-(08.11): the registry writes a key only on REDRAW, so a cell that was READ and not yet redrawn has no key
-at all and handed 20 of 83 pieces to the inter-node classifier — across `dcdc24p15n5`, `driver` and
-`spoke_signal`. The place pass only READS: the strict Subtract door and the registry write are untouched.
-Both doors — «Select inter-node copper» and the re-read — run the SAME step, so they keep agreeing; a
-piece that is cell copper ENTIRELY is neither selected nor written and is COUNTED instead. The Log line
-says how many tracks/vias went back to cells, how many records came back by PLACE, how many pieces were
-cell copper entirely, and how many records were not given back at all (no key AND no piece at the place).
+`plan_2026_11_08_internode_cell_copper_by_place` — its §2 added the shifted key and the layer): the
+classification is still pad-to-pad, and every INTERNODE piece then loses the copper a CELL's record
+owns — by TWO proofs that never overlap, and the rule itself lives in one module,
+`kicadstamp/cell_copper_place.py`. First the registry KEY, the same ownership «Select cell» uses. A key
+is proof ON ITS OWN: the piece it found is given back whatever its layer or net — copper moved to the
+other side keeps its uuid and is still the cell's. Then the PLACE, asked for every record slot that has
+NO live key **or** whose keyed piece does not STAND AT the record's place: reading a cell SHIFTS the
+record numbers, so a key may point at a neighbour's piece (measured on HP-Power-v099, `dcdc24p15n5` on
+SW A: 15 such keys, `track|17` leading to a GND_24V piece while SOURCE lay at its own place and kept
+being selected). «At the place» means the XY inside the cell frame at `RIGID_TOLERANCE_MM` **and** the
+copper LAYER: the record's own `layer`, else the cell's, mirrored through the frame's own mirror
+(`utils.layers.mirror_layer`: F.Cu ↔ B.Cu, an inner layer unchanged) and compared as `layer_to_str` — a
+via has no layer. The net gate is still the lenient `same_net` of the select door, and a layer nobody
+can read on either side accuses nobody (the same leniency a missing net gets). A slot whose keyed piece
+DOES stand at the place is not asked by place at all: the key already gave that piece back, and asking
+again would let it take a neighbouring piece inside the tolerance. A non-rigid (or unmeasurable) frame
+gives nothing by place; the Log says so ONCE per cell, and ONLY when that cell has slots with no live
+key — with every key live the place cannot be checked and there is nothing to refuse. The reason the
+second pass exists was measured live (08.11): the registry writes a key only on REDRAW, so a cell that
+was READ and not yet redrawn has no key at all and handed 20 of 83 pieces to the inter-node classifier —
+across `dcdc24p15n5`, `driver` and `spoke_signal`. The place pass only READS: the strict Subtract door
+and the registry write are untouched. Both doors — «Select inter-node copper» and the re-read — run the
+SAME step, so they keep agreeing; a piece that is cell copper ENTIRELY is neither selected nor written
+and is COUNTED instead. The Log line says how many tracks/vias went back to cells, how many pieces came
+back by PLACE (a missing key, or a key pointing at another piece), how many pieces were cell copper
+entirely, and how many record SLOTS were not given back at all — neither a live key nor a piece of their
+own net and layer at their place. A slot whose place holds a piece already given to another record is
+ANSWERED and is not named as missing, and the count is a set, so it can never go negative.
 The copper is read from the WHOLE board even when the area is a selection, and the profile is a REQUIRED
 argument now: `None` means "no profile", and then nothing is subtracted — said out loud, never silent.
 

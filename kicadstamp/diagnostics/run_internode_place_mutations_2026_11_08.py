@@ -1,16 +1,25 @@
 # kicadstamp/diagnostics/run_internode_place_mutations_2026_11_08.py
 """Mutation rows for «cell copper by PLACE» (plan_2026_11_08_internode_cell_copper_by_place).
 
-The defect: the registry key is written only on REDRAW, so everything READ and not yet redrawn
-was handed to the inter-node classifier as its copper — measured live on HP-Power-v099, 20 of 83
-pieces across dcdc24p15n5 / driver / spoke_signal. The fix adds a read-only second pass; each row
-below removes exactly ONE of its four decisions and must turn a NAMED cell red:
+Two rounds of the same plan live here. Round 1 (commit 9ac3db53) added the read-only second pass:
+the registry key is written only on REDRAW, so everything READ and not yet redrawn was handed to
+the inter-node classifier as its copper — measured live on HP-Power-v099, 20 of 83 pieces. Round 2
+(§2 of the acceptance) added the two decisions that pass was missing: a KEY may point at ANOTHER
+record's piece (a reading shifts the record numbers), and the PLACE must ask the LAYER too (an
+F.Cu record must not take the B.Cu piece lying exactly underneath it).
 
-  M1  the place pass is gone                                 (internode_cell_copper.tree_cell_copper)
-  M2  the net gate is gone — another net on that place is taken  (…_give_by_place)
-  M3  the rigidity gate is gone — a non-rigid frame is trusted    (…tree_cell_copper)
-  M4  a slot the KEY already answered is asked again by place      (…tree_cell_copper)
-  M5  a cosmetic control (a comment must change nothing)
+Each row removes exactly ONE decision and must turn a NAMED cell red:
+
+  M1  only the slots with NO key are asked — a shifted key is never re-checked
+      (cell_copper_place.place_pass)                                        cells а, в2
+  M2  the net gate is gone — another net on that place is taken            cell «other net»
+  M3  the layer is not compared — the F.Cu record takes the B.Cu piece     cells в, в2, г
+  M4  the instance's MIRROR is ignored — a mirrored cell expects its own side  cell д
+  M5  a slot the KEY already answered is asked again by place              cell б
+  M6  the same piece is counted twice (the `taken` set is gone)            cell 5б
+  M7  a non-rigid frame is trusted                                        cell 4
+  M8  the place pass is gone altogether                                    cells 1, 2
+  M9  a cosmetic control (a comment must change nothing)
 
 Safeguards, as in every harness of this package (rule 38): a template matching more than once is
 REFUSED; a row that reddens nothing is a MISS, not a pass; the control must survive; every file is
@@ -29,42 +38,69 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 
 CELL_COPPER = "kicadstamp/internode_cell_copper.py"
+PLACE = "kicadstamp/cell_copper_place.py"
 
 GUARDS = "tests/net/test_internode_cell_copper.py"
 
 MUTATIONS = [
-    ("M1 the place pass is gone", CELL_COPPER,
-     "        if unanswered and live.get(\"footprint\"):\n",
-     "        if False:  # MUTATION: no second pass — a read cell owns nothing\n",
-     ["test_a_keyless_record_gives_its_copper_back_by_place",
-      "test_a_dead_key_gives_the_new_piece_at_the_same_place_back"]),
+    ("M1 only the keyless slots are asked (a shifted key is never re-checked)", PLACE,
+     "    out.asked, out.keyless = slots_asked(cell, slots, keyed, live_by_uuid, frame, tol_mm)\n",
+     "    # MUTATION: a slot the key answered is never asked by place\n"
+     "    out.asked = out.keyless = set(slots) - set(keyed)\n",
+     ["test_a_shifted_key_still_asks_the_slot_by_place",
+      "test_a_key_on_the_other_side_keeps_its_piece_and_still_asks_the_place"]),
 
-    ("M2 the net gate is gone", CELL_COPPER,
-     "            if not same_net(item, rec, expected):\n"
-     "                # Another net on that place is NOT this record's copper: it stays\n"
-     "                # inter-node, and the next record may still ask about the same piece.\n"
-     "                continue\n",
-     "",
+    ("M2 the net gate is gone", PLACE,
+     "    return same_net(item, record, getattr(record, \"net\", None))\n",
+     "    return True  # MUTATION: the net is not compared\n",
      ["test_a_piece_on_another_net_at_the_same_place_stays_internode"]),
 
-    ("M3 the rigidity gate is gone", CELL_COPPER,
+    ("M3 the layer is not compared", PLACE,
+     "    return actual == expected\n",
+     "    return True  # MUTATION: the layer is not compared\n",
+     ["test_an_ownerless_piece_on_the_other_side_stays_internode",
+      "test_a_key_on_the_other_side_keeps_its_piece_and_still_asks_the_place",
+      "test_a_record_without_its_own_layer_takes_the_cells"]),
+
+    ("M4 the instance's mirror is ignored", PLACE,
+     "    return mirror_layer(name) if getattr(frame, \"mirror\", False) else name\n",
+     "    return name  # MUTATION: a mirrored cell expects its own side\n",
+     ["test_a_mirrored_instance_expects_the_other_side_of_the_board"]),
+
+    # Measured 08.11: «make the keyed slot askable» must mean «ask EVERY slot», not «drop the
+    # place test from the condition» — the latter still answers NO for a keyed slot whose piece
+    # is found, i.e. it is not the mutation the plan names (it reddens а/в2 instead).
+    ("M5 a slot the KEY answered is asked again by place", PLACE,
+     "        points, record = _slot_parts(cell, slot)\n"
+     "        item = live_by_uuid.get(uuid)\n"
+     "        if (points is None or record is None or item is None\n"
+     "                or not piece_at_the_place(points, item, record, cell, frame, tol_mm)):\n"
+     "            asked.add(slot)\n",
+     "        # MUTATION: a slot the key answered is asked again — it steals its neighbour\n"
+     "        asked.add(slot)\n",
+     ["test_a_keyed_piece_at_the_place_keeps_its_neighbour_internode"]),
+
+    # The `taken` set is what a DOUBLED count would slip past: `found` is a set, so the uuids
+    # cannot show it — the per-kind counters and the cell's `vias`/`tracks` are what redden.
+    ("M6 the same piece is counted twice", PLACE,
+     "            if uuid is not None and uuid not in taken:\n",
+     "            if uuid is not None:  # MUTATION: the same piece may be counted twice\n",
+     ["test_one_piece_matching_two_records_is_given_back_once"]),
+
+    ("M7 a non-rigid frame is trusted", CELL_COPPER,
      "            if frame is None or frame.residual_mm > RIGID_TOLERANCE_MM:\n",
      "            if frame is None:  # MUTATION: a non-rigid frame is trusted\n",
      ["test_a_non_rigid_frame_gives_nothing_by_place_and_says_so_once"]),
 
-    # M4 mutates the guard that is LOAD-BEARING. «A slot the key answered is not asked by
-    # place» is protected twice (the subtraction below AND the `taken` set), so removing the
-    # subtraction alone is an EQUIVALENT mutant — measured here on 08.11: the keyed-slot cell
-    # stayed green. The `taken` set is what a doubled count would slip past, so the row
-    # removes THAT, and the cell pins one piece matched by two records.
-    ("M4 one piece is counted twice", CELL_COPPER,
-     "            if uuid is None or uuid in taken:\n",
-     "            if uuid is None:  # MUTATION: the same piece may be counted twice\n",
-     ["test_one_piece_matching_two_records_is_given_back_once"]),
+    ("M8 the place pass is gone", CELL_COPPER,
+     "        if slots and live.get(\"footprint\"):\n",
+     "        if False:  # MUTATION: no second pass — a read cell owns nothing\n",
+     ["test_a_keyless_record_gives_its_copper_back_by_place",
+      "test_a_dead_key_gives_the_new_piece_at_the_same_place_back"]),
 
-    ("M5 cosmetic control (a comment must change nothing)", CELL_COPPER,
-     "    out = CellCopperMap()\n",
-     "    out = CellCopperMap()  # MUTATION: cosmetic\n",
+    ("M9 cosmetic control (a comment must change nothing)", PLACE,
+     "    out = PlacePass()\n",
+     "    out = PlacePass()  # MUTATION: cosmetic\n",
      "survive"),
 ]
 

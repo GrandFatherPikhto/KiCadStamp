@@ -11142,7 +11142,7 @@ msgstr ""
 "ячейка {cell!r}: её медь не удалось спросить ({err}) — ячейке она не "
 "возвращается"
 
-#: kicadstamp/internode_cell_copper.py:262
+#: kicadstamp/internode_cell_copper.py:354
 #, python-brace-format
 msgid ""
 "net_traces entry (net {net!r}) duplicates cell copper — that copper now "
@@ -11151,21 +11151,22 @@ msgstr ""
 "запись net_traces (сеть {net!r}) дублирует медь ячейки — эта медь теперь "
 "принадлежит записи ячейки; удали запись, если она не нужна"
 
-#: kicadstamp/internode_cell_copper.py:278
+#: kicadstamp/internode_cell_copper.py:375
 #, python-brace-format
 msgid ""
 "cell copper left to cells: {tracks} tracks, {vias} vias across {cells} "
-"cell(s); {whole} piece(s) are cell copper entirely; {by_place} cell "
-"record(s) were given back by PLACE (no registry key); {nokey} cell "
-"record(s) were not given back at all — no registry key and no live piece at "
-"their place"
+"cell(s); {whole} piece(s) are cell copper entirely; {by_place} piece(s) were "
+"given back by PLACE — no registry key, or a key pointing at another piece; "
+"{nokey} cell record(s) were not given back at all — no live registry key, and "
+"no piece of their own net and layer at their place"
 msgstr ""
 "медь, отданная ячейкам: {tracks} дорожек, {vias} переходных отверстий в "
 "{cells} ячейк(ах); {whole} кусок(ов) — целиком медь ячейки; {by_place} "
-"записей отдано ПО МЕСТУ (ключа в реестре нет); {nokey} записей не отдано "
-"вовсе — ни ключа в реестре, ни живой меди на их месте"
+"куск(ов) отдано ПО МЕСТУ — ключа в реестре нет или ключ ведёт на другой "
+"кусок; {nokey} записей не отдано вовсе — живого ключа в реестре нет и куска "
+"своей цепи и слоя на их месте нет"
 
-#: kicadstamp/internode_cell_copper.py:292
+#: kicadstamp/internode_cell_copper.py:246
 msgid ""
 "cell {cell!r}: the place of its records cannot be measured on this instance "
 "— its copper is not given back by place (a registry key is the only proof "
@@ -11174,7 +11175,7 @@ msgstr ""
 "ячейка {cell!r}: место её записей на этом экземпляре не измеряется — её медь "
 "не отдаётся по месту (ключ реестра остаётся единственным доказательством)"
 
-#: kicadstamp/internode_cell_copper.py:297
+#: kicadstamp/internode_cell_copper.py:251
 msgid ""
 "cell {cell!r}: its cell frame is not rigid (residual {residual} mm) — its "
 "copper is not given back by place (a registry key is the only proof left)"
