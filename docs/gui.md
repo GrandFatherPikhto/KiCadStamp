@@ -1658,8 +1658,11 @@ SW A: 15 such keys, `track|17` leading to a GND_24V piece while SOURCE lay at it
 being selected). «At the place» means the XY inside the cell frame at `RIGID_TOLERANCE_MM` **and** the
 copper LAYER: the record's own `layer`, else the cell's, mirrored through the frame's own mirror
 (`utils.layers.mirror_layer`: F.Cu ↔ B.Cu, an inner layer unchanged) and compared as `layer_to_str` — a
-via has no layer. The net gate is still the lenient `same_net` of the select door, and a layer nobody
-can read on either side accuses nobody (the same leniency a missing net gets). A slot whose keyed piece
+via has no layer. That mirror is never the FIT's choice: `cell_frame_from_live` is handed the cell's own
+layer (`cell_layer`), so a cell of two parts — where a fit cannot tell the two sides apart — still gets
+the side the instance PHYSICALLY stands on. The net gate is still the lenient `same_net` of the select
+door, and a layer nobody can read on either side accuses nobody (the same leniency a missing net gets).
+A slot whose keyed piece
 DOES stand at the place is not asked by place at all: the key already gave that piece back, and asking
 again would let it take a neighbouring piece inside the tolerance. A non-rigid (or unmeasurable) frame
 gives nothing by place; the Log says so ONCE per cell, and ONLY when that cell has slots with no live

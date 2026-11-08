@@ -87,12 +87,15 @@ class _Adapter:
 
 
 class _Fp(Footprint):
-    """A Footprint that also carries the Role/Cluster fields the adapter reads."""
+    """A Footprint that also carries the Role/Cluster fields the adapter reads.
 
-    def __init__(self, ref, role, cluster, x_mm, y_mm):
+    `layer` — which SIDE of the board the part stands on. F.Cu by default; a mirrored instance
+    stands on B.Cu, and since 08.11 that is what decides the cell frame's mirror (a cell of two
+    parts gives a fit that cannot tell the two sides apart)."""
+
+    def __init__(self, ref, role, cluster, x_mm, y_mm, layer=BoardLayer.BL_F_Cu):
         super().__init__(ref=ref, uuid=f"uuid-{ref}", angle_deg=0.0,
-                         position=Vector2.from_xy_mm(x_mm, y_mm),
-                         layer=BoardLayer.BL_F_Cu)
+                         position=Vector2.from_xy_mm(x_mm, y_mm), layer=layer)
         self.role = role
         self.cluster = cluster
         self.sheet_path_uuids = ()

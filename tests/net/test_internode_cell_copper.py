@@ -151,11 +151,15 @@ def test_the_tree_map_asks_by_key_not_by_place(tmp_path):
     assert mapping.vias == 1
 
 
-def _adapter_with(*, vias=(), tracks=()):
-    """The selection fixture's adapter, with the FPGA footprint at `FPGA_LIVE`."""
+def _adapter_with(*, vias=(), tracks=(), fp_layer=BoardLayer.BL_F_Cu):
+    """The selection fixture's adapter, with the FPGA footprint at `FPGA_LIVE`.
+
+    `fp_layer` — the SIDE the footprint stands on: since 08.11 the cell frame's mirror comes
+    from it against the CELL's own layer (`cell_frame.instance_mirror`), never from the fit, so
+    a cell carrying a `layer` and a footprint on the other side IS a mirrored instance."""
     from tests.selection.test_registry_pair_frame import _Fp, FPGA_LIVE
 
-    return _Adapter(footprints=[_Fp("IC9", "FPGA", CLUSTER, *FPGA_LIVE)],
+    return _Adapter(footprints=[_Fp("IC9", "FPGA", CLUSTER, *FPGA_LIVE, layer=fp_layer)],
                     vias=list(vias), tracks=list(tracks))
 
 
@@ -747,20 +751,24 @@ def test_a_key_on_the_other_side_keeps_its_piece_and_still_asks_the_place(tmp_pa
     assert (mapping.by_place, mapping.without_registry) == (1, 0)
 
 
-@pytest.mark.parametrize("cell_layer, live_layer, given", [
-    ("F.Cu", BoardLayer.BL_F_Cu, True),
-    ("F.Cu", BoardLayer.BL_B_Cu, False),
-    ("B.Cu", BoardLayer.BL_B_Cu, True),
-    ("B.Cu", BoardLayer.BL_F_Cu, False),
+@pytest.mark.parametrize("cell_layer, side, live_layer, given", [
+    ("F.Cu", BoardLayer.BL_F_Cu, BoardLayer.BL_F_Cu, True),
+    ("F.Cu", BoardLayer.BL_F_Cu, BoardLayer.BL_B_Cu, False),
+    ("B.Cu", BoardLayer.BL_B_Cu, BoardLayer.BL_B_Cu, True),
+    ("B.Cu", BoardLayer.BL_B_Cu, BoardLayer.BL_F_Cu, False),
 ])
-def test_a_record_without_its_own_layer_takes_the_cells(tmp_path, cell_layer, live_layer,
-                                                        given):
+def test_a_record_without_its_own_layer_takes_the_cells(tmp_path, cell_layer, side,
+                                                        live_layer, given):
     """Cell г: `rec.layer` None means «inherit the cell layer» — the SAME inheritance the clone
-    path applies — so a B.Cu cell's record is proven by a B.Cu piece and refused by an F.Cu
-    one."""
+    path applies — so a B.Cu cell's record is proven by a B.Cu piece and refused by an F.Cu one.
+
+    The instance stands on the CELL's own side (`side` = the live footprint's layer), so the
+    expected layer is the cell's own, with no flip: a footprint on the other side would make the
+    frame MIRRORED, and then the record's layer would legitimately swap sides."""
     cell = _track_cell(cell_layer)              # the record itself keeps layer=None
     _registries(tmp_path, {}, {})
-    adapter = _adapter_with(tracks=[_track_on(live_layer, "t", 10.0, 10.0, 11.0, 10.0)])
+    adapter = _adapter_with(tracks=[_track_on(live_layer, "t", 10.0, 10.0, 11.0, 10.0)],
+                            fp_layer=side)
 
     mapping = tree_cell_copper(adapter, _Cfg(cell), str(tmp_path / "config.sexp"), _tree())
 
@@ -791,15 +799,18 @@ def test_a_mirrored_instance_expects_the_other_side_of_the_board(tmp_path):
 
     The frame here is the REAL fit: FPGA is the cell's (0,0), DA is stored at (10, 4), and the
     live DA at (14, 20) fits ONLY theta=-90 + mirror — rotate_ydown(10, 4, -90) = (-4, 10), and
-    the mirror flips x, giving the live delta (4, 10)."""
+    the mirror flips x, giving the live delta (4, 10). The live parts stand on B.Cu, which is
+    what a mirrored instance of an F.Cu cell physically IS — and since 08.11 that side pins the
+    mirror too."""
     from tests.selection.test_registry_pair_frame import FPGA_LIVE, _Fp
 
+    back = BoardLayer.BL_B_Cu
     cell = _track_cell("F.Cu", record_layer="F.Cu", second_slot=(10.0, 4.0))
     _registries(tmp_path, {}, {})
-    adapter = _Adapter(footprints=[_Fp("IC9", "FPGA", CLUSTER, *FPGA_LIVE),
-                                   _Fp("R1", "DA", CLUSTER, 14.0, 20.0)],
+    adapter = _Adapter(footprints=[_Fp("IC9", "FPGA", CLUSTER, *FPGA_LIVE, layer=back),
+                                   _Fp("R1", "DA", CLUSTER, 14.0, 20.0, layer=back)],
                        vias=[],
-                       tracks=[_track_on(BoardLayer.BL_B_Cu, "tb", 10.0, 10.0, 10.0, 11.0)])
+                       tracks=[_track_on(back, "tb", 10.0, 10.0, 10.0, 11.0)])
 
     mapping = tree_cell_copper(adapter, _Cfg(cell), str(tmp_path / "config.sexp"), _tree())
 
@@ -867,3 +878,79 @@ def test_a_non_rigid_frame_with_every_key_live_says_nothing(tmp_path):
     assert [line for line in mapping.warnings
             if "not rigid" in line or "cannot be measured" in line] == []
     assert (mapping.by_place, mapping.without_registry) == (0, 0)
+
+
+# ── §3 of the acceptance (08.11): the SIDE, a record's own layer, two pieces at one place ────
+#
+# The three holes Denis's own mutations found: nothing guarded «the mirror comes from the
+# physical side», «a record's own layer beats the cell's», and «a taken piece does not stop the
+# search». The code already did all three — these cells make them load-bearing.
+
+@pytest.mark.parametrize("side, mirrored", [
+    (BoardLayer.BL_F_Cu, False),
+    (BoardLayer.BL_B_Cu, True),
+])
+def test_the_frames_mirror_comes_from_the_side_the_instance_stands_on(tmp_path, side,
+                                                                      mirrored):
+    """§3 п.1: `cell_frame.py` forbids a frame to CHOOSE its mirror from geometry, and a cell of
+    two parts on ONE LINE cannot tell the two sides apart — the fit is ambiguous there. So the
+    side comes from the live footprint against the CELL's own layer, and `instance_frame` hands
+    that layer down to `cell_frame_from_live`.
+
+    The live layout is the UNMIRRORED one in BOTH cases (DA ten millimetres further along); only
+    the side differs. On F.Cu the frame is the identity; on B.Cu — the cell's copper stands on the
+    back of the board — the frame must be MIRRORED, and the fit simply turns it 180° to stay
+    rigid."""
+    from kicadstamp.cell_copper_place import instance_frame
+    from kicadstamp.cell_instance import resolve_context_footprints
+    from tests.selection.test_registry_pair_frame import FPGA_LIVE, _Fp
+
+    cell = _track_cell("F.Cu", second_slot=(10.0, 0.0))          # two parts ON ONE LINE
+    adapter = _Adapter(footprints=[_Fp("IC9", "FPGA", CLUSTER, *FPGA_LIVE, layer=side),
+                                   _Fp("R1", "DA", CLUSTER, 20.0, 10.0, layer=side)],
+                       vias=[], tracks=[])
+    own = resolve_context_footprints(adapter, adapter.get_footprints(), CLUSTER, None, {})
+
+    frame = instance_frame(cell, own, adapter)
+
+    assert frame is not None and frame.is_rigid
+    assert frame.mirror is mirrored
+
+
+def test_a_record_keeps_its_own_layer_inside_a_cell_of_another_side(tmp_path):
+    """§3 п.2: a record's OWN layer beats the cell's — the live board has such a record
+    (`dcdc24p15n5`: a B.Cu track inside an F.Cu cell). The ownerless B.Cu piece at the place is
+    given back; the F.Cu piece with the SAME XY and net stays inter-node, because this record
+    names B.Cu. (A mutation reading only the CELL's layer takes the wrong piece and reddens this
+    cell.)"""
+    cell = _track_cell("F.Cu", record_layer="B.Cu")
+    _registries(tmp_path, {}, {})
+    adapter = _adapter_with(tracks=[
+        _track_on(BoardLayer.BL_B_Cu, "back", 10.0, 10.0, 11.0, 10.0),
+        _track_on(BoardLayer.BL_F_Cu, "front", 10.0, 10.0, 11.0, 10.0)])
+
+    mapping = tree_cell_copper(adapter, _Cfg(cell), str(tmp_path / "config.sexp"), _tree())
+
+    assert mapping.uuids == {"back"}
+    assert (mapping.by_place, mapping.without_registry) == (1, 0)
+
+
+def test_two_pieces_at_one_place_are_both_given_back_once_each(tmp_path):
+    """§3 п.3: two records put their copper at ONE place and TWO pieces lie there. Each record
+    takes ONE piece — the first is already `taken` when the second record asks, so the search has
+    to go ON to the next piece instead of stopping at the taken one (a `break` there reddens this
+    cell). Cell 5б is the other half: one piece, two records."""
+    from tests.selection.test_registry_pair_frame import FPGA_LIVE
+
+    cell = _cell()
+    cell.tracks = []
+    cell.vias = [SimpleNamespace(offset_along_mm=0.0, offset_across_mm=0.0),
+                 SimpleNamespace(offset_along_mm=0.0, offset_across_mm=0.0)]
+    _registries(tmp_path, {}, {})
+    adapter = _adapter_with(vias=[_live_via("uv1", *FPGA_LIVE),
+                                  _live_via("uv2", *FPGA_LIVE)])
+
+    mapping = tree_cell_copper(adapter, _Cfg(cell), str(tmp_path / "config.sexp"), _tree())
+
+    assert mapping.uuids == {"uv1", "uv2"}
+    assert (mapping.by_place, mapping.vias, mapping.without_registry) == (2, 2, 0)

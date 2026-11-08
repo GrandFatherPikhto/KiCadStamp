@@ -688,22 +688,22 @@ def _frame_and_context(components, footprints, adapter, action_label,
     return (frame, role_to_ref, matched, problems, node_lines)
 
 
-def cell_frame_from_live(components, footprints, adapter, origin_role=None):
+def cell_frame_from_live(components, footprints, adapter, origin_role=None, cell_layer=None):
     """PUBLIC: the cell frame of a LIVE instance, built by the VERY code path
     "Refresh geometry from selection" uses — the role match (with its surrogate
     and mount) plus the fit, never a second implementation.
 
     ``components`` — the cell's slots as dicts (role + the two stored offsets;
     :func:`cell_origin.cell_slot_dicts` turns a loaded Cell into that shape),
-    ``footprints``
-    — the instance's live footprints, ``origin_role`` — the cell's ``anchor_role``
-    (None keeps the legacy zero-offset-slot origin). 2026-10-21: the frame no
-    longer needs the origin ROLE to be among `footprints` — cell_origin picks any
-    matched role as the surrogate. None only when NO role of the cell is in the
-    selection: the caller then has nothing to measure against and must say so
-    instead of guessing."""
+    ``footprints`` — the instance's live footprints, ``origin_role`` — the cell's
+    ``anchor_role`` (None keeps the legacy zero-offset-slot origin). 2026-10-21:
+    the frame no longer needs the origin ROLE to be among `footprints` —
+    cell_origin picks any matched role as the surrogate. None only when NO role of
+    the cell is in the selection: the caller then has nothing to measure against
+    and must say so instead of guessing. ``cell_layer`` (08.11) PINS the mirror to
+    the side the instance PHYSICALLY stands on; None keeps the free fit."""
     return _frame_and_context(components, footprints, adapter, _("refresh"),
-                              origin_role)[0]
+                              origin_role, cell_layer=cell_layer)[0]
 
 
 def _read_nested_live(adapter, placement, cell, parent_frame: CellFrame,

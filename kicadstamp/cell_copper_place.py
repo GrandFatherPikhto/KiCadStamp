@@ -81,14 +81,22 @@ def instance_frame(cell, footprints, adapter):
 
     `footprints` is the instance's OWN live component list (`resolve_context_footprints`),
     already read by the caller: the frame needs `adapter.get_field_value` only, never a
-    second whole-board read. READ-ONLY."""
+    second whole-board read. READ-ONLY.
+
+    The CELL'S LAYER is handed down (`cell_frame_from_live(cell_layer=...)`), so the frame's
+    mirror is the side the instance PHYSICALLY stands on — `cell_frame.py` forbids a frame to
+    CHOOSE its mirror from geometry, and a cell of two parts (7 of the 13 nodes on HP-Power)
+    gives a fit that cannot tell the two sides apart: the XY and the LAYER of every record
+    would then be checked against a frame that may be flipped. A cell naming no layer keeps
+    the historical free fit (None)."""
     from .cell_geometry_refresh import cell_frame_from_live
     from .cell_origin import cell_slot_dicts
 
     if not footprints:
         return None
     return cell_frame_from_live(cell_slot_dicts(cell), list(footprints), adapter,
-                                origin_role=getattr(cell, "anchor_role", None))
+                                origin_role=getattr(cell, "anchor_role", None),
+                                cell_layer=getattr(cell, "layer", None))
 
 
 def expected_layer(record, cell, frame):
