@@ -10,10 +10,17 @@ cell carries its own output via.
 
 This module answers ONE question and cuts by its answer:
 
-  * WHICH live copper a cell's record already owns — by the REGISTRY KEY, through
-    `absent_copper_prune.registry_record_copper_map(place_check=False, frame_check=False)`, the
-    same ownership «Select cell» uses. A second ownership rule would drift from that one (the
-    project already paid for two copies of `form_identity.replace_entry`);
+  * WHICH live copper a cell's record already owns, by TWO proofs that never overlap:
+    - the REGISTRY KEY, through
+      `absent_copper_prune.registry_record_copper_map(place_check=False, frame_check=False)`, the
+      same ownership «Select cell» uses. A second ownership rule would drift from that one (the
+      project already paid for two copies of `form_identity.replace_entry`);
+    - the PLACE (08.11, plan_2026_11_08_internode_cell_copper_by_place): the registry writes a
+      key only on REDRAW, so everything READ and not yet redrawn had no key and was handed to
+      the inter-node classifier as its copper — measured live on HP-Power-v099, 20 of 83 pieces
+      across three cells (dcdc24p15n5, driver, spoke_signal). A live piece AT a record's stored
+      place, carrying that record's net, is the record's copper, and that pass only READS: the
+      strict Subtract door and the registry write are not touched;
   * and `cut_cell_copper(unit, owned)` — the same `CopperUnit` with only the copper nobody owns.
 
 Deliberately NOT here: the classification (a unit is still recognised pad-to-pad,
@@ -60,7 +67,12 @@ class CellCopperMap:
     by_cell: dict = field(default_factory=dict)
     tracks: int = 0
     vias: int = 0
-    #: This cell's records the registry has no key for — their copper is NOT given back.
+    #: Owned by PLACE alone (08.11): the registry key is written only on REDRAW, so a cell
+    #: that was read and never redrawn has no key at all — its records' places still prove
+    #: the copper is the cell's. Counted here so the report can say where the proof came from.
+    by_place: int = 0
+    #: This cell's records given back by NEITHER route (no registry key, no live piece at
+    #: their place) — their copper is not given back and the report says the count.
     without_registry: int = 0
     #: Node keys whose entity names no cell: nothing to ask the registry about.
     skipped_nodes: int = 0
@@ -106,6 +118,75 @@ def _cell_by_node_key(cfg) -> dict:
     return out
 
 
+def _instance_frame(cell, footprints, adapter):
+    """The cell frame of ONE live instance, built by the PUBLIC wrapper over the very
+    construction «Refresh geometry from selection» uses (`cell_frame_from_live`), or
+    None when this instance cannot be measured (no role of the cell among its
+    footprints — nothing to fit the frame against).
+
+    `footprints` is the instance's OWN live component list (`resolve_context_footprints`),
+    already read by the caller: the frame needs `adapter.get_field_value` only, never a
+    second whole-board read. READ-ONLY."""
+    from .cell_geometry_refresh import cell_frame_from_live
+    from .cell_origin import cell_slot_dicts
+
+    if not footprints:
+        return None
+    return cell_frame_from_live(cell_slot_dicts(cell), list(footprints), adapter,
+                                origin_role=getattr(cell, "anchor_role", None))
+
+
+def _give_by_place(cell, slots, live, frame, taken) -> tuple:
+    """The SECOND pass (08.11): `(uuids found, slots answered, vias among them)`.
+
+    The registry writes a key only on REDRAW, so a cell that was read and never
+    redrawn has no key at all — and its records' copper would be taken as inter-node
+    copper (measured live on HP-Power-v099, 08.11: 20 of 83 pieces). The PLACE is the
+    proof here, and it is a READ:
+
+      * the live piece must lie where the record puts it — `pair_agrees_with_record` in
+        the cell frame with `RIGID_TOLERANCE_MM`, the SAME comparison the registry
+        path uses (never a second one);
+      * it must carry the record's net — `same_net` with the record's LITERAL `net`,
+        exactly the SELECT door's rule (`absent_copper_prune`: a record naming its net
+        through `net_from_role` cannot be resolved WITHOUT the run's clone params, so
+        it is judged by place alone — the same leniency `same_net` applies);
+      * an ORPHAN slot has no place to check and is skipped.
+
+    `taken` (the uuids already given back, by key or by an earlier pass) is updated in
+    place, so one piece of copper is never counted twice. READ-ONLY on the board and
+    on the config."""
+    from .absent_copper_prune import pair_agrees_with_record, record_of, record_points
+    from .cell_frame import RIGID_TOLERANCE_MM
+    from .registry_match import same_net
+
+    found: set = set()
+    answered = 0
+    vias = 0
+    for kind, role_part, index in sorted(slots):
+        points = record_points(cell, kind, role_part, index)
+        if points is None:
+            continue                       # an ORPHAN slot puts its copper nowhere
+        rec = record_of(cell, kind, role_part, index)
+        expected = getattr(rec, "net", None)
+        for item in (live.get(kind) or ()):
+            uuid = getattr(item, "uuid", None)
+            if uuid is None or uuid in taken:
+                continue
+            if not pair_agrees_with_record(points, item, frame, RIGID_TOLERANCE_MM):
+                continue
+            if not same_net(item, rec, expected):
+                # Another net on that place is NOT this record's copper: it stays
+                # inter-node, and the next record may still ask about the same piece.
+                continue
+            taken.add(uuid)
+            found.add(uuid)
+            answered += 1
+            vias += 1 if kind == "via" else 0
+            break
+    return found, answered, vias
+
+
 def tree_cell_copper(adapter, cfg, config_path, tree, *, sheet_names=None,
                      live=None, registry=None) -> CellCopperMap:
     """The tree's cell copper — every node's own registry-keyed copper, collected once.
@@ -141,6 +222,13 @@ def tree_cell_copper(adapter, cfg, config_path, tree, *, sheet_names=None,
                 err=e))
             return out
 
+    from .absent_copper_prune import cell_record_slots
+    from .cell_frame import RIGID_TOLERANCE_MM
+
+    # Cells whose place pass could not run are named ONCE each, never once per node: the same
+    # cell usually owns several nodes of a tree.
+    place_refused: set = set()
+
     for key in tree_node_keys(tree, cfg):
         cell = cells.get(key)
         if not cell:
@@ -162,7 +250,6 @@ def tree_cell_copper(adapter, cfg, config_path, tree, *, sheet_names=None,
                     "back to the cell").format(cell=cell, err=e))
             out.skipped_nodes += 1
             continue
-        out.without_registry += record_map.without_registry
         found = 0
         for (kind, role_part, index) in record_map.by_record:
             uuid = record_map.live_uuid(kind, role_part, index)
@@ -176,6 +263,54 @@ def tree_cell_copper(adapter, cfg, config_path, tree, *, sheet_names=None,
                 out.tracks += 1
         if found:
             out.by_cell[cell] = out.by_cell.get(cell, 0) + found
+
+        # ── SECOND PASS: by PLACE (08.11) ────────────────────────────────────────────────
+        # The registry writes a key only on REDRAW, so everything read and not yet redrawn
+        # had no key and was handed to the inter-node classifier as its copper (measured on
+        # HP-Power-v099: 20 of 83 pieces, three cells). A live piece AT the record's stored
+        # place, carrying the record's net, is that record's copper even without a key.
+        cell_obj = (getattr(cfg, "cells", {}) or {}).get(cell)
+        slots = cell_record_slots(cell_obj)
+        by_place = vias_by_place = 0
+        unanswered = slots - set(record_map.by_record)
+        if unanswered and live.get("footprint"):
+            frame = None
+            try:
+                from .cell_instance import resolve_context_footprints
+
+                own_footprints = resolve_context_footprints(
+                    adapter, live.get("footprint") or (), cluster, sheet,
+                    dict(sheet_names or {}))
+                frame = _instance_frame(cell_obj, own_footprints, adapter)
+            except Exception:  # noqa: BLE001 — "no frame" is a UI state, not a crash
+                frame = None
+            if frame is None or frame.residual_mm > RIGID_TOLERANCE_MM:
+                if cell not in place_refused:
+                    place_refused.add(cell)
+                    if frame is None:
+                        out.warnings.append(_(
+                            "cell {cell!r}: the place of its records cannot be measured on "
+                            "this instance — its copper is not given back by place (a "
+                            "registry key is the only proof left)").format(cell=cell))
+                    else:
+                        out.warnings.append(_(
+                            "cell {cell!r}: its cell frame is not rigid (residual "
+                            "{residual} mm) — its copper is not given back by place (a "
+                            "registry key is the only proof left)").format(
+                                cell=cell, residual=round(frame.residual_mm, 3)))
+            else:
+                _found, by_place, vias_by_place = _give_by_place(
+                    cell_obj, unanswered, live, frame, out.uuids)
+                out.uuids |= _found
+                out.tracks += by_place - vias_by_place
+                out.vias += vias_by_place
+                out.by_place += by_place
+                if by_place:
+                    out.by_cell[cell] = out.by_cell.get(cell, 0) + by_place
+        # The report's "not given back" count: a record answered by NEITHER route. Counted
+        # from the slots themselves, not from `record_map.without_registry` — that one stops
+        # being the truth the moment the place pass answers a keyless record.
+        out.without_registry += len(slots) - found - by_place
     return out
 
 
@@ -266,17 +401,19 @@ def duplicate_line(identity: str) -> str:
 def report_line(mapping: Optional[CellCopperMap], whole_pieces: int) -> Optional[str]:
     """The Log/report sentence for a run, or None when there is nothing to say.
 
-    Three facts, each elsewhere invisible: how much copper was given back to cells, how many
-    pieces of the area turned out to be cell copper ENTIRELY (taken by neither door), and how many
-    cell records the registry has no key for (their copper is not given back — the cell was never
-    redrawn, and that must be said rather than silently ignored)."""
+    Four facts, each elsewhere invisible: how much copper was given back to cells, how many
+    pieces of the area turned out to be cell copper ENTIRELY (taken by neither door), how many
+    records the PLACE pass answered (they have no registry key — the cell was read and never
+    redrawn — and the report must name that proof), and how many records NEITHER route could
+    answer (their copper is not given back, said rather than silently ignored)."""
     if mapping is None:
         return None
     if not mapping.uuids and not whole_pieces and not mapping.without_registry:
         return None
     return _(
         "cell copper left to cells: {tracks} tracks, {vias} vias across {cells} cell(s); "
-        "{whole} piece(s) are cell copper entirely; {nokey} cell record(s) have no registry "
-        "key, so their copper is not given back").format(
+        "{whole} piece(s) are cell copper entirely; {by_place} cell record(s) were given back "
+        "by PLACE (no registry key); {nokey} cell record(s) were not given back at all — no "
+        "registry key and no live piece at their place").format(
         tracks=mapping.tracks, vias=mapping.vias, cells=len(mapping.by_cell),
-        whole=whole_pieces, nokey=mapping.without_registry)
+        whole=whole_pieces, by_place=mapping.by_place, nokey=mapping.without_registry)

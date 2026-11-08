@@ -10460,8 +10460,23 @@ msgstr ""
 #, python-brace-format
 msgid ""
 "cell copper left to cells: {tracks} tracks, {vias} vias across {cells} "
-"cell(s); {whole} piece(s) are cell copper entirely; {nokey} cell "
-"record(s) have no registry key, so their copper is not given back"
+"cell(s); {whole} piece(s) are cell copper entirely; {by_place} cell "
+"record(s) were given back by PLACE (no registry key); {nokey} cell "
+"record(s) were not given back at all — no registry key and no live piece at "
+"their place"
+msgstr ""
+
+#: kicadstamp/internode_cell_copper.py:292
+msgid ""
+"cell {cell!r}: the place of its records cannot be measured on this instance "
+"— its copper is not given back by place (a registry key is the only proof "
+"left)"
+msgstr ""
+
+#: kicadstamp/internode_cell_copper.py:297
+msgid ""
+"cell {cell!r}: its cell frame is not rigid (residual {residual} mm) — its "
+"copper is not given back by place (a registry key is the only proof left)"
 msgstr ""
 
 # ── Inter-node copper core (plan_2026_09_12_internode_copper_core, Э1) ──

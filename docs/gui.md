@@ -1645,14 +1645,22 @@ wait for; two nodes of one Cluster matching one component are reported by name a
 than guessed.
 
 **A cell's own copper is given BACK to the cell** (2026-10-23, plan
-`plan_2026_10_23_internode_without_cell_copper`): the classification is still pad-to-pad, and every
-INTERNODE piece then loses the copper a CELL's record owns — by the registry KEY, the same ownership
-«Select cell» uses, so a cell that was never redrawn still gives its copper back (the place check is not
-asked at all on this path). Both doors — «Select inter-node copper» and the re-read — run the SAME step,
-so they keep agreeing; a piece that is cell copper ENTIRELY is neither selected nor written and is
-COUNTED instead. The Log line says how many tracks/vias went back to cells, how many pieces were cell
-copper entirely and how many cell records have no registry key (their copper is not given back). The
-copper is read from the WHOLE board even when the area is a selection, and the profile is a REQUIRED
+`plan_2026_10_23_internode_without_cell_copper`; a PLACE pass added 08.11, plan
+`plan_2026_11_08_internode_cell_copper_by_place`): the classification is still pad-to-pad, and every
+INTERNODE piece then loses the copper a CELL's record owns — by TWO proofs that never overlap. First the
+registry KEY, the same ownership «Select cell» uses (the place is not asked on that pass). Then, for the
+records the key answered nothing about (no key at all, an ORPHAN key, or a key whose uuid left the
+board), the PLACE: a live piece standing in that record's frame at `RIGID_TOLERANCE_MM` and carrying
+the record's net (the same lenient `same_net` the select door uses). A non-rigid frame gives nothing by
+place and says so ONCE per cell. The reason the second pass exists was measured live on HP-Power-v099
+(08.11): the registry writes a key only on REDRAW, so a cell that was READ and not yet redrawn has no key
+at all and handed 20 of 83 pieces to the inter-node classifier — across `dcdc24p15n5`, `driver` and
+`spoke_signal`. The place pass only READS: the strict Subtract door and the registry write are untouched.
+Both doors — «Select inter-node copper» and the re-read — run the SAME step, so they keep agreeing; a
+piece that is cell copper ENTIRELY is neither selected nor written and is COUNTED instead. The Log line
+says how many tracks/vias went back to cells, how many records came back by PLACE, how many pieces were
+cell copper entirely, and how many records were not given back at all (no key AND no piece at the place).
+The copper is read from the WHOLE board even when the area is a selection, and the profile is a REQUIRED
 argument now: `None` means "no profile", and then nothing is subtracted — said out loud, never silent.
 
 **«Select cell» finds the copper of a record NO tree places** (2026-11-04, plan

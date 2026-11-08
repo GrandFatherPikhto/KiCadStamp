@@ -11155,12 +11155,32 @@ msgstr ""
 #, python-brace-format
 msgid ""
 "cell copper left to cells: {tracks} tracks, {vias} vias across {cells} "
-"cell(s); {whole} piece(s) are cell copper entirely; {nokey} cell "
-"record(s) have no registry key, so their copper is not given back"
+"cell(s); {whole} piece(s) are cell copper entirely; {by_place} cell "
+"record(s) were given back by PLACE (no registry key); {nokey} cell "
+"record(s) were not given back at all — no registry key and no live piece at "
+"their place"
 msgstr ""
-"медь ячеек оставлена ячейкам: {tracks} дорожек, {vias} переходных у "
-"{cells} ячеек; {whole} кусков целиком принадлежат ячейкам; у {nokey} "
-"записей ячеек нет ключа реестра — их медь не возвращается"
+"медь, отданная ячейкам: {tracks} дорожек, {vias} переходных отверстий в "
+"{cells} ячейк(ах); {whole} кусок(ов) — целиком медь ячейки; {by_place} "
+"записей отдано ПО МЕСТУ (ключа в реестре нет); {nokey} записей не отдано "
+"вовсе — ни ключа в реестре, ни живой меди на их месте"
+
+#: kicadstamp/internode_cell_copper.py:292
+msgid ""
+"cell {cell!r}: the place of its records cannot be measured on this instance "
+"— its copper is not given back by place (a registry key is the only proof "
+"left)"
+msgstr ""
+"ячейка {cell!r}: место её записей на этом экземпляре не измеряется — её медь "
+"не отдаётся по месту (ключ реестра остаётся единственным доказательством)"
+
+#: kicadstamp/internode_cell_copper.py:297
+msgid ""
+"cell {cell!r}: its cell frame is not rigid (residual {residual} mm) — its "
+"copper is not given back by place (a registry key is the only proof left)"
+msgstr ""
+"ячейка {cell!r}: рамка не жёсткая (невязка {residual} мм) — её медь не "
+"отдаётся по месту (ключ реестра остаётся единственным доказательством)"
 
 # ── Inter-node copper core (plan_2026_09_12_internode_copper_core, Э1) ──
 #: kicadstamp/internode_copper.py:348
