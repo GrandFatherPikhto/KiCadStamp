@@ -46,6 +46,7 @@ from kicadstamp.trees import Tree, check_tree_self_anchor_drift
 
 from ..connection import worker_timeout_ms
 from .tree_place_drift import place_drift_lines
+from .trees_base_pose import redraw_target
 
 
 def _self_anchor_drift_skips(cfg, linked, selected_refs: set[str]
@@ -473,29 +474,69 @@ def run_curated_forest_redraw_worker(payload: dict) -> tuple:
         payload["selected_refs"], worker_timeout_ms(payload))
 
 
+def _node_position_override(payload: dict, ref: str):
+    """The ONE `PositionOverride` this run places `ref` at — its base resolved from
+    the LIVE BOARD (plan_2026_11_09_node_redraw_from_live_parent).
+
+    None ONLY for a payload that names no node at all: the bare `--only` run the
+    cascade tests drive (`{"ref": "CL_A"}`). `TreesDock._redraw_edited_node` ALWAYS
+    sends the node, so every Redraw a user clicks comes through `redraw_target` and
+    is placed at `live parent + the node's own xy/rotation` — the exact inverse of
+    "Read current position", so Read-then-Redraw no longer moves the part.
+
+    A payload that names a NODE but not the tree/config/adapter it needs is REFUSED,
+    never guessed: laying the node out from the tree is the fallback this plan
+    removes — it reads a Grid Origin and a tree anchor the board knows nothing about,
+    which is what moved the pads while the Read said otherwise."""
+    node = payload.get("node")
+    if node is None:
+        return None
+    tree, cfg, adapter = payload.get("tree"), payload.get("cfg"), payload.get("adapter")
+    if tree is None or cfg is None or adapter is None:
+        raise ValidationError(_(
+            "node redraw: {node!r} came without its tree, config or live adapter — "
+            "nothing is placed, and the tree layout is NOT used instead").format(
+            node=ref))
+    position, rotation_deg = redraw_target(
+        cfg, adapter, payload.get("sheet_names") or {}, tree, node,
+        payload.get("parent_node"), base_anchor=payload.get("base_anchor"))
+    return PositionOverride(position=position, rotation_deg=rotation_deg)
+
+
 def run_single_node_redraw_worker(payload: dict) -> tuple:
     """Worker for the node editor's **Redraw** button (plan
     tree_node_own_anchor Phase B, design_2026_09_03... §3): ONE ApplyPipeline
     --only run for a single tree node's ref, over the IN-MEMORY cfg/trees — the
     dock's working copy (same Tree/TreeNode objects as the dialog just applied
-    to), so an unsaved offset edit is what actually lands on the board. NOT the
-    curated/rigid redraw: a per-node redraw after an edit must place the real
-    component at its (edited) CONFIG position, so no PositionOverride is made.
+    to), so an unsaved offset edit is what actually lands on the board.
     Returns (per-name results, warnings=[]) in the same shape the trees dock's
     _finish_redraw expects.
+
+    The TARGET is now resolved here, from the board (plan_2026_11_09_node_redraw_
+    from_live_parent): a tree node stores xy/rotation against its PARENT's frame,
+    so the parent is read live (the same `resolve_node_base_pose` the Read uses,
+    with the board read on THIS thread — Э1) and handed to the pipeline as a
+    `PositionOverride`. Before this, the pipeline placed the node from the TREE's
+    layout, i.e. from the anchor and the Grid Origin — a different answer than the
+    one the form had just displayed. A base that cannot be read (parent missing,
+    non-rigid or mirrored) is a `ValidationError` raised BEFORE the pipeline
+    exists, so the board is untouched and the caller logs one line.
 
     Inherits the documented ApplyPipeline boundary (design §0): if any tree /
     entity in the config is unresolvable for a placement, this --only run may
     fail the same way the whole apply would — that is NOT fixed in Phase B."""
     ref = payload.get("ref") or payload.get("only")
     try:
+        override = _node_position_override(payload, ref)
         # Per-click socket, released on both paths — see run_cascade.
         with ApplyPipeline(
             config_path=payload.get("config_path", ""),
             preloaded_cfg=payload.get("cfg"),
             preloaded_ctx=payload.get("ctx"),
             timeout_ms=worker_timeout_ms(payload),
-            only=[ref], dry_run=False) as pipeline:
+            only=[ref], dry_run=False,
+            position_overrides={ref: override} if override is not None else None
+        ) as pipeline:
             pipeline.run()
         return [(ref, True, None)], []
     except PlacerError as e:

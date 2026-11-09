@@ -26,7 +26,7 @@ from PyQt6.QtWidgets import (QAbstractItemView, QComboBox, QDialog,
                              QTabWidget, QTreeWidget, QTreeWidgetItem,
                              QTreeWidgetItemIterator, QVBoxLayout, QWidget)
 
-from kicadstamp.anchor_graph import Record, build_records
+from kicadstamp.anchor_graph import build_records
 from kicadstamp.component_address import resolve_component_footprint
 from kicadstamp.config import TreeInstance, load_config, load_tree
 from kicadstamp.adapter_factory import create_board_adapter
@@ -40,32 +40,19 @@ from kicadstamp.exceptions import (
     read_only_verdict,
 )
 from kicadstamp.i18n import _
-from kicadstamp.link_trees import (
-    _PLACEABLE_KINDS,
-    _build_by_key_index,
-    _build_by_name_index,
-    _resolve_node_ref,
-    link_trees,
-)
+from kicadstamp.link_trees import _PLACEABLE_KINDS, link_trees
 from kicadstamp.tree_position import (
-    MountFrames,
     _anchor_base_live_position,
     _root_entity_ref,
     board_offset_to_local_mm,
     board_rotation_to_local_deg,
     local_offset_to_board_mm,
     local_rotation_to_board_deg,
-    mount_node_poses,
     rotate_offset_mm,
-    tree_layout_base,
     tree_pivot_offset,
     resolve_base_live_position,
     resolve_base_rotation_deg,
     relative_rotation_deg,
-)
-from kicadstamp.placement.services.component_resolver import (
-    ComponentResolver,
-    resolve_anchor_pad_position,
 )
 from kicadstamp.placement.anchor_identity import entity_is_self_anchor
 from kicadstamp.trees import (RECORD_KINDS, Tree, TreeAnchor,
@@ -96,6 +83,15 @@ from .trees_mounts_launch import add_mounts_item
 from .live_cfg import live_cfg
 from .trees_instances_sync import apply_reloaded, mark_generated, reload_root
 from .trees_instances_refresh import InstancesRefresh
+# The base resolvers MOVED to their own module (plan_2026_11_09_node_redraw_from_live_parent:
+# the redraw worker needs them and cannot import this dock) and keep their historical names
+# HERE, looked up through THIS module exactly as before: every existing test monkeypatches
+# `trees_dock._resolve_node_base_pose` / `trees_dock._mount_anchor_pose`, and the mount-rebase
+# flow (trees_mount_rebase) asks the dock for its seams.
+from .trees_base_pose import _mount_anchor_pose  # noqa: F401 — re-export for callers/tests
+from .trees_base_pose import _resolve_probe_ref
+from .trees_base_pose import resolve_node_base_pose as _resolve_node_base_pose
+from kicadstamp.tree_position import tree_layout_base  # noqa: F401 — re-export for tests
 from .trees_markers import (  # noqa: F401 — re-export for callers and tests
     _MOUNT_POINT_NS,
     _TREE_ANCHOR_NS,
@@ -338,20 +334,6 @@ def run_node_reread_worker(payload: dict) -> dict:
     return {"ok": True, "xy": (offset_mm[0], offset_mm[1]), "rotation": rotation}
 
 
-def _resolve_probe_ref(cfg, ref: str, kind: str | None) -> tuple[Record | None, bool]:
-    """Same resolution rules as a real tree node — reused via link_trees's own
-    private index builders (already partially imported here), not
-    reimplemented. Returns (record, is_external); record is None only when
-    is_external. Raises ValidationError on 0/2+ matches (not found /
-    ambiguous), exactly like a real node — the dialog catches it and shows a
-    warning instead of letting it propagate (never silently guess)."""
-    records = build_records(cfg)
-    by_key = _build_by_key_index(records)
-    by_name = _build_by_name_index(records)
-    probe = TreeNode(ref=ref, kind=kind, xy=None, polar=None, rotation=0.0,
-                     name=None, group=None, children=[])
-    return _resolve_node_ref(probe, by_key, by_name)
-
 
 def _connection_snapshot(connection):
     """The connection's cached whole-board snapshot, or None without one — the
@@ -381,115 +363,6 @@ def _live_adapter_for(adapter, connection):
     return getattr(board, "adapter", None)
 
 
-def _mount_anchor_pose(cfg, adapter, sheet_names, tree: Tree,
-                       mount_node: TreeNode, *, snapshot=None) -> MountFrames:
-    """BOTH frames of ONE mount node, from ONE board read — the dock's seam over
-    tree_position.mount_node_poses (plan_2026_10_14_tree_group_move_and_mount_
-    rebase, the mount-parent-base доделка; boundary №3 of the Ч2 acceptance).
-
-    `anchor_pos`/`anchor_rot` — the pose of the node's OWN ANCHOR: the frame
-    the node's own `xy`/`rotation` are stored in. This is what a re-hang or a
-    re-anchor must write the node's OWN numbers against.
-
-    `point_pos`/`point_rot` — the node's POINT: that anchor composed with the
-    node's own `xy`/rotation. This is the frame EVERYTHING UNDER the node is
-    stored against — the frame a CHILD's numbers are read and written in, and
-    the frame the redraw lays the child from (`_node_path_pose`,
-    `layout_tree_from_base`).
-
-    The two travel together because the second is PURE COMPOSITION of the first:
-    asking for them separately would mean two identical board resolves and, far
-    worse, a second copy of the composition rule — which is exactly how the dock
-    and the redraw drifted apart on 2026-10-14 (a child of a mount with a
-    non-zero `xy` was written in one frame and read back in the other).
-
-    A mount node's ref is a LOCAL NAME and is never resolved against the config
-    (rule Б1), so this is its only path. The forest is derived from cfg.trees —
-    the dock pins `cfg.trees is self._trees` (trees_dock_cfg_trees_desync), so
-    this is the dictionary the form's own all_trees would give — and the node's
-    base is laid from the tree's OWN layout base (tree_layout_base) exactly like
-    gui/docks/cascade.py's stage-2 layout. mount_node_base picks INTERNAL vs
-    LIVE structurally, so a mount anchored to a role this tree places itself
-    needs no board here."""
-    forest = {t.name: t for t in (getattr(cfg, "trees", None) or [])}
-    tree_base_pos, tree_base_rot = tree_layout_base(
-        adapter, cfg, tree, sheet_names, forest, snapshot=snapshot)
-    return mount_node_poses(mount_node, tree, tree_base_pos, tree_base_rot,
-                            adapter, cfg, sheet_names, forest,
-                            snapshot=snapshot)
-
-
-def _resolve_node_base_pose(cfg, adapter, sheet_names, tree: Tree,
-                            parent_node: Optional[TreeNode],
-                            base_anchor: Optional[TreeAnchor], *, snapshot=None
-                            ) -> tuple[Vector2, Optional[float], bool]:
-    """(position_nm, rotation_deg | None, mirror) of the frame a node's stored
-    xy/rotation are expressed against — shared by the live read
-    (_resolve_live_offset) and the node FORM's board-frame conversion, so the
-    two can never disagree about where the base is (plan_2026_09_11 §3).
-
-    - base_anchor (the node's OWN anchor, "Relative to component") — resolved
-      live through the SAME ComponentResolver the recursive walks use (plan
-      tree_node_own_anchor §2.3). A role anchor names a COMPONENT, never a cell
-      instance, so it has no mirror concept (mirror=False).
-    - parent_node is None — the tree's OWN anchor, via
-      _anchor_base_live_position (every anchor mode: origin/auto/role/point/ref).
-    - a MOUNT parent node — the frame the CALLER's node is STORED in is that
-      mount node's POINT: its ANCHOR (plan plan_2026_09_12_node_form_mount_
-      parent_base §Л.2.1, `_mount_anchor_pose`) composed with the node's own
-      xy/rotation. That is the frame the REDRAW lays its children from
-      (tree_position.mount_node_poses — the composition `_node_path_pose` and
-      `layout_tree_from_base` use), and handing out the bare anchor here is what
-      made a child of an offset or rotated mount land elsewhere (boundary №3 of
-      the Ч2 acceptance, 2026-10-14). A mount node's ref is a LOCAL NAME and is
-      never resolved against the config (rule Б1), so the record path below can
-      never find it; mirror=False — the anchor names a COMPONENT, not a cell
-      instance (the same reasoning as the base_anchor branch above).
-    - any other parent NODE — its live pose via read_record_live_pose: a
-      placement Entity is read from its LIVE CLUSTER, not from the tree that
-      places it (the BASE has the same disease as the child, plan §2.2).
-
-    Raises ValidationError on any resolution failure — the callers turn it into
-    a warning (read) / a raw+disabled form (no connection), never a guess."""
-    if base_anchor is not None:
-        resolver = ComponentResolver(adapter, cfg, sheet_names, snapshot=snapshot)
-        fp = resolver.resolve_anchor_fp(
-            None, base_anchor.role, base_anchor.anchor_sheet,
-            base_anchor.anchor_cluster, label=base_anchor.role)
-        parent_pos = fp.position
-        parent_deg = fp.angle_deg
-        if base_anchor.anchor_pad:
-            parent_pos = resolve_anchor_pad_position(
-                adapter, fp, base_anchor.anchor_pad, base_anchor.role)
-        return parent_pos, parent_deg, False
-    if parent_node is None:
-        parent_pos, parent_deg = _anchor_base_live_position(
-            adapter, cfg, tree, sheet_names, snapshot=snapshot)
-        return parent_pos, parent_deg, False
-    if parent_node.kind == "mount":
-        # Л.2.1: a mount node's ref is a local NAME (never a config record), so
-        # the generic branch below would look for a refdes that cannot exist;
-        # `_mount_anchor_pose` is its only path (the SAME seam every recursive
-        # walk goes through, fed from the tree's own layout base).
-        #
-        # The caller's node hangs from the mount's POINT, never from the bare
-        # anchor: its stored xy/rotation live in that frame, and so does every
-        # number the dock reads or writes for it (formalized by the доделка of
-        # 2026-10-14 — before it, a child of a mount with a non-zero xy or
-        # rotation was written against the anchor and redrawn against the
-        # point). mirror=False: the anchor names a COMPONENT, not a cell
-        # instance.
-        frames = _mount_anchor_pose(cfg, adapter, sheet_names, tree,
-                                    parent_node, snapshot=snapshot)
-        return frames.point_pos, frames.point_rot, False
-    parent_record, _is_external = _resolve_probe_ref(
-        cfg, parent_node.ref, parent_node.kind)
-    # strict=True (Ч1-А): the base is WRITTEN into the node's numbers, so a
-    # non-rigid PARENT cluster refuses here — and the refusal names the parent's
-    # cluster/cell (the frame being read), never the caller's node.
-    pose = read_record_live_pose(adapter, cfg, parent_node.ref, parent_record,
-                                 sheet_names, snapshot=snapshot, strict=True)
-    return pose.position, pose.rotation_deg, pose.mirror
 
 
 def _pivot_ref_mount_parent(tree: Tree, node: TreeNode,
@@ -1402,6 +1275,32 @@ class TreesDock(QWidget):
         for kind=="module" nodes whose ref == tree.name; nothing is cached."""
         return [t.name for t in self._trees
                 if t.name != tree.name and tree.name in TreesDock._module_targets(t)]
+
+    @staticmethod
+    def _module_nodes(tree: Tree) -> list[TreeNode]:
+        """Every kind=="module" node of `tree` at ANY depth — the markers that
+        EMBED other trees (a module ref IS a tree name, plan 2026-09-02 P4)."""
+        found: list[TreeNode] = []
+        stack = list(tree.nodes)
+        while stack:
+            node = stack.pop()
+            if node.kind == "module":
+                found.append(node)
+            stack.extend(node.children or [])
+        return found
+
+    def _embedding_marker(self, tree: Tree) -> Optional[tuple[str, str]]:
+        """(owner tree name, marker ref) of the module node that embeds `tree`, or
+        None for a tree nobody embeds. The SAME reverse scan as `_embedded_in`,
+        kept whole so a refusal can name BOTH halves of the sentence ("place it
+        through module {marker} in tree {owner}") instead of only the owner."""
+        for owner in self._trees:
+            if owner.name == tree.name:
+                continue
+            for marker in TreesDock._module_nodes(owner):
+                if marker.ref == tree.name:
+                    return (owner.name, marker.ref)
+        return None
 
     def _render_tree(self, tree_widget: QTreeWidget, tree: Tree,
                      saved_entry: Optional[dict] = None) -> None:
@@ -2329,16 +2228,7 @@ class TreesDock(QWidget):
     def _module_targets(tree: Tree) -> set[str]:
         """The refs of every kind=="module" node in `tree` at ANY depth — the
         names of the trees this tree embeds (module refs are tree names)."""
-        out: set[str] = set()
-
-        def walk(nodes: list) -> None:
-            for n in nodes:
-                if n.kind == "module":
-                    out.add(n.ref)
-                walk(n.children)
-
-        walk(tree.nodes)
-        return out
+        return {n.ref for n in TreesDock._module_nodes(tree)}
 
     def _module_tree_candidates(self, current: Tree) -> list[str]:
         """Tree names a NEW module node under `current` may reference (plan
@@ -3395,6 +3285,14 @@ class TreesDock(QWidget):
         one marker via selected_refs={node.ref} — its content is placed from
         the owning tree's LIVE anchor, nothing else in that tree moves.
 
+        The BASE IS LIVE (plan_2026_11_09_node_redraw_from_live_parent): the worker
+        resolves the parent on the BOARD and places the node at `parent + its own
+        xy/rotation` — the inverse of "Read current position" — instead of letting the
+        pipeline lay the node out from the tree's anchor and the Grid Origin. Two
+        refusals live HERE because only this dock knows the trees: a node that is in
+        no loaded tree, and the TOP node of a tree that a `module` node embeds (that
+        one is placed through its module, never from this tab).
+
         No guard widget goes to start_long_op (Э2, plan_2026_09_12_busy_
         indicator): the trigger is whichever HOST's "Redraw" button called
         NodeFormWidget.redraw() — the form owns no button of its own (the
@@ -3423,11 +3321,56 @@ class TreesDock(QWidget):
                 self._on_redraw_failed, payload,
                 busy_text=_("placing"))
             return
+        # Everything below needs the node's TREE: the frame its xy/rotation are
+        # stored against now comes from the board (plan_2026_11_09_node_redraw_from_
+        # live_parent), so a node nobody can locate in a tree cannot be placed at
+        # all — and guessing the absolute origin is exactly the fallback this plan
+        # removes.
+        tree = self._tree_of_node(node)
+        if tree is None:
+            show_message(
+                _("Redraw of node {node!r}: it is in no loaded tree — nothing to "
+                  "measure it against.").format(node=node.ref), _ERROR_STYLE, logger)
+            return
+        parent_node = self._find_parent(tree, node)
+        if parent_node is None:
+            marker = self._embedding_marker(tree)
+            if marker is not None:
+                # A MODULE-embedded tree's top node is placed by that module, in its
+                # owner's frame; from this tab the base could only be the tree's own
+                # anchor, which no board point fixes (Denis, 09.11: such a Redraw
+                # used to move IC1 into the corner of the board).
+                owner, marker_ref = marker
+                show_message(
+                    _("Redraw of node {node!r}: it is the top of tree {tree!r}, and "
+                      "that tree is placed by module {marker!r} in tree {owner!r} — "
+                      "place it through that module, not from this tab.").format(
+                        node=node.ref, tree=tree.name, marker=marker_ref, owner=owner),
+                    _ERROR_STYLE, logger)
+                return
+        # The dock's OWN live adapter, borrowed the way the node-reread worker
+        # borrows it (start_long_op holds the shared socket for the whole call): the
+        # base READ still happens on the worker (Э1) — this half only hands it over.
+        with ui_thread_board_read(
+                reason="hand the shared adapter to the node-redraw worker"):
+            adapter = self._live_adapter()
         payload = {
             "config_path": str(self._root_path) if self._root_path else "",
             "cfg": self._cfg,
             "ctx": self._ctx,
             "ref": node.ref,
+            # The frame the worker resolves LIVE: the parent node (None = this tree's
+            # own anchor), the tree it belongs to, and the node's stored numbers.
+            "tree": tree,
+            "node": node,
+            "parent_node": parent_node,
+            # A MOUNT node's xy/polar are defined relative to its OWN anchor, not the
+            # parent (plan_2026_09_11_tree_mount_nodes) — the same base the Read uses,
+            # so a Read followed by a Redraw is a no-op.
+            "base_anchor": node.anchor if node.kind == "mount" else None,
+            "adapter": adapter,
+            # A COPY: no live mapping crosses the thread boundary.
+            "sheet_names": dict(self._ctx.sheet_names if self._ctx is not None else {}),
             "timeout_ms": worker_timeout_ms(self._main_window.connection),
         }
         self._active_op = start_long_op(

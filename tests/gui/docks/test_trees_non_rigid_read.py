@@ -206,7 +206,12 @@ def test_a_diverged_parent_is_named_instead_of_the_node(monkeypatch):
         kind="placement",
         obj=SimpleNamespace(name="PARENT_ENTITY", cell="mcu_mcu",
                             cluster="mcu_mcu", sheet=None))
-    monkeypatch.setattr(trees_mod, "_resolve_probe_ref",
+    # The stub goes on the module that OWNS the resolver: `_resolve_node_base_pose` (and the
+    # config probe it uses) moved to trees_base_pose with plan_2026_11_09_node_redraw_from_live
+    # _parent; `trees_dock` re-exports the same function under its historical name.
+    import gui.docks.trees_base_pose as base_pose_mod
+
+    monkeypatch.setattr(base_pose_mod, "_resolve_probe_ref",
                         lambda _cfg, _ref, _kind: (record, False))
     cfg = SimpleNamespace(cells={"mcu_mcu": _mcu_cell()})
     tree = Tree(name="t", anchor=TreeAnchor(is_origin=True), nodes=[])

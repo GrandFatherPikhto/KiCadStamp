@@ -1,0 +1,452 @@
+# tests/gui/docks/test_tree_node_redraw_from_live_parent.py
+"""A child node's Redraw is placed from its parent ON THE BOARD, not from the tree.
+
+Plan plan_2026_11_09_node_redraw_from_live_parent (09.11, HP-Power-v099, tree `switch_a`,
+node `conn_out_sw_a`): "Read current position" gave 69.994, 8.014 and was right, while Redraw
+of the same numbers put the pads below the board — the Read resolved the parent from the
+BOARD, the Redraw let `ApplyPipeline(only=[ref])` lay the node out from the tree's anchor
+(and therefore from the Grid Origin and from module offsets the tab does not know).
+
+THE CONTRACT, cell by cell:
+
+* а / г — Read then Redraw of the same node does NOT move it (and the base rotation and the
+  node's own `rotation` both take part);
+* б — the tree's own base (its anchor) has no influence on a CHILD;
+* в — an embedded tree's child is placed from its LIVE parent, module offset and all;
+* д / е — a parent that cannot be read (missing, mirrored) is a REFUSAL: one Log line, the
+  pipeline is never even constructed, and there is NO fallback to the tree layout;
+* ж / з — the TOP node of a module-embedded tree is refused (that one is placed through its
+  module), while the top node of a plain tree still comes from its anchor;
+* и — a `mount` parent contributes its POINT;
+* к — the `module` and `SUBTREE_KINDS` branches are untouched.
+
+The board is faked at ONE seam — `read_record_live_pose`, the very function the Read uses —
+so both sides of every comparison see the same "live" answer, and the composition
+(`local_offset_to_board_mm`), the mirror refusal and the payload plumbing stay real.
+"""
+from __future__ import annotations
+
+import pytest
+
+from kicadstamp.config.sexp_format import dict_to_sexp
+from kicadstamp.domain.geometry import Vector2
+from kicadstamp.exceptions import ValidationError
+from kicadstamp.tree_position import MountFrames, PositionOverride
+from kicadstamp.trees import Tree, TreeAnchor, TreeNode
+from kicadstamp.utils.units import MM
+
+import gui.docks.cascade as cascade_mod
+import gui.docks.trees_accept as td_ac
+import gui.docks.trees_base_pose as base_pose_mod
+import gui.docks.trees_dock as td_mod
+from gui.docks.cascade import run_single_node_redraw_worker
+from gui.docks.live_position import LiveRecordPose
+from gui.docks.trees_dock import TreesDock
+
+from tests.fakes.explore_board import FakeExploreBoard
+from tests.fakes.write_later import write_later
+
+CHILD = "conn_out_sw_a"
+PARENT = "driver_sw_a"
+
+# The live board of the plan's own table: IC1 at 104.46, 104.39 and J6 at 174.454, 112.404 —
+# i.e. the child stands at parent + (69.994, 8.014), which is exactly what the node stores.
+LIVE = {
+    PARENT: (104.46, 104.39, 0.0),
+    CHILD: (174.454, 112.404, 0.0),
+}
+
+# `switch_a`'s anchor carries the profile's Grid Origin as its own shift, so the TREE puts
+# its root at 72.454, 139.904 — the number Denis saw. A child's Redraw must not care.
+TREES = {
+    "trees": [
+        {"name": "main", "anchor": {"origin": True},
+         "nodes": [{"ref": "switch_a", "kind": "module", "xy": [32.0, -35.0]}]},
+        {"name": "switch_a",
+         "anchor": {"origin": True, "shift": [72.454, 139.904]},
+         "nodes": [{"ref": PARENT, "kind": "placement", "xy": [0.0, 0.0],
+                    "children": [{"ref": CHILD, "kind": "placement",
+                                  "xy": [70.0, 8.0]}]}]},
+        {"name": "solo", "anchor": {"origin": True},
+         "nodes": [{"ref": "R_SOLO", "kind": "placement", "xy": [100.0, 50.0]}]},
+    ],
+    "cells": {"cell_sw": {}},
+    "entities": [
+        {"name": PARENT, "cluster": PARENT, "cell": "cell_sw"},
+        {"name": CHILD, "cluster": CHILD, "cell": "cell_sw"},
+        {"name": "R_SOLO", "cluster": "R_SOLO", "cell": "cell_sw"},
+    ],
+}
+
+
+@pytest.fixture(autouse=True)
+def _qt_app(qapp):
+    """A QApplication must exist even when a cell runs FIRST in a worker (SIGABRT
+    otherwise) — the same guard the sibling trees cells carry."""
+    return qapp
+
+
+@pytest.fixture(autouse=True)
+def _active_graph_root(tmp_path):
+    """У3.5 A, class (в): the format-3 writer resolves references against the ACTIVE GRAPH
+    ROOT, and these cells write self-contained configs — so the root is a path that does not
+    exist (the stamp indexes this write's own records)."""
+    from kicadstamp.config_working_set import set_active_graph_root
+
+    set_active_graph_root(tmp_path / "active_root.sexp")
+    yield
+    set_active_graph_root(None)
+
+
+@pytest.fixture
+def pipes(monkeypatch):
+    """Every `ApplyPipeline` the worker under test CONSTRUCTED, as its kwargs — the list a
+    refusal must leave empty ("ни одной записи на плату")."""
+    built = []
+
+    class _Pipe:
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_exc):
+            return False
+
+        def run(self):
+            return None
+
+    def _factory(**kwargs):
+        built.append(kwargs)
+        return _Pipe(**kwargs)
+
+    monkeypatch.setattr(cascade_mod, "ApplyPipeline", _factory)
+    return built
+
+
+def _nm(x_mm: float, y_mm: float) -> Vector2:
+    return Vector2.from_xy(int(round(x_mm * MM)), int(round(y_mm * MM)))
+
+
+def _patch_live(monkeypatch, live=None, *, mirror=(), missing=()):
+    """The BOARD half: `read_record_live_pose` answers from `live`.
+
+    ONE seam, deliberately: the Read (`_resolve_live_offset`) and the Redraw
+    (`resolve_node_base_pose`) both go through it, so a cell that compares them is comparing
+    the two COMPOSITIONS, not two different fakes. `mirror` / `missing` name the refs whose
+    pose is mirrored / unreadable.
+    """
+    live = dict(LIVE if live is None else live)
+
+    def _fake(adapter, cfg, ref, record, sheet_names, *, snapshot=None, strict=False):
+        if ref in missing:
+            raise ValidationError(f"{ref!r} is not on the board")
+        x_mm, y_mm, rot = live[ref]
+        return LiveRecordPose(position=_nm(x_mm, y_mm), rotation_deg=rot,
+                              mirror=ref in mirror)
+
+    monkeypatch.setattr(td_mod, "read_record_live_pose", _fake)
+    monkeypatch.setattr(base_pose_mod, "read_record_live_pose", _fake)
+    return live
+
+
+def _dock(main_window, tmp_path, data=None):
+    root = tmp_path / "redraw.sexp"
+    write_later(root, dict_to_sexp(data if data is not None else TREES, format_number=2))
+    dock = TreesDock(main_window)
+    dock.set_root_file(root)
+    assert dock._cfg is not None, "the throwaway config failed to load — see the Log line"
+    # A live adapter must be reachable (`_live_adapter`); the fake's `.adapter` is a non-None
+    # sentinel on purpose (tests/fakes/explore_board.py).
+    main_window.connection.board = FakeExploreBoard()
+    return dock, root
+
+
+def _tree(dock, name):
+    return next(t for t in dock._trees if t.name == name)
+
+
+def _child(dock):
+    """`switch_a`'s root node and its one child, the plan's own pair."""
+    root = _tree(dock, "switch_a").nodes[0]
+    return root, root.children[0]
+
+
+def _redraw(dock, node, monkeypatch):
+    """Through the DOCK's own door — `_redraw_edited_node` is the product's only way into the
+    worker, so every cell below starts there and takes the payload it hands over.
+
+    Both entry points are recorded: `_redraw_edited_node` starts from `trees_dock`, while a
+    `SUBTREE_KINDS` node is started by `trees_accept.redraw_subtree`, which imported
+    `start_long_op` into ITS own namespace — patching one would leave the other running a
+    real background thread."""
+    starts = []
+
+    def fake_start(connection, widgets, worker, finish, failed, payload, **kwargs):
+        starts.append({"worker": worker, "payload": payload})
+        return object()
+
+    monkeypatch.setattr(td_mod, "start_long_op", fake_start)
+    monkeypatch.setattr(td_ac, "start_long_op", fake_start)
+    dock._redraw_edited_node(node)
+    return {"starts": starts, **(starts[0] if starts else {})}
+
+
+def _override(pipes, ref=CHILD, index=-1) -> PositionOverride:
+    """The override the LAST pipeline run carried for `ref` (a cell that runs the worker
+    twice compares the two runs itself)."""
+    assert pipes, "no pipeline was constructed at all"
+    overrides = pipes[index]["position_overrides"]
+    assert overrides and ref in overrides
+    return overrides[ref]
+
+
+# ── а: Read then Redraw does not move the node ─────────────────────────────
+
+def test_a_read_then_redraw_does_not_move_the_child(main_window, tmp_path, monkeypatch,
+                                                    pipes):
+    """Cell а: the parent stands at its LIVE place, which is far from where the tree would
+    put it (the tree root sits at the Grid Origin, the board's IC1 does not). Reading the
+    node and then redrawing the very numbers the Read produced must land on the SAME board
+    point — the old code laid it out from the tree and "moved" it to 142.454, 147.904."""
+    dock, _root = _dock(main_window, tmp_path)
+    _patch_live(monkeypatch)
+    node = _child(dock)[1]
+    adapter = dock._live_adapter()
+
+    offset_mm, rotation = td_mod._resolve_live_offset(
+        dock._cfg, adapter, {}, _tree(dock, "switch_a"), _tree(dock, "switch_a").nodes[0],
+        node.ref, node.kind)
+    # The Read's own answer: 69.994, 8.014 — the plan's numbers (the node happened to store
+    # 70, 8, i.e. the hand-picked pair; the contract is about the numbers the READ produced).
+    assert offset_mm == pytest.approx((69.994, 8.014), abs=1e-6)
+    assert rotation == pytest.approx(0.0)
+    node.xy = offset_mm
+    node.rotation = rotation
+
+    captured = _redraw(dock, node, monkeypatch)
+    assert captured["worker"] is run_single_node_redraw_worker
+    results, warnings = run_single_node_redraw_worker(captured["payload"])
+
+    assert results == [(CHILD, True, None)] and warnings == []
+    target = _override(pipes)
+    assert target.position == _nm(*LIVE[CHILD][:2]), (
+        "Read then Redraw moved the node: expected the live child pose")
+    assert target.rotation_deg == pytest.approx(0.0)
+
+
+# ── б: the tree's own base never reaches a child ───────────────────────────
+
+def test_b_the_tree_base_has_no_influence_on_a_child(main_window, tmp_path, monkeypatch,
+                                                     pipes):
+    """Cell б: the SAME node under two different tree bases (the anchor's shift stands in for
+    two Grid Origins — the live ones need a board, see the probe in the report). The target
+    must not budge, while the tree layout of that node moves by the whole shift."""
+    dock, _root = _dock(main_window, tmp_path)
+    _patch_live(monkeypatch)
+    tree = _tree(dock, "switch_a")
+    node = _child(dock)[1]
+
+    captured = _redraw(dock, node, monkeypatch)
+    run_single_node_redraw_worker(captured["payload"])
+    first = _override(pipes).position
+
+    tree.anchor = TreeAnchor(is_origin=True, shift_xy=(10.0, 20.0))
+    captured = _redraw(dock, node, monkeypatch)
+    run_single_node_redraw_worker(captured["payload"])
+    second = _override(pipes).position
+
+    # The node stores (70, 8): its target is the LIVE parent plus exactly that, both times.
+    assert first == second == _nm(LIVE[PARENT][0] + 70.0, LIVE[PARENT][1] + 8.0)
+    assert first != _nm(LIVE[PARENT][0] + 10.0 + 70.0, LIVE[PARENT][1] + 20.0 + 8.0)
+
+
+# ── в: an embedded tree is placed from its live parent ─────────────────────
+
+def test_v_an_embedded_trees_child_is_placed_from_its_live_parent(
+        main_window, tmp_path, monkeypatch, pipes):
+    """Cell в: `switch_a` is embedded by module `switch_a` of tree `main` at (32, −35), and
+    its own anchor sits at the Grid Origin. Neither number may reach the child: the target is
+    live parent + xy (70, 8)."""
+    dock, _root = _dock(main_window, tmp_path)
+    _patch_live(monkeypatch)
+    tree = _tree(dock, "switch_a")
+    assert dock._embedded_in(tree) == ["main"]
+    node = tree.nodes[0].children[0]
+
+    captured = _redraw(dock, node, monkeypatch)
+    assert captured["payload"]["tree"] is tree
+    assert captured["payload"]["parent_node"] is tree.nodes[0]
+    run_single_node_redraw_worker(captured["payload"])
+
+    # Live parent + the node's OWN xy (70, 8) — not the tree's 142.454, 147.904, and not the
+    # module's (32, −35) either.
+    assert _override(pipes).position == _nm(LIVE[PARENT][0] + 70.0,
+                                           LIVE[PARENT][1] + 8.0)
+    assert _override(pipes).position != _nm(72.454 + 70.0, 139.904 + 8.0)
+
+
+# ── г: a rotated parent, and the node's own rotation ───────────────────────
+
+def test_g_a_rotated_parent_is_composed_and_the_rotation_is_read(
+        main_window, tmp_path, monkeypatch, pipes):
+    """Cell г: the parent is turned 90°, so the child's stored (70, 8) is a vector in the
+    PARENT's frame. The Read must give (70, 8) back from the rotated board pose, and the
+    Redraw must compose it at the parent's angle again; a node `rotation` of 30 makes the
+    placed angle 90 + 30."""
+    dock, _root = _dock(main_window, tmp_path)
+    # Y-down +90 maps (x, y) -> (y, -x): the parent at (100, 100) puts the child at (108, 30).
+    live = {PARENT: (100.0, 100.0, 90.0), CHILD: (108.0, 30.0, 90.0)}
+    _patch_live(monkeypatch, live)
+    tree = _tree(dock, "switch_a")
+    node = tree.nodes[0].children[0]
+    adapter = dock._live_adapter()
+
+    offset_mm, rotation = td_mod._resolve_live_offset(
+        dock._cfg, adapter, {}, tree, tree.nodes[0], node.ref, node.kind)
+    assert offset_mm == pytest.approx((70.0, 8.0), abs=1e-6)
+    assert rotation == pytest.approx(0.0)
+    node.xy = offset_mm
+    node.rotation = rotation
+
+    captured = _redraw(dock, node, monkeypatch)
+    run_single_node_redraw_worker(captured["payload"])
+    target = _override(pipes)
+    assert target.position == _nm(108.0, 30.0)
+    assert target.rotation_deg == pytest.approx(90.0)
+
+    node.rotation = 30.0
+    captured = _redraw(dock, node, monkeypatch)
+    run_single_node_redraw_worker(captured["payload"])
+    assert pipes[-1]["position_overrides"][CHILD].rotation_deg == pytest.approx(120.0)
+
+
+# ── д / е: refusals that never touch the board ─────────────────────────────
+
+def test_d_a_parent_missing_from_the_board_is_refused(main_window, tmp_path, monkeypatch,
+                                                      pipes, caplog):
+    """Cell д: the parent is not resolvable. ONE Log line naming the node AND the parent, the
+    pipeline is never constructed (so nothing is written), and there is no fallback to the
+    tree layout."""
+    dock, _root = _dock(main_window, tmp_path)
+    _patch_live(monkeypatch, missing={PARENT})
+    node = _child(dock)[1]
+
+    captured = _redraw(dock, node, monkeypatch)
+    with caplog.at_level("WARNING"):
+        results, warnings = run_single_node_redraw_worker(captured["payload"])
+
+    assert pipes == [], "a refused redraw must not even build the pipeline"
+    assert results[0][0] == CHILD and results[0][1] is False
+    message = results[0][2]
+    assert CHILD in message and PARENT in message
+    assert "NOT used instead" in message
+    assert any(CHILD in record.getMessage() and PARENT in record.getMessage()
+               for record in caplog.records)
+
+
+def test_e_a_mirrored_parent_is_refused(main_window, tmp_path, monkeypatch, pipes):
+    """Cell е: the parent's live instance is MIRRORED. A tree node stores no mirror, so this
+    is the same refusal the Read gives — and again nothing is placed."""
+    dock, _root = _dock(main_window, tmp_path)
+    _patch_live(monkeypatch, mirror={PARENT})
+    node = _child(dock)[1]
+
+    captured = _redraw(dock, node, monkeypatch)
+    results, _warnings = run_single_node_redraw_worker(captured["payload"])
+
+    assert pipes == []
+    assert results[0][1] is False
+    assert "MIRRORED" in results[0][2]
+    assert PARENT in results[0][2]
+
+
+# ── ж: the top of an EMBEDDED tree is placed through its module ────────────
+
+def test_zh_the_top_of_an_embedded_tree_is_refused_with_the_marker(
+        main_window, tmp_path, monkeypatch, caplog):
+    """Cell ж: `switch_a`'s root belongs to module `switch_a` in tree `main`; redrawing it
+    from its own tab could only anchor it at the tree's base (the Grid Origin) — the sentence
+    names BOTH the module and the owning tree, and no worker starts."""
+    dock, _root = _dock(main_window, tmp_path)
+    _patch_live(monkeypatch)
+    root = _child(dock)[0]
+
+    with caplog.at_level("ERROR"):
+        captured = _redraw(dock, root, monkeypatch)
+
+    assert captured["starts"] == [], "no worker may start for a refused node"
+    text = "\n".join(record.getMessage() for record in caplog.records)
+    assert "switch_a" in text and "main" in text
+    assert "module" in text and "not from this tab" in text
+
+
+# ── з: the top of a PLAIN tree still comes from its anchor ─────────────────
+
+def test_z_the_top_of_a_plain_tree_still_comes_from_its_anchor(main_window, tmp_path,
+                                                               monkeypatch, pipes):
+    """Cell з: `solo` is embedded by nobody, so its top node keeps today's behaviour — the
+    tree's own anchor. With an origin anchor the base is (0, 0), so xy (100, 50) lands at
+    (100, 50), and the payload says `parent_node is None`."""
+    dock, _root = _dock(main_window, tmp_path)
+    _patch_live(monkeypatch)
+    node = _tree(dock, "solo").nodes[0]
+
+    captured = _redraw(dock, node, monkeypatch)
+    assert captured["payload"]["parent_node"] is None
+    run_single_node_redraw_worker(captured["payload"])
+
+    assert _override(pipes, "R_SOLO").position == _nm(100.0, 50.0)
+
+
+# ── и: a mount parent contributes its POINT ────────────────────────────────
+
+def test_i_a_mount_parent_contributes_its_point(monkeypatch, pipes):
+    """Cell и: the frame under a `mount` node is the mount's POINT (anchor composed with the
+    node's own xy/rotation), never its anchor — the same frame the Read uses."""
+    frames = MountFrames(anchor_pos=_nm(10.0, 20.0), anchor_rot=0.0,
+                         point_pos=_nm(50.0, 60.0), point_rot=0.0)
+    monkeypatch.setattr(base_pose_mod, "_mount_anchor_pose",
+                        lambda *a, **k: frames)
+    tree = Tree(name="mounted", anchor=TreeAnchor(is_origin=True), nodes=[])
+    mount = TreeNode(ref="M1", kind="mount", xy=(40.0, 40.0), polar=None,
+                     rotation=0.0, name=None, group=None, children=[])
+    node = TreeNode(ref=CHILD, kind="placement", xy=(1.0, 2.0), polar=None,
+                    rotation=0.0, name=None, group=None, children=[])
+
+    results, _warnings = run_single_node_redraw_worker({
+        # `cfg` is only carried through: the mount branch is the patched seam above.
+        "ref": CHILD, "cfg": object(), "tree": tree, "node": node, "parent_node": mount,
+        "adapter": object(), "sheet_names": {},
+    })
+
+    assert results == [(CHILD, True, None)]
+    assert _override(pipes).position == _nm(51.0, 62.0)
+
+
+# ── к: the module and SUBTREE_KINDS branches are untouched ─────────────────
+
+def test_k_module_and_subtree_nodes_keep_their_own_branches(main_window, tmp_path,
+                                                           monkeypatch, pipes):
+    """Cell к: a `module` node still goes to the forest-content worker (never to the
+    single-node one), and a SUBTREE_KINDS node (`external`) is still handled by
+    `trees_accept.redraw_subtree` — neither ever reaches the live-base resolver."""
+    dock, _root = _dock(main_window, tmp_path)
+    _patch_live(monkeypatch)
+
+    module_node = _tree(dock, "main").nodes[0]
+    captured = _redraw(dock, module_node, monkeypatch)
+    assert captured["worker"] is cascade_mod.run_curated_forest_redraw_worker
+    assert captured["payload"]["selected_refs"] == {"switch_a"}
+
+    external = TreeNode(ref="EXT", kind="external", xy=None, polar=None, rotation=0.0,
+                        name=None, group=None, children=[
+                            TreeNode(ref="C1", kind="placement", xy=(1.0, 1.0),
+                                     polar=None, rotation=0.0, name=None, group=None,
+                                     children=[])])
+    _tree(dock, "solo").nodes.append(external)
+    captured = _redraw(dock, external, monkeypatch)
+    assert captured["worker"] is not run_single_node_redraw_worker
+    assert "node" not in captured["payload"]
+    assert pipes == []

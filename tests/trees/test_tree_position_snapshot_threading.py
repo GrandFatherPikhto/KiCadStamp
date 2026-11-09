@@ -66,6 +66,11 @@ from kicadstamp.domain.board import Footprint
 from kicadstamp.domain.geometry import BoardLayer, Vector2
 
 import gui.docks.trees_dock as td_mod
+# `_resolve_node_base_pose` and the config probe it uses moved to their own module with
+# plan_2026_11_09_node_redraw_from_live_parent (the Redraw worker resolves the base). The dock
+# re-exports the same function under its historical name, but a monkeypatch must land on the
+# module that OWNS the probe now.
+import gui.docks.trees_base_pose as base_pose_mod
 
 FOOTPRINTS = 12                 # enough for a sweep to be visible, cheap to build
 ANCHOR_ROLE = "R_CLK"
@@ -249,7 +254,7 @@ def test_branch_4_a_record_parent_resolves_from_the_snapshot(monkeypatch):
     parent_node = td_mod.TreeNode(ref="probe_nt", kind="net_trace", xy=None,
                                   polar=None, rotation=0.0, name=None, group=None,
                                   children=[])
-    monkeypatch.setattr(td_mod, "_resolve_probe_ref",
+    monkeypatch.setattr(base_pose_mod, "_resolve_probe_ref",
                         lambda _cfg, _ref, _kind: (record, False))
 
     pose = td_mod._resolve_node_base_pose(cfg, adapter, {}, tree, parent_node,
@@ -313,7 +318,7 @@ def test_leaf_4a_an_entity_parent_resolves_from_the_snapshot(monkeypatch):
     (that is m19/m20 of the mutation run)."""
     adapter, tree = _CountingAdapter(), _tree()
     cfg, record, ref, parent_node = _entity_rig(tree)
-    monkeypatch.setattr(td_mod, "_resolve_probe_ref",
+    monkeypatch.setattr(base_pose_mod, "_resolve_probe_ref",
                         lambda _cfg, _ref, _kind: (record, False))
 
     pose = td_mod._resolve_node_base_pose(cfg, adapter, {}, tree, parent_node,
@@ -337,7 +342,7 @@ def test_leaf_4a_an_entity_parent_resolves_from_the_snapshot(monkeypatch):
 
     swept, swept_tree = _CountingAdapter(), _tree()
     swept_cfg, _record, _ref, swept_parent = _entity_rig(swept_tree)
-    monkeypatch.setattr(td_mod, "_resolve_probe_ref",
+    monkeypatch.setattr(base_pose_mod, "_resolve_probe_ref",
                         lambda _cfg, _ref, _kind: (record, False))
     swept_pose = td_mod._resolve_node_base_pose(swept_cfg, swept, {}, swept_tree,
                                                 swept_parent, None)
@@ -368,7 +373,7 @@ def test_leaf_4a_survives_the_connections_EMPTY_snapshot(monkeypatch):
     fails with the false fatal (m21)."""
     adapter, tree = _CountingAdapter(), _tree()
     cfg, record, ref, parent_node = _entity_rig(tree)
-    monkeypatch.setattr(td_mod, "_resolve_probe_ref",
+    monkeypatch.setattr(base_pose_mod, "_resolve_probe_ref",
                         lambda _cfg, _ref, _kind: (record, False))
 
     pose = td_mod._resolve_node_base_pose(cfg, adapter, {}, tree, parent_node,

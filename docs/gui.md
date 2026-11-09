@@ -889,6 +889,22 @@ reaches the disk until **Save**, which replaces the whole root `trees:` section 
 config_writer chokepoint (a fresh `.bak` is made first); linking/validation runs at Save via
 `kicadstamp.link_trees`.
 
+**UPDATE 2026-11-09 (plan `plan_2026_11_09_node_redraw_from_live_parent.md`):** a node's **Redraw**
+now places it against its parent **read LIVE from the board** — the inverse of **Read current
+position**: the base comes from the shared resolver (`gui/docks/trees_base_pose.py`,
+`redraw_target`), the node's stored `xy`/`rotation` are carried into the board frame with the one
+frame pair (`local_offset_to_board_mm` / `local_rotation_to_board_deg`), and the result travels into
+the same `ApplyPipeline(only=[ref])` as a `PositionOverride`. Read followed by Redraw therefore no
+longer moves the part, and neither the Grid Origin nor the tree anchor can reach a CHILD node (live
+HP-Power: `conn_out_sw_a` read 69.994, 8.014 and Redraw used to lay it out from the tree, putting
+the pads below the board). A parent that cannot be read (missing, non-rigid, **mirrored**) is a
+REFUSAL: one Log line naming the node and the parent, the pipeline is never built, and there is NO
+fallback to the tree layout — that fallback *was* the defect. Two refusals live in the dock, because
+only it knows the trees: a node in no loaded tree, and the TOP node of a tree a `module` node embeds
+(that one is placed through its module, `place it through that module, not from this tab`; today such
+a Redraw would park IC1 in the corner of the board). A mount parent still contributes its POINT, a
+`module` node still activates its content, and `Redraw selected` / `Redraw whole tree` are untouched.
+
 **UPDATE 2026-10-13 (plan `plan_2026_10_13_single_slot_rotation.md`):** the read — and the re-read
 frame behind "Refresh geometry from selection" — derives a cell's rotation by FITTING the stored offsets
 against the live deltas of every matched role; a cell with fewer than TWO usable slots had no pair at

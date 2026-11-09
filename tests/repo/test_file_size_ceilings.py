@@ -59,7 +59,7 @@ CEILINGS = {
     "gui/docks/role_cluster_tree.py": 1213,
     "gui/docks/root_metadata.py": 905,
     "gui/docks/tree_from_selection.py": 845,
-    "gui/docks/trees_dock.py": 7097,
+    "gui/docks/trees_dock.py": 7040,
     "gui/fieldstool_window.py": 1158,
     "gui/main_window.py": 1052,
     "gui/worker.py": 1103,
