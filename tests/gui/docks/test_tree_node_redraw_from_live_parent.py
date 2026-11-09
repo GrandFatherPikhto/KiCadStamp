@@ -173,14 +173,10 @@ def _child(dock):
     return root, root.children[0]
 
 
-def _redraw(dock, node, monkeypatch):
-    """Through the DOCK's own door — `_redraw_edited_node` is the product's only way into the
-    worker, so every cell below starts there and takes the payload it hands over.
-
-    Both entry points are recorded: `_redraw_edited_node` starts from `trees_dock`, while a
-    `SUBTREE_KINDS` node is started by `trees_accept.redraw_subtree`, which imported
-    `start_long_op` into ITS own namespace — patching one would leave the other running a
-    real background thread."""
+def _capture_starts(monkeypatch):
+    """Record every worker a redraw door starts, from BOTH modules that own a `start_long_op`
+    name: `trees_dock` (`_redraw_edited_node`, the tree-level redraws) and `trees_accept`
+    (`redraw_subtree`, which imported the factory into its own namespace)."""
     starts = []
 
     def fake_start(connection, widgets, worker, finish, failed, payload, **kwargs):
@@ -189,8 +185,39 @@ def _redraw(dock, node, monkeypatch):
 
     monkeypatch.setattr(td_mod, "start_long_op", fake_start)
     monkeypatch.setattr(td_ac, "start_long_op", fake_start)
+    return starts
+
+
+def _redraw(dock, node, monkeypatch):
+    """Through the DOCK's own door — `_redraw_edited_node` is the product's only way into the
+    worker, so every cell below starts there and takes the payload it hands over."""
+    starts = _capture_starts(monkeypatch)
     dock._redraw_edited_node(node)
     return {"starts": starts, **(starts[0] if starts else {})}
+
+
+def _redraw_whole_tree(dock, tree, monkeypatch):
+    """«Redraw whole tree» through its own door: no `tree` = the Tools menu (the active tab),
+    a `tree` = the root context menu. Returns the starts, empty when it refused."""
+    from PyQt6.QtCore import Qt as _Qt
+
+    for item in dock._node_items.values():      # «whole tree» ignores the ticks, but be clean
+        item.setCheckState(0, _Qt.CheckState.Unchecked)
+    starts = _capture_starts(monkeypatch)
+    dock._on_redraw_whole_tree(None, tree)
+    return starts
+
+
+def _redraw_selected(dock, refs, monkeypatch):
+    """«Redraw selected» with exactly `refs` TICKED on the rendered rows — the real door."""
+    from PyQt6.QtCore import Qt as _Qt
+
+    for ref, item in dock._node_items.items():
+        item.setCheckState(0, _Qt.CheckState.Checked if ref in refs
+                           else _Qt.CheckState.Unchecked)
+    starts = _capture_starts(monkeypatch)
+    dock._on_redraw_selected()
+    return starts
 
 
 def _override(pipes, ref=CHILD, index=-1) -> PositionOverride:
@@ -450,3 +477,155 @@ def test_k_module_and_subtree_nodes_keep_their_own_branches(main_window, tmp_pat
     assert captured["worker"] is not run_single_node_redraw_worker
     assert "node" not in captured["payload"]
     assert pipes == []
+
+
+# ── Claude's §2: the three holes the first acceptance found ────────────────
+
+def test_a_polar_node_is_placed_from_its_polar_offset(main_window, tmp_path, monkeypatch,
+                                                      pipes):
+    """Claude's §2, hole 1: `node_offset_of` has an `xy` branch and a `polar` one, and only the
+    first was ever exercised — a mutant that reads `xy` alone (a polar node has none) stayed
+    green. Here the child STORES `polar`: the same live geometry as cell а, expressed as a
+    radius and an angle, and the Redraw must land on the same board point."""
+    import math
+
+    data = {**TREES, "trees": [dict(t) for t in TREES["trees"]]}
+    for tree in data["trees"]:
+        if tree["name"] != "switch_a":
+            continue
+        root = dict(tree["nodes"][0])
+        root["children"] = [{"ref": CHILD, "kind": "placement",
+                             "polar": [math.hypot(70.0, 8.0),
+                                       math.degrees(math.atan2(8.0, 70.0))]}]
+        tree["nodes"] = [root]
+    dock, _root = _dock(main_window, tmp_path, data)
+    _patch_live(monkeypatch, {PARENT: (100.0, 100.0, 0.0), CHILD: (170.0, 108.0, 0.0)})
+    node = _tree(dock, "switch_a").nodes[0].children[0]
+    assert node.xy is None and node.polar is not None
+
+    captured = _redraw(dock, node, monkeypatch)
+    run_single_node_redraw_worker(captured["payload"])
+
+    assert _override(pipes).position == _nm(170.0, 108.0), (
+        "a polar node must be placed from its polar offset, not from a missing xy")
+
+
+def test_the_dock_hands_the_worker_its_sheet_names(main_window, tmp_path, monkeypatch,
+                                                   pipes):
+    """Claude's §2, hole 2: the payload carries a COPY of `ctx.sheet_names`, and no cell read it
+    — a mutant that sends `{}` stayed green. A role spread over two sheets (HP-Power) cannot
+    resolve without them, so the copy is pinned at the door."""
+    from types import SimpleNamespace
+
+    dock, _root = _dock(main_window, tmp_path)
+    _patch_live(monkeypatch)
+    names = {"uuid-1": "Channel_1", "uuid-2": "Channel_2"}
+    dock._ctx = SimpleNamespace(sheet_names=names)
+    node = _child(dock)[1]
+
+    captured = _redraw(dock, node, monkeypatch)
+
+    assert captured["payload"]["sheet_names"] == names
+    assert captured["payload"]["sheet_names"] is not names, (
+        "a copy must cross the thread boundary, not the dock's live mapping")
+
+
+def test_a_payload_naming_a_node_without_an_adapter_is_refused(main_window, tmp_path,
+                                                               monkeypatch, pipes):
+    """Claude's §2, hole 3: the refusal for «a node but no tree/config/adapter» had no cell —
+    removing it stayed green. The board read cannot happen without an adapter, so the honest
+    answer is a Log line and NO pipeline, never a layout guessed from the tree."""
+    dock, _root = _dock(main_window, tmp_path)
+    _patch_live(monkeypatch)
+    tree = _tree(dock, "switch_a")
+    node = tree.nodes[0].children[0]
+
+    results, _warnings = run_single_node_redraw_worker({
+        "ref": CHILD, "cfg": dock._cfg, "tree": tree, "node": node,
+        "parent_node": tree.nodes[0], "sheet_names": {},
+        # …and NO "adapter".
+    })
+
+    assert pipes == []
+    assert results[0][1] is False
+    assert "adapter" in results[0][2]
+
+
+# ── §3: a module-placed tree is not redrawn from its own tab ───────────────
+
+def _two_embedded_trees():
+    """TREES plus a SECOND tree a module places (`switch_b`), so a cell can prove the refusal
+    is about the MODULE MARKER and not about one particular tree."""
+    data = {**TREES, "trees": [dict(t) for t in TREES["trees"]]}
+    data["trees"].append(
+        {"name": "switch_b", "anchor": {"origin": True},
+         "nodes": [{"ref": "driver_sw_b", "kind": "placement", "xy": [0.0, 0.0]}]})
+    data["entities"] = TREES["entities"] + [
+        {"name": "driver_sw_b", "cluster": "driver_sw_b", "cell": "cell_sw"}]
+    for tree in data["trees"]:
+        if tree["name"] == "main":
+            tree["nodes"] = list(tree["nodes"]) + [
+                {"ref": "switch_b", "kind": "module", "xy": [-40.0, 20.0]}]
+    return data
+
+
+def test_a_whole_tree_redraw_of_an_embedded_tree_is_refused_from_both_doors(
+        main_window, tmp_path, monkeypatch, caplog):
+    """Cell а: «Redraw whole tree» on the tab of a MODULE-placed tree starts NOTHING and says
+    which module to use — from Tools (no tree passed) and from the root menu (the tree passed).
+    Cell б rides in the same cell: the refusal follows the MARKER, so a second embedded tree is
+    refused the same way."""
+    dock, _root = _dock(main_window, tmp_path, _two_embedded_trees())
+    _patch_live(monkeypatch)
+    embedded = _tree(dock, "switch_a")
+    second = _tree(dock, "switch_b")
+    dock._switch_to_tree("switch_a")      # the Tools menu acts on the ACTIVE tab
+
+    with caplog.at_level("ERROR"):
+        from_tools = _redraw_whole_tree(dock, None, monkeypatch)
+        from_menu = _redraw_whole_tree(dock, embedded, monkeypatch)
+        other = _redraw_whole_tree(dock, second, monkeypatch)
+
+    assert from_tools == from_menu == other == [], "no worker may start for a refused tree"
+    text = "\n".join(record.getMessage() for record in caplog.records)
+    for name in ("switch_a", "switch_b", "main"):
+        assert name in text
+    assert "module" in text and "not from this tab" in text
+
+
+def test_a_whole_tree_redraw_of_a_plain_tree_still_starts(main_window, tmp_path,
+                                                          monkeypatch):
+    """Cell в: `main` places other trees and is placed by nobody — «Redraw whole tree» there
+    runs the forest worker exactly as before, and says so (True)."""
+    dock, _root = _dock(main_window, tmp_path)
+    _patch_live(monkeypatch)
+
+    starts = _redraw_whole_tree(dock, _tree(dock, "main"), monkeypatch)
+
+    assert len(starts) == 1
+    assert starts[0]["worker"] is cascade_mod.run_curated_forest_redraw_worker
+
+
+def test_redraw_selected_on_an_embedded_tree_is_refused(main_window, tmp_path, monkeypatch,
+                                                        caplog):
+    """Cells г and д — and the measurement that made д a refusal too.
+
+    г: the TOP node of a module-placed tree is re-projected onto the tree's anchor (the Grid
+    Origin): on the live board `driver_sw_a` → (72.4540, 139.9041) while it stands at
+    (104.4600, 104.3900), i.e. (−32.006, +35.514) mm.
+
+    д: a `placement` PARENT's base comes from the TREE, so even a CHILD-ONLY selection drifts by
+    the same (−32.000, +35.000) mm (`conn_out_sw_a` alone). The plan expected children to be
+    safe; the numbers say otherwise, and the refusal covers the whole run."""
+    dock, _root = _dock(main_window, tmp_path)
+    _patch_live(monkeypatch)
+    embedded = _tree(dock, "switch_a")
+    dock._switch_to_tree("switch_a")
+
+    with caplog.at_level("ERROR"):
+        top = _redraw_selected(dock, {"driver_sw_a"}, monkeypatch)
+        child = _redraw_selected(dock, {"conn_out_sw_a"}, monkeypatch)
+
+    assert top == child == [], "neither selection may start a worker"
+    text = "\n".join(record.getMessage() for record in caplog.records)
+    assert text.count("switch_a") >= 2 and "main" in text

@@ -298,8 +298,13 @@ def redraw_form(dock, form) -> None:
         _say(form, _("Applied — no live board Redraw available."))
         return
     if not isinstance(node, TreeNode):
-        dock._on_redraw_whole_tree()
-        _say(form, _("Applied — whole-tree redraw started."))
+        # §3 of plan_2026_11_09_node_redraw_from_live_parent: the dock REFUSES a whole-tree
+        # redraw of a tree a `module` node places (it would be laid out from the Grid Origin),
+        # so the form must not claim one started — the reason is already in the Log.
+        if dock._on_redraw_whole_tree():
+            _say(form, _("Applied — whole-tree redraw started."))
+        else:
+            _say(form, _("Applied — the whole-tree redraw was refused (see the Log)."))
         return
     if node.kind in _CHILDLESS_KINDS and not node.children:
         _say(form, _("Applied — nothing to redraw on this node."))

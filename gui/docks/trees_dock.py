@@ -91,6 +91,7 @@ from .trees_instances_refresh import InstancesRefresh
 from .trees_base_pose import _mount_anchor_pose  # noqa: F401 — re-export for callers/tests
 from .trees_base_pose import _resolve_probe_ref
 from .trees_base_pose import resolve_node_base_pose as _resolve_node_base_pose
+from .trees_embedding import module_nodes, refuse_embedded_tree
 from kicadstamp.tree_position import tree_layout_base  # noqa: F401 — re-export for tests
 from .trees_markers import (  # noqa: F401 — re-export for callers and tests
     _MOUNT_POINT_NS,
@@ -1276,31 +1277,11 @@ class TreesDock(QWidget):
         return [t.name for t in self._trees
                 if t.name != tree.name and tree.name in TreesDock._module_targets(t)]
 
-    @staticmethod
-    def _module_nodes(tree: Tree) -> list[TreeNode]:
-        """Every kind=="module" node of `tree` at ANY depth — the markers that
-        EMBED other trees (a module ref IS a tree name, plan 2026-09-02 P4)."""
-        found: list[TreeNode] = []
-        stack = list(tree.nodes)
-        while stack:
-            node = stack.pop()
-            if node.kind == "module":
-                found.append(node)
-            stack.extend(node.children or [])
-        return found
-
-    def _embedding_marker(self, tree: Tree) -> Optional[tuple[str, str]]:
-        """(owner tree name, marker ref) of the module node that embeds `tree`, or
-        None for a tree nobody embeds. The SAME reverse scan as `_embedded_in`,
-        kept whole so a refusal can name BOTH halves of the sentence ("place it
-        through module {marker} in tree {owner}") instead of only the owner."""
-        for owner in self._trees:
-            if owner.name == tree.name:
-                continue
-            for marker in TreesDock._module_nodes(owner):
-                if marker.ref == tree.name:
-                    return (owner.name, marker.ref)
-        return None
+    def _embedded_tree_refused(self, tree: Tree, *, node_ref: Optional[str] = None) -> bool:
+        """True (with the Log line already said) when a `module` node PLACES `tree` — the one
+        refusal all three redraws ask for (single node, whole tree, selection), delegated to
+        `trees_embedding.py` so the three cannot word it differently (§3)."""
+        return refuse_embedded_tree(self._trees, tree, node_ref=node_ref)
 
     def _render_tree(self, tree_widget: QTreeWidget, tree: Tree,
                      saved_entry: Optional[dict] = None) -> None:
@@ -2228,7 +2209,7 @@ class TreesDock(QWidget):
     def _module_targets(tree: Tree) -> set[str]:
         """The refs of every kind=="module" node in `tree` at ANY depth — the
         names of the trees this tree embeds (module refs are tree names)."""
-        return {n.ref for n in TreesDock._module_nodes(tree)}
+        return {n.ref for n in module_nodes(tree)}
 
     def _module_tree_candidates(self, current: Tree) -> list[str]:
         """Tree names a NEW module node under `current` may reference (plan
@@ -3334,19 +3315,9 @@ class TreesDock(QWidget):
             return
         parent_node = self._find_parent(tree, node)
         if parent_node is None:
-            marker = self._embedding_marker(tree)
-            if marker is not None:
-                # A MODULE-embedded tree's top node is placed by that module, in its
-                # owner's frame; from this tab the base could only be the tree's own
-                # anchor, which no board point fixes (Denis, 09.11: such a Redraw
-                # used to move IC1 into the corner of the board).
-                owner, marker_ref = marker
-                show_message(
-                    _("Redraw of node {node!r}: it is the top of tree {tree!r}, and "
-                      "that tree is placed by module {marker!r} in tree {owner!r} — "
-                      "place it through that module, not from this tab.").format(
-                        node=node.ref, tree=tree.name, marker=marker_ref, owner=owner),
-                    _ERROR_STYLE, logger)
+            # A MODULE-placed tree's top node is the module's business: from this tab the base
+            # could only be the tree's own anchor, and that is what moved IC1 into the corner.
+            if self._embedded_tree_refused(tree, node_ref=node.ref):
                 return
         # The dock's OWN live adapter, borrowed the way the node-reread worker
         # borrows it (start_long_op holds the shared socket for the whole call): the
@@ -3989,6 +3960,12 @@ class TreesDock(QWidget):
         tree_name = tree.name if tree is not None else self._current_tree_name()
         if tree_name is None:
             return
+        target = tree if tree is not None else self._current_tree()
+        # §3, measured: a `placement` PARENT's base comes from the TREE, so on a MODULE-placed
+        # tree even a CHILD-ONLY selection re-projects onto the Grid Origin (−32.000, +35.000)
+        # mm for `conn_out_sw_a` alone — hence the refusal covers the whole run.
+        if target is not None and self._embedded_tree_refused(target):
+            return
         if not selected_refs:
             self._show_status(_("Nothing selected — check some nodes first."))
             return
@@ -4023,9 +4000,14 @@ class TreesDock(QWidget):
                          if item.checkState(0) == Qt.CheckState.Checked}
         self._run_curated_redraw(selected_refs, trigger, tree)
 
-    def _on_redraw_whole_tree(self, trigger=None, tree=None) -> None:
+    def _on_redraw_whole_tree(self, trigger=None, tree=None) -> bool:
         """Redraw EVERY node of the current tree — TOGETHER with the content of
-        every module it embeds (plan_2026_09_14 Э1). The refs come DIRECTLY
+        every module it embeds (plan_2026_09_14 Э1). Returns True when a worker was
+        started, False when the run was refused (the anchor form's Apply says which
+        happened) or there was nothing to redraw.
+
+        A tree a `module` node PLACES is refused (§3): from its own tab it could only be
+        laid out from its own anchor — the Grid Origin. The refs come DIRECTLY
         from the Tree structure (collect_tree_refs), not from checkbox state, so
         no manual check-marking is needed even on a multi-branch/large tree
         (plan_2026_08_29_fork1_rigid_redraw_override.md §5).
@@ -4045,8 +4027,14 @@ class TreesDock(QWidget):
         # passes nothing (the dock's active tab) — the SAME path either way.
         tree = tree or self._current_tree()
         if tree is None:
-            return
+            return False
+        # §3: on the tab of a MODULE-placed tree the whole tree would be laid out from its own
+        # anchor (the Grid Origin) — measured (−32.000, +35.000) mm off. This is the one place
+        # BOTH doors (Tools and the root menu) and the anchor form's Apply pass through.
+        if self._embedded_tree_refused(tree):
+            return False
         self._run_forest_redraw_with_refs(set(collect_tree_refs(tree)), trigger)
+        return True
 
     def _run_forest_redraw_with_refs(self, refs: set, trigger=None) -> None:
         """Shared worker invocation of the FOREST curated redraw —

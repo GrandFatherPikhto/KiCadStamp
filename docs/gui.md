@@ -902,8 +902,18 @@ REFUSAL: one Log line naming the node and the parent, the pipeline is never buil
 fallback to the tree layout — that fallback *was* the defect. Two refusals live in the dock, because
 only it knows the trees: a node in no loaded tree, and the TOP node of a tree a `module` node embeds
 (that one is placed through its module, `place it through that module, not from this tab`; today such
-a Redraw would park IC1 in the corner of the board). A mount parent still contributes its POINT, a
-`module` node still activates its content, and `Redraw selected` / `Redraw whole tree` are untouched.
+a Redraw would park IC1 in the corner of the board). A mount parent still contributes its POINT and
+a `module` node still activates its content.
+
+On a tree a **module PLACES**, every tree-level door that used to lay it out from its own anchor (the
+Grid Origin) now REFUSES with that same sentence: a single node's Redraw refuses the tree's TOP node,
+and **Redraw whole tree** / **Redraw selected** refuse the whole run on such a tab. The measurement
+that made the selection a refusal too: a `placement` parent's frame comes from the TREE
+(`resolve_entity_live_position`), so on the live board even a CHILD-ONLY selection re-projects onto
+the Grid Origin — `conn_out_sw_a` alone moved (−32.000, +35.000) mm, exactly like the top node
+(−32.006, +35.514). A tree nobody embeds (`main`) still redraws exactly as before, and the anchor
+form's Apply now says "the whole-tree redraw was refused (see the Log)" instead of claiming it
+started.
 
 **UPDATE 2026-10-13 (plan `plan_2026_10_13_single_slot_rotation.md`):** the read — and the re-read
 frame behind "Refresh geometry from selection" — derives a cell's rotation by FITTING the stored offsets

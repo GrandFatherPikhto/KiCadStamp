@@ -15,8 +15,13 @@ would move the part (it must be ~0 for a node whose stored numbers came from a R
 a tree embedded by a `module` node — where the OWNING tree's layout puts that same node (what
 "Redraw whole tree" from the embedded tree's tab does).
 
+After the single-node part it also measures "Redraw SELECTED" for the refs given on the command
+line (`<node_ref> [more refs…]`): the rigid planner's own path (`capture_rigid_state` →
+`apply_rigid_override`), and — for a name the capture does not cover, i.e. one the planner would
+leave alone — `ApplyPipeline(only=[name], dry_run=True)`, which writes nothing either.
+
 Read-only. Usage:
-    .venv/bin/python -m kicadstamp.diagnostics.probe_node_redraw_target <config> <tree> <node_ref>
+    .venv/bin/python -m kicadstamp.diagnostics.probe_node_redraw_target <config> <tree> <node_ref> [more refs…]
 """
 from __future__ import annotations
 
@@ -27,7 +32,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from kicadstamp.config import load_config
 from kicadstamp.explore import Board
-from kicadstamp.tree_position import layout_tree_from_anchor, tree_layout_base
+from kicadstamp.tree_position import (apply_rigid_override, layout_tree_from_anchor,
+                                      tree_layout_base)
 from kicadstamp.utils.units import MM
 
 from gui.docks.live_position import read_record_live_pose
@@ -116,6 +122,14 @@ def main() -> int:
         except Exception as exc:  # noqa: BLE001 — a probe reports, it does not raise
             print(f"\nlive child       <unreadable: {exc}>")
 
+    # ── what «Redraw SELECTED» would place, for the refs given ─────────────
+    selection = sys.argv[3:]
+    if selection:
+        try:
+            selected_measurement(cfg, adapter, sheet_names, tree, set(selection))
+        except Exception as exc:  # noqa: BLE001 — a probe reports, it does not raise
+            print(f"\nRedraw selected measurement failed: {exc}")
+
     # ── what «Redraw whole tree» from an EMBEDDED tab does ────────────────
     owner = _owning_marker(cfg, tree.name)
     if owner is None:
@@ -143,6 +157,83 @@ def main() -> int:
               f"off by ({(mine.x - theirs.x) / MM:+.4f}, "
               f"{(mine.y - theirs.y) / MM:+.4f}) mm")
     return 0
+
+
+def selected_measurement(cfg, adapter, sheet_names, tree, refs) -> None:
+    """What «Redraw selected» would place for `refs` — the rigid planner's own path, no write.
+
+    `run_curated_tree_redraw` captures every selected name ONCE (`capture_rigid_state`) and then
+    re-projects each capture onto the parent's CURRENT frame (`apply_rigid_override`). A name the
+    capture does not cover (a container, or one the planner refuses to capture) is left to the
+    ordinary `ApplyPipeline(only=[name])` — measured here as a DRY RUN."""
+    from kicadstamp.link_trees import link_trees
+    from kicadstamp.tree_position import capture_rigid_state
+
+    print(f"\n=== Redraw selected: tree {tree.name!r}, refs {sorted(refs)}")
+    linked = next(lt for lt in link_trees(cfg, cfg.trees) if lt.name == tree.name)
+    captures, parent_map = capture_rigid_state(adapter, cfg, linked, sorted(refs),
+                                               sheet_names)
+    for ref in sorted(refs):
+        cap = captures.get(ref)
+        if cap is None:
+            print(f"  {ref!r}: no capture — the rigid planner leaves it alone")
+            _dry_run(cfg, adapter, sheet_names, ref)
+            continue
+        parent_ref, parent_record, is_anchor = parent_map[ref]
+        print(f"  {ref!r}: captured offset {_fmt(cap.local_offset)} "
+              f"rot={cap.relative_rotation} parent={parent_ref!r} "
+              f"anchor_parent={cap.anchor_parent}")
+        try:
+            override = apply_rigid_override(adapter, cfg, parent_ref, parent_record,
+                                            cap, sheet_names)
+        except Exception as exc:  # noqa: BLE001 — a probe reports, it does not raise
+            print(f"    override FAILED: {exc}")
+            continue
+        print(f"    rigid override -> {_fmt(override.position)} rot={override.rotation_deg}")
+        _delta_to_live(cfg, adapter, sheet_names, ref, override.position)
+
+
+def _delta_to_live(cfg, adapter, sheet_names, ref, target) -> None:
+    """`target` against where that record actually stands — the number a user sees move."""
+    node = None
+    for tree in cfg.trees:
+        stack = list(tree.nodes)
+        while stack:
+            candidate = stack.pop()
+            if candidate.ref == ref:
+                node = candidate
+                break
+            stack.extend(candidate.children or [])
+        if node is not None:
+            break
+    if node is None or node.kind in ("external", "mount", "module", "copper", "component"):
+        print("    live child: (not a record — nothing to compare)")
+        return
+    try:
+        pose = read_record_live_pose(adapter, cfg, ref, _record_of(cfg, node), sheet_names)
+    except Exception as exc:  # noqa: BLE001
+        print(f"    live child: <unreadable: {exc}>")
+        return
+    print(f"    live child {_fmt(pose.position)} -> delta "
+          f"({(target.x - pose.position.x) / MM:+.4f}, "
+          f"{(target.y - pose.position.y) / MM:+.4f}) mm")
+
+
+def _dry_run(cfg, adapter, sheet_names, ref) -> None:
+    """`ApplyPipeline(only=[ref], dry_run=True)` — writes nothing; prints what it WOULD move."""
+    from kicadstamp.apply_pipeline import ApplyPipeline
+
+    try:
+        with ApplyPipeline(preloaded_cfg=cfg, only=[ref], dry_run=True,
+                           preloaded_ctx=None, config_path="") as pipeline:
+            pipeline.run()
+    except Exception as exc:  # noqa: BLE001
+        print(f"    dry run FAILED: {exc}")
+        return
+    moves = getattr(pipeline, "planned_moves", None) or []
+    print(f"    dry run: {len(moves)} planned move(s)")
+    for move in moves[:6]:
+        print(f"      {move}")
 
 
 def _record_of(cfg, node):
