@@ -18546,3 +18546,8 @@ msgstr "footprint {ref!r} not found on the board"
 #~ "top-level placement node"
 #~ msgstr ""
 
+
+#: gui/docks/trees_instances_refresh.py:120
+#, python-brace-format
+msgid "Tree instance tabs were not refreshed: {error}"
+msgstr ""

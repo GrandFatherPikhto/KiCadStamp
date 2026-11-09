@@ -17,12 +17,25 @@ object. Two consequences, and both were wrong on the live board (07.11):
   while keeping them showed geometry from before the template's edit and kept
   tabs for declarations that were already gone.
 
-Both functions are pure (lists and sets in, lists and sets out), so the merge is
-testable without a dock, a widget or a file.
+The first two functions are pure (lists and sets in, lists and sets out), so the
+merge is testable without a dock, a widget or a file. The other two are the two
+HALVES of one root re-read — `reload_root` (read + merge, touches no widget) and
+`apply_reloaded` (bind the result into the dock) — so the dock's `reload_trees`
+and the debounced refresh of generated tabs run the SAME steps instead of two
+copies that could drift.
 """
 from __future__ import annotations
 
+import logging
+from dataclasses import dataclass, field
+from typing import Any, Optional
+
+from kicadstamp.config import load_config
+from kicadstamp.exceptions import ValidationError
+from kicadstamp.i18n import _
 from kicadstamp.trees import Tree
+
+logger = logging.getLogger(__name__)
 
 
 def declared_instance_names(cfg) -> set[str]:
@@ -55,3 +68,64 @@ def merge_reload(buffer, fresh, declared: set[str],
     kept = [t for t in buffer if t.name not in generated]
     fresh_manual = [t for t in fresh if t.name not in declared]
     return kept + fresh_manual[len(kept):] + [t for t in fresh if t.name in declared]
+
+
+@dataclass(frozen=True)
+class Reloaded:
+    """What ONE root re-read produced, before a widget is touched.
+
+    `error` — why nothing was read (None = fine). An unreadable file is NOT an empty tree
+    list: both callers keep their previous cfg/ctx/_trees and say why, the same discipline
+    TreesDock.refresh_ref_candidates follows."""
+
+    cfg: Any = None
+    ctx: Any = None
+    trees: list = field(default_factory=list)
+    error: Optional[str] = None
+
+    @property
+    def ok(self) -> bool:
+        return self.error is None
+
+    @property
+    def names(self) -> set:
+        return {t.name for t in self.trees}
+
+
+def reload_root(dock) -> Optional[Reloaded]:
+    """HALF ONE of a root re-read: read the config and compute the buffer it implies.
+
+    Touches no widget, writes nothing. `None` = there is nothing to read (no root loaded).
+    A DIRTY buffer keeps its hand-written trees exactly as they are and takes the fresh
+    GENERATED ones (`merge_reload`); a clean one is simply replaced.
+
+    The failure is logged HERE with the wording `reload_trees` always used, and is also
+    returned — the silent tab refresh needs the text to say it once in the Log panel."""
+    if dock._root_path is None:
+        return None
+    try:
+        cfg, ctx = load_config(str(dock._root_path))
+    except (ValidationError, OSError) as e:
+        logger.warning(_("Trees: root config failed to reload: {error}").format(error=e))
+        return Reloaded(error=str(e))
+    fresh = list(cfg.trees)
+    if not dock._dirty:
+        return Reloaded(cfg=cfg, ctx=ctx, trees=fresh)
+    declared = declared_instance_names(cfg)
+    return Reloaded(cfg=cfg, ctx=ctx,
+                    trees=merge_reload(dock._trees, fresh, declared, dock._generated))
+
+
+def apply_reloaded(dock, reloaded: Reloaded) -> None:
+    """HALF TWO: bind `reloaded` into the dock — no widget, no disk, no `_mark_dirty`.
+
+    The ORDER is the invariant of plan_2026-09-03_trees_dock_cfg_trees_desync: `cfg.trees`
+    is rebound to the buffer only AFTER the buffer holds its FINAL value, so redraw payloads
+    and Save's link_trees round-trip see the same tree objects the dock shows. The read-only
+    index follows — `_generated` is recomputed by `_rebuild_instance_index` ALONE (one owner),
+    and its marker is sticky per BUFFER tree."""
+    dock._cfg = reloaded.cfg
+    dock._ctx = reloaded.ctx
+    dock._trees = reloaded.trees
+    dock._cfg.trees = dock._trees
+    dock._rebuild_instance_index()

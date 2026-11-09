@@ -1269,7 +1269,17 @@ template tree shows one **"→ instance: {name}"** item per instance — double-
 duplication) — and it REBUILDS the instance tabs of every template it wrote, because the copy is
 generated at LOAD: without that rebuild an edited template would leave its instance tabs showing the
 geometry from BEFORE the edit (07.11 live case: a node added to `switch_a` reached the `switch_b` tab
-only after Tools → Trees → Instances… → OK). Any other external write (Extract tree…, a second window)
+only after Tools → Trees → Instances… → OK). **A template edit now reaches its copies without waiting for a Save at all** (2026-11-09,
+plan_2026_11_09_tree_instances_follow_template): every edit this dock stages, and every `saved`
+of the Entity / Cells / net_traces docks — the sections the expansion READS — nudges a
+DEBOUNCED (300 ms, one config read per burst) refresh that re-reads the root config and
+re-renders ONLY the generated tabs, in place: the template's page, the form open inside it and
+the active tab are left exactly as they were (`_rebuild_tabs` would accept and close every
+form). A refresh is not a user edit — it never marks the buffer dirty, never stages, never
+writes — and a template caught mid-edit (the expansion refuses) leaves the copies as they were
+with ONE yellow Log line, not the same sentence twice. A long socket-holding operation defers
+the refresh instead of dropping it.
+ Any other external write (Extract tree…, a second window)
 reaches a dock with unsaved edits the same way: the copies are replaced by the fresh expansion and one
 whose declaration was deleted disappears WITH it — hand-written trees keep their unsaved edits
 untouched. A copy is never written back as a literal `trees:` entry even after its declaration is gone

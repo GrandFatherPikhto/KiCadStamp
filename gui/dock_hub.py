@@ -71,6 +71,7 @@ from .explode_wiring import ExplodeWiring
 from .docks.configurator import ConfiguratorDock
 from .docks.net_trace import NetTraceDock
 from .docks.trees_dock import TreesDock
+from .docks.trees_instances_refresh import wire_instance_refresh
 from .docks.checks import ChecksPage
 from .docks.fieldstool_dock import FieldsToolDock
 from .docks.sheet_narrowing_warning import warn_once
@@ -1091,18 +1092,15 @@ class DockHub:
         self.thermal_via_dock.saved.connect(self._refresh_graph_dependent_choices)
         self.points_dock.saved.connect(self._refresh_graph_dependent_choices)
         self.cells_dock.saved.connect(self._refresh_graph_dependent_choices)
-        # Entity page (2026-09-05, design config_qview_chain_entity_pages): a
-        # Comment edit refreshes the tree's comment glyph; a placement click
-        # opens that tree in TreesDock.
+        # Entity page (2026-09-05, design config_qview_chain_entity_pages): a Comment edit
+        # refreshes the tree's glyph; a placement click opens that tree in TreesDock.
         self.entity_dock.saved.connect(self.config_tree_dock.refresh)
         self.entity_dock.open_tree.connect(self._jump_to_tree)
-        # Thermal via and Points are persistent Config right-QView pages
-        # (2026-09-05, design config_qview_chain_entity_pages) — no auto-hide on
-        # `saved`; the page stays open for iterative tuning (Thermal via Redraw).
-        # Config tree's "Add placer.../Add thermal via pad.../Add point.../
-        # Add rule..." context-menu actions -> Placer/Thermal via/Points/
-        # Rules: open the form blank, targeting the file the action was
-        # invoked on, and bring that tab to front (same raise pattern as
+        # The generated tabs follow their template — one line, see trees_instances_refresh.
+        wire_instance_refresh(self)
+        # Thermal via and Points stay open on `saved` (persistent Config right-QView pages,
+        # 2026-09-05): iterative tuning. Config tree's "Add ...." actions open the form BLANK,
+        # targeting the file the action was invoked on, and raise that tab (the same pattern as
         # open_fieldstool() below).
         self.config_tree_dock.add_thermal_via_requested.connect(self._start_new_thermal_via)
         self.config_tree_dock.add_point_requested.connect(self._start_new_point)

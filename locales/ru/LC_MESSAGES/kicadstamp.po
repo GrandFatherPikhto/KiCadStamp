@@ -19599,3 +19599,8 @@ msgstr "футпринт {ref!r} не найден на плате"
 #~ "level placement-узлом; якоря origin/ref/point "
 #~ "по-прежнему не параметризуются листом"
 
+
+#: gui/docks/trees_instances_refresh.py:120
+#, python-brace-format
+msgid "Tree instance tabs were not refreshed: {error}"
+msgstr "Вкладки экземпляров не обновлены: {error}"

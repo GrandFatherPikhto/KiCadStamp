@@ -94,8 +94,8 @@ from .trees_mounts_launch import add_mounts_item
 # here so every caller and test seam still reaches them through this module
 # (`.trees_mount_point` still fetches `_mount_marker_keys` through it).
 from .live_cfg import live_cfg
-from .trees_instances_sync import (declared_instance_names, mark_generated,
-                                   merge_reload)
+from .trees_instances_sync import apply_reloaded, mark_generated, reload_root
+from .trees_instances_refresh import InstancesRefresh
 from .trees_markers import (  # noqa: F401 — re-export for callers and tests
     _MOUNT_POINT_NS,
     _TREE_ANCHOR_NS,
@@ -767,6 +767,9 @@ class TreesDock(QWidget):
         # state — the rebuild persists its final state itself).
         self._pending_active_name: Optional[str] = None
         self._rebuilding_tabs = False
+        # The debounced refresh of the GENERATED instance tabs (trees_instances_refresh):
+        # a template edit reaches its clones without reloading the whole trees section.
+        self._instances_refresh = InstancesRefresh(self)
         # Ч1 of plan_2026_10_23_node_form_without_apply.md: the three flags of
         # "settle the open form before leaving it" (trees_accept owns the
         # bodies). _restoring_selection suppresses the handler of the selection
@@ -931,49 +934,28 @@ class TreesDock(QWidget):
                          "edits were left untouched (trees stay stale until "
                          "saved)")
 
-    def reload_trees(self) -> None:
-        """Re-read the root config's trees: section after an EXTERNAL write —
-        the TreesDock half of "Tools -> Trees -> Extract tree..." (2026-09-01, plan
-        extract_selection_as_tree.md), which saves the new tree through
-        config_writer directly, BYPASSING this dock's own Save. Without this
-        the dock would keep showing the pre-action tree until the root was
-        reassigned.
+    def note_instances_changed(self) -> None:
+        """One-line delegate: something the instance EXPANSION reads has just changed (a
+        tree edit here, an Entity/Cell/net_trace save elsewhere). See
+        trees_instances_refresh — debounced, and a no-op without declarations."""
+        self._instances_refresh.note_change()
 
-        Rebuilds cfg/ctx/_trees from the same root like set_root_file, but
-        NEVER wipes an in-progress dirty edit: when _dirty, a hand-written buffer
-        tree stays exactly as it is and externally-added ones are appended — so
-        an unsaved tree is preserved and the new "Extract tree..." tab appears.
-        GENERATED trees are the one exception (nobody edits them by hand): they
-        are replaced wholesale by the fresh expansion, and one whose declaration
-        disappeared goes with it — see trees_instances_sync for both rules.
-        No-op when no root is loaded; on a load failure the PREVIOUS cfg/ctx/
-        _trees are kept and the failure is logged (same discipline as
-        refresh_ref_candidates)."""
-        if self._root_path is None:
+    def reload_trees(self) -> None:
+        """Re-read the root config's `trees:` section after an EXTERNAL write — the
+        TreesDock half of "Tools -> Trees -> Extract tree..." (2026-09-01, plan
+        extract_selection_as_tree.md), which saves through config_writer directly,
+        BYPASSING this dock's own Save.
+
+        The two halves of the re-read live in trees_instances_sync (`reload_root` and
+        `apply_reloaded`), so the debounced refresh of generated tabs runs the VERY SAME
+        steps instead of a second copy. A dirty buffer is never wiped: hand-written trees
+        stay as they are and the GENERATED ones are replaced wholesale (a declaration that
+        disappeared takes its tab with it). No-op when no root is loaded; on a load failure
+        the PREVIOUS cfg/ctx/_trees are kept and it is logged."""
+        reloaded = reload_root(self)
+        if reloaded is None or not reloaded.ok:
             return
-        try:
-            cfg, ctx = load_config(str(self._root_path))
-        except (ValidationError, OSError) as e:
-            logger.warning(_("Trees: root config failed to reload: {error}")
-                           .format(error=e))
-            return
-        self._cfg = cfg
-        self._ctx = ctx
-        fresh = list(cfg.trees)
-        declared = declared_instance_names(cfg)
-        if self._dirty:
-            self._trees = merge_reload(self._trees, fresh, declared, self._generated)
-            logger.debug("Trees: external trees reloaded; unsaved tree edits "
-                         "were left untouched")
-        else:
-            self._trees = fresh
-        # Invariant (2026-09-03, plan trees_dock_cfg_trees_desync.md): `fresh`
-        # was captured from cfg.trees ABOVE, before this rebind. Only now that
-        # _trees holds its FINAL value do we rebind cfg.trees to it — so redraw
-        # payloads and Save's link_trees round-trip see the same tree objects the
-        # dock shows. The index follows: its marker is sticky per BUFFER tree.
-        self._cfg.trees = self._trees
-        self._rebuild_instance_index()
+        apply_reloaded(self, reloaded)
         self._rebuild_tabs()
         self._update_status_row()
 
@@ -2261,6 +2243,7 @@ class TreesDock(QWidget):
         section into the working set (the per-dock Save button is gone)."""
         self._stage_trees()
         self._dirty = True
+        self.note_instances_changed()
         self._update_status_row()
 
     # ── Structural editing (Phase 2) ─────────────────────────────────────
