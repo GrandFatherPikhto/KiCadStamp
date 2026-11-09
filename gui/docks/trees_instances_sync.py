@@ -92,24 +92,34 @@ class Reloaded:
         return {t.name for t in self.trees}
 
 
-def reload_root(dock) -> Optional[Reloaded]:
+def reload_root(dock, *, merge_always: bool = False,
+                quiet: bool = False) -> Optional[Reloaded]:
     """HALF ONE of a root re-read: read the config and compute the buffer it implies.
 
     Touches no widget, writes nothing. `None` = there is nothing to read (no root loaded).
-    A DIRTY buffer keeps its hand-written trees exactly as they are and takes the fresh
-    GENERATED ones (`merge_reload`); a clean one is simply replaced.
 
-    The failure is logged HERE with the wording `reload_trees` always used, and is also
-    returned — the silent tab refresh needs the text to say it once in the Log panel."""
+    THE MERGE (`merge_always`). A DIRTY buffer keeps its hand-written trees exactly as they
+    are and takes the fresh GENERATED ones (`merge_reload`); a CLEAN one is replaced outright.
+    The second rule is what `reload_trees` needs for an EXTERNAL write — somebody else edited a
+    hand-written tree and its fresh shape must win. The debounced refresh of the generated tabs
+    cannot live by it: it runs on a buffer whose `_dirty` may still be False while the user is
+    editing, and `rebuild_clone_pages` re-renders only the CLONE pages, so the template's rows
+    would keep pointing at `TreeNode` objects the buffer no longer holds — the next edit of such
+    a row is silently lost (Claude, 09.11; reproduced on `extra_sw`). The refresh therefore
+    passes `merge_always=True`: hand-written trees stay the SAME objects whatever `_dirty` says.
+
+    `quiet` — the refresh says its own refusals (`InstancesRefresh._report_refusal`, once); a
+    second copy of the same sentence from here is noise. `reload_trees` keeps the word."""
     if dock._root_path is None:
         return None
     try:
         cfg, ctx = load_config(str(dock._root_path))
     except (ValidationError, OSError) as e:
-        logger.warning(_("Trees: root config failed to reload: {error}").format(error=e))
+        if not quiet:
+            logger.warning(_("Trees: root config failed to reload: {error}").format(error=e))
         return Reloaded(error=str(e))
     fresh = list(cfg.trees)
-    if not dock._dirty:
+    if not dock._dirty and not merge_always:
         return Reloaded(cfg=cfg, ctx=ctx, trees=fresh)
     declared = declared_instance_names(cfg)
     return Reloaded(cfg=cfg, ctx=ctx,

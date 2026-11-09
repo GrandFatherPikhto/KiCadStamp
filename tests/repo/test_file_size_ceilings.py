@@ -62,7 +62,10 @@ CEILINGS = {
     "gui/docks/trees_dock.py": 7040,
     "gui/fieldstool_window.py": 1158,
     "gui/main_window.py": 1052,
-    "gui/worker.py": 1103,
+    # 1147: Claude's §2.2 of plan_2026_11_09_tree_instances_follow_template ASKED for "свойство
+    # на LongOpController" (the answer to "is an operation running?" cannot be `_active_op is not
+    # None` — the docks keep the controller after the run). Property + `_done` + `long_op_running`.
+    "gui/worker.py": 1147,
     "kicadstamp/apply_pipeline.py": 1149,
     "kicadstamp/cell_geometry_refresh.py": 1461,
     "kicadstamp/channel_copy.py": 947,

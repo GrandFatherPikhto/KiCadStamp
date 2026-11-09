@@ -17,7 +17,15 @@ GENERATED tabs. Each row removes exactly ONE of its decisions and must turn a NA
   M8  the same refusal is said again in a row                   (_report_refusal)
   M9  an edit arriving during a long operation is DROPPED       (_flush)
   M10 the «no declarations» early exit is gone                  (note_change)
-  M11 a cosmetic control (a comment must change nothing)
+
+and the four defects of Claude's §2 (second acceptance):
+
+  M12 the refresh does not ask for the always-merge              (§2.1 — the lost edit)
+  M13 the refresh asks `_active_op is not None` again            (§2.2 — clones stop following)
+  M14 `reload_root` speaks on the refresh path again             (§2.3 — two lines per refusal)
+  M15 `_last_refusal` is not reset after a good expansion        (§2.4а)
+  M16 `net_trace_dock.saved` is not wired                        (§2.4б)
+  M17 a cosmetic control (a comment must change nothing)
 
 Safeguards, as in every harness of this package (rule 38): a template matching more than once is
 REFUSED; a row that reddens nothing is a MISS, not a pass; the control must survive; every file
@@ -50,7 +58,7 @@ MUTATIONS = [
     ("M2 the Entity dock's saved is not wired", REFRESH,
      "    for dock in (hub.entity_dock, hub.cells_dock, hub.net_trace_dock):\n",
      "    for dock in (hub.cells_dock, hub.net_trace_dock):  # MUTATION\n",
-     ["test_an_entity_cluster_rename_reaches_the_copy"]),
+     ["test_every_section_dock_reaches_the_refresh"]),
 
     ("M3 a new edit does not restart the quiet period", REFRESH,
      "        self._timer.start()          # a fresh event RESTARTS the single shot\n",
@@ -95,7 +103,7 @@ MUTATIONS = [
      "            self._timer.start()\n"
      "            return False\n",
      "            return False                     # MUTATION: the edit is lost\n",
-     ["test_a_running_operation_defers_the_refresh_and_does_not_lose_it"]),
+     ["test_a_finished_operation_no_longer_blocks_the_refresh"]),
 
     ("M10 the «no declarations» early exit is gone", REFRESH,
      "        if dock._root_path is None or not declared_instance_names(dock._cfg):\n"
@@ -103,7 +111,33 @@ MUTATIONS = [
      "",
      ["test_without_declarations_nothing_is_read_and_no_timer_runs"]),
 
-    ("M11 cosmetic control (a comment must change nothing)", REFRESH,
+    # ── Claude's §2 (the second acceptance): the defects the first commit left ──
+    ("M12 (§2.1) the refresh does not ask for the always-merge", REFRESH,
+     "        reloaded = reload_root(dock, merge_always=True, quiet=True)\n",
+     "        reloaded = reload_root(dock)  # MUTATION: a clean buffer is replaced\n",
+     ["test_a_clean_buffer_refresh_keeps_the_templates_own_nodes"]),
+
+    ("M13 (§2.2) the refresh asks `_active_op is not None` again", REFRESH,
+     "        if long_op_running(getattr(dock, \"_active_op\", None)):\n",
+     "        if getattr(dock, \"_active_op\", None) is not None:  # MUTATION\n",
+     ["test_a_finished_operation_no_longer_blocks_the_refresh"]),
+
+    ("M14 (§2.3) `reload_root` speaks on the refresh path again", REFRESH,
+     "        reloaded = reload_root(dock, merge_always=True, quiet=True)\n",
+     "        reloaded = reload_root(dock, merge_always=True)  # MUTATION\n",
+     ["test_a_repeated_refusal_is_one_log_line"]),
+
+    ("M15 (§2.4а) `_last_refusal` is not reset after a good expansion", REFRESH,
+     "        self._last_refusal = None\n",
+     "",
+     ["test_the_same_refusal_after_a_good_expansion_is_said_again"]),
+
+    ("M16 (§2.4б) `net_trace_dock.saved` is not wired", REFRESH,
+     "    for dock in (hub.entity_dock, hub.cells_dock, hub.net_trace_dock):\n",
+     "    for dock in (hub.entity_dock, hub.cells_dock):  # MUTATION\n",
+     ["test_every_section_dock_reaches_the_refresh"]),
+
+    ("M17 cosmetic control (a comment must change nothing)", REFRESH,
      "        self._timer = QTimer(dock)\n",
      "        self._timer = QTimer(dock)  # MUTATION: cosmetic\n",
      "survive"),

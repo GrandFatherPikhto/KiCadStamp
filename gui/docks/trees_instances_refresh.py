@@ -37,6 +37,7 @@ from PyQt6.QtWidgets import QWidget
 
 from kicadstamp.i18n import _
 
+from ..worker import long_op_running
 from ._common import WARN_STYLE, show_message
 from .trees_instances_sync import (apply_reloaded, declared_instance_names,
                                    reload_root)
@@ -85,12 +86,20 @@ class InstancesRefresh:
         dock = self._dock
         if dock._root_path is None or not declared_instance_names(dock._cfg):
             return False                     # nothing generated here — zero work
-        if getattr(dock, "_active_op", None) is not None:
+        if long_op_running(getattr(dock, "_active_op", None)):
             # A socket-holding operation owns the dock: come back after it, don't lose the
             # edit. Re-arming the same single shot is the whole retry.
+            #
+            # `long_op_running`, NOT `_active_op is not None`: the dock keeps the controller
+            # after the op is over, so the old test stayed True for the rest of the session and
+            # the clones stopped following the template after the first Redraw (Claude 09.11).
             self._timer.start()
             return False
-        reloaded = reload_root(dock)
+        # `merge_always` — the buffer's hand-written trees must stay the SAME objects even when
+        # `_dirty` is still False: this refresh re-renders only the CLONE pages, so a template
+        # row pointing at a TreeNode the buffer no longer holds would lose the next edit.
+        # `quiet` — `_report_refusal` below is the ONE place this refusal is said.
+        reloaded = reload_root(dock, merge_always=True, quiet=True)
         if reloaded is None:
             return False                     # no root left to read
         if not reloaded.ok:

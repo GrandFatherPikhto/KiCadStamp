@@ -17,10 +17,14 @@ import logging
 
 import pytest
 
+from PyQt6.QtCore import Qt
+
 from kicadstamp.config.sexp_format import dict_to_sexp
+from kicadstamp.exceptions import ValidationError
 from kicadstamp.trees import TreeNode
 
 from gui.docks.trees_dock import TreesDock
+from gui.worker import start_long_op
 
 from tests.fakes.write_later import write_later
 from tests.gui.docks.test_trees_dock import _dirty_instance_cfg
@@ -105,6 +109,30 @@ def _node(ref, xy=(0.0, 1.0)):
                     name=None, group=None)
 
 
+def _wait_for(predicate, ms: int = 3000) -> bool:
+    """Pump the REAL event loop until `predicate()` holds — a `start_long_op` worker runs on
+    its own QThread, so a fixed sleep would be either flaky or slow."""
+    import time
+
+    from PyQt6.QtWidgets import QApplication
+
+    deadline = time.monotonic() + ms / 1000.0
+    while time.monotonic() < deadline:
+        QApplication.processEvents()
+        if predicate():
+            return True
+        time.sleep(0.01)
+    return predicate()
+
+
+def _broken_cfg() -> dict:
+    """A template caught mid-edit: a node naming no entity makes the expansion refuse."""
+    broken = _dirty_instance_cfg()
+    broken["trees"][0]["nodes"][0]["children"].append(
+        {"ref": "no_such_entity", "kind": "placement", "xy": [0.0, 0.0]})
+    return broken
+
+
 def test_a_deleted_template_node_leaves_the_clone_at_once(main_window, tmp_path):
     """Cell а: the delete goes through the dock's own flow (`run_delete_nodes`). The clone
     loses the node and its `_node_items` row, `cfg.entities` loses the copy — and the refresh
@@ -145,10 +173,13 @@ def test_an_added_template_node_arrives_with_its_geometry(main_window, tmp_path)
     assert "extra_sw__ch1_dac_buf" in dock._node_items
 
 
-def test_an_entity_cluster_rename_reaches_the_copy(hub, tmp_path):
-    """Cell в: the Entity PAGE is another dock, and its `saved` is what `dock_hub` wires to
-    the refresh. Renaming a cluster there must reach the copy's Entity without anyone
-    reloading the trees section."""
+@pytest.mark.parametrize("dock_name", ["entity_dock", "cells_dock", "net_trace_dock"])
+def test_every_section_dock_reaches_the_refresh(hub, tmp_path, dock_name):
+    """Cell в, over ALL THREE docks Claude's §2.4 asked for: every section the expansion
+    READS — entities, cells, net_traces — stages through its own dock, and `dock_hub` wires
+    each `saved` to the refresh. The graph change here is an Entity cluster rename, so the
+    answer is the same for all three; what the parameter pins is the WIRING, one dock at a
+    time (a mutant that drops `net_trace_dock.saved` stayed green against the old cell)."""
     root = tmp_path / "hub.sexp"
     data = _dirty_instance_cfg()
     _write(root, data)
@@ -160,9 +191,9 @@ def test_an_entity_cluster_rename_reaches_the_copy(hub, tmp_path):
             entity["cluster"] = "PIF_RENAMED"
     _write(root, data)
 
-    hub.entity_dock.saved.emit()
+    getattr(hub, dock_name).saved.emit()
     assert hub.trees_dock._instances_refresh._timer.isActive(), (
-        "another dock's `saved` must reach the refresh through the hub's wiring")
+        f"{dock_name}.saved must reach the refresh through the hub's wiring")
     assert hub.trees_dock._instances_refresh.flush() is True
 
     copies = {e.name: e for e in hub.trees_dock._cfg.entities}
@@ -271,23 +302,40 @@ def test_a_template_page_and_its_open_form_survive_a_refresh(main_window, tmp_pa
     assert dock._current_tab_tree_name() == TEMPLATE
 
 
-def test_a_running_operation_defers_the_refresh_and_does_not_lose_it(main_window, tmp_path):
-    """Cell з: a socket-holding operation owns the dock. The refresh does not run DURING it —
-    and it is not dropped either: the timer re-arms itself and fires once the operation is
-    over, with no second `_mark_dirty` and no explicit flush."""
+def test_a_finished_operation_no_longer_blocks_the_refresh(main_window, tmp_path):
+    """Cell з (rewritten for Claude's §2.2): the dock KEEPS the controller after a run, so
+    «is an operation running?» has to be asked OF THE CONTROLLER. The old test
+    (`_active_op is not None`) said "busy" for ever after the first redraw — the refresh
+    re-armed its timer against that stale flag and the clones stopped following the template.
+
+    The operation is a REAL `start_long_op` (not `object()`), and BOTH endings are pinned:
+    success, and the `failed` refusal."""
     dock, _root = _dock(main_window, tmp_path)
     template = _tree(dock, TEMPLATE)
-    template.nodes[0].children.append(_node("extra_sw"))
-    dock._active_op = object()
 
+    template.nodes[0].children.append(_node("extra_sw"))
     dock._mark_dirty()
-    assert _refresh(dock) is False
-    assert "extra_sw__ch1_dac_buf" not in dock._node_items
+    ok = start_long_op(main_window.connection, (), lambda: "done",
+                       lambda _result: None, lambda _message: None)
+    dock._active_op = ok
+    assert ok.running is True
+    assert _refresh(dock) is False, "a running operation owns the dock"
     assert dock._instances_refresh._timer.isActive(), "the deferral must re-arm itself"
 
-    dock._active_op = None
-    _run_for(500)
-    assert "extra_sw__ch1_dac_buf" in dock._node_items
+    assert _wait_for(lambda: not ok.running), "the worker thread never finished"
+    assert _wait_for(lambda: "extra_sw__ch1_dac_buf" in dock._node_items), (
+        "the deferred refresh must run after the operation, with no second _mark_dirty")
+
+    def _boom():
+        raise ValidationError("boom")
+
+    failed = start_long_op(main_window.connection, (), _boom,
+                           lambda _result: None, lambda _message: None)
+    dock._active_op = failed
+    assert _refresh(dock) is False
+    assert _wait_for(lambda: not failed.running), (
+        "a FAILED operation must stop answering «running» too")
+    assert _refresh(dock) is True, "the refresh must work again once the op is over"
 
 
 def test_every_edit_restarts_the_single_shot(main_window, tmp_path):
@@ -336,3 +384,74 @@ def test_the_refresh_is_neither_a_dirty_edit_nor_a_stage(main_window, tmp_path, 
 
     assert dock._dirty is dirty_before
     assert staged == []
+
+
+# ── Claude's §2: the defects the first acceptance reproduced ───────────────
+
+def test_a_clean_buffer_refresh_keeps_the_templates_own_nodes(main_window, tmp_path):
+    """§2.1 — THE lost edit. With `_dirty` False the re-read used to REPLACE the whole buffer
+    (`fresh`), while the refresh re-renders only the CLONE pages: the template's rows kept
+    `TreeNode` objects the buffer no longer held, and the next edit of such a row landed in a
+    node nobody stages (measured on `extra_sw`: the staged geometry stayed `[0.0, 1.0]`). The
+    refresh therefore merges even on a CLEAN buffer — the row keeps ITS node."""
+    dock, root = _dock(main_window, tmp_path)
+    assert dock._dirty is False
+    template = _tree(dock, TEMPLATE)
+    row_node = dock._node_items["pif_avdd"].data(0, Qt.ItemDataRole.UserRole)
+    assert isinstance(row_node, TreeNode)
+
+    # A REAL graph change on disk — another writer added a node to the template.
+    _write(root, _dirty_instance_cfg(extra_template_node=True))
+    assert _refresh(dock) is True
+
+    assert _tree(dock, TEMPLATE) is template, "a clean buffer must keep its hand-written tree"
+    assert dock._tree_of_node(row_node) is not None, (
+        "the row's own TreeNode must still be in the buffer — otherwise the next edit of that "
+        "row is written into an object nobody stages")
+
+    row_node.xy = (9.0, 9.0)
+    dock._mark_dirty()
+    staged = next(t for t in dock._cfg.trees if t.name == TEMPLATE)
+    assert staged.nodes[0].children[0].xy == (9.0, 9.0), (
+        "the edit of that row must reach the buffer the dock stages")
+
+
+def test_a_repeated_refusal_is_one_log_line(main_window, tmp_path, caplog):
+    """§2.3 — `reload_root` said the refusal itself AND the refresh said it again, so ONE
+    refusal produced two Log records and every further attempt another one. On the refresh
+    path `reload_root` is silent: the line belongs to `_report_refusal`, once."""
+    dock, root = _dock(main_window, tmp_path)
+    _write(root, _broken_cfg())
+
+    with caplog.at_level(logging.WARNING):
+        assert _refresh(dock) is False
+        assert _refresh(dock) is False
+
+    said = [record.getMessage() for record in caplog.records
+            if record.name in ("gui.docks.trees_instances_sync",
+                               "gui.docks.trees_instances_refresh")]
+    assert len(said) == 1, said
+
+
+def test_the_same_refusal_after_a_good_expansion_is_said_again(
+        main_window, tmp_path, monkeypatch):
+    """§2.4 — the «same sentence twice in a row» guard must NOT swallow a refusal that comes
+    BACK after a good expansion: the user fixed the template, broke it again, and has to be
+    told again. Kills a mutant that drops the `_last_refusal` reset after success."""
+    import gui.docks.trees_instances_refresh as mod
+
+    said = []
+    monkeypatch.setattr(mod, "show_message",
+                        lambda text, style="", log=None: said.append(text))
+    dock, root = _dock(main_window, tmp_path)
+
+    _write(root, _broken_cfg())
+    assert _refresh(dock) is False
+    assert len(said) == 1, said
+
+    _write(root, _dirty_instance_cfg())
+    assert _refresh(dock) is True
+
+    _write(root, _broken_cfg())
+    assert _refresh(dock) is False
+    assert len(said) == 2, "the same refusal after a GOOD expansion is news again"

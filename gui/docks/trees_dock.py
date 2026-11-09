@@ -66,7 +66,7 @@ from .. import board_overlay, overlay_markers, settings
 from ..connection import ui_thread_board_read, worker_timeout_ms
 from ..ui_utils import (persist_dialog_size, remember_dialog_size,
                         restore_dialog_size, wrap_in_scroll_area)
-from ..worker import socket_busy, start_long_op
+from ..worker import long_op_running, socket_busy, start_long_op
 from ._anchor_origin import AnchorOriginWidget, build_role_anchor_fields
 from .trees_move_flow import (RehangPlan, _MOVE_OFFSET_REFUSED,
                               _OFFSET_READ_FROM_BOARD, _READ_LIVE_SIGN,
@@ -2476,11 +2476,11 @@ class TreesDock(QWidget):
             reread = menu.addAction(_("Reread inter-node copper"))
             reread.triggered.connect(
                 lambda: self._tree_menu("reread_internode_copper", tree))
-            if self._active_op is not None:
-                # One operation — one lock on BOTH menus: while a socket-holding
-                # run is in flight these items are greyed, exactly as the
-                # Tools → Trees QActions are (that QAction IS the run's guard
-                # widget; here we mirror its state).
+            if long_op_running(self._active_op):
+                # One operation — one lock on BOTH menus: while a socket-holding run is in
+                # flight these items are greyed, exactly as the Tools → Trees QActions are
+                # (that QAction IS the run's guard widget). `long_op_running`, not
+                # `is not None`: the dock KEEPS the controller, so the old test greyed forever.
                 for act in (redraw_selected, redraw_whole, reread):
                     act.setEnabled(False)
             menu.addSeparator()

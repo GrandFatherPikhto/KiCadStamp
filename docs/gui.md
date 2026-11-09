@@ -1293,8 +1293,15 @@ re-renders ONLY the generated tabs, in place: the template's page, the form open
 the active tab are left exactly as they were (`_rebuild_tabs` would accept and close every
 form). A refresh is not a user edit — it never marks the buffer dirty, never stages, never
 writes — and a template caught mid-edit (the expansion refuses) leaves the copies as they were
-with ONE yellow Log line, not the same sentence twice. A long socket-holding operation defers
-the refresh instead of dropping it.
+with ONE yellow Log line, not the same sentence twice (the same refusal coming BACK after a good
+expansion is said again: the user broke it a second time). A long socket-holding operation defers
+the refresh instead of dropping it — and "is an operation running?" is asked of the CONTROLLER
+(`LongOpController.running`), not of the dock's field, which it keeps after the run: with the old
+test the clones stopped following the template after the FIRST Redraw and the tree menu stayed
+greyed for the rest of the session (Claude's §2.2, 09.11). The refresh also MERGES even on a
+CLEAN buffer: it re-renders only the clone pages, so a template row must keep the `TreeNode` the
+buffer still holds — replacing the buffer wholesale left the rows pointing at nodes nobody
+stages, and the next edit of such a row was silently lost (§2.1).
  Any other external write (Extract tree…, a second window)
 reaches a dock with unsaved edits the same way: the copies are replaced by the fresh expansion and one
 whose declaration was deleted disappears WITH it — hand-written trees keep their unsaved edits

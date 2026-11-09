@@ -967,19 +967,28 @@ def test_root_menu_grays_the_socket_items_while_an_op_runs(
         real_main_window, tmp_path, monkeypatch):
     """Ч2 — the socket-holding items (Redraw selected / Redraw whole tree /
     Reread inter-node copper) are greyed while an operation is in flight: one
-    operation — one lock on BOTH menus (the Tools QAction is the run's guard)."""
+    operation — one lock on BOTH menus (the Tools QAction is the run's guard).
+
+    The answer comes from the CONTROLLER (Claude's §2.2, 09.11): the dock keeps it after the
+    run, so «the field is not None» greyed these items for the rest of the session once a
+    redraw had happened. Both halves are pinned — in flight, and the same controller after."""
     trees = {"trees": [{"name": "t", "anchor": {"origin": True}, "nodes": []}]}
     hub, dock = _hub_dock(real_main_window, tmp_path, trees)
 
     idle = dict((t, a) for t, a in _root_menu(dock, monkeypatch) if a is not None)
     assert idle["Redraw whole tree"].isEnabled() is True
 
-    dock._active_op = object()          # a socket-holding run is in flight
+    dock._active_op = SimpleNamespace(running=True)   # a socket-holding run is in flight
     busy = dict((t, a) for t, a in _root_menu(dock, monkeypatch) if a is not None)
     for label in ("Redraw selected", "Redraw whole tree",
                   "Reread inter-node copper"):
         assert busy[label].isEnabled() is False, label
     assert busy["Delete tree..."].isEnabled() is True
+
+    dock._active_op = SimpleNamespace(running=False)  # the SAME controller, run over
+    done = dict((t, a) for t, a in _root_menu(dock, monkeypatch) if a is not None)
+    assert done["Redraw whole tree"].isEnabled() is True, (
+        "a finished operation must not keep the menu greyed")
 
 
 def _hub_dock(real_main_window, tmp_path, trees):

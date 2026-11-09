@@ -354,6 +354,11 @@ class LongOpController(QObject):
         self._thread: Optional[QThread] = None
         self._worker: Optional[_LongOpWorker] = None
         self._released = False
+        # True once this op can no longer produce anything — set by _release() (the success
+        # AND the failure path) and by every refusal that never started a worker (_retire).
+        # `running` is the READ of it; see the property's docstring for why the flag cannot
+        # be `_released` alone.
+        self._done = False
         self._prior_enabled: Dict[Any, bool] = {}
         # True only while THIS controller holds the shared socket itself — the
         # flag is cleared in _release() on this condition ALONE, because the
@@ -374,6 +379,25 @@ class LongOpController(QObject):
         # restores override cursors by call count, so the pop is made
         # conditional on the matching push rather than on QApplication existing.
         self._cursor_set = False
+
+    @property
+    def running(self) -> bool:
+        """True while this operation still owes the caller something — THE answer to "is an
+        operation running?".
+
+        Why it exists (Claude's §2.2, 09.11): the trees dock keeps the controller for good
+        (`dock._active_op` is never cleared — the guard widget and the keep-alive registry
+        both need the object), so `dock._active_op is not None` said "busy" FOREVER after the
+        first run. Consequence measured live: the debounced refresh of the generated instance
+        tabs re-armed its timer against that stale flag and stopped refreshing after the first
+        Redraw, and the tree root menu stayed greyed for the rest of the session.
+
+        FALSE once the op cannot produce a result any more: `_release()` (the success AND the
+        failure path both go through it) and every refusal that never started a worker
+        (`refuse` / `_refuse_busy` / `_abandon`, all three ending in `_retire`). Still TRUE on
+        the deferred path, where `start()` armed a retry and the worker has not begun yet — the
+        edit that arrived meanwhile must still be deferred, not dropped."""
+        return not self._done
 
     def start(self, fn: Callable[..., Any], *args) -> None:
         """Start the op — or, when the shared socket is held by another owner,
@@ -501,6 +525,10 @@ class LongOpController(QObject):
         start_long_op caller already wires to its on_error, so the refusal
         reaches all of them without touching a call site. No visuals were shown
         (nothing started), so none come down; the keep-alive entry goes."""
+        # BEFORE the emit: the caller's on_error runs inside it and must already see "no
+        # operation is running" (`running`), or a dock that defers work on that answer would
+        # defer it against a refusal that will never finish.
+        self._done = True
         self.failed.emit(message)
         self._retire()
 
@@ -534,6 +562,9 @@ class LongOpController(QObject):
         for the rest of the session — the leak the plan names as trap 1. The set
         itself is not optional: it is the 2026-08-03 fix against "QThread:
         Destroyed while thread is still running"."""
+        # Nothing will ever come out of this controller — including on `_abandon`, the one
+        # refusal that does not go through `_release` (see `running`).
+        self._done = True
         try:
             self.thread_stopped.emit()
         except RuntimeError:
@@ -547,6 +578,9 @@ class LongOpController(QObject):
         if self._released:
             return
         self._released = True
+        # The op stops owing a result HERE, before the caller's finish/fail slot runs — a
+        # dock that asks `running` inside that slot must get False (see the property).
+        self._done = True
         # Clear the shared-socket token ONLY if THIS controller raised it. The
         # poll tick raises the same flag for its own request, so an
         # unconditional clear here dropped a foreign token while that request
@@ -665,6 +699,16 @@ def start_long_op(connection, widgets, fn, on_success, on_error, *args,
             return controller
     controller.start(fn, *args)
     return controller
+
+
+def long_op_running(controller) -> bool:
+    """Whether `controller` (a `start_long_op` return value, or None) is still running ITS
+    operation — the ONE question a dock should ask instead of `dock._active_op is not None`,
+    which never goes back to False after the first run (see `LongOpController.running`).
+
+    `None` (nothing was ever started here) and any stand-in without the property answer
+    False, which is what a dock's "may I act now?" branch wants."""
+    return controller is not None and bool(getattr(controller, "running", False))
 
 
 def snapshot_refresh_supported(connection: Any) -> bool:
