@@ -822,3 +822,66 @@ def test_redraw_selected_uses_the_tree_it_is_given_not_the_active_tab(
     started = _redraw_selected(dock, {PARENT}, monkeypatch, tree=main)
     assert len(started) == 1, "the GIVEN tree is `main` — the run must start"
     assert started[0]["payload"]["tree_name"] == "main"
+
+
+# ── §3.1: the «started» direction, and «nothing to redraw» ──────────────────
+
+def test_the_form_says_started_for_an_ordinary_node(main_window, tmp_path, monkeypatch):
+    """§3.1 (Denis's mutation 1) — the SINGLE-NODE path of `redraw_node` answering False was
+    green: every cell about a form only ever asked about a REFUSAL. Here the answer is True,
+    exactly one worker of the single-node kind starts, and the form says so."""
+    dock, _root = _dock(main_window, tmp_path)
+    _patch_live(monkeypatch)
+    solo = _tree(dock, "solo")
+    form = dock._build_node_form(solo, solo.nodes[0])
+    starts = _capture_starts(monkeypatch)
+
+    td_ac.redraw_form(dock, form)
+
+    assert len(starts) == 1
+    assert starts[0]["worker"] is run_single_node_redraw_worker
+    assert "started" in form.apply_status_label.text()
+
+
+def test_the_form_says_started_for_a_module_node(main_window, tmp_path, monkeypatch):
+    """§3.1 (mutation 2) — the MODULE branch of `redraw_node` answering False was green too.
+    A `module` node's Redraw activates its content through the FOREST worker, and the form
+    must say it started."""
+    dock, _root = _dock(main_window, tmp_path)
+    _patch_live(monkeypatch)
+    main = _tree(dock, "main")
+    form = dock._build_node_form(main, main.nodes[0])      # the module node `switch_a`
+    starts = _capture_starts(monkeypatch)
+
+    td_ac.redraw_form(dock, form)
+
+    assert len(starts) == 1
+    assert starts[0]["worker"] is cascade_mod.run_curated_forest_redraw_worker
+    assert "started" in form.apply_status_label.text()
+
+
+@pytest.mark.parametrize("kind", ["mount", "copper"])
+def test_a_childless_subtree_node_says_nothing_to_redraw(
+        main_window, tmp_path, monkeypatch, caplog, kind):
+    """§3.1 (Denis's third item) — a `mount` / `copper` node WITHOUT children used to fall
+    through to `redraw_subtree`, which answered "handled, nothing started": the form then said
+    «the node's redraw was refused (see the Log)» while the Log stayed EMPTY, because there was
+    nothing to refuse. The honest answer is «nothing to redraw on this node» — no worker, no
+    Log line."""
+    dock, _root = _dock(main_window, tmp_path)
+    _patch_live(monkeypatch)
+    solo = _tree(dock, "solo")
+    leaf = TreeNode(ref="LEAF", kind=kind, xy=None, polar=None, rotation=0.0,
+                    name=None, group=None, children=[])
+    solo.nodes.append(leaf)
+    form = dock._build_node_form(solo, leaf)
+    starts = _capture_starts(monkeypatch)
+
+    with caplog.at_level("WARNING"):
+        td_ac.redraw_form(dock, form)
+
+    assert starts == [], "a node with nothing on the board must start nothing"
+    assert "nothing to redraw" in form.apply_status_label.text()
+    said = [record.getMessage() for record in caplog.records
+            if record.name.startswith("gui.docks.trees_")]
+    assert said == [], "and must not promise a refusal whose reason is missing"

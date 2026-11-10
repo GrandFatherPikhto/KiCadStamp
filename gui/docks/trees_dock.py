@@ -778,11 +778,9 @@ class TreesDock(QWidget):
         so the next _all_ref_candidates()/_live_roles()/_live_clusters() and
         every combo populated at dialog-open time see the fresh graph. The
         dialogs/forms fetch their candidates lazily when opened (see _prompt_node/
-        _build_anchor_form/_build_node_form/_on_create_tree), so no tab rebuild
-        is needed here — the
-        opposite of the other docks, whose set_root_path refresh_file_combo_
-        choices repopulates live combos, and which are safe to call because
-        they never reset loaded form state.
+        _build_anchor_form/_build_node_form/_on_create_tree), so no tab rebuild is needed
+        here — unlike the other docks, whose refresh_file_combo_choices repopulates live
+        combos and never resets loaded form state.
 
         No-op when no root is loaded. On a load failure the PREVIOUS cfg/ctx
         are kept (a transiently broken file must not wipe the candidate
@@ -804,6 +802,8 @@ class TreesDock(QWidget):
         # lists cannot diverge and a later redraw reads the ACTUAL nodes.
         self._cfg.trees = self._trees
         self._rebuild_instance_index()
+        # Every staging door in the app lands HERE (§3): the clone tabs read the same graph.
+        self.note_instances_changed()
         if self._dirty:
             logger.debug("Trees: ref candidates refreshed; unsaved tree "
                          "edits were left untouched (trees stay stale until "

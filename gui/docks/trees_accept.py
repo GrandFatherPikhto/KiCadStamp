@@ -76,9 +76,6 @@ REFUSE = "refuse"
 #: only, so their redraw is the curated redraw of their own subtree.
 SUBTREE_KINDS = frozenset({"mount", "copper", "point", "external"})
 
-#: Kinds with neither a record nor (possibly) children — an Apply on one of
-#: these only accepts, and says so.
-_CHILDLESS_KINDS = frozenset({"point", "external"})
 
 
 # ── what the form is, in words ────────────────────────────────────────────
@@ -311,7 +308,10 @@ def redraw_form(dock, form) -> None:
         else:
             _say(form, _("Applied — the whole-tree redraw was refused (see the Log)."))
         return
-    if node.kind in _CHILDLESS_KINDS and not node.children:
+    # §3.1: ANY `SUBTREE_KINDS` node without children has nothing on the board to move — the
+    # curated redraw would start nothing, so the form says THAT instead of promising a refusal
+    # whose reason never reaches the Log.
+    if node.kind in SUBTREE_KINDS and not node.children:
         _say(form, _("Applied — nothing to redraw on this node."))
         return
     # §4.2: «handled» and «started» are different answers — a refusal already put its reason in

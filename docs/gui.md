@@ -1324,7 +1324,14 @@ test the clones stopped following the template after the FIRST Redraw and the tr
 greyed for the rest of the session (Claude's §2.2, 09.11). The refresh also MERGES even on a
 CLEAN buffer: it re-renders only the clone pages, so a template row must keep the `TreeNode` the
 buffer still holds — replacing the buffer wholesale left the rows pointing at nodes nobody
-stages, and the next edit of such a row was silently lost (§2.1).
+stages, and the next edit of such a row was silently lost (§2.1). **Every OTHER door now reaches
+it too** (2026-11-10, §3): any staged write ends in `WORKING_SET.stage_write` → the hub's
+debounced `refresh_from_working_set` → `_refresh_graph_dependent_choices` →
+`TreesDock.refresh_ref_candidates`, and THAT method is what nudges the clone refresh. A door that
+stages a section the expansion reads but never fires this dock's `_mark_dirty` or one of the
+three docks' `saved` — a rename or a delete in the config tree, a cell read from the selection,
+the inter-node copper re-read — used to leave the copy behind until a restart (live, 10.11). One
+refusal on that path is still ONE yellow line.
  Any other external write (Extract tree…, a second window)
 reaches a dock with unsaved edits the same way: the copies are replaced by the fresh expansion and one
 whose declaration was deleted disappears WITH it — hand-written trees keep their unsaved edits

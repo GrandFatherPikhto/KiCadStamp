@@ -27,6 +27,14 @@ and the four defects of Claude's §2 (second acceptance):
   M16 `net_trace_dock.saved` is not wired                        (§2.4б)
   M17 a cosmetic control (a comment must change nothing)
 
+and §3 (10.11 — the clone still lagged behind the template):
+
+  M18 `refresh_ref_candidates` no longer arms the refresh         (trees_dock.refresh_ref_candidates)
+
+and §3.2 (10.11 — the windows-latest run):
+
+  M19 `confirm_sync_dialog` loses its own size key                (fieldstool_confirm_dialogs)
+
 Safeguards, as in every harness of this package (rule 38): a template matching more than once is
 REFUSED; a row that reddens nothing is a MISS, not a pass; the control must survive; every file
 is restored in `finally` and the restoration is verified by text.
@@ -45,8 +53,12 @@ ROOT = Path(__file__).resolve().parents[2]
 
 REFRESH = "gui/docks/trees_instances_refresh.py"
 DOCK = "gui/docks/trees_dock.py"
+CONFIRM = "gui/fieldstool_confirm_dialogs.py"
 
-GUARDS = "tests/gui/docks/test_trees_instances_follow_template.py"
+# §3.2 rode in on the same commit, and its cell lives in the instances DIALOG suite — a row may
+# only name cells the runner actually executes, so both files ride here.
+GUARDS = ("tests/gui/docks/test_trees_instances_follow_template.py "
+          "tests/gui/docks/test_instances_dialog.py")
 
 MUTATIONS = [
     ("M1 _mark_dirty no longer arms the refresh", DOCK,
@@ -141,6 +153,25 @@ MUTATIONS = [
      "        self._timer = QTimer(dock)\n",
      "        self._timer = QTimer(dock)  # MUTATION: cosmetic\n",
      "survive"),
+
+    # §3: every OTHER door lands in `WORKING_SET.stage_write` → the hub's debounced
+    # `refresh_from_working_set` → `refresh_ref_candidates`, which never nudged the clone
+    # refresh. Replaced, not deleted: the file's line count must stay what the ceiling says.
+    ("M18 `refresh_ref_candidates` no longer arms the refresh", DOCK,
+     "        # Every staging door in the app lands HERE (§3): the clone tabs read the same graph.\n"
+     "        self.note_instances_changed()\n",
+     "        # Every staging door in the app lands HERE (§3): the clone tabs read the same graph.\n"
+     "        pass  # MUTATION: the clone tabs are never told\n",
+     ["test_a_working_set_write_alone_reaches_the_clone",
+      "test_a_config_tree_door_reaches_the_clone_refresh"]),
+
+    # §3.2 (windows-latest): the cell no longer pins a literal 700×500, it pins that each key
+    # carries ITS OWN window's size. With the key gone both windows write `dialog_size:QDialog`
+    # and the cell's last assertion is what fails.
+    ("M19 `confirm_sync_dialog` loses its own size key", CONFIRM,
+     "    remember_dialog_size(dialog, 640, 440, key=\"FieldstoolConfirmSync\")\n",
+     "    remember_dialog_size(dialog, 640, 440, key=None)  # MUTATION\n",
+     ["test_the_two_anonymous_windows_use_their_own_size_keys"]),
 ]
 
 

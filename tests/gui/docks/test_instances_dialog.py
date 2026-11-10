@@ -421,7 +421,12 @@ def test_the_two_anonymous_windows_use_their_own_size_keys(
         main_window, tmp_path, monkeypatch):
     """Б7 (part Б): an anonymous `QDialog` has no class name to key its size on —
     without an explicit key EVERY such window in the app would write the same
-    `dialog_size:QDialog` entry, and one window's size would move another's."""
+    `dialog_size:QDialog` entry, and one window's size would move another's.
+
+    §3.2 (Denis, 10.11): the WINDOW decides how small it can get. On windows-latest
+    `confirm_sync_dialog` will not shrink below its own minimum size (a wider font), so
+    `resize(700, 500)` lands on 1018×500 and a literal expectation called the product
+    wrong. Each key is now compared against the size its OWN window actually had."""
     from PyQt6.QtWidgets import QDialog
 
     from gui import settings
@@ -431,19 +436,23 @@ def test_the_two_anonymous_windows_use_their_own_size_keys(
     dlg._add_row()
     dlg.table.item(0, 0).setText("switch_b")
     dlg.table.item(0, 1).setText("SW B")
+    seen = []
 
     def fake_exec(self):
         self.show()
         self.resize(700, 500)
+        seen.append((self.width(), self.height()))
         self.hide()
         return QDialog.DialogCode.Rejected
 
     monkeypatch.setattr(QDialog, "exec", fake_exec)
     dlg._edit_anchor(None)
+    anchor_size = list(seen[-1])
     confirm_sync_dialog(main_window, [])
+    sync_size = list(seen[-1])
 
-    assert settings.state.get("dialog_size:InstanceAnchor") == [700, 500]
-    assert settings.state.get("dialog_size:FieldstoolConfirmSync") == [700, 500]
+    assert settings.state.get("dialog_size:InstanceAnchor") == anchor_size
+    assert settings.state.get("dialog_size:FieldstoolConfirmSync") == sync_size
     assert settings.state.get("dialog_size:QDialog") is None, (
         "the two anonymous windows must not share the generic class key")
 

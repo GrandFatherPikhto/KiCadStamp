@@ -44,6 +44,12 @@ and §4 (Denis, 10.11 — the fourth door, the lying form and the cell holes):
   M26 `_refuse_busy` releases AFTER the emit                      (worker.LongOpController._refuse_busy)
   M27 `_retire` does not mark the op done                         (worker.LongOpController._retire)
 
+and §3.1 of plan_2026_11_09_tree_instances_follow_template (Denis's third acceptance):
+
+  M28 the SINGLE-NODE path answers "not started"                 (trees_accept.redraw_node)
+  M29 the MODULE branch answers "not started"                    (trees_accept.redraw_node)
+  M30 `mount`/`copper` without children promise a refusal         (trees_accept.redraw_form)
+
 Safeguards, as in every harness of this package (rule 38): a template matching more than once is
 REFUSED; a row that reddens nothing is a MISS, not a pass; the control must survive; every file is
 restored in `finally` and the restoration is verified by text.
@@ -250,6 +256,34 @@ MUTATIONS = [
      "        try:\n"
      "            self.thread_stopped.emit()\n",
      ["test_an_abandoned_start_is_not_running"]),
+
+    # ── §3.1: the «started» direction, and «nothing to redraw» ─────────────
+    ("M28 the SINGLE-NODE path answers «not started»", ACCEPT,
+     "        run_single_node_redraw_worker, dock._finish_redraw,\n"
+     "        dock._on_redraw_failed, payload,\n"
+     "        busy_text=_(\"placing\"))\n"
+     "    return True\n",
+     "        run_single_node_redraw_worker, dock._finish_redraw,\n"
+     "        dock._on_redraw_failed, payload,\n"
+     "        busy_text=_(\"placing\"))\n"
+     "    return False  # MUTATION\n",
+     ["test_the_form_says_started_for_an_ordinary_node"]),
+
+    ("M29 the MODULE branch answers «not started»", ACCEPT,
+     "            run_curated_forest_redraw_worker, dock._finish_redraw,\n"
+     "            dock._on_redraw_failed, payload,\n"
+     "            busy_text=_(\"placing\"))\n"
+     "        return True\n",
+     "            run_curated_forest_redraw_worker, dock._finish_redraw,\n"
+     "            dock._on_redraw_failed, payload,\n"
+     "            busy_text=_(\"placing\"))\n"
+     "        return False  # MUTATION\n",
+     ["test_the_form_says_started_for_a_module_node"]),
+
+    ("M30 `mount`/`copper` without children promise a refusal", ACCEPT,
+     "    if node.kind in SUBTREE_KINDS and not node.children:\n",
+     "    if node.kind in frozenset({\"point\", \"external\"}) and not node.children:  # MUTATION\n",
+     ["test_a_childless_subtree_node_says_nothing_to_redraw"]),
 ]
 
 

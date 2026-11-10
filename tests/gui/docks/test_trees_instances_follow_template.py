@@ -479,3 +479,212 @@ def test_reload_trees_on_a_clean_buffer_takes_an_external_edit(main_window, tmp_
     assert fresh is not manual, "a clean buffer takes the fresh tree, not the merged one"
     assert fresh.nodes[0].xy == (7.0, -3.0), (
         "the external EDIT of a hand-written tree must reach the buffer")
+
+
+# ── §3: the WORKING-SET path is the one every other door uses ──────────────
+#
+# `_mark_dirty` and the three docks' `saved` signals were the only doors wired to
+# `note_instances_changed` (09.11). Every OTHER door that stages a section the expansion
+# reads lands in `WORKING_SET.stage_write` → the hub's debounced `refresh_from_working_set`
+# → `_refresh_graph_dependent_choices` → `trees_dock.refresh_ref_candidates` — and that
+# method never nudged the clone refresh, so a live profile's clone lagged until a restart.
+# §3 adds the one line and the cells below drive each path to it.
+
+def _hub_instances(hub, tmp_path):
+    """The HUB's own trees dock on a fresh `_dirty_instance_cfg` root: the working-set
+    cells need the hub's timer and its graph handler, not a dock built by hand."""
+    root = tmp_path / "ws.sexp"
+    _write(root, _dirty_instance_cfg())
+    hub.trees_dock.set_root_file(root)
+    return hub.trees_dock, root
+
+
+def _staged_copy(root, extra_ref="extra_sw", *, keep_uuid=True):
+    """The file's OWN shape with ONE more node under the template's first node.
+
+    Read back through `read_data`, not built by hand: the loader LIFTS the file to format 4
+    on disk (every reference carries the target record's uuid), so a hand-built dict would
+    be a format-3 file whose nodes lost their uuids — a fatal that has nothing to do with
+    the cell. The new node COPIES an existing one (its `kind`/`group` and, for a real ref,
+    the record's own uuid) and changes only what the cell is about."""
+    from kicadstamp.config_writer import read_data
+
+    data = read_data(root)
+    ids = {e["name"]: e.get("uuid") for e in data.get("entities") or []}
+    parent = data["trees"][0]["nodes"][0]
+    node = dict(parent["children"][0])
+    node.update({"ref": extra_ref, "xy": [0.0, 1.0]})
+    if keep_uuid and ids.get(extra_ref):
+        node["ref_uuid"] = ids[extra_ref]
+    elif not keep_uuid:
+        node.pop("ref_uuid", None)          # a bare NAME — nothing for the loader to resolve
+    parent["children"].append(node)
+    return data
+
+
+def _clone_child_refs(dock):
+    """The clone's own node refs, read from the BUFFER (the page renders only expanded
+    rows, so `_node_items` is not the place to ask whether the copy follows)."""
+    return [child.ref for node in _tree(dock, CLONE).nodes for child in node.children]
+
+
+def test_a_working_set_write_alone_reaches_the_clone(hub, tmp_path, monkeypatch):
+    """§3, cell а — THE point. A write staged into the working set with NO dock signal and
+    NO `_mark_dirty` must still reach the generated tabs: the hub's debounced
+    `refresh_from_working_set` is the path every other door takes."""
+    from kicadstamp.config_working_set import WORKING_SET
+
+    dock, root = _hub_instances(hub, tmp_path)
+    assert "pif_avdd__ch1_dac_buf" in dock._node_items
+    assert dock._instances_refresh._timer.isActive() is False
+
+    cfg_before = dock._cfg
+    staged = _staged_copy(root)
+    monkeypatch.setattr(WORKING_SET, "enabled", True)
+    try:
+        WORKING_SET.stage_write(root, staged)
+        hub._refresh_from_working_set()          # the hub timer's own tail
+        assert dock._instances_refresh._timer.isActive(), (
+            "a working-set write must ARM the clone refresh")
+        assert dock._instances_refresh.flush() is True
+    finally:
+        WORKING_SET.clear()
+
+    assert dock._cfg is not cfg_before, (
+        "the refresh must RE-READ the root through this path, not keep the old object")
+
+
+def test_one_working_set_write_is_one_clone_read(hub, tmp_path, monkeypatch):
+    """§3, cell в — the new trigger is not a storm, and it is not an edit. ONE staged write
+    costs exactly ONE config read BY THE CLONE REFRESH.
+
+    The counter is scoped to `trees_instances_sync.load_config` ON PURPOSE:
+    `refresh_ref_candidates` reads the same file on the same path by design (it serves the
+    dialogs' candidate combos), so a counter over `load_config` in general would say 2 and
+    invite someone to "fix" the second read, which is not this refresh's."""
+    import gui.docks.trees_instances_sync as sync
+    from kicadstamp.config_working_set import WORKING_SET
+
+    real = sync.load_config
+    reads = []
+    monkeypatch.setattr(sync, "load_config", lambda path: reads.append(path) or real(path))
+    dock, root = _hub_instances(hub, tmp_path)
+    reads.clear()
+    staged_calls = []
+    monkeypatch.setattr(dock, "_stage_trees", lambda: staged_calls.append(1))
+    dirty_before = dock._dirty
+
+    staged = _staged_copy(root)
+    monkeypatch.setattr(WORKING_SET, "enabled", True)
+    try:
+        WORKING_SET.stage_write(root, staged)
+        hub._refresh_from_working_set()
+        assert dock._instances_refresh.flush() is True
+    finally:
+        WORKING_SET.clear()
+
+    assert len(reads) == 1, reads
+    assert dock._dirty is dirty_before, "the refresh must not look like a user edit"
+    assert staged_calls == [], "the refresh must never stage (that would write the file)"
+
+
+def test_a_template_form_survives_the_working_set_path(hub, tmp_path, monkeypatch):
+    """§3, cell г — the hub path reaches the clone refresh and STOPS there: the template's
+    page object, the form open inside it and the active tab are the same afterwards."""
+    from kicadstamp.config_working_set import WORKING_SET
+
+    dock, root = _hub_instances(hub, tmp_path)
+    template = _tree(dock, TEMPLATE)
+    index = next(i for i, t in enumerate(dock._trees) if t.name == TEMPLATE)
+    dock.tree_tabs.setCurrentIndex(index)
+    dock._rebuild_active_form_panel()
+    page = dock.tree_tabs.widget(index)
+    form = dock._embedded_form_of(dock._panel_page(dock._form_panel_of_page(page)))
+    assert form is not None, "the template page must have a form to protect"
+
+    staged = _staged_copy(root)
+    monkeypatch.setattr(WORKING_SET, "enabled", True)
+    try:
+        WORKING_SET.stage_write(root, staged)
+        hub._refresh_from_working_set()
+        assert dock._instances_refresh.flush() is True
+    finally:
+        WORKING_SET.clear()
+
+    assert dock.tree_tabs.widget(index) is page
+    assert dock._embedded_form_of(dock._panel_page(dock._form_panel_of_page(page))) is form
+    assert dock._current_tab_tree_name() == TEMPLATE
+    assert template is _tree(dock, TEMPLATE), "the hand-written template stays the same object"
+
+
+def test_a_broken_template_on_the_working_set_path_says_it_once(
+        hub, tmp_path, monkeypatch, caplog):
+    """§3 п.3 — a refusal on this path is ONE line too, and it is the SAME line whether the
+    expansion refuses inside `refresh_ref_candidates` or inside the clone refresh.
+
+    Nothing is flushed here on purpose: a config the candidates re-read cannot load is also a
+    config the clone refresh cannot load, and only one of the two is on screen. Measured —
+    calling `flush()` by hand adds the refresh's own copy of the sentence, which no user door
+    can produce."""
+    from kicadstamp.config_working_set import WORKING_SET
+
+    dock, root = _hub_instances(hub, tmp_path)
+    staged = _staged_copy(root, "no_such_entity", keep_uuid=False)
+
+    monkeypatch.setattr(WORKING_SET, "enabled", True)
+    with caplog.at_level(logging.WARNING):
+        try:
+            WORKING_SET.stage_write(root, staged)
+            hub._refresh_from_working_set()
+        finally:
+            WORKING_SET.clear()
+
+    said = [record.getMessage() for record in caplog.records
+            if record.name in ("gui.docks.trees_instances_sync",
+                               "gui.docks.trees_instances_refresh",
+                               "gui.docks.trees_dock")]
+    assert len(said) == 1, said
+    assert "no_such_entity" in said[0], said
+    assert "pif_avdd__ch1_dac_buf" in dock._node_items, "the clones keep their last good state"
+
+
+#: The two ConfigTreeDock actions §3 names ("переименование или удаление в дереве конфига"):
+#: both write through `config_writer` and emit ONE `graph_changed`, and neither is one of the
+#: three docks whose `saved` was wired to the refresh.
+GRAPH_DOORS = ["rename", "delete"]
+
+
+@pytest.mark.parametrize("door", GRAPH_DOORS)
+def test_a_config_tree_door_reaches_the_clone_refresh(hub, tmp_path, monkeypatch, door):
+    """§3, cell б — the doors that stage a graph section and woke NOTHING until now.
+
+    `_on_rename` / `_on_delete` are ConfigTreeDock's own actions: they write through
+    `config_writer` (into the working set when a project is open) and emit `graph_changed`,
+    which the hub turns into `_refresh_graph_dependent_choices` → `refresh_ref_candidates`.
+    That method never nudged the clone refresh, so the tab lagged until a restart — the live
+    complaint of 10.11. Measured: both actions now arm it, and the refresh really runs."""
+    import gui.docks.config_tree as ct
+    from kicadstamp.config_working_set import set_active_graph_root
+
+    dock, root = _hub_instances(hub, tmp_path)
+    hub.config_tree_dock.set_root_file(root)
+    # A format-3+ WRITE resolves reference UUIDs against the project graph, so the door needs
+    # the root the dock's own Save would have set (the fixture's placeholder is reset after).
+    set_active_graph_root(root)
+    assert dock._instances_refresh._timer.isActive() is False
+
+    monkeypatch.setattr(ct.QMessageBox, "information",
+                        staticmethod(lambda *a, **k: None))
+    if door == "rename":
+        monkeypatch.setattr(ct.QInputDialog, "getText",
+                            staticmethod(lambda *a, **k: ("c_dac_r", True)))
+        hub.config_tree_dock._on_rename(root, "cells", "c_dac")
+    else:
+        monkeypatch.setattr(ct.QMessageBox, "question",
+                            staticmethod(lambda *a, **k:
+                                         ct.QMessageBox.StandardButton.Yes))
+        hub.config_tree_dock._on_delete(root, "cells", "c_extra")
+
+    assert dock._instances_refresh._timer.isActive(), (
+        f"the {door} door must ARM the clone refresh")
+    assert dock._instances_refresh.flush() is True
