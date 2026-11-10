@@ -915,6 +915,19 @@ the Grid Origin — `conn_out_sw_a` alone moved (−32.000, +35.000) mm, exactly
 form's Apply now says "the whole-tree redraw was refused (see the Log)" instead of claiming it
 started.
 
+**UPDATE 2026-11-10 (§4 of the same plan):** the FOURTH door is closed, and the two forms now say what
+actually happened. A node whose Redraw is a **curated subtree** run (`mount` / `copper` / `point` /
+`external` WITH children) was still reaching that worker from a module-placed tree's tab — on the
+live `switch_a` every child of such a node drifted by the module's (−32.000, +35.000) mm (8 such
+nodes in that tree alone). It is now REFUSED with the same sentence; a node with NO children still
+starts nothing and says nothing (there is no position on the board for its edit to move). The
+refusal is HANDLED rather than ignored: `gui/docks/trees_accept.py` `redraw_node` answers "was a
+worker started?" (True/False), and both forms read that answer — a refused redraw says "the node's
+redraw was refused (see the Log)" instead of the old unconditional "Redraw started". The refusal
+sentence names the NODE, the module and the owning tree, and the reverse scan
+(`gui/docks/trees_embedding.py`) walks the WHOLE owner tree at any depth and EVERY tree in the list,
+so a module nested under another node — or an owner that is not the first tree — is found too.
+
 **UPDATE 2026-10-13 (plan `plan_2026_10_13_single_slot_rotation.md`):** the read — and the re-read
 frame behind "Refresh geometry from selection" — derives a cell's rotation by FITTING the stored offsets
 against the live deltas of every matched role; a cell with fewer than TWO usable slots had no pair at

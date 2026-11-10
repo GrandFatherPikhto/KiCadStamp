@@ -455,3 +455,27 @@ def test_the_same_refusal_after_a_good_expansion_is_said_again(
     _write(root, _broken_cfg())
     assert _refresh(dock) is False
     assert len(said) == 2, "the same refusal after a GOOD expansion is news again"
+
+
+def test_reload_trees_on_a_clean_buffer_takes_an_external_edit(main_window, tmp_path):
+    """§4.3 — `reload_root`'s CLEAN branch, the mutation that survived without this cell.
+
+    `reload_trees` is the dock's half of "Tools → Trees → Extract tree…": that write goes
+    through `config_writer` and BYPASSES this dock, so `_dirty` stays False and the fresh shape
+    has to win OUTRIGHT. An EDIT of a hand-written tree is the case that tells the two rules
+    apart — `merge_reload` keeps the buffer's own trees and only APPENDS the fresh ones, so the
+    merged branch would show the old geometry (and the old node objects) for ever.
+    """
+    dock, root = _dock(main_window, tmp_path)
+    manual = _tree(dock, "manual")
+    assert dock._dirty is False, "the premise: nobody edited the buffer here"
+
+    moved = _dirty_instance_cfg()
+    moved["trees"][1]["nodes"][0]["xy"] = [7.0, -3.0]
+    _write(root, moved)
+    dock.reload_trees()
+
+    fresh = _tree(dock, "manual")
+    assert fresh is not manual, "a clean buffer takes the fresh tree, not the merged one"
+    assert fresh.nodes[0].xy == (7.0, -3.0), (
+        "the external EDIT of a hand-written tree must reach the buffer")

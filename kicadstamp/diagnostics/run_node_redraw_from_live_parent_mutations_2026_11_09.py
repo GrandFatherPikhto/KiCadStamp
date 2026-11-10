@@ -29,6 +29,21 @@ and §3 (a module-placed tree is not redrawn from its own tab):
   M14 the refusal fires on a tree NOBODY embeds                  (trees_embedding.refuse_embedded_tree)
   M15 a cosmetic control (a comment must change nothing)
 
+and §4 (Denis, 10.11 — the fourth door, the lying form and the cell holes):
+
+  M16 a `mount` SUBTREE on an embedded tree is not refused       (trees_accept.redraw_subtree)
+  M17 the node form claims «Redraw started» whatever the dock said (trees_accept.redraw_form)
+  M18 «Redraw whole tree» returns True on a REFUSAL              (trees_dock._on_redraw_whole_tree)
+  M19 «Redraw whole tree» returns False on SUCCESS               (trees_dock._on_redraw_whole_tree)
+  M20 «Redraw selected» uses the ACTIVE tab, not the given tree   (trees_dock._run_curated_redraw)
+  M21 `module_nodes` looks at the top level only                  (trees_embedding.module_nodes)
+  M22 `embedding_marker` looks at the FIRST owner only            (trees_embedding.embedding_marker)
+  M23 the refusal sentence drops the node's name                  (trees_embedding.refusal_line)
+  M24 `reload_root` ALWAYS merges (the clean branch is dead)       (trees_instances_sync.reload_root)
+  M25 `refuse` emits BEFORE it marks the op done                  (worker.LongOpController.refuse)
+  M26 `_refuse_busy` releases AFTER the emit                      (worker.LongOpController._refuse_busy)
+  M27 `_retire` does not mark the op done                         (worker.LongOpController._retire)
+
 Safeguards, as in every harness of this package (rule 38): a template matching more than once is
 REFUSED; a row that reddens nothing is a MISS, not a pass; the control must survive; every file is
 restored in `finally` and the restoration is verified by text.
@@ -49,8 +64,16 @@ BASE = "gui/docks/trees_base_pose.py"
 CASCADE = "gui/docks/cascade.py"
 DOCK = "gui/docks/trees_dock.py"
 EMBEDDING = "gui/docks/trees_embedding.py"
+ACCEPT = "gui/docks/trees_accept.py"
+SYNC = "gui/docks/trees_instances_sync.py"
+WORKER = "gui/worker.py"
 
-GUARDS = "tests/gui/docks/test_tree_node_redraw_from_live_parent.py"
+# §4 put the fields of this plan into two more suites: the instance-tab refresh (the
+# clean-buffer branch of `reload_root`) and the controller's `running` property. All three ride
+# in ONE guard string because a row may only name cells the runner actually executes.
+GUARDS = ("tests/gui/docks/test_tree_node_redraw_from_live_parent.py "
+          "tests/gui/docks/test_trees_instances_follow_template.py "
+          "tests/gui/test_worker.py")
 
 MUTATIONS = [
     ("M1 the base comes from the TREE, not the live parent", BASE,
@@ -88,11 +111,13 @@ MUTATIONS = [
      "    if mirrored and False:\n",
      ["test_e_a_mirrored_parent_is_refused"]),
 
-    ("M6 the top of an embedded tree is not refused", DOCK,
-     "            if self._embedded_tree_refused(tree, node_ref=node.ref):\n"
-     "                return\n",
-     "            if False:  # MUTATION\n"
-     "                return\n",
+    # §4.2/§4.3 moved the node's own Redraw VERBATIM into `trees_accept.redraw_node` (the dock
+    # only delegates), so the two rows below follow the code they measure.
+    ("M6 the top of an embedded tree is not refused", ACCEPT,
+     "        if refuse_embedded_tree(dock._trees, tree, node_ref=node.ref):\n"
+     "            return False\n",
+     "        if False:  # MUTATION\n"
+     "            return False\n",
      ["test_zh_the_top_of_an_embedded_tree_is_refused_with_the_marker"]),
 
     ("M7 the override is not handed to the pipeline", CASCADE,
@@ -106,9 +131,9 @@ MUTATIONS = [
      "    if node.polar is not None and False:  # MUTATION\n",
      ["test_a_polar_node_is_placed_from_its_polar_offset"]),
 
-    ("M10 the dock's `sheet_names` are replaced by `{}`", DOCK,
-     "            \"sheet_names\": dict(self._ctx.sheet_names if self._ctx is not None else {}),\n",
-     "            \"sheet_names\": {},  # MUTATION\n",
+    ("M10 the dock's `sheet_names` are replaced by `{}`", ACCEPT,
+     "        \"sheet_names\": dict(dock._ctx.sheet_names if dock._ctx is not None else {}),\n",
+     "        \"sheet_names\": {},  # MUTATION\n",
      ["test_the_dock_hands_the_worker_its_sheet_names"]),
 
     ("M11 «a node but no adapter» is not refused", CASCADE,
@@ -143,6 +168,88 @@ MUTATIONS = [
      "    node = payload.get(\"node\")\n",
      "    node = payload.get(\"node\")  # MUTATION: cosmetic\n",
      "survive"),
+
+    # ── §4.1: the FOURTH door — a subtree inside an embedded tree ──────────
+    # Replacing a decision with a FALSE guard (never deleting a line) keeps every file's line
+    # count intact: a deletion trips the two-way ratchet in
+    # tests/repo/test_file_size_ceilings.py and the row would then be measured against a build
+    # that no longer matches its own ceiling.
+    ("M16 a `mount` SUBTREE on an embedded tree is not refused", ACCEPT,
+     "    if refuse_embedded_tree(dock._trees, tree, node_ref=node.ref):\n"
+     "        return False                     # handled here: refused, nothing started\n",
+     "    if False:                            # MUTATION\n"
+     "        return False\n",
+     ["test_a_mount_subtree_on_an_embedded_tree_is_refused"]),
+
+    # ── §4.2: the forms must tell the truth about what the dock did ────────
+    ("M17 the node form claims «Redraw started» whatever the dock said", ACCEPT,
+     "    if dock._redraw_edited_node(node):\n",
+     "    if True:  # MUTATION: the old lie\n",
+     ["test_the_node_form_says_refused_and_started"]),
+
+    ("M18 «Redraw whole tree» returns True on a REFUSAL", DOCK,
+     "        if self._embedded_tree_refused(tree):\n"
+     "            return False\n",
+     "        if self._embedded_tree_refused(tree):\n"
+     "            return True  # MUTATION\n",
+     ["test_the_anchor_form_says_refused_and_started"]),
+
+    ("M19 «Redraw whole tree» returns False on SUCCESS", DOCK,
+     "        self._run_forest_redraw_with_refs(set(collect_tree_refs(tree)), trigger)\n"
+     "        return True\n",
+     "        self._run_forest_redraw_with_refs(set(collect_tree_refs(tree)), trigger)\n"
+     "        return False  # MUTATION\n",
+     ["test_the_anchor_form_says_refused_and_started"]),
+
+    # ── §4.3: the cell holes Denis's mutations walked through ──────────────
+    ("M20 «Redraw selected» uses the ACTIVE tab, not the given tree", DOCK,
+     "        target = tree if tree is not None else self._current_tree()\n",
+     "        target = self._current_tree()  # MUTATION\n",
+     ["test_redraw_selected_uses_the_tree_it_is_given_not_the_active_tab"]),
+
+    ("M21 `module_nodes` looks at the top level only", EMBEDDING,
+     "        stack.extend(node.children or [])\n",
+     "        pass  # MUTATION: no descent\n",
+     ["test_a_module_nested_under_another_node_still_places_its_tree"]),
+
+    ("M22 `embedding_marker` looks at the FIRST owner only", EMBEDDING,
+     "    for owner in trees:\n",
+     "    for owner in list(trees)[:1]:  # MUTATION\n",
+     ["test_the_owner_tree_need_not_be_first_in_the_list"]),
+
+    ("M23 the refusal sentence drops the node's name", EMBEDDING,
+     "    subject = (_(\"node {node!r}\").format(node=node_ref) if node_ref is not None\n",
+     "    subject = (_(\"node {node!r}\").format(node=node_ref) if False  # MUTATION\n",
+     ["test_zh_the_top_of_an_embedded_tree_is_refused_with_the_marker"]),
+
+    ("M24 `reload_root` ALWAYS merges (the clean branch is dead)", SYNC,
+     "    if not dock._dirty and not merge_always:\n",
+     "    if False:  # MUTATION: always merge\n",
+     ["test_reload_trees_on_a_clean_buffer_takes_an_external_edit"]),
+
+    # ── §4.3: `running` — the answer the docks ask ────────────────────────
+    ("M25 `refuse` emits BEFORE it marks the op done", WORKER,
+     "        self._done = True\n"
+     "        self.failed.emit(message)\n",
+     "        self.failed.emit(message)\n"
+     "        self._done = True  # MUTATION\n",
+     ["test_refuse_is_already_not_running_inside_on_error"]),
+
+    ("M26 `_refuse_busy` releases AFTER the emit", WORKER,
+     "        self._release()\n"
+     "        self.failed.emit(_(\"the board is busy — try again in a moment\"))\n",
+     "        self.failed.emit(_(\"the board is busy — try again in a moment\"))\n"
+     "        self._release()  # MUTATION\n",
+     ["test_a_refused_retry_is_not_running_inside_on_error"]),
+
+    ("M27 `_retire` does not mark the op done", WORKER,
+     "        self._done = True\n"
+     "        try:\n"
+     "            self.thread_stopped.emit()\n",
+     "        self._done = False  # MUTATION\n"
+     "        try:\n"
+     "            self.thread_stopped.emit()\n",
+     ["test_an_abandoned_start_is_not_running"]),
 ]
 
 

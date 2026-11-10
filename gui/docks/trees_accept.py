@@ -42,9 +42,13 @@ from PyQt6.QtWidgets import QTreeWidget, QTreeWidgetItemIterator
 from kicadstamp.i18n import _
 from kicadstamp.trees import TreeNode
 
-from ..connection import worker_timeout_ms
+from ..connection import ui_thread_board_read, worker_timeout_ms
 from ..worker import start_long_op
-from .cascade import run_curated_tree_redraw_worker
+from ._common import ERROR_STYLE, show_message
+from .cascade import (run_curated_forest_redraw_worker,
+                      run_curated_tree_redraw_worker,
+                      run_single_node_redraw_worker)
+from .trees_embedding import refuse_embedded_tree
 from .trees_selection import select_only
 
 logger = logging.getLogger(__name__)
@@ -59,6 +63,7 @@ __all__ = [
     "apply_and_redraw",
     "discarding",
     "redraw_form",
+    "redraw_node",
     "redraw_subtree",
     "subtree_refs",
     "touched_names",
@@ -309,8 +314,124 @@ def redraw_form(dock, form) -> None:
     if node.kind in _CHILDLESS_KINDS and not node.children:
         _say(form, _("Applied — nothing to redraw on this node."))
         return
-    dock._redraw_edited_node(node)
-    _say(form, _("Applied — Redraw started."))
+    # §4.2: «handled» and «started» are different answers — a refusal already put its reason in
+    # the Log, so the form must not claim a redraw began.
+    if dock._redraw_edited_node(node):
+        _say(form, _("Applied — Redraw started."))
+    else:
+        _say(form, _("Applied — the node's redraw was refused (see the Log)."))
+
+
+# ── the node's own Redraw ─────────────────────────────────────────────────
+
+def redraw_node(dock, node: TreeNode) -> bool:
+    """The node editor dialog's **Redraw** button (Phase B): place the REAL
+    record on the live board at its (edited) CONFIG position — ONE
+    ApplyPipeline --only run for node.ref over the in-memory cfg/trees (the
+    dialog just applied to the same Tree/TreeNode objects), in a background
+    worker (start_long_op, never blocks the UI). NOT the rigid curated
+    redraw: after an offset edit the component must move to the new offset.
+    Inherits the documented ApplyPipeline boundary (design §0) — a node that
+    can't be resolved by the pipeline fails exactly as it would on a full
+    Apply, this phase does not soften it.
+
+    "module" is special-cased (2026-09-07, Denis: Redraw on a module node
+    should activate its content, not just be blocked): node.ref names an
+    EMBEDDED TREE, which --only can never resolve, so this routes through
+    the SAME forest-content-activation machinery the "Full redraw" menu
+    action uses (run_curated_forest_redraw_worker), scoped to just this
+    one marker via selected_refs={node.ref} — its content is placed from
+    the owning tree's LIVE anchor, nothing else in that tree moves.
+
+    The BASE IS LIVE (plan_2026_11_09_node_redraw_from_live_parent): the worker
+    resolves the parent on the BOARD and places the node at `parent + its own
+    xy/rotation` — the inverse of "Read current position" — instead of letting the
+    pipeline lay the node out from the tree's anchor and the Grid Origin. Two
+    refusals live HERE because only the dock knows the trees: a node that is in
+    no loaded tree, and the TOP node of a tree that a `module` node embeds (that
+    one is placed through its module, never from this tab).
+
+    Returns whether a WORKER WAS STARTED (§4.2). False is the honest answer for
+    every refusal and for "nothing to place" — the reason is already in the Log,
+    and the form says «refused» instead of «started».
+
+    No guard widget goes to start_long_op (Э2, plan_2026_09_12_busy_
+    indicator): the trigger is whichever HOST's "Redraw" button called
+    NodeFormWidget.redraw() — the form owns no button of its own (the
+    master-detail panel's _form_action_row and _NodeDialog both build the
+    button they connect), so from here there is nothing stable to disable."""
+    # Ч1 of plan_2026_10_23_node_form_without_apply.md: a mount/copper/
+    # point/external node names no record of its own, so its edit shows on
+    # its CHILDREN — that redraw is the curated redraw of its own subtree,
+    # handled (and started) here; nothing below may run for it.
+    handled = redraw_subtree(dock, node)
+    if handled is not None:
+        return handled
+    if node is None or not node.ref or dock._cfg is None or dock._ctx is None:
+        return False
+    if node.kind == "module":
+        payload = {
+            "config_path": str(dock._root_path) if dock._root_path else "",
+            "cfg": dock._cfg,
+            "ctx": dock._ctx,
+            "trees": dock._trees,
+            "selected_refs": {node.ref},
+            "timeout_ms": worker_timeout_ms(dock._main_window.connection),
+        }
+        dock._active_op = start_long_op(
+            dock._main_window.connection, (),
+            run_curated_forest_redraw_worker, dock._finish_redraw,
+            dock._on_redraw_failed, payload,
+            busy_text=_("placing"))
+        return True
+    # Everything below needs the node's TREE: the frame its xy/rotation are
+    # stored against now comes from the board (plan_2026_11_09_node_redraw_from_
+    # live_parent), so a node nobody can locate in a tree cannot be placed at
+    # all — and guessing the absolute origin is exactly the fallback this plan
+    # removes.
+    tree = dock._tree_of_node(node)
+    if tree is None:
+        show_message(
+            _("Redraw of node {node!r}: it is in no loaded tree — nothing to "
+              "measure it against.").format(node=node.ref), ERROR_STYLE, logger)
+        return False
+    parent_node = dock._find_parent(tree, node)
+    if parent_node is None:
+        # A MODULE-placed tree's top node is the module's business: from this tab the base
+        # could only be the tree's own anchor, and that is what moved IC1 into the corner.
+        if refuse_embedded_tree(dock._trees, tree, node_ref=node.ref):
+            return False
+    # The dock's OWN live adapter, borrowed the way the node-reread worker
+    # borrows it (start_long_op holds the shared socket for the whole call): the
+    # base READ still happens on the worker (Э1) — this half only hands it over.
+    with ui_thread_board_read(
+            reason="hand the shared adapter to the node-redraw worker"):
+        adapter = dock._live_adapter()
+    payload = {
+        "config_path": str(dock._root_path) if dock._root_path else "",
+        "cfg": dock._cfg,
+        "ctx": dock._ctx,
+        "ref": node.ref,
+        # The frame the worker resolves LIVE: the parent node (None = this tree's
+        # own anchor), the tree it belongs to, and the node's stored numbers.
+        "tree": tree,
+        "node": node,
+        "parent_node": parent_node,
+        # A MOUNT node's xy/polar are defined relative to its OWN anchor, not the
+        # parent (plan_2026_09_11_tree_mount_nodes) — the same base the Read uses,
+        # so a Read followed by a Redraw is a no-op.
+        "base_anchor": node.anchor if node.kind == "mount" else None,
+        "adapter": adapter,
+        # A COPY: no live mapping crosses the thread boundary.
+        "sheet_names": dict(dock._ctx.sheet_names if dock._ctx is not None else {}),
+        "timeout_ms": worker_timeout_ms(dock._main_window.connection),
+    }
+    dock._active_op = start_long_op(
+        dock._main_window.connection, (),
+        run_single_node_redraw_worker, dock._finish_redraw,
+        dock._on_redraw_failed, payload,
+        busy_text=_("placing"))
+    return True
 
 
 # ── subtree redraw of a node that names no record ─────────────────────────
@@ -343,24 +464,35 @@ def _owning_tree(dock, node: TreeNode):
     return tree if tree is not None else dock._current_tree()
 
 
-def redraw_subtree(dock, node: Optional[TreeNode]) -> bool:
+def redraw_subtree(dock, node: Optional[TreeNode]) -> Optional[bool]:
     """Curated redraw of a `SUBTREE_KINDS` node's own subtree.
 
-    True = this node is handled HERE (the caller must not fall through to its
-    own `--only`/module dispatch); False = the caller's dispatch owns it.
+    `None` = the caller's dispatch owns this node (it is not a SUBTREE_KINDS node);
+    True = handled HERE and a worker WAS STARTED;
+    False = handled HERE, nothing started — no children, no owning tree, or a REFUSAL.
 
-    A node with NO children is handled here too and starts NOTHING: the edit
-    changed a position nothing on the board follows, so the honest answer is
-    the status line the caller writes — not a worker that would place its own
-    name (which a `mount`/`copper`/`point`/`external` node does not have)."""
+    THREE answers because the form says what happened (§4.2 of
+    plan_2026_11_09_node_redraw_from_live_parent): "handled" and "started" are different
+    things, and a form that claims «Redraw started» on a refusal is a lie.
+
+    A node with NO children starts NOTHING and says nothing: the edit changed a position
+    nothing on the board follows, so the honest answer is the caller's status line — not a
+    worker that would place its own name (which a `mount`/`copper`/`point`/`external` node
+    does not have).
+
+    A node of a tree a `module` PLACES is REFUSED here (§4.1): the curated worker lays the
+    subtree out from the tree's own anchor — the Grid Origin. Measured on the live board,
+    every `mount` child in `switch_a` drifts by the module's (−32.000, +35.000) mm."""
     if node is None or node.kind not in SUBTREE_KINDS:
-        return False
+        return None
     refs = subtree_refs(node)
     if len(refs) <= 1:
-        return True
+        return False
     tree = _owning_tree(dock, node)
     if tree is None:
-        return True
+        return False
+    if refuse_embedded_tree(dock._trees, tree, node_ref=node.ref):
+        return False                     # handled here: refused, nothing started
     payload = {
         "config_path": str(dock._root_path) if dock._root_path else "",
         "cfg": dock._cfg,

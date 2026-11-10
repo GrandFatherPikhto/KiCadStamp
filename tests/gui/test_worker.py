@@ -1124,3 +1124,87 @@ def test_a_widget_deleted_mid_op_leaves_no_thread_and_no_exception(qapp, monkeyp
         assert connection.long_op_active is False, "the shared-socket token stayed up"
     finally:
         _drain_controller(qapp, controller)
+
+
+# ── `running`: the answer the docks ask (Claude's §2.2, §4.3) ──────────────
+#
+# The trees dock KEEPS its controller for good (`dock._active_op` is never cleared:
+# the guard widget and the keep-alive registry both need the object), so
+# "`_active_op is not None`" answered «busy» for the rest of the session after the
+# first run — the debounced instance refresh re-armed against it and stopped, and
+# the tree root menu stayed greyed. `LongOpController.running` is the honest read,
+# and these three cells pin the THREE refusal paths that never run a worker.
+
+def test_refuse_is_already_not_running_inside_on_error(qapp):
+    """§4.3 — `refuse()` sets `_done` BEFORE `failed.emit`. The caller's on_error runs
+    INSIDE that emit, and a dock that defers its work on «is an op running?» would arm its
+    timer against a refusal that never finishes. A mutant that emits first stays green
+    without this cell."""
+    connection = SimpleNamespace(long_op_active=False)
+    seen = []
+    controller = LongOpController(connection, [])
+    controller.failed.connect(lambda _m: seen.append(controller.running))
+    # The two things `start_long_op` does before the op ever starts: keep the controller alive
+    # and drop it from the registry when `thread_stopped` says it can produce nothing more.
+    worker_mod._ACTIVE_CONTROLLERS.add(controller)
+    controller.thread_stopped.connect(
+        lambda: worker_mod._ACTIVE_CONTROLLERS.discard(controller))
+    try:
+        controller.refuse("the clusters are exploded")
+
+        assert seen == [False], "on_error must already see «no operation is running»"
+        assert controller.running is False
+        assert controller not in worker_mod._ACTIVE_CONTROLLERS
+    finally:
+        worker_mod._ACTIVE_CONTROLLERS.discard(controller)
+
+
+def test_a_refused_retry_is_not_running_inside_on_error(qapp, monkeypatch):
+    """§4.3 — the SECOND refusal path: the deferred retry meets a still-busy socket
+    (`_refuse_busy` → `_release` → emit). `running` is False inside on_error too, so a dock
+    told «busy» does not go on deferring against it."""
+    connection = SimpleNamespace(long_op_active=True)
+    seen = []
+    scheduled = _capture_retries(monkeypatch)
+    holder = []
+    controller = start_long_op(
+        connection, (), lambda: "x", lambda _r: None,
+        lambda _m: seen.append(holder[0].running))
+    holder.append(controller)
+    try:
+        assert scheduled, "no deferred retry was armed"
+        scheduled[0][1]()                      # the retry: still busy, so it refuses
+
+        assert seen == [False]
+        assert controller.running is False
+    finally:
+        _drain_controller(qapp, controller)
+
+
+def test_an_abandoned_start_is_not_running(qapp, monkeypatch):
+    """§4.3 — the THIRD path: `_abandon()` (the owner was destroyed during the deferred
+    retry's delay). It never goes through `_release`, so `_retire` is the only thing that can
+    bring `running` down — and a dock holding this controller would otherwise defer for ever.
+
+    The OTHER direction is pinned first: on the deferred path, while the retry is armed and
+    the worker has not begun, the answer is still TRUE — the edit that arrives meanwhile must
+    be deferred, not dropped."""
+    connection = SimpleNamespace(long_op_active=True)
+    widget = _DisposableWidget()
+    started = []
+    scheduled = _capture_retries(monkeypatch)
+    monkeypatch.setattr(worker_mod, "qt_object_gone",
+                        lambda obj: getattr(obj, "gone", False))
+    controller = start_long_op(connection, (widget,), lambda: started.append(True),
+                               lambda _r: None, lambda _m: None)
+    try:
+        assert scheduled, "no deferred retry was armed"
+        assert controller.running is True, (
+            "a deferred op still owes a result — it must not read as finished")
+        widget.die()                           # the dialog went away
+        scheduled[0][1]()                      # the retry: abandon
+
+        assert started == [], "a worker was started for a destroyed owner"
+        assert controller.running is False
+    finally:
+        _drain_controller(qapp, controller)

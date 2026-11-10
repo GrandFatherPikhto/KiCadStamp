@@ -2080,8 +2080,13 @@ def test_redraw_edited_node_module_kind_uses_forest_content_worker(
         captured["worker"] = worker
         captured["payload"] = payload
         return object()
+    import gui.docks.trees_accept as td_ac
     import gui.docks.trees_dock as td_mod
+    # The body moved to trees_accept.redraw_node (§4.2 of the node-redraw plan — the form
+    # needs to know whether a worker started), and THAT module is the one holding
+    # `start_long_op` now; the dock's seam stays patched for the doors that still use it.
     monkeypatch.setattr(td_mod, "start_long_op", fake_start)
+    monkeypatch.setattr(td_ac, "start_long_op", fake_start)
 
     dock._redraw_edited_node(module_node)
 
@@ -2108,8 +2113,10 @@ def test_redraw_edited_node_normal_kind_uses_single_node_worker(
         captured["worker"] = worker
         captured["payload"] = payload
         return object()
+    import gui.docks.trees_accept as td_ac
     import gui.docks.trees_dock as td_mod
     monkeypatch.setattr(td_mod, "start_long_op", fake_start)
+    monkeypatch.setattr(td_ac, "start_long_op", fake_start)
 
     dock._redraw_edited_node(node)
 
