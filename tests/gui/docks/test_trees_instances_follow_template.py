@@ -688,3 +688,64 @@ def test_a_config_tree_door_reaches_the_clone_refresh(hub, tmp_path, monkeypatch
     assert dock._instances_refresh._timer.isActive(), (
         f"the {door} door must ARM the clone refresh")
     assert dock._instances_refresh.flush() is True
+
+
+# ── §3.3: the graph cache used to hand the dock back its own buffer ────────
+#
+# HP-Power, 10.11: Reread added nodes to `switch_a`, Save wrote them, and the clone tab kept
+# its OLD nodes until a restart. `refresh_ref_candidates` REBINDS `dock._cfg.trees` to the
+# dock's buffer, and while `load_config` returned the cached object itself that rebinding
+# landed IN THE CACHE — so the next `reload_root` read `fresh = list(cfg.trees)` and got the
+# dock's own stale buffer back. The two cells below put `refresh_ref_candidates` BETWEEN the
+# edit and the flush, which is exactly the order no §3 cell exercised.
+
+def test_a_template_edit_then_the_candidates_reload_reaches_the_clone(
+        main_window, tmp_path, monkeypatch):
+    """§3.3, cell е — the live order: edit the template, `refresh_ref_candidates` (what the
+    hub does on every staged write), THEN the 300 ms refresh. The clone must show the new
+    node, and a Redraw of that tree must carry it in its payload."""
+    import gui.docks.trees_dock as td
+
+    dock, _root = _dock(main_window, tmp_path)
+    template = _tree(dock, TEMPLATE)
+    template.nodes[0].children.append(_node("extra_sw", xy=(3.5, -4.5)))
+    dock._mark_dirty()
+
+    dock.refresh_ref_candidates()          # the hub's step before the debounced flush
+    assert dock._instances_refresh._timer.isActive(), (
+        "`refresh_ref_candidates` must ARM the refresh (§3) — flushing by hand would hide it")
+    assert _refresh(dock) is True
+
+    clone = _tree(dock, CLONE)
+    refs = [n.ref for n in clone.nodes[0].children]
+    assert "extra_sw__ch1_dac_buf" in refs, refs
+
+    starts = []
+    monkeypatch.setattr(td, "start_long_op",
+                        lambda connection, widgets, worker, finish, failed, payload,
+                        **kwargs: starts.append(payload) or object())
+    assert dock._on_redraw_whole_tree(None, clone) is True
+    in_payload = [t.name for t in starts[0]["trees"]]
+    assert CLONE in in_payload
+    clone_in_payload = next(t for t in starts[0]["trees"] if t.name == CLONE)
+    assert "extra_sw__ch1_dac_buf" in [n.ref for n in clone_in_payload.nodes[0].children]
+
+
+def test_a_saved_template_keeps_the_clone_fresh_across_the_candidates_reload(
+        main_window, tmp_path):
+    """§3.3, cell ж — the same order with a SAVE in the middle: after the file is written,
+    `refresh_ref_candidates` + the refresh must leave the clone свежим, not restore the
+    buffer (nor the cache) it came from."""
+    dock, _root = _dock(main_window, tmp_path)
+    template = _tree(dock, TEMPLATE)
+    template.nodes[0].children.append(_node("extra_sw", xy=(3.5, -4.5)))
+    dock._mark_dirty()
+
+    dock._do_save()
+    dock.refresh_ref_candidates()
+    assert dock._instances_refresh._timer.isActive(), (
+        "the candidates re-read must still ARM the refresh after a Save")
+    assert _refresh(dock) is True
+
+    refs = [n.ref for n in _tree(dock, CLONE).nodes[0].children]
+    assert "extra_sw__ch1_dac_buf" in refs, refs

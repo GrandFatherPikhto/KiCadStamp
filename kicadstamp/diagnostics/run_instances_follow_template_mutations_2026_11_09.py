@@ -35,6 +35,11 @@ and §3.2 (10.11 — the windows-latest run):
 
   M19 `confirm_sync_dialog` loses its own size key                (fieldstool_confirm_dialogs)
 
+and §3.3 (13.11 — the graph cache handed the dock back its own buffer):
+
+  M20 the fresh shell in `load_config` is gone                    (loader.load_config)
+  M21 the same in `load_config_lenient`                           (loader.load_config_lenient)
+
 Safeguards, as in every harness of this package (rule 38): a template matching more than once is
 REFUSED; a row that reddens nothing is a MISS, not a pass; the control must survive; every file
 is restored in `finally` and the restoration is verified by text.
@@ -54,11 +59,14 @@ ROOT = Path(__file__).resolve().parents[2]
 REFRESH = "gui/docks/trees_instances_refresh.py"
 DOCK = "gui/docks/trees_dock.py"
 CONFIRM = "gui/fieldstool_confirm_dialogs.py"
+LOADER = "kicadstamp/config/loader.py"
 
 # §3.2 rode in on the same commit, and its cell lives in the instances DIALOG suite — a row may
-# only name cells the runner actually executes, so both files ride here.
+# only name cells the runner actually executes, so both files ride here. §3.3 added the cache
+# CONTRACT cells, which live next to the graph-cache suite.
 GUARDS = ("tests/gui/docks/test_trees_instances_follow_template.py "
-          "tests/gui/docks/test_instances_dialog.py")
+          "tests/gui/docks/test_instances_dialog.py "
+          "tests/config/test_graph_cache.py")
 
 MUTATIONS = [
     ("M1 _mark_dirty no longer arms the refresh", DOCK,
@@ -172,6 +180,18 @@ MUTATIONS = [
      "    remember_dialog_size(dialog, 640, 440, key=\"FieldstoolConfirmSync\")\n",
      "    remember_dialog_size(dialog, 640, 440, key=None)  # MUTATION\n",
      ["test_the_two_anonymous_windows_use_their_own_size_keys"]),
+
+    # ── §3.3: the cache must not hand the dock back its own buffer ─────────
+    ("M20 the fresh shell in `load_config` is gone", LOADER,
+     "    return replace(cfg), replace(ctx)\n",
+     "    return cfg, ctx  # MUTATION\n",
+     ["test_graph_cache_returns_shared_snapshot_copy_before_mutate",
+      "test_a_template_edit_then_the_candidates_reload_reaches_the_clone"]),
+
+    ("M21 the same in `load_config_lenient`", LOADER,
+     "    return replace(cfg), replace(ctx), list(found)\n",
+     "    return cfg, ctx, found  # MUTATION\n",
+     ["test_lenient_load_gives_a_fresh_shell_and_a_fresh_failure_list"]),
 ]
 
 

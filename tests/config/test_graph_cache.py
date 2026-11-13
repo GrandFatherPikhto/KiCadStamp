@@ -181,24 +181,69 @@ def test_write_data_delete_then_upsert_never_stale_graph(tmp_path):
 
 
 def test_graph_cache_returns_shared_snapshot_copy_before_mutate(tmp_path):
-    """2026-08-25 contract change: cached_graph_result returns the SHARED
-    cached snapshot (no per-hit deepcopy — the old behavior cost ~0.5s of
-    startup once the Config grew large). Two loads of an unchanged path are
-    the SAME object, and a caller that copies before mutating (the GUI
-    write-path docks do dataclasses.replace()) must not leak its mutation
-    into the cached snapshot."""
-    from dataclasses import replace
+    """The CACHE keeps one shared snapshot (2026-08-25: no per-hit deepcopy — it
+    cost ~0.5s of startup), and `load_config` hands out a FRESH SHELL of it per
+    call (§3.3, 2026-11-13, plan_2026_11_09_tree_instances_follow_template).
+
+    Before §3.3 two loads of an unchanged path were the SAME object, and three
+    GUI sites that rebound `cfg.trees` (TreesDock's `set_root_file` and
+    `refresh_ref_candidates`, `apply_reloaded`) wrote into the cache: the next
+    `reload_root` read the dock's own buffer back and a clone tab stopped
+    following its template until a restart.
+
+    What is pinned now, in order: the shells are DIFFERENT objects; their
+    insides are SHARED (no deepcopy came back); and a REBINDING on one shell is
+    invisible on the next one. An IN-PLACE list mutation is deliberately NOT
+    covered — the shell is shallow, and the GUI's write paths copy-then-rebind."""
+    root = _write_minimal(tmp_path / "root.sexp")
+    cfg1, ctx1 = load_config(str(root))
+    cfg2, ctx2 = load_config(str(root))
+
+    assert cfg1 is not cfg2, "a fresh shell per call"
+    assert ctx1 is not ctx2
+    assert cfg1.entities is cfg2.entities, "the inside is shared, not deepcopied"
+    assert cfg1.trees is cfg2.trees
+    assert cfg1.thermal_via_arrays is cfg2.thermal_via_arrays
+
+    cfg1.trees = ["MUTATED"]  # type: ignore[assignment]
+    cfg1.layer = "B.Cu"
+    cfg3, _ = load_config(str(root))
+
+    assert cfg3 is not cfg1
+    assert cfg3.trees == [], "a rebinding on one shell must not reach the cache"
+    assert cfg3.layer == "F.Cu"
+
+
+def test_lenient_load_gives_a_fresh_shell_and_a_fresh_failure_list(tmp_path):
+    """§3.3, cell д2 — the SAME rule for the soft door. `load_config_lenient` is
+    cached under its own key too, so it hands out a fresh Config / RuntimeContext
+    per call, and the failures as a COPY: the Instances dialog appends nothing
+    today, and it must not be able to reach the cache if it ever does."""
+    from kicadstamp.config.loader import load_config_lenient
 
     root = _write_minimal(tmp_path / "root.sexp")
-    cfg1, _ = load_config(str(root))
-    cfg2, _ = load_config(str(root))
-    assert cfg1 is cfg2  # shared snapshot, not a fresh deep copy
+    # A declaration whose template does not exist: the lenient expansion refuses
+    # THAT row and reports it instead of refusing the whole profile.
+    root.write_text(dict_to_sexp({
+        **_ROOT_BASE,
+        "trees": [{"name": "tpl", "anchor": {"origin": True}, "nodes": []}],
+        "tree_instances": [{"template": "no_such_tpl", "name": "c1",
+                            "sheet": "S1"}],
+    }, format_number=2), encoding="utf-8")
 
-    cfg_copy = replace(cfg1)
-    cfg_copy.thermal_via_arrays = ["MUTATED"]  # type: ignore[assignment]
+    cfg1, ctx1, fails1 = load_config_lenient(str(root))
+    assert fails1 and fails1[0]["template"] == "no_such_tpl", fails1
 
-    cfg3, _ = load_config(str(root))
-    assert cfg3.thermal_via_arrays == []  # cached snapshot untouched
+    cfg1.trees = ["MUTATED"]           # type: ignore[assignment]
+    fails1.append({"index": 99})
+
+    cfg2, ctx2, fails2 = load_config_lenient(str(root))
+
+    assert cfg2 is not cfg1 and ctx2 is not ctx1
+    assert cfg2.trees != ["MUTATED"], "a rebinding must not reach the cache"
+    assert fails2 is not fails1, "and the failures come back as a copy"
+    assert [f["template"] for f in fails2] == ["no_such_tpl"], fails2
+    assert 99 not in [f.get("index") for f in fails2], "the appended row leaked"
 
 
 @pytest.fixture(autouse=True)

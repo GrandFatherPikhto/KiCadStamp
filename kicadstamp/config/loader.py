@@ -18,6 +18,7 @@ this module's namespace — and therefore kicadstamp/config/__init__.py's
 """
 import copy
 import logging
+from dataclasses import replace
 from pathlib import Path
 
 from ..constants import ROLE_CLUSTER_SOURCES, ROLE_CLUSTER_SOURCE_REGISTRY
@@ -117,8 +118,16 @@ def load_config(path: str) -> tuple[Config, RuntimeContext]:
     (2026-08-21, plan_2026_08_21_startup_graph_level_cache.md) — the WHOLE
     computation (traversal + merge + validation + sheet-name map), not just
     the raw file reads, is cached one layer above cached_file_read. The
-    result is a deep copy on every call, so mutating it can never corrupt
-    the cache — same contract as cached_file_read.
+    The CACHE holds one shared snapshot (see cached_graph_result); every call
+    therefore returns a FRESH SHALLOW SHELL (`dataclasses.replace`) of the Config
+    and the RuntimeContext — a rebinding like `cfg.trees = [...]` lands on this
+    call's shell and never on the cache. The inner objects stay SHARED, so an
+    IN-PLACE mutation of a list (`cfg.trees.append(...)`) would still reach the
+    cache: the GUI's write paths copy-then-rebind instead (§3.3 of
+    plan_2026_11_09_tree_instances_follow_template, 2026-11-13 — before this the
+    cache handed back ONE object, and TreesDock's rebinding poisoned it, so
+    `reload_root` read the dock's own stale buffer back and a clone tab stopped
+    following its template until a restart).
 
     THIS FUNCTION ALSO WRITES TO DISK (Т4, 25.09.2026): before the cached
     computation it runs `upgrade_graph_on_disk(path)`, which lifts every file of
@@ -141,14 +150,18 @@ def load_config(path: str) -> tuple[Config, RuntimeContext]:
     from .registry_upgrade import upgrade_registries_on_disk  # lazy — same reason
 
     upgrade_graph_on_disk(path)
-    result = cached_graph_result("load_config", path, lambda: _load_config_uncached(path))
+    cfg, ctx = cached_graph_result("load_config", path,
+                                   lambda: _load_config_uncached(path))
     # У5.4 (Р-У5.5): the copper registries are lifted in the SAME open, AFTER the
     # cached computation — never inside it (a write there would invalidate the
     # very cache entry being built). The materialized Config is what resolves a
     # registry key's record names against generated tree_instances/sheet_templates
     # copies. Under format < 3 the sweep is a no-op (the gate lives inside it).
-    upgrade_registries_on_disk(path, result[0])
-    return result
+    upgrade_registries_on_disk(path, cfg)
+    # §3.3: a NEW shell per call — the cache keeps its own snapshot, and a caller
+    # that rebinds `cfg.trees` (TreesDock does, on four paths) writes into THIS
+    # object only. Shallow on purpose: the records are shared, no deepcopy.
+    return replace(cfg), replace(ctx)
 
 
 def load_config_lenient(path: str) -> tuple[Config, RuntimeContext, list[dict]]:
@@ -165,7 +178,9 @@ def load_config_lenient(path: str) -> tuple[Config, RuntimeContext, list[dict]]:
     has no other caller by design.
 
     Cached under its OWN key, so the strict and the lenient answers can never
-    shadow each other (the cache returns a deep copy, failures included)."""
+    shadow each other. Same shell contract as `load_config` (§3.3): a fresh
+    Config and RuntimeContext per call, and the failures come back as a COPY of
+    the list, so a dialog that appends to it cannot touch the cache."""
     from .registry_upgrade import upgrade_registries_on_disk  # lazy — no cycle
     from .upgrade_on_disk import upgrade_graph_on_disk
 
@@ -176,9 +191,11 @@ def load_config_lenient(path: str) -> tuple[Config, RuntimeContext, list[dict]]:
         cfg, ctx = _load_config_uncached(path, instance_failures=found)
         return cfg, ctx, found
 
-    result = cached_graph_result("load_config_lenient", path, _compute)
-    upgrade_registries_on_disk(path, result[0])
-    return result
+    cfg, ctx, found = cached_graph_result("load_config_lenient", path, _compute)
+    upgrade_registries_on_disk(path, cfg)
+    # The SAME shell contract as `load_config`, and the failures handed out as a
+    # copy: the dialog appends nothing today, and it must not be able to.
+    return replace(cfg), replace(ctx), list(found)
 
 
 def resolved_graph(path: str) -> dict:

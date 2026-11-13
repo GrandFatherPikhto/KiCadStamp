@@ -258,8 +258,11 @@ def cached_graph_result(kind: str, root_path: str, compute_fn: Callable[[], T]) 
     the ~6 load_config / ~11 walk_include_tree hits per GUI startup cost
     ~0.5s — the largest remaining startup cost. The result is therefore an
     immutable-by-convention snapshot: every caller must treat it as
-    read-only, and the few GUI write-path docks that mutate a loaded Config
-    (or RuntimeContext) must copy it first with dataclasses.replace().
+    read-only, and a caller that mutates a loaded Config (or RuntimeContext)
+    must copy it first with dataclasses.replace(). `load_config` and
+    `load_config_lenient` now DO that copy themselves — a fresh shell per call
+    (§3.3, 2026-11-13) — so the GUI docks no longer have to; anything else
+    calling THIS function still does.
     Missing-file handling is NOT this function's job, exactly like
     cached_file_read: if compute_fn() raises, the exception propagates and
     nothing is cached.
