@@ -106,17 +106,17 @@ if TYPE_CHECKING:
 KINDS = ("placement", "coordinate", "net_trace", "point",
          "external", "module", "mount", "copper", "component")
 
-# Kinds whose ref is a NAME local to the trees file instead of a config record,
-# so they are EXEMPT from rule 2 (a record's node appears at most once in the
-# whole file): "module" -> another TREE's name, "mount" -> a point-of-reference
-# name, "copper" -> a container name, "component" -> the LOCAL NAME of a node
-# that places a live component (its address lives in its own anchor, not in its
-# ref — Э3/Т3.2). Each is unique WITHIN its tree instead: a module ref is
-# guarded by link_trees' per-parent duplicate rule, the other three by
-# _validate_local_refs below. ONE list, read by BOTH node parsers (_parse_node
-# for s-expr, _dict_node for the dict bridge) — a second copy of it is exactly
-# how the two shapes drift apart.
-_LOCAL_REF_KINDS = ("module", "mount", "copper", "component")
+# Kinds whose ref is a NAME local to the trees file instead of a config record:
+# "module" -> another TREE's name, "mount" -> a point-of-reference name,
+# "copper" -> a container name, "component" -> the LOCAL NAME of a node that
+# places a live component (its address lives in its own anchor — Э3/Т3.2).
+# EXEMPT from rule 2, unique WITHIN the tree instead: a module ref by
+# link_trees' per-parent rule, the rest by _validate_local_refs below. ONE list,
+# read by BOTH node parsers (_parse_node, _dict_node) and, since 2026-11-14, by
+# the GUI's node form — whose own COPY had drifted ("mount" missing) and greyed
+# out an ENTITY of that name. `_LOCAL_REF_KINDS` below is an ALIAS of the pair.
+LOCAL_REF_KINDS = ("module", "mount", "copper", "component")
+_LOCAL_REF_KINDS = LOCAL_REF_KINDS
 
 # ── THE node-kind table: kind -> (label the user sees, where its Ref list comes
 # from, offered for a NEW node) ────────────────────────────────────────────────

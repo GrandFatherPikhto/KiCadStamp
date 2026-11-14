@@ -285,8 +285,9 @@ def apply_node_form(form) -> bool:
         # "(used)" hints) must not keep judging by the old set.
         form._used_refs = form._dock._used_refs()
         # Ч3: the PLACES moved with the refs — the greyed rows' hints must not
-        # keep naming the old spot either.
-        form._used_ref_locations = form._dock._used_ref_locations()
+        # keep naming the old spot either (2026-11-14: the whole INDEX, which is
+        # keyed by the record's uuid, not by its ref).
+        form._used_ref_index = form._dock._used_ref_index()
     form._touched = False
     form.apply_status_label.setText(_("Applied — keep editing or Redraw."))
     return True

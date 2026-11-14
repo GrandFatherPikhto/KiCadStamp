@@ -1227,6 +1227,18 @@ wording: *"Record … already stands in tree 'power' (node …) — a record has
 source; move the node, or embed tree 'power' as a Tree node."* The link-time hint for an unresolvable
 free-text ref now suggests `(kind mount)` (the `external` kind is no longer offered).
 
+**UPDATE 2026-11-14 (plan_2026_11_14_used_refs_by_uuid):** "already has a node" is measured by the
+RECORD's uuid now — the node's `ref_uuid` against the record's own `uuid` — not by the bare name, so
+two records that merely share a name (an entity and a cell, an entity and a point) no longer take
+each other. A **local** name occupies nothing at all: a mount, a tree, a copper container and a
+component node reference no record, and the list of those kinds has ONE owner
+(`kicadstamp.trees.LOCAL_REF_KINDS`, read by the GUI instead of its own copy — that copy had drifted
+and was missing `mount`, which greyed out every entity of cell `fpga_spoke` whose name matched an
+FPGA mount: `fpga_vccint_5`, `fpga_vccio_17`, …). An OLD node with no `ref_uuid` still occupies
+(section, name) — the section the loader resolves it in, EVERY section for a node with no kind — and
+a ref that names no record at all still hits the loader's own rule 2 (one ref, one node in the
+file). The greyed row's tooltip and the refusal wording are unchanged.
+
 Since 2026-08-30 (phase 5.5) the Add-node dialog auto-numbers a NEW node's ref when the typed ref is
 not one of the config's placeable record names AND is already used by another node somewhere in the
 trees: `_unique_ref` appends `_1`/`_2`/… so the tree never saves a duplicate ref (which would be

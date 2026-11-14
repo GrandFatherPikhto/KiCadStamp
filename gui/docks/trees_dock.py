@@ -125,8 +125,9 @@ from .trees_selection import (empty_selection_page, multi_selection_page,
                               on_selection_changed, select_only,
                               selected_copper_group, selected_real_node,
                               selected_real_nodes)
-from .trees_node_form import (kind_menu_rows, mark_used_items, ref_combo_rows,
-                              used_ref_locations, used_ref_refusal)
+from .trees_node_form import (RecordRefs, UsedRefs, kind_menu_rows,
+                              mark_used_items, ref_combo_rows, used_ref_index,
+                              used_ref_place, used_ref_refusal)
 from .trees_mount_point import (clear_mount_point, read_mount_point,
                                 show_mount_point)
 from .trees_node_row import apply_node_form
@@ -1769,7 +1770,7 @@ class TreesDock(QWidget):
             cfg=self._cfg,
             sheet_names=self._ctx.sheet_names if self._ctx is not None else {},
             tree=tree, parent_node=self._find_parent(tree, node), existing=node,
-            used_ref_locations=self._used_ref_locations(),
+            used_ref_index=self._used_ref_index(),
             module_candidates=self._module_tree_candidates(tree),
             net_trace_candidates=self._net_trace_record_candidates(),
             all_trees=self._trees,
@@ -2186,25 +2187,23 @@ class TreesDock(QWidget):
     def _used_refs(self) -> set[str]:
         """Every RECORD node ref already used anywhere in the current file —
         the grammar's "a ref appears in at most one node" invariant, surfaced
-        as a "(used)" marker in the node dialog's ref combo. kind=="module"
-        refs are EXCLUDED (plan 2026-09-02 P4 п.1b): a module ref is a CHILD
-        TREE NAME, not a record, and multiple parents may embed the same child
-        tree (design §2.3) — module refs must never be flagged "(used)" or
-        auto-numbered; the narrow within-one-parent duplicate is guarded by
-        link_trees at Save (P1 п.3), not by this set. kind=="copper" refs are
-        excluded for the SAME reason (2026-09-16, P.2.4): a container ref is a
-        LOCAL name, unique per TREE, so two trees may both have one called
-        "copper" — flagging it "(used)" here would make the GUI refuse a config
-        the loader accepts (trees.py::_LOCAL_REF_KINDS)."""
-        return set(self._used_ref_locations())
+        as a "(used)" marker in the node dialog's ref combo AND read by the
+        auto-numbering (_prompt_node/_unique_ref), which compares NAMES by
+        nature. LOCAL kinds (kicadstamp.trees.LOCAL_REF_KINDS: module/mount/
+        copper/component) are EXCLUDED: their refs are names local to one tree,
+        so two trees may both carry one — flagging such a name "(used)" here
+        would make the GUI refuse a config the loader accepts (P4 п.1b for a
+        module ref, P.2.4 for a copper one, §"used refs by uuid" for a mount).
+        The SET is the name projection of the ONE index (_used_ref_index)."""
+        return set(self._used_ref_index().names)
 
-    def _used_ref_locations(self) -> dict[str, tuple[str, str]]:
-        """WHERE every already-used RECORD node ref stands: ref -> (tree name,
-        node label). Delegates to the ONE owner (gui/docks/trees_used_refs.py),
-        which also WORDS the place — so the Ref combo's greyed rows and
-        build_node's refusal can never disagree. The ref SET (_used_refs) is
-        derived from this map's keys, so a greyed row is EXACTLY a refusal."""
-        return used_ref_locations(self._trees)
+    def _used_ref_index(self) -> "UsedRefs":
+        """The ONE owner of "already used" (gui/docks/trees_node_form.py):
+        uuid -> place, (section, name) -> place for an OLD node without a
+        ref_uuid, and the plain name set above. Greying a row and refusing a ref
+        both ask THIS index through the SAME resolver (RecordRefs), so a greyed
+        row is exactly a refusal."""
+        return used_ref_index(self._trees)
 
     @staticmethod
     def _module_targets(tree: Tree) -> set[str]:
@@ -2705,7 +2704,7 @@ class TreesDock(QWidget):
             tree=tree,
             parent_node=parent_node,
             existing=existing,
-            used_ref_locations=self._used_ref_locations(),
+            used_ref_index=self._used_ref_index(),
             # kind=="module"/"net_trace" candidate wiring (2026-09-07 fix,
             # extended Ч3 2026-10-13): mirrors _build_node_form's Edit-mode
             # wiring exactly — without these, the module Ref combo and "From
@@ -4020,17 +4019,17 @@ class NodeFormWidget(QWidget):
                  module_candidates=None, all_trees=None,
                  role_candidates=None, cluster_candidates=None,
                  parent_candidates=None, net_trace_candidates=None,
-                 used_ref_locations=None, cfg_supplier=None):
+                 used_ref_index=None, cfg_supplier=None):
         super().__init__(parent)
         # `title` is accepted for signature compatibility with the former
         # QDialog (its caller set the window title); a plain QWidget form has
         # no window of its own, so nothing is set here.
         self._ref_candidates = ref_candidates
         self._used_refs = used_refs
-        # Ч3: WHERE each used ref stands (ref -> (tree, node label)), for the
-        # Ref combo's greyed rows + tooltip and build_node's own wording.
-        # Optional: a standalone form may pass only the set (no greying then).
-        self._used_ref_locations = dict(used_ref_locations or {})
+        # Ч3 + 2026-11-14: WHERE each used RECORD stands (trees_node_form.
+        # UsedRefs), for the Ref combo's greyed rows + tooltip and build_node's
+        # own wording. Optional: a standalone form may pass none (no greying).
+        self._used_ref_index = used_ref_index
         self._cfg_supplier = cfg_supplier or (lambda: cfg)   # dock: lambda: self._cfg
         self._adapter = adapter
         # Set by _base_pose: whether the last base resolve had anything to read
@@ -5158,10 +5157,11 @@ class NodeFormWidget(QWidget):
             self.ref_combo.addItem(text, (kind, name))
         self.ref_combo.setCurrentText(current_text)
         # Ч3: a used record's row is greyed and SAYS where it stands — the ONE
-        # owner (trees_used_refs.mark_used_items); a node's own ref is never
-        # marked, so editing a node keeps its ref row selectable.
-        own_ref = self._existing.ref if self._existing is not None else None
-        mark_used_items(self.ref_combo, self._used_ref_locations, own_ref)
+        # owner (trees_node_form.mark_used_items); 2026-11-14 it asks the very
+        # (section, uuid) question the refusal does, and never marks its own.
+        mark_used_items(self.ref_combo, self._used_ref_index, self._existing,
+                        RecordRefs(self._cfg_supplier()),
+                        self.kind_combo.currentData())
         self.ref_combo.blockSignals(False)
 
     def _on_kind_changed(self) -> None:
@@ -5334,29 +5334,29 @@ class NodeFormWidget(QWidget):
         if not ref:
             QMessageBox.warning(self, _("Add node"), _("Ref is required."))
             return None
-        used_refs = self._used_refs
-        if self._existing is not None:
-            # Editing a node without changing its ref must not trip the
-            # uniqueness check against itself (compare to the set MINUS the
-            # node's own ref — the naive "exclude by value" could otherwise be
-            # got backwards and let a DIFFERENT node's ref through).
-            used_refs = {r for r in used_refs if r != self._existing.ref}
-        if ref in used_refs:
+        kind = self.kind_combo.currentData()
+        # 2026-11-14: a RECORD is taken by its UUID — by name only for an OLD node
+        # without ref_uuid, and only inside the section the loader resolves it in.
+        # This is the VERY question the greyed rows ask, so a greyed row is
+        # EXACTLY a refusal; a LOCAL kind (a mount, a tree, a copper container, a
+        # component node) names no record and never repeats one.
+        records = RecordRefs(self._cfg_supplier())
+        place = used_ref_place(self._used_ref_index, records, kind, ref,
+                               own=self._existing)
+        if place is not None:
             # Ч3 (Денис): the refusal NAMES the place — the same owner and the
             # same wording the greyed combo rows use, so "where?" is answered.
-            QMessageBox.warning(
-                self, _("Add node"),
-                used_ref_refusal(ref, self._used_ref_locations.get(ref)))
+            QMessageBox.warning(self, _("Add node"),
+                                used_ref_refusal(ref, place))
             return None
         # Э2 (plan_2026_09_13_tree_instance_self_embed): the module tree-name
         # LIST is enforced, not merely offered — see _module_ref_refusal.
-        if self.kind_combo.currentData() == "module":
+        if kind == "module":
             refusal = self._module_ref_refusal(ref)
             if refusal is not None:
                 QMessageBox.warning(self, _("Add node"), refusal)
                 return None
 
-        kind = self.kind_combo.currentData()
         if kind in _POSITIONLESS_NODE_KINDS:
             # A net_trace node carries NO coordinates and a copper container has
             # none either, and the form does not ask for any: the net_trace
@@ -5462,7 +5462,7 @@ class _NodeDialog(QDialog):
                  module_candidates=None, all_trees=None,
                  role_candidates=None, cluster_candidates=None,
                  parent_candidates=None, net_trace_candidates=None,
-                 used_ref_locations=None, cfg_supplier=None):
+                 used_ref_index=None, cfg_supplier=None):
         super().__init__(parent)
         self.setWindowTitle(title)
         # The FORM is built with the original `parent` (the TreesDock, not this
@@ -5476,7 +5476,7 @@ class _NodeDialog(QDialog):
             net_trace_candidates=net_trace_candidates,
             all_trees=all_trees, role_candidates=role_candidates,
             cluster_candidates=cluster_candidates,
-            used_ref_locations=used_ref_locations,
+            used_ref_index=used_ref_index,
             # Э1: the Parent combo's rows (dock-computed; Edit mode only).
             parent_candidates=parent_candidates)
         layout = QVBoxLayout(self)

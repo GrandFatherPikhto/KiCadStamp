@@ -2142,7 +2142,7 @@ def _build_dialog(dock, tree, parent_node, existing=None, title="Add child"):
         cfg=dock._cfg, adapter=object(), sheet_names={},
         tree=tree, parent_node=parent_node, existing=existing,
         net_trace_candidates=dock._net_trace_record_candidates(),
-        used_ref_locations=dock._used_ref_locations())
+        used_ref_index=dock._used_ref_index())
 
 
 def _existing_node(ref, kind, *, xy=(0.0, 0.0), anchor=None):
@@ -2673,8 +2673,10 @@ def test_ref_combo_greys_a_used_record_and_names_where_it_stands(
     tree = dock._current_tree()
     dlg = _build_dialog(dock, tree, None)   # Add mode: nothing is excluded
 
-    place = dock._used_ref_locations()
-    assert place["AMS1117_REG"][0] == "power_tree"
+    # 2026-11-14: the index is keyed by the RECORD's uuid (by_section only for an
+    # old uuid-less node), so the place is no longer reachable as a bare-name key;
+    # the tooltip assertions below are what prove it names the tree and the node.
+    assert "AMS1117_REG" in dock._used_refs()
     row = dlg.ref_combo.findText("AMS1117_REG")
     assert row >= 0
     item = dlg.ref_combo.model().item(row)
