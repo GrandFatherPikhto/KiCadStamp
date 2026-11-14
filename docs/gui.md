@@ -1239,6 +1239,15 @@ FPGA mount: `fpga_vccint_5`, `fpga_vccio_17`, …). An OLD node with no `ref_uui
 a ref that names no record at all still hits the loader's own rule 2 (one ref, one node in the
 file). The greyed row's tooltip and the refusal wording are unchanged.
 
+**§1 (same day, acceptance of `f5b02f80`):** a **local** name is checked against the tree the node
+is being built FOR, in BOTH directions. If that tree already has a mount (copper container,
+component node) carrying the name, the row is greyed with its OWN hint — *"this tree already has a
+Mount node named 'X' — rename it"* — and Apply refuses in the LOADER's words (*"mount refs must be
+distinct so a node can be named unambiguously"*). Renaming such a local node ONTO a positioned
+node's ref is refused the same way. The rule and its wording live in ONE module
+(`kicadstamp/trees_local_refs.py`) read by both node parsers and by the form, so the two can never
+disagree; a local name of ANOTHER tree still blocks nothing.
+
 Since 2026-08-30 (phase 5.5) the Add-node dialog auto-numbers a NEW node's ref when the typed ref is
 not one of the config's placeable record names AND is already used by another node somewhere in the
 trees: `_unique_ref` appends `_1`/`_2`/… so the tree never saves a duplicate ref (which would be

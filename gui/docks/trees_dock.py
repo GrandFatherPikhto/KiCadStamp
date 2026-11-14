@@ -125,9 +125,9 @@ from .trees_selection import (empty_selection_page, multi_selection_page,
                               on_selection_changed, select_only,
                               selected_copper_group, selected_real_node,
                               selected_real_nodes)
-from .trees_node_form import (RecordRefs, UsedRefs, kind_menu_rows,
-                              mark_used_items, ref_combo_rows, used_ref_index,
-                              used_ref_place, used_ref_refusal)
+from .trees_node_form import (LocalRefs, RecordRefs, UsedRefs, kind_menu_rows,
+                              mark_used_items, ref_combo_rows, ref_use_refusal,
+                              used_ref_index)
 from .trees_mount_point import (clear_mount_point, read_mount_point,
                                 show_mount_point)
 from .trees_node_row import apply_node_form
@@ -5161,7 +5161,7 @@ class NodeFormWidget(QWidget):
         # (section, uuid) question the refusal does, and never marks its own.
         mark_used_items(self.ref_combo, self._used_ref_index, self._existing,
                         RecordRefs(self._cfg_supplier()),
-                        self.kind_combo.currentData())
+                        self.kind_combo.currentData(), LocalRefs(self._tree))
         self.ref_combo.blockSignals(False)
 
     def _on_kind_changed(self) -> None:
@@ -5336,18 +5336,18 @@ class NodeFormWidget(QWidget):
             return None
         kind = self.kind_combo.currentData()
         # 2026-11-14: a RECORD is taken by its UUID — by name only for an OLD node
-        # without ref_uuid, and only inside the section the loader resolves it in.
-        # This is the VERY question the greyed rows ask, so a greyed row is
-        # EXACTLY a refusal; a LOCAL kind (a mount, a tree, a copper container, a
-        # component node) names no record and never repeats one.
-        records = RecordRefs(self._cfg_supplier())
-        place = used_ref_place(self._used_ref_index, records, kind, ref,
-                               own=self._existing)
-        if place is not None:
+        # without ref_uuid, inside the section the loader resolves it in; and a
+        # LOCAL name of the TARGET tree counts in BOTH directions (§1). These are
+        # the VERY questions the greyed rows ask, in the loader's own wording, so
+        # a greyed row is EXACTLY a refusal — and Apply cannot approve a tree the
+        # next load_config dies on ("mount refs must be distinct…").
+        text = ref_use_refusal(
+            self._used_ref_index, LocalRefs(self._tree),
+            RecordRefs(self._cfg_supplier()), kind, ref, own=self._existing)
+        if text is not None:
             # Ч3 (Денис): the refusal NAMES the place — the same owner and the
             # same wording the greyed combo rows use, so "where?" is answered.
-            QMessageBox.warning(self, _("Add node"),
-                                used_ref_refusal(ref, place))
+            QMessageBox.warning(self, _("Add node"), text)
             return None
         # Э2 (plan_2026_09_13_tree_instance_self_embed): the module tree-name
         # LIST is enforced, not merely offered — see _module_ref_refusal.

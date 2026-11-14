@@ -84,11 +84,16 @@ MUTATIONS = [
      "    return _(\"Record {ref!r} already has a node in this file — a record's \"\n"
      "             \"position source must be exactly one.\").format(ref=ref)  # MUTATION",
      "die", GUARDS, ()),
+    # 2026-11-14: the greying block gained a second reason (§1 of
+    # plan_2026_11_14_used_refs_by_uuid — a local name of the target tree), so the
+    # hint text is now a variable. The MUTATION is unchanged: nothing is greyed.
     ("M5 used rows neither greyed nor hinted", NODE_FORM,
      "        item = combo.model().item(row)\n"
      "        if item is not None:\n"
      "            item.setEnabled(False)\n"
-     "        combo.setItemData(row, used_ref_text(*place), Qt.ItemDataRole.ToolTipRole)",
+     "        text = used_ref_text(*place) if place is not None else \\\n"
+     "            local_ref_text(holder, name)\n"
+     "        combo.setItemData(row, text, Qt.ItemDataRole.ToolTipRole)",
      "        pass  # MUTATION: used rows are neither greyed nor hinted",
      "die", GUARDS, ()),
     ("M6 net_trace Ref list empty again", TREES_DOCK,

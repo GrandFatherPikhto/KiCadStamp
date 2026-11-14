@@ -41,6 +41,7 @@ from typing import TYPE_CHECKING
 from .cloner.sexp import atom, child, children, is_node, load_file, save_file, sval, sym
 from .exceptions import ValidationError
 from .i18n import _
+from .trees_local_refs import validate_local_refs as _validate_local_refs
 from .utils.units import MM
 
 if TYPE_CHECKING:
@@ -594,68 +595,6 @@ def _walk_nodes(nodes: list[TreeNode]):
         yield from _walk_nodes(n.children)
 
 
-# The per-kind texts of _validate_local_refs: {kind: (not_unique, collides)}.
-# The "mount" pair is VERBATIM what these messages have always been (they are
-# user-facing and must not drift); "copper" gets the same two checks worded for
-# a container, "component" for a node that places a live component. A kind
-# listed here IS a local-name kind (see _LOCAL_REF_KINDS).
-_LOCAL_REF_MESSAGES: dict[str, tuple[str, str]] = {
-    "mount": (
-        _("tree {tree!r}: mount node ref(s) {refs} are not unique — a "
-          "mount node's ref must identify exactly one node in the tree"),
-        _("tree {tree!r}: mount node ref(s) {refs} collide with a "
-          "positioned node of the same tree — mount refs must be "
-          "distinct so a node can be named unambiguously"),
-    ),
-    "copper": (
-        _("tree {tree!r}: copper node ref(s) {refs} are not unique — a "
-          "copper container's ref must identify exactly one node in the tree"),
-        _("tree {tree!r}: copper node ref(s) {refs} collide with a "
-          "positioned node of the same tree — copper refs must be "
-          "distinct so a node can be named unambiguously"),
-    ),
-    "component": (
-        _("tree {tree!r}: component node ref(s) {refs} are not unique — a "
-          "component node's ref is the name the redraw applies it by and must "
-          "identify exactly one node in the tree"),
-        _("tree {tree!r}: component node ref(s) {refs} collide with a "
-          "positioned node of the same tree — component node refs must be "
-          "distinct so a node can be named unambiguously"),
-    ),
-}
-
-
-def _validate_local_refs(nodes: list[TreeNode], tree_name: str) -> None:
-    """Per-tree ref uniqueness for the LOCAL-NAME kinds (plan §Y.1.3 for mount;
-    plan_2026_09_16_copper_node_order_and_container P.2.4 for copper). A local
-    ref is a NAME, not a config record: it must be unique among the tree's local
-    refs of its own kind AND must not collide with any positioned node's ref of
-    the same tree, or the design's later stages (the tree's own inner point, the
-    copper container lookup) could not say which node is meant. Both checks are
-    load-time fatals, reported separately — they mean different things.
-
-    ONE walk per kind, with per-kind texts, so the mount messages stay verbatim
-    while copper gets wording that says "container". "module" is deliberately
-    NOT here: a module's ref is another tree's NAME and the "same tree embedded
-    twice under one parent" case is guarded by link_trees' own duplicate rule.
-    """
-    for kind, (not_unique, collides) in _LOCAL_REF_MESSAGES.items():
-        counts: dict[str, int] = {}
-        local_refs: set[str] = set()
-        placed_refs: set[str] = set()
-        for n in _walk_nodes(nodes):
-            if n.kind == kind:
-                counts[n.ref] = counts.get(n.ref, 0) + 1
-                local_refs.add(n.ref)
-            else:
-                placed_refs.add(n.ref)
-        duplicates = sorted(ref for ref, count in counts.items() if count > 1)
-        if duplicates:
-            _fatal(not_unique.format(tree=tree_name,
-                                     refs=", ".join(duplicates)))
-        collisions = sorted(local_refs & placed_refs)
-        if collisions:
-            _fatal(collides.format(tree=tree_name, refs=", ".join(collisions)))
 
 
 def _validate_copper_container(nodes: list[TreeNode], tree_name: str) -> None:

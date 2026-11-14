@@ -27,9 +27,11 @@ from PyQt6.QtCore import Qt
 
 import gui.docks.trees_dock as trees_dock_mod
 from gui.docks.trees_dock import TreesDock, _NodeDialog
+from kicadstamp.config import load_config
 from kicadstamp.config.sexp_format import dict_to_sexp
 from kicadstamp.exceptions import ValidationError
-from kicadstamp.trees import TreeAnchor, TreeNode, tree_from_dict, tree_to_dict
+from kicadstamp.trees import (TreeAnchor, TreeNode, node_kind_label,
+                              tree_from_dict, tree_to_dict)
 
 #: Records enough for every cell: two sections sharing ONE name (SHARED_X as an
 #: ENTITY and as a POINT), a CELL named like an ENTITY (SHARED_Y), and two plain
@@ -285,3 +287,100 @@ def test_zh_the_local_kind_list_has_one_owner():
     # the private name is an ALIAS, not a second tuple (the old mutation rigs
     # patch it by name).
     assert trees_mod._LOCAL_REF_KINDS is trees_mod.LOCAL_REF_KINDS
+
+
+# ═══ §1 (приёмка f5b02f80): ONE tree — a LOCAL name against a record's name ══
+# The loader forbids a local ref (mount / copper container / component node) from
+# colliding with a positioned node's ref IN ITS OWN TREE, and that is a load-time
+# fatal (`trees._validate_local_refs`). f5b02f80 correctly opened the position
+# where the two live in DIFFERENT trees (cells а / и) — and wrongly opened the
+# SAME tree too: Apply accepted the node and the next `load_config` died on
+# "mount refs must be distinct so a node can be named unambiguously".
+#
+# One property, parametrized by the local kind (rule 35: `к` is not a separate
+# cell, `copper` is a parameter of `з`).
+
+LOCAL_KINDS = ("mount", "copper", "component")
+
+
+def _local_node(dock, ref: str, kind: str, tree: int = T1) -> TreeNode:
+    """A local node of `kind` standing in that tree. Every one of the three kinds
+    carries an address/anchor in the grammar, so all of them get one."""
+    return _add_node(dock, ref, kind, anchor=_mount_anchor(), tree=tree)
+
+
+@pytest.mark.parametrize("local_kind", LOCAL_KINDS)
+def test_z_a_record_named_like_a_local_node_of_the_SAME_tree_is_refused(
+        main_window, tmp_path, monkeypatch, local_kind):
+    """Клетки з и к: the local node `ENT_SHARED` stands in t1 and the node is being
+    added to t1 — the file would not load ("collide with a positioned node of the
+    same tree"), so the row is greyed with ITS OWN hint (no record stands
+    anywhere, so "already stands in tree …" would name the wrong thing) and Apply
+    refuses in the LOADER's words. Nothing is touched on the way: neither the
+    buffer nor the dirty flag."""
+    dock = _dock(main_window, tmp_path)
+    _local_node(dock, "ENT_SHARED", local_kind)
+    before = [(n.ref, n.kind) for n in dock._trees[T1].nodes]
+
+    dlg = _dialog(dock, "placement", tree=T1)
+    assert _enabled(dlg, "ENT_SHARED") is False
+    tip = dlg.ref_combo.itemData(_row(dlg, "ENT_SHARED"),
+                                 Qt.ItemDataRole.ToolTipRole)
+    assert "this tree already has" in tip
+    assert node_kind_label(local_kind) in tip and "ENT_SHARED" in tip
+    assert "already stands in tree" not in tip
+
+    text = _refusal(monkeypatch, dlg, "ENT_SHARED")
+    assert f"{local_kind} node ref(s) ENT_SHARED" in text
+    assert "collide with a positioned node of the same tree" in text
+
+    assert [(n.ref, n.kind) for n in dock._trees[T1].nodes] == before
+    assert dock._dirty is False
+    load_config(str(tmp_path / "root.sexp"))          # the file on disk still reads
+
+
+@pytest.mark.parametrize("local_kind", LOCAL_KINDS)
+def test_i_a_record_named_like_a_local_node_of_ANOTHER_tree_stays_available(
+        main_window, tmp_path, local_kind):
+    """Клетка и: the same name in t1 does not block t2 — a local name lives in ONE
+    tree. The node is accepted AND the result loads (the half f5b02f80 did right,
+    now for all three local kinds)."""
+    dock = _dock(main_window, tmp_path)
+    _local_node(dock, "ENT_SHARED", local_kind)
+
+    dlg = _dialog(dock, "placement", tree=T2)
+    assert _enabled(dlg, "ENT_SHARED") is True
+    built = _accepted(dlg, "ENT_SHARED")
+    assert built is not None and built.ref == "ENT_SHARED"
+
+    dock._trees[T2].nodes.append(built)
+    tree_from_dict(tree_to_dict(dock._trees[T2]))      # no fatal
+
+
+@pytest.mark.parametrize("local_kind", ("mount", "copper"))
+def test_m_a_local_node_renamed_onto_a_positioned_node_is_refused(
+        main_window, tmp_path, monkeypatch, local_kind):
+    """Клетки м (mount) и м2 (copper): the REVERSE direction, in the node window.
+    `vccint_5` stands in t1 as a local node and `fpga_vccint_5` as a positioned
+    one; renaming the local node onto the positioned node's ref is refused in the
+    LOADER's words. Before §1 Apply accepted it — the same defect as the direct
+    direction, just reached from the other side."""
+    dock = _dock(main_window, tmp_path)
+    local = _local_node(dock, "vccint_5", local_kind)
+    _add_node(dock, "fpga_vccint_5", "placement",
+              ref_uuid=_uuid_of(dock, "entities", "ENT_REAL"))
+    before = [(n.ref, n.kind) for n in dock._trees[T1].nodes]
+
+    dlg = _dialog(dock, local_kind, existing=local, tree=T1)
+    text = _refusal(monkeypatch, dlg, "fpga_vccint_5")
+    assert f"{local_kind} node ref(s) fpga_vccint_5" in text
+    assert "collide with a positioned node of the same tree" in text
+
+    assert [(n.ref, n.kind) for n in dock._trees[T1].nodes] == before
+    assert dock._dirty is False
+    load_config(str(tmp_path / "root.sexp"))
+
+    # The SAME local node under its OWN ref is not a refusal (it is not "another
+    # node"): an edit that changes only the offset must still go through.
+    dlg = _dialog(dock, local_kind, existing=local, tree=T1)
+    assert _accepted(dlg, "vccint_5") is not None

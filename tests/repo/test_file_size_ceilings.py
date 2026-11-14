@@ -80,7 +80,10 @@ CEILINGS = {
     "kicadstamp/placement/entity_placement.py": 988,
     "kicadstamp/placement/services/clone_role_resolver.py": 935,
     "kicadstamp/tree_position.py": 1926,
-    "kicadstamp/trees.py": 2381,
+    # 2381 → 2320 (§1 of plan_2026_11_14_used_refs_by_uuid): the local-name rule
+    # and its wording moved to kicadstamp/trees_local_refs.py, and the other half
+    # of the lock demands the number come DOWN in the same commit.
+    "kicadstamp/trees.py": 2320,
 }
 
 #: Measured on the base commit: 587 product modules, 29 of them over `BIG`. The count is a

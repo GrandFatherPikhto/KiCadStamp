@@ -41,6 +41,8 @@ from PyQt6.QtCore import Qt
 from kicadstamp.i18n import _
 from kicadstamp.trees import (MENU_KINDS, TreeNode, node_kind_label,
                               node_kind_ref_source)
+from kicadstamp.trees_local_refs import (LOCAL_REF_MESSAGES, local_name_refusal,
+                                         local_ref_kind, local_ref_refusal)
 from kicadstamp.trees import LOCAL_REF_KINDS as _LOADER_LOCAL_REF_KINDS
 #: THE list of tree-local kinds — the LOADER's own, imported and re-bound, never
 #: copied. This module USED to keep a copy and the copy had drifted ("mount" was
@@ -259,6 +261,55 @@ def used_ref_index(trees) -> UsedRefs:
     return UsedRefs(by_uuid, by_section, by_name)
 
 
+class LocalRefs:
+    """The LOCAL-NAME rule of the form's TARGET tree (plan §Y.1.3, P.2.4;
+    plan_2026_11_14_used_refs_by_uuid §1).
+
+    A mount/copper/component ref is a name local to ONE tree, so the loader's
+    `validate_local_refs` forbids it in BOTH directions: a positioned node may not
+    take a local name of its tree, and a local node may not take a positioned
+    node's name. That rule is asked HERE, with the loader's OWN wording
+    (`kicadstamp.trees_local_refs`), so what the form greys or refuses is exactly
+    what the next `load_config` would refuse — before §1 the form let a mount and
+    an entity of one name into one tree, and the file stopped loading.
+
+    `tree` is the tree the node is being built for (`NodeFormWidget._tree`); a
+    form without one (a standalone form, a headless test) asks nothing.
+    """
+
+    def __init__(self, tree=None) -> None:
+        self._tree = tree
+
+    @property
+    def _name(self) -> str:
+        return getattr(self._tree, "name", "") or ""
+
+    @property
+    def _nodes(self) -> list:
+        return list(getattr(self._tree, "nodes", ()) or ())
+
+    def local_kind_of(self, name: str) -> Optional[str]:
+        """The LOCAL kind already carrying `name` in this tree, or None."""
+        return local_ref_kind(self._nodes, name)
+
+    def refusal(self, kind: Optional[str], name: str, own=None) -> Optional[str]:
+        """The loader's refusal for a node of `kind` being named `name` here: the
+        REVERSE direction for a local kind (a mount renamed onto a positioned
+        node), the FORWARD one for every other kind (an entity named like the
+        tree's mount)."""
+        if kind in LOCAL_REF_MESSAGES:
+            return local_ref_refusal(kind, self._name, name, self._nodes, own=own)
+        return local_name_refusal(self._name, name, self._nodes)
+
+
+def local_ref_text(kind: str, ref: str) -> str:
+    """The greyed row's OWN hint for a name a LOCAL node of this tree carries: no
+    record stands anywhere, so the refusal's "already stands in tree …" would
+    name the wrong thing — what has to move is the local node's NAME."""
+    return _("this tree already has a {kind} node named {ref!r} — rename it").format(
+        kind=node_kind_label(kind), ref=ref)
+
+
 class RecordRefs:
     """Which RECORD a ref-combo row names: `resolve(kind, name)` ->
     (section, uuid), or None when the ref names NO record at all.
@@ -311,21 +362,26 @@ def used_ref_text(tree_name: str, node_label: str) -> str:
         tree=tree_name, node=node_label)
 
 
-def mark_used_items(combo, index: UsedRefs, own, resolve,
-                    kind: Optional[str] = None) -> None:
+def mark_used_items(combo, index: Optional[UsedRefs], own, resolve,
+                    kind: Optional[str] = None, local=None) -> None:
     """Disable (grey) the combo's rows of already-used records and give each the
     place as its tooltip.
 
     `index` is the forest's `UsedRefs`; `resolve(kind, name)` (RecordRefs) says
     which record a ROW names, and `index.place` then says whether a node holds
-    it — the very pair `used_ref_place` asks for the refusal, so a greyed row is
+    it — the very pair `ref_use_refusal` asks for the refusal, so a greyed row is
     EXACTLY a refusal. `kind` is the form's CURRENT kind: a local kind's rows are
     tree-local names, never records, and nothing of theirs is ever greyed.
+
+    `local` (LocalRefs) adds the SECOND reason of §1: a row whose name a LOCAL
+    node of the TARGET tree already carries is greyed too, but with its OWN hint
+    (`local_ref_text`) — no record stands anywhere, so the place's wording would
+    name the wrong thing.
 
     `own` (the node being edited) is NEVER marked: a node's own record is not
     "taken from itself", and disabling its row would fight the form pre-filling
     it."""
-    if index is None or kind in LOCAL_REF_KINDS:
+    if (index is None and local is None) or kind in LOCAL_REF_KINDS:
         return
     own_uuid = getattr(own, "ref_uuid", None)
     own_ref = getattr(own, "ref", None)
@@ -333,14 +389,20 @@ def mark_used_items(combo, index: UsedRefs, own, resolve,
         data = combo.itemData(row)
         if not isinstance(data, tuple) or len(data) < 2 or not data[1]:
             continue
-        place = index.place(resolve(data[0], data[1]), data[1],
-                            own_uuid=own_uuid, own_name=own_ref)
-        if place is None:
+        name = data[1]
+        place = (index.place(resolve(data[0], name), name,
+                             own_uuid=own_uuid, own_name=own_ref)
+                 if index is not None else None)
+        holder = None if place is not None or local is None \
+            else local.local_kind_of(name)
+        if place is None and holder is None:
             continue
         item = combo.model().item(row)
         if item is not None:
             item.setEnabled(False)
-        combo.setItemData(row, used_ref_text(*place), Qt.ItemDataRole.ToolTipRole)
+        text = used_ref_text(*place) if place is not None else \
+            local_ref_text(holder, name)
+        combo.setItemData(row, text, Qt.ItemDataRole.ToolTipRole)
 
 
 def used_ref_place(index: Optional[UsedRefs], resolve,
@@ -358,6 +420,29 @@ def used_ref_place(index: Optional[UsedRefs], resolve,
     return index.place(resolve(kind, ref), ref,
                        own_uuid=getattr(own, "ref_uuid", None),
                        own_name=getattr(own, "ref", None))
+
+
+def ref_use_refusal(index: Optional[UsedRefs], local: Optional[LocalRefs],
+                    resolve, kind: Optional[str], ref: str, own=None
+                    ) -> Optional[str]:
+    """WHY the ref `ref` of `kind` may not be used here — or None when it may.
+    THE one question `NodeFormWidget.build_node` asks, over the same two reasons
+    the combo greys a row for:
+
+      * a RECORD another node holds (uuid first; by name only for an old uuid-less
+        node, inside its own section; by the bare ref for a ref that names no
+        record — the loader's rule 2);
+      * a LOCAL name of the TARGET tree, in EITHER direction (LocalRefs.refusal):
+        §1 — an entity named like the tree's mount, or a mount renamed onto a
+        positioned node. The text is the loader's own, so Apply cannot approve a
+        tree the next `load_config` dies on.
+    """
+    place = used_ref_place(index, resolve, kind, ref, own=own)
+    if place is not None:
+        return used_ref_refusal(ref, place)
+    if local is None:
+        return None
+    return local.refusal(kind, ref, own=own)
 
 
 def used_ref_refusal(ref: str, place: Optional[tuple[str, str]]) -> str:
