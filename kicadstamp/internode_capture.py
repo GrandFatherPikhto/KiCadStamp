@@ -50,7 +50,7 @@ from .config import (
     net_trace_pad_signature,
 )
 from .constants import CLUSTER_FIELD_NAME, ROLE_FIELD_NAME
-from .domain.board import Footprint
+from .domain.board import Footprint, Via
 from .i18n import _
 from .internode_copper import (
     CopperUnit,
@@ -69,7 +69,9 @@ from .internode_nodes import (
     tree_node_keys,
 )
 from .net_trace_planner import resolve_live_anchor
+from .reread_report import report_lines
 from .sheet_names import instance_label, resolve_sheet_path_names, sheet_in_path
+from .trees_local_refs import free_node_ref
 from .trees import Tree
 
 logger = logging.getLogger(__name__)
@@ -87,13 +89,6 @@ __all__ = [
     "tree_net_trace_identities",
 ]
 
-# The order the report lists copper the classification did NOT take in: the
-# design's own table order (Р1), minus INTERNODE — that is what a re-read takes.
-# MODULE rides between FOREIGN and CLUSTER: it is copper INSIDE a module, which
-# that module's own tree re-reads, so the parent names it and leaves it (Т4-1).
-_DISCARD_ORDER = (CopperVerdict.FOREIGN, CopperVerdict.MODULE,
-                  CopperVerdict.CLUSTER, CopperVerdict.UNMOORED,
-                  CopperVerdict.STUB)
 
 
 # ── result shapes ──────────────────────────────────────────────────────────
@@ -138,6 +133,20 @@ class RereadPlan:
     matched_components: int = 0
     unmatched_components: int = 0
     node_keys: list[str] = field(default_factory=list)
+    #: Identities the SELECTION never touched (plan §0 п.2): none of their pads is in
+    #: the copper that was read, so the record was not looked at at all. NOT `missing`
+    #: — declaring a record stale for not being selected was half of the 10.11 live
+    #: complaint ("not taken: unmoored 18", six records "no longer on the board").
+    not_in_selection: list[str] = field(default_factory=list)
+    #: The area this read covered (plan §0 п.3): a board selection narrowed it, or the
+    #: whole board was read — and how much copper was actually read, for the report's
+    #: first line.
+    narrowed: bool = False
+    area_tracks: int = 0
+    area_vias: int = 0
+    #: Child trees this tree EMBEDS (`kind module`): their copper is re-read on their
+    #: own tabs, and the report says so instead of leaving an empty result (п.5).
+    module_refs: list[str] = field(default_factory=list)
 
     @property
     def records(self) -> list[NetTrace]:
@@ -599,12 +608,28 @@ def internode_units(adapter, cfg: Config, tree: Tree, *,
 
 # ── the plan ───────────────────────────────────────────────────────────────
 
+def _module_refs(nodes) -> list[str]:
+    """The child trees `nodes` embed (`kind module`), depth-first and deduped — the
+    report's "their inter-node copper is re-read on their own tabs" line (§0 п.5)."""
+    out: list[str] = []
+
+    def walk(level) -> None:
+        for node in level:
+            if node.kind == "module" and node.ref not in out:
+                out.append(node.ref)
+            walk(node.children)
+
+    walk(nodes)
+    return out
+
+
 def plan_internode_reread(adapter, cfg: Config, tree: Tree, *,
                           config_path,
                           area_items: Iterable[Any],
                           area_footprints: Iterable[Any],
                           sheet_names: dict[str, str] | None = None,
-                          zone_count: int | None = None) -> RereadPlan:
+                          zone_count: int | None = None,
+                          narrowed: bool = False) -> RereadPlan:
     """Plan a re-read of `tree`'s inter-node copper against the LIVE board.
 
     `area_items`/`area_footprints` define the AREA: the whole board for "read
@@ -626,15 +651,26 @@ def plan_internode_reread(adapter, cfg: Config, tree: Tree, *,
     `internode_units` (and therefore "Select inter-node copper") runs, so the
     re-read and the highlighting can never disagree (T5-1)."""
     _sn = dict(sheet_names or {})
-    plan = RereadPlan()
+    items = list(area_items)
+    plan = RereadPlan(narrowed=narrowed,
+                      area_tracks=sum(1 for item in items
+                                      if not isinstance(item, Via)),
+                      area_vias=sum(1 for item in items
+                                    if isinstance(item, Via)),
+                      module_refs=_module_refs(tree.nodes))
     if zone_count:
         plan.warnings.append(_(
             "zones are not read (see the Z1 work): only tracks and vias count "
             "as copper, so a pour never appears in the capture"))
 
     classification = _classify_area(
-        adapter, cfg, tree, config_path=config_path, area_items=area_items,
+        adapter, cfg, tree, config_path=config_path, area_items=items,
         area_footprints=area_footprints, sheet_names=_sn)
+    # The pads the read copper TOUCHES: a record none of whose pads is in this set
+    # was never looked at (§0 п.2), which is not the same as "not found".
+    selection_pads = ({_pad_label(pad, classification.components)
+                       for unit in classification.units for pad in unit.pads}
+                      if narrowed else set())
     plan.warnings.extend(classification.warnings)
     plan.discarded = classification.discarded
     plan.matched_components = classification.matched_components
@@ -686,6 +722,14 @@ def plan_internode_reread(adapter, cfg: Config, tree: Tree, *,
             plan.warnings.append(warning)
         if record is None:
             continue
+        if old is None and record.name:
+            # §0 п.6: a generated record name must not collide with a LOCAL name of
+            # this tree (a mount, a copper container) — the loader refuses the file
+            # otherwise. THE rule's own answer, so the day it changes for a kind
+            # (plan_2026_11_14_mount_and_record_may_share_a_name) this call follows.
+            free = free_node_ref("net_trace", tree.name, record.name, tree.nodes)
+            if free != record.name:
+                record = dataclasses.replace(record, name=free)
         identity = net_trace_effective_name(record)
         fresh = CapturedTrace(record=record, identity=identity,
                               signature=signature,
@@ -716,6 +760,11 @@ def plan_internode_reread(adapter, cfg: Config, tree: Tree, *,
         if raw:
             candidates.add(frozenset(raw))
         candidates.discard(frozenset())
+        if narrowed and not (candidates & selection_pads):
+            # The selection never touched this record's pads: it was NOT checked, so
+            # it is neither `missing` nor stale (§0 п.2).
+            plan.not_in_selection.append(identity)
+            continue
         if candidates & classification.cell_only_signatures:   # Д-2: it DUPLICATES cell copper
             plan.cell_duplicates.append(identity)
             plan.warnings.append(duplicate_line(identity))
@@ -739,44 +788,6 @@ def apply_reread_plan(cfg: Config, plan: RereadPlan) -> Config:
 
 
 def reread_report_lines(tree_name: str, plan: RereadPlan) -> list[str]:
-    """The re-read report as LOG LINES (design §6 — a list, never a dialog).
-    Full names, never abbreviated: they are how a bridge is found in the tree
-    and in the flat list.
-
-    The found/updated/unchanged/not-found lines are the historical ones, byte
-    for byte (logs and tests read them as substrings). Everything Э4 of
-    plan_2026_09_15_internode_copper_sheets_and_nets adds — the discarded
-    counters and the "no component matched any node" line — is appended AFTER
-    them: silence about thrown-away copper was the second half of the live
-    complaint, so the report now ends by saying what it did not take and why."""
-    lines = [_("Tree {name!r}: inter-node copper re-read.").format(name=tree_name)]
-    if plan.added:
-        lines.append(_("  added:      {names}").format(
-            names=", ".join(c.identity for c in plan.added)))
-    if plan.updated:
-        described = "; ".join(
-            _("{name} (was {old_tracks} tracks / {old_vias} via, now {new_tracks} / {new_vias})")
-            .format(name=c.identity, old_tracks=counts[0], old_vias=counts[1],
-                    new_tracks=counts[2], new_vias=counts[3])
-            for c, counts in plan.updated)
-        lines.append(_("  updated:    {names}").format(names=described))
-    for ident in plan.missing:
-        lines.append(_(
-            "  not found:  {name} — the copper is no longer on the board, the "
-            "record is kept").format(name=ident))
-    lines.append(_("  unchanged:  {count}").format(count=len(plan.unchanged)))
-    if plan.discarded:
-        counts = ", ".join(
-            "{verdict} {count}".format(verdict=verdict.value,
-                                       count=plan.discarded[verdict.value])
-            for verdict in _DISCARD_ORDER if plan.discarded.get(verdict.value))
-        lines.append(_("  not taken:  {counts} — copper the classification left "
-                       "alone").format(counts=counts))
-    if plan.unmatched_components and not plan.matched_components:
-        lines.append(_(
-            "  no component of the area matched any node of tree {tree!r} by "
-            "(Cluster, sheet) — the tree's nodes expect: {keys}").format(
-                tree=tree_name, keys=", ".join(plan.node_keys) or "-"))
-    for warning in plan.warnings:
-        lines.append("  " + warning)
-    return lines
+    """The report as LOG LINES (design §6) — the wording lives in
+    kicadstamp/reread_report.py, which may grow; this giant only shrinks."""
+    return report_lines(tree_name, plan)

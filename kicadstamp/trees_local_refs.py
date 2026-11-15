@@ -82,6 +82,31 @@ def local_ref_kind(nodes, ref: str) -> Optional[str]:
     return None
 
 
+def free_node_ref(kind: Optional[str], tree_name: str, ref: str, nodes) -> str:
+    """`ref` if the local-name rule lets a node of `kind` carry it in `tree_name`,
+    else the first `ref_2`, `ref_3`, … that it does.
+
+    THE answer every door needs before it puts a node into a tree's buffer
+    (plan_2026_11_10_extra_copper_by_selection §0 п.6): a generated record name
+    must not collide with a LOCAL name of that tree (a mount, a copper container),
+    or the next `load_config` refuses the file. A door calls THIS and never
+    compares names itself — when the rule changes (a kind's collision check is
+    lifted, plan_2026_11_14_mount_and_record_may_share_a_name), every door follows
+    without a line of its own.
+    """
+    def clashes(name: str) -> bool:
+        if kind in LOCAL_REF_MESSAGES:
+            return local_ref_refusal(kind, tree_name, name, nodes) is not None
+        return local_name_refusal(tree_name, name, nodes) is not None
+
+    if not clashes(ref):
+        return ref
+    suffix = 2
+    while clashes(f"{ref}_{suffix}"):
+        suffix += 1
+    return f"{ref}_{suffix}"
+
+
 def local_name_refusal(tree_name: str, ref: str, nodes) -> Optional[str]:
     """The loader's refusal for a node of ANY OTHER kind being named `ref` in this
     tree — None when no local node carries that name. The text is the SAME one

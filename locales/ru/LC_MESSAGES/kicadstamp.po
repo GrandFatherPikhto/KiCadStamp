@@ -3,7 +3,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version:  kicadstamp\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-11-14 18:07+0300\n"
+"POT-Creation-Date: 2026-11-15 17:19+0300\n"
 "PO-Revision-Date: 2026-07-27 12:00+0000\n"
 "Last-Translator: \n"
 "Language: ru\n"
@@ -1094,11 +1094,11 @@ msgstr "Извлечь дерево..."
 msgid "Create tree..."
 msgstr "Создать дерево..."
 
-#: gui/docks/trees_dock.py:2470 gui/main_window.py:287
+#: gui/docks/trees_dock.py:2466 gui/main_window.py:287
 msgid "Rename tree..."
 msgstr "Переименовать дерево..."
 
-#: gui/docks/trees_dock.py:2472 gui/main_window.py:291
+#: gui/docks/trees_dock.py:2468 gui/main_window.py:291
 msgid "Delete tree..."
 msgstr "Удалить дерево..."
 
@@ -1106,7 +1106,7 @@ msgstr "Удалить дерево..."
 msgid "Copper"
 msgstr "Медь"
 
-#: gui/docks/trees_dock.py:2457 gui/main_window.py:306
+#: gui/docks/trees_dock.py:2453 gui/main_window.py:306
 msgid "Reread inter-node copper"
 msgstr "Перечитать межузловую медь"
 
@@ -1122,15 +1122,15 @@ msgstr "Выделить записанную межузловую медь"
 msgid "Whose copper is this?"
 msgstr "Чья эта медь?"
 
-#: gui/docks/trees_dock.py:2451 gui/main_window.py:340
+#: gui/docks/trees_dock.py:2447 gui/main_window.py:340
 msgid "Redraw selected"
 msgstr "Перерисовать выбранное"
 
-#: gui/docks/trees_dock.py:2454 gui/main_window.py:344
+#: gui/docks/trees_dock.py:2450 gui/main_window.py:344
 msgid "Redraw whole tree"
 msgstr "Перерисовать всё дерево"
 
-#: gui/docks/trees_dock.py:2468 gui/main_window.py:353
+#: gui/docks/trees_dock.py:2464 gui/main_window.py:353
 msgid "Instances..."
 msgstr "Копии шаблона..."
 
@@ -1202,7 +1202,7 @@ msgstr "Проект не открыт — нечего сохранять"
 msgid "Nothing to save"
 msgstr "Нечего сохранять"
 
-#: gui/docks/trees_dock.py:2046 gui/main_window.py:794
+#: gui/docks/trees_dock.py:2042 gui/main_window.py:794
 msgid "Save"
 msgstr "Сохранить"
 
@@ -1623,7 +1623,7 @@ msgstr ""
 msgid "selecting enclosed copper"
 msgstr "выделение замкнутой меди"
 
-#: gui/select_internode_copper.py:121
+#: gui/select_internode_copper.py:124
 #, python-brace-format
 msgid ""
 "Select inter-node copper: no inter-node copper of tree {tree!r} is on the"
@@ -1632,7 +1632,7 @@ msgstr ""
 "Выделить межузловую медь: на всей плате нет межузловой меди дерева "
 "{tree!r} — ничего не выделено. Узлы дерева ждут: {keys}"
 
-#: gui/select_internode_copper.py:127
+#: gui/select_internode_copper.py:130
 #, python-brace-format
 msgid ""
 "Selected {pieces} inter-node piece(s) of tree {tree!r} — {tracks} "
@@ -1641,12 +1641,12 @@ msgstr ""
 "Выделено {pieces} межузловых кусков дерева {tree!r} — {tracks} дорожек, "
 "{vias} переходных"
 
-#: gui/select_internode_copper.py:136 kicadstamp/internode_capture.py:773
+#: gui/select_internode_copper.py:139 kicadstamp/internode_capture.py:841
 #, python-brace-format
 msgid "  not taken:  {counts} — copper the classification left alone"
 msgstr "  не взято:     {counts} — медь, которую классификация не взяла"
 
-#: gui/select_internode_copper.py:207
+#: gui/select_internode_copper.py:210
 #, python-brace-format
 msgid ""
 "Selected recorded copper of {k} record(s) of tree {tree!r} — {tracks} "
@@ -1655,28 +1655,28 @@ msgstr ""
 "Выделена записанная медь {k} записей дерева {tree!r} — {tracks} дорожек, "
 "{vias} переходных"
 
-#: gui/select_internode_copper.py:214
+#: gui/select_internode_copper.py:217
 #, python-brace-format
 msgid "  {count} record(s) of tree {tree!r} have no copper on the board: {names}"
 msgstr "  {count} записей дерева {tree!r} не имеют меди на плате: {names}"
 
 #: gui/docks/trees_dock.py:2969 gui/docks/trees_dock.py:3093
-#: gui/docks/trees_dock.py:3150 gui/select_internode_copper.py:233
+#: gui/docks/trees_dock.py:3150 gui/select_internode_copper.py:236
 msgid "No project loaded — open a root config first."
 msgstr "Проект не загружен — сначала откройте корневой конфиг."
 
 #: gui/docks/trees_dock.py:2877 gui/docks/trees_dock.py:2973
 #: gui/docks/trees_dock.py:3097 gui/docks/trees_dock.py:3154
 #: gui/docks/trees_dock.py:4951 gui/docks/trees_mount_point.py:61
-#: gui/docks/trees_mount_point.py:127 gui/select_internode_copper.py:236
+#: gui/docks/trees_mount_point.py:127 gui/select_internode_copper.py:239
 msgid "No live board connection — connect KiCad first."
 msgstr "Нет соединения с платой — сначала подключись к KiCad."
 
-#: gui/select_internode_copper.py:278
+#: gui/select_internode_copper.py:281
 msgid "selecting inter-node copper"
 msgstr "выделение межузловой меди"
 
-#: gui/select_internode_copper.py:290
+#: gui/select_internode_copper.py:293
 msgid "selecting recorded copper"
 msgstr "выделение записанной меди"
 
@@ -2805,7 +2805,7 @@ msgid "Net"
 msgstr "Сеть"
 
 #: gui/docks/cell_editor_dialogs.py:49 gui/docks/imprint.py:489
-#: gui/docks/settings_dialog.py:51 gui/docks/trees_dock.py:1736
+#: gui/docks/settings_dialog.py:51 gui/docks/trees_dock.py:1732
 #: gui/docks/trees_dock.py:5490
 msgid "Apply"
 msgstr "Применить"
@@ -5464,7 +5464,7 @@ msgid "Extract"
 msgstr "Извлечение"
 
 #: gui/docks/net_trace.py:143 gui/docks/thermal_via.py:172
-#: gui/docks/trees_dock.py:2378
+#: gui/docks/trees_dock.py:2374
 msgid "Redraw"
 msgstr "Перерисовать"
 
@@ -6132,7 +6132,7 @@ msgid ""
 "again."
 msgstr "Источник Role/Cluster снова РЕЕСТР: наши значения опять действуют."
 
-#: gui/docks/root_metadata.py:884 gui/docks/trees_dock.py:853
+#: gui/docks/root_metadata.py:884 gui/docks/trees_dock.py:849
 msgid "Unsaved changes"
 msgstr "Несохранённые изменения"
 
@@ -6627,11 +6627,11 @@ msgstr ""
 "При последнем перечитывании межузловой меди для этой записи меди на плате"
 " не нашлось. Запись СОХРАНЕНА — удалите её вручную, если так и задумано."
 
-#: gui/docks/trees_dock.py:539
+#: gui/docks/trees_dock.py:535
 msgid "the base of this node is MIRRORED on the live board"
 msgstr "база этого узла ОТЗЕРКАЛЕНА на живой плате"
 
-#: gui/docks/trees_dock.py:540
+#: gui/docks/trees_dock.py:536
 msgid ""
 "a tree node cannot store a mirror — unmirror the component in KiCad (or "
 "pick another base), then read the position again"
@@ -6639,11 +6639,11 @@ msgstr ""
 "узел дерева не умеет хранить зеркало — снимите зеркало у компонента в "
 "KiCad (или выберите другую базу) и повторите чтение позиции"
 
-#: gui/docks/trees_dock.py:575
+#: gui/docks/trees_dock.py:571
 msgid "this node's instance is MIRRORED on the live board"
 msgstr "экземпляр этого узла ОТЗЕРКАЛЕН на живой плате"
 
-#: gui/docks/trees_dock.py:576
+#: gui/docks/trees_dock.py:572
 msgid ""
 "a tree node cannot store a mirror — unmirror the component in KiCad, then"
 " read the position again"
@@ -6651,56 +6651,56 @@ msgstr ""
 "узел дерева не умеет хранить зеркало — снимите зеркало у компонента в "
 "KiCad и повторите чтение позиции"
 
-#: gui/docks/trees_dock.py:754 gui/docks/trees_dock.py:795
+#: gui/docks/trees_dock.py:750 gui/docks/trees_dock.py:791
 #, python-brace-format
 msgid "Trees: root config failed to load: {error}"
 msgstr "Trees: не удалось загрузить корневой конфиг: {error}"
 
-#: gui/docks/trees_dock.py:854
+#: gui/docks/trees_dock.py:850
 #, python-brace-format
 msgid "Save changes to {path}?"
 msgstr "Сохранить изменения в {path}?"
 
-#: gui/docks/trees_dock.py:921
+#: gui/docks/trees_dock.py:917
 msgid "(no trees)"
 msgstr "Нет деревьев"
 
-#: gui/docks/trees_dock.py:1312
+#: gui/docks/trees_dock.py:1308
 #, python-brace-format
 msgid "⇐ instance of {template} (sheet={sheet})"
 msgstr "⇐ копия шаблона {template} (sheet={sheet})"
 
-#: gui/docks/trees_dock.py:1354
+#: gui/docks/trees_dock.py:1350
 #, python-brace-format
 msgid "⇐ embedded in {parent}"
 msgstr "⇐ встроено в {parent}"
 
-#: gui/docks/trees_dock.py:1361
+#: gui/docks/trees_dock.py:1357
 #, python-brace-format
 msgid "→ instance: {name}"
 msgstr "→ копия: {name}"
 
-#: gui/docks/trees_dock.py:1571
+#: gui/docks/trees_dock.py:1567
 #, python-brace-format
 msgid "Copper ({count})"
 msgstr "Медь ({count})"
 
-#: gui/docks/trees_dock.py:1767
+#: gui/docks/trees_dock.py:1763
 msgid "Edit node"
 msgstr "Редактировать узел"
 
-#: gui/docks/trees_dock.py:1849 gui/docks/trees_dock.py:2336
+#: gui/docks/trees_dock.py:1845 gui/docks/trees_dock.py:2332
 #, python-brace-format
 msgid ""
 "Instance of {template} — read-only: edit the template tree to change the "
 "geometry"
 msgstr "Копия шаблона {template} — только чтение: геометрию меняй в дереве-шаблоне"
 
-#: gui/docks/trees_dock.py:2023
+#: gui/docks/trees_dock.py:2019
 msgid "●"
 msgstr ""
 
-#: gui/docks/trees_dock.py:2086
+#: gui/docks/trees_dock.py:2082
 #, python-brace-format
 msgid ""
 "Anchor for tree {name!r}: a ref anchor pointing at its own root Entity "
@@ -6709,11 +6709,11 @@ msgstr ""
 "Якорь дерева {name!r}: ref-якорь, указывающий на собственный корневой "
 "Entity {ref!r}, никогда не разрешится (самоссылка) — переключено на Self."
 
-#: gui/docks/trees_dock.py:2180
+#: gui/docks/trees_dock.py:2176
 msgid "Read-only instance"
 msgstr "Копия шаблона — только для чтения"
 
-#: gui/docks/trees_dock.py:2181
+#: gui/docks/trees_dock.py:2177
 #, python-brace-format
 msgid ""
 "This tree is an instance of template {template!r} (read-only) — its "
@@ -6724,49 +6724,49 @@ msgstr ""
 "геометрия приходит из шаблона; меняйте дерево-шаблон или управляйте "
 "экземпляром через Инструменты → Деревья → Экземпляры."
 
-#: gui/docks/trees_dock.py:2370
+#: gui/docks/trees_dock.py:2366
 msgid "Select copper on board"
 msgstr "Выделить медь на плате"
 
-#: gui/docks/trees_dock.py:2387 gui/docks/trees_dock.py:2781
+#: gui/docks/trees_dock.py:2383 gui/docks/trees_dock.py:2781
 msgid "Add child"
 msgstr "Добавить дочерний узел"
 
-#: gui/docks/trees_dock.py:2389 gui/docks/trees_dock.py:2794
+#: gui/docks/trees_dock.py:2385 gui/docks/trees_dock.py:2794
 msgid "Add sibling"
 msgstr "Добавить соседний узел"
 
-#: gui/docks/trees_dock.py:2392
+#: gui/docks/trees_dock.py:2388
 msgid "Reread current position"
 msgstr "Перечитать текущее положение"
 
-#: gui/docks/trees_dock.py:2398
+#: gui/docks/trees_dock.py:2394
 msgid "Edit node…"
 msgstr "Редактировать узел…"
 
-#: gui/docks/trees_dock.py:2402
+#: gui/docks/trees_dock.py:2398
 msgid "Rename…"
 msgstr "Переименовать…"
 
-#: gui/docks/trees_dock.py:2408 gui/docks/trees_dock.py:3378
+#: gui/docks/trees_dock.py:2404 gui/docks/trees_dock.py:3378
 #: gui/docks/trees_dock.py:3742 gui/docks/trees_move_flow.py:579
 #: gui/docks/trees_move_flow.py:648
 msgid "Move to…"
 msgstr "Переместить в…"
 
-#: gui/docks/trees_dock.py:2415 gui/docks/trees_mount_rebase.py:401
+#: gui/docks/trees_dock.py:2411 gui/docks/trees_mount_rebase.py:401
 msgid "Change anchor from selection…"
 msgstr "Сменить опору по выделению…"
 
-#: gui/docks/trees_dock.py:2427
+#: gui/docks/trees_dock.py:2423
 msgid "Move up"
 msgstr "Поднять"
 
-#: gui/docks/trees_dock.py:2430
+#: gui/docks/trees_dock.py:2426
 msgid "Move down"
 msgstr "Опустить"
 
-#: gui/docks/trees_dock.py:2445 gui/docks/trees_dock.py:2809
+#: gui/docks/trees_dock.py:2441 gui/docks/trees_dock.py:2809
 #: gui/docks/trees_dock.py:5335 gui/docks/trees_dock.py:5350
 #: gui/docks/trees_dock.py:5357 gui/docks/trees_dock.py:5378
 #: gui/docks/trees_dock.py:5401 gui/docks/trees_dock.py:5417
@@ -6774,7 +6774,7 @@ msgstr "Опустить"
 msgid "Add node"
 msgstr "Добавить узел"
 
-#: gui/docks/trees_dock.py:2448
+#: gui/docks/trees_dock.py:2444
 msgid "Set anchor…"
 msgstr "Назначить якорь…"
 
@@ -11081,7 +11081,7 @@ msgstr ""
 "у отпечатка нет кластера — ячейка клонируется по своему кластеру, поэтому"
 " нужен один кластер на отпечаток"
 
-#: kicadstamp/internode_capture.py:298
+#: kicadstamp/internode_capture.py:313
 #, python-brace-format
 msgid ""
 "skipped a piece of copper between pads {pads}: the pad {pad} has no Role "
@@ -11090,7 +11090,7 @@ msgstr ""
 "пропущен кусок меди между падами {pads}: у пада {pad} на плате нет поля "
 "Role, поэтому запись нечем заякорить"
 
-#: kicadstamp/internode_capture.py:304
+#: kicadstamp/internode_capture.py:319
 #, python-brace-format
 msgid ""
 "skipped a piece of copper between pads {pads}: the anchor pad {pad} "
@@ -11100,7 +11100,7 @@ msgstr ""
 "пропущен кусок меди между падами {pads}: якорный пад {pad} не принадлежит"
 " ни одному узлу этого дерева, поэтому записи нечем сузить роль якоря"
 
-#: kicadstamp/internode_capture.py:310
+#: kicadstamp/internode_capture.py:325
 #, python-brace-format
 msgid ""
 "skipped a piece of copper between pads {pads}: no pad of the piece "
@@ -11110,14 +11110,14 @@ msgstr ""
 "пропущен кусок меди между падами {pads}: ни один пад куска не якорит "
 "запись — роль(и) {roles} не сужаются до куска при листе и кластере узла"
 
-#: kicadstamp/internode_capture.py:348
+#: kicadstamp/internode_capture.py:363
 #, python-brace-format
 msgid ""
 "skipped a piece of copper between pads {pads}: it carries no net name on "
 "the board"
 msgstr "пропущен кусок меди между падами {pads}: на плате у него нет имени сети"
 
-#: kicadstamp/internode_capture.py:381
+#: kicadstamp/internode_capture.py:396
 #, python-brace-format
 msgid ""
 "record {ref!r}: its anchor could not be resolved live ({err}) — left "
@@ -11126,7 +11126,7 @@ msgstr ""
 "запись {ref!r}: её якорь не разрешился на живой плате ({err}) — оставлена"
 " без изменений"
 
-#: kicadstamp/internode_capture.py:529
+#: kicadstamp/internode_capture.py:544
 #, python-brace-format
 msgid ""
 "component {ref!r} (Cluster {cluster!r}, sheet path {path}) matches "
@@ -11137,7 +11137,7 @@ msgstr ""
 "с {count} узлами дерева {tree!r}: {nodes} — компонент в дерево не берём, "
 "угадывать не будем"
 
-#: kicadstamp/internode_capture.py:632
+#: kicadstamp/internode_capture.py:669
 msgid ""
 "zones are not read (see the Z1 work): only tracks and vias count as "
 "copper, so a pour never appears in the capture"
@@ -11145,7 +11145,7 @@ msgstr ""
 "зоны не читаются (см. работу Z1): медью считаются только дорожки и виа, "
 "поэтому заливка в захват не попадает"
 
-#: kicadstamp/internode_capture.py:653
+#: kicadstamp/internode_capture.py:695
 #, python-brace-format
 msgid "tree {tree!r}: node {ref!r} references no net_traces: record — skipped"
 msgstr ""
@@ -11153,17 +11153,38 @@ msgstr ""
 "— пропущен"
 
 # ── Inter-node copper re-read (plan_2026_09_12_internode_copper_core, Э4) ──
-#: kicadstamp/internode_capture.py:752
+#: kicadstamp/internode_capture.py:807
 #, python-brace-format
 msgid "Tree {name!r}: inter-node copper re-read."
 msgstr "Дерево {name!r}: межузловая медь перечитана."
 
-#: kicadstamp/internode_capture.py:754
+#: kicadstamp/internode_capture.py:809
+#, python-brace-format
+msgid "  area: selection — {tracks} track(s), {vias} via(s)"
+msgstr ""
+"область: выделение — {tracks} трек(ов), {vias} "
+"переходн(ых)"
+
+#: kicadstamp/internode_capture.py:812
+msgid "  area: whole board"
+msgstr "область: вся плата"
+
+#: kicadstamp/internode_capture.py:815
+#, python-brace-format
+msgid ""
+"  Tree {name!r} places module(s) {trees} — their inter-node copper is re-"
+"read on their own tabs"
+msgstr ""
+"Дерево {name!r} размещает модули {trees} — их "
+"межузловая медь перечитывается на "
+"своих вкладках"
+
+#: kicadstamp/internode_capture.py:819
 #, python-brace-format
 msgid "  added:      {names}"
 msgstr "  добавлено:    {names}"
 
-#: kicadstamp/internode_capture.py:758
+#: kicadstamp/internode_capture.py:823
 #, python-brace-format
 msgid ""
 "{name} (was {old_tracks} tracks / {old_vias} via, now {new_tracks} / "
@@ -11172,24 +11193,31 @@ msgstr ""
 "{name} (было {old_tracks} дорожки / {old_vias} виа, стало {new_tracks} / "
 "{new_vias})"
 
-#: kicadstamp/internode_capture.py:762
+#: kicadstamp/internode_capture.py:827
 #, python-brace-format
 msgid "  updated:    {names}"
 msgstr "  обновлено:    {names}"
 
-#: kicadstamp/internode_capture.py:765
+#: kicadstamp/internode_capture.py:830
 #, python-brace-format
 msgid ""
 "  not found:  {name} — the copper is no longer on the board, the record "
 "is kept"
 msgstr "  не найдено:   {name} — меди на плате больше нет, запись оставлена"
 
-#: kicadstamp/internode_capture.py:767
+#: kicadstamp/internode_capture.py:833
+#, python-brace-format
+msgid "  not in the selection: {count} record(s) — not checked"
+msgstr ""
+"вне выделения: {count} запис(ей) — не "
+"проверялись"
+
+#: kicadstamp/internode_capture.py:835
 #, python-brace-format
 msgid "  unchanged:  {count}"
 msgstr "  без изменений: {count}"
 
-#: kicadstamp/internode_capture.py:777
+#: kicadstamp/internode_capture.py:845
 #, python-brace-format
 msgid ""
 "  no component of the area matched any node of tree {tree!r} by (Cluster,"

@@ -77,18 +77,21 @@ def run_select_inter_node_copper_worker(payload: dict) -> dict:
     from kicadstamp.adapter_factory import create_board_adapter
     from kicadstamp.domain.board import Track, Via
     from kicadstamp.internode_capture import internode_units
+    from kicadstamp.reread_area import read_reread_area
 
     adapter = None
     try:
         adapter = create_board_adapter(timeout_ms=worker_timeout_ms(payload),
                                        config_path=payload.get("config_path"))
         adapter.refresh_board()
-        footprints = list(adapter.get_footprints())
-        items = list(adapter.get_tracks()) + list(adapter.get_vias())
+        # No selection: the area is the WHOLE board, and it comes from THE owner of
+        # the area (kicadstamp/reread_area.py) so the В1/В2 pairing can never see two
+        # different ideas of «whole board» (plan §0 п.1).
+        area = read_reread_area(adapter)
         units, discarded, warnings = internode_units(
             adapter, payload["cfg"], payload["tree"],
             config_path=payload["config_path"],
-            area_items=items, area_footprints=footprints,
+            area_items=area.items, area_footprints=area.footprints,
             sheet_names=payload.get("sheet_names") or {})
         selected = [piece for unit in units for piece in (*unit.tracks, *unit.vias)]
         adapter.select_items(selected)
@@ -112,7 +115,7 @@ def run_select_inter_node_copper_worker(payload: dict) -> dict:
 def report_select_inter_node_copper(result: dict) -> None:
     """UI thread (worker finished): the outcome as LOG LINES — never a dialog.
     A zero-piece result is a YELLOW line naming what the tree's nodes expect."""
-    from kicadstamp.internode_capture import _DISCARD_ORDER
+    from kicadstamp.reread_report import DISCARD_ORDER as _DISCARD_ORDER
 
     tree = result.get("tree")
     pieces = int(result.get("pieces") or 0)

@@ -2179,6 +2179,19 @@ action above went with it (Ч2-2/Ч2-3, commits 9cda2711..52b3134c). A cell is p
 Entities / Trees / Placer, and **Extract cluster...** is the way to a cell.
 ## Net traces
 
+**UPDATE 2026-11-15 (§0 of plan_2026_11_10_extra_copper_by_selection):** a board SELECTION narrows
+the COPPER only — the pad boundaries of an inter-node re-read are always the whole board's
+(`kicadstamp/reread_area.py`, ONE owner for the re-read and for «Select inter-node copper»). Before,
+selecting copper and then re-reading handed the classifier zero pads: every unit read as UNMOORED
+and every record as «not found». A record whose pads the selection does not touch is now reported
+as «not in the selection: N record(s) — not checked» and is NOT marked stale; «not found» means its
+pads were in the read copper and the copper itself is gone. The report's first line names the area
+(«area: selection — T track(s), V via(s)» / «area: whole board»), and a tree that EMBEDS other trees
+says so («places module(s) … — their inter-node copper is re-read on their own tabs»). Every door
+that gives a tree node its ref before the node lands in the buffer (the add-node auto-numbering and
+the re-read) also asks the local-name rule, so a generated name can never collide with a mount's or
+a copper container's.
+
 Edits a `net_traces:` record (see [docs/config.md](config.md)'s `net_traces:` section) — the GUI
 face of `extract-net`/`apply --only=<net>` (plan `techdocs/handoff/deepseek/plan_2026_08_21_
 net_trace_dock.md`). Added 2026-08-21.

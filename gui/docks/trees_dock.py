@@ -31,7 +31,6 @@ from kicadstamp.component_address import resolve_component_footprint
 from kicadstamp.config import TreeInstance, load_config, load_tree
 from kicadstamp.adapter_factory import create_board_adapter
 from kicadstamp.config_writer import read_data, upsert_entity, write_data
-from kicadstamp.domain.board import Footprint, Track, Via
 from kicadstamp.domain.geometry import BoardLayer, Vector2
 from kicadstamp.exceptions import (
     NonRigidClusterError,
@@ -55,6 +54,7 @@ from kicadstamp.tree_position import (
     relative_rotation_deg,
 )
 from kicadstamp.placement.anchor_identity import entity_is_self_anchor
+from kicadstamp.trees_local_refs import free_node_ref
 from kicadstamp.trees import (RECORD_KINDS, Tree, TreeAnchor,
                               TreeNode, _mount_ancestor_of, _walk_nodes,
                               node_kind_label,
@@ -244,10 +244,8 @@ def run_internode_reread_worker(payload: dict) -> dict:
     copper". Plain data in, plain data out; every live-board read (the adapter,
     the selection, the copper) happens HERE, never on the UI thread.
 
-    The AREA is decided here as well (design §5): a NON-EMPTY board selection
-    narrows the read to its own items, an empty one means the WHOLE board —
-    the tree already knows its nodes, clusters and pads, so asking the user to
-    select them again with the mouse would be work the config can do itself.
+    The AREA comes from kicadstamp/reread_area.py (design §5, plan §0): a board
+    selection narrows the COPPER, the pad boundaries are always the whole board.
 
     It builds its OWN adapter (a pynng REQ socket is single-owner, so it cannot be
     shared with the UI's poll ticks) and hands that socket back in a `finally` — on
@@ -262,6 +260,7 @@ def run_internode_reread_worker(payload: dict) -> dict:
         apply_reread_plan,
         plan_internode_reread,
     )
+    from kicadstamp.reread_area import read_reread_area
 
     # The timeout travels in the payload (Э3, plan_2026_09_13_timeout_sweep) —
     # the value the main connection actually runs with, decided on the UI side.
@@ -269,25 +268,22 @@ def run_internode_reread_worker(payload: dict) -> dict:
                                    config_path=payload.get("config_path"))
     try:
         adapter.refresh_board()
-        selected = list(adapter.get_selected_items() or [])
-        if selected:
-            footprints = [i for i in selected if isinstance(i, Footprint)]
-            items = [i for i in selected if isinstance(i, (Track, Via))]
-        else:
-            footprints = list(adapter.get_footprints())
-            items = list(adapter.get_tracks()) + list(adapter.get_vias())
+        # THE owner of the area (§0 п.1): pads are always the whole board's (taking
+        # them from a selection made every unit UNMOORED — live 10.11).
+        area = read_reread_area(adapter, adapter.get_selected_items() or [])
 
         cfg = payload["cfg"]
         tree = payload["tree"]
         plan = plan_internode_reread(
-            adapter, cfg, tree, config_path=payload["config_path"], area_items=items,
-            area_footprints=footprints, sheet_names=payload.get("sheet_names") or {})
+            adapter, cfg, tree, config_path=payload["config_path"],
+            area_items=area.items, area_footprints=area.footprints,
+            sheet_names=payload.get("sheet_names") or {}, narrowed=area.narrowed)
         return {
             "plan": plan,
             "cfg": apply_reread_plan(cfg, plan),
             "tree": tree,
             "added": [c.identity for c in plan.added],
-            "narrowed_to_selection": bool(selected),
+            "narrowed_to_selection": area.narrowed,
         }
     finally:
         adapter.close()
@@ -2758,6 +2754,10 @@ class TreesDock(QWidget):
             placeable = {name for _kind, name in self._all_ref_candidates()}
             if node.ref not in placeable:
                 node.ref = self._unique_ref(node.ref, self._used_refs())
+                # §0 п.6: that auto-number must not land on a LOCAL name of THIS
+                # tree either (a load-time fatal) — THE rule answers.
+                node.ref = free_node_ref(node.kind, tree.name, node.ref,
+                                         tree.nodes)
         return node
 
     @staticmethod
