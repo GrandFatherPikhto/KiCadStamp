@@ -59,7 +59,9 @@ CEILINGS = {
     "gui/docks/role_cluster_tree.py": 1213,
     "gui/docks/root_metadata.py": 905,
     "gui/docks/tree_from_selection.py": 845,
-    "gui/docks/trees_dock.py": 6935,
+    # 6935 → 6933 (§0.1 of plan_2026_11_10_extra_copper_by_selection): the door
+    # asks the ONE name rule, and `_unique_ref` became its thin alias.
+    "gui/docks/trees_dock.py": 6933,
     "gui/fieldstool_window.py": 1158,
     "gui/main_window.py": 1052,
     # 1147: Claude's §2.2 of plan_2026_11_09_tree_instances_follow_template ASKED for "свойство

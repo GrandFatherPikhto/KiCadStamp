@@ -723,11 +723,11 @@ def plan_internode_reread(adapter, cfg: Config, tree: Tree, *,
         if record is None:
             continue
         if old is None and record.name:
-            # §0 п.6: a generated record name must not collide with a LOCAL name of
-            # this tree (a mount, a copper container) — the loader refuses the file
-            # otherwise. THE rule's own answer, so the day it changes for a kind
-            # (plan_2026_11_14_mount_and_record_may_share_a_name) this call follows.
-            free = free_node_ref("net_trace", tree.name, record.name, tree.nodes)
+            # §0 п.6 + §0.1: a generated record name must not collide with a LOCAL
+            # name of this tree (a mount, a copper container) NOR with a record the
+            # config already has — THE rule answers both bans in one call.
+            free = free_node_ref("net_trace", tree.name, record.name, tree.nodes,
+                                 taken=existing_names)
             if free != record.name:
                 record = dataclasses.replace(record, name=free)
         identity = net_trace_effective_name(record)
@@ -760,7 +760,7 @@ def plan_internode_reread(adapter, cfg: Config, tree: Tree, *,
         if raw:
             candidates.add(frozenset(raw))
         candidates.discard(frozenset())
-        if narrowed and not (candidates & selection_pads):
+        if narrowed and not any(sig & selection_pads for sig in candidates):
             # The selection never touched this record's pads: it was NOT checked, so
             # it is neither `missing` nor stale (§0 п.2).
             plan.not_in_selection.append(identity)
@@ -778,12 +778,19 @@ def apply_reread_plan(cfg: Config, plan: RereadPlan) -> Config:
     mutated): an updated record is replaced IN PLACE — preserving its position
     in the list and therefore the order everything else reads — and an added
     record is appended. NOTHING is removed: a `missing` record stays exactly as
-    it is (design §6)."""
+    it is (design §6). An `added` name the config already holds is a PLANNER bug
+    and raises (§0.1) — such a record used to be skipped in silence, and the
+    copper it carried was lost while the report said "added"."""
     updates = {c.identity: c.record for c, _ in plan.updated}
     merged = [updates.get(net_trace_effective_name(nt), nt)
               for nt in cfg.net_traces]
     present = {net_trace_effective_name(nt) for nt in merged}
-    merged.extend(c.record for c in plan.added if c.identity not in present)
+    for c in plan.added:
+        if c.identity in present:
+            raise ValueError(f"re-read plan adds {c.identity!r}, a name the config "
+                             "already has — a record is never dropped")
+        present.add(c.identity)
+        merged.append(c.record)
     return dataclasses.replace(cfg, net_traces=merged)
 
 

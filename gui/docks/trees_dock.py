@@ -2753,23 +2753,21 @@ class TreesDock(QWidget):
         if existing is None and node.kind != "module":
             placeable = {name for _kind, name in self._all_ref_candidates()}
             if node.ref not in placeable:
-                node.ref = self._unique_ref(node.ref, self._used_refs())
-                # §0 п.6: that auto-number must not land on a LOCAL name of THIS
-                # tree either (a load-time fatal) — THE rule answers.
+                # §0 п.6 + §0.1: not a LOCAL name of THIS tree (a load-time
+                # fatal), not a name a node already holds — ONE rule answers
+                # both; `_1` is phase 5.5's own numbering.
                 node.ref = free_node_ref(node.kind, tree.name, node.ref,
-                                         tree.nodes)
+                                         tree.nodes, taken=self._used_refs(),
+                                         start=1)
         return node
 
     @staticmethod
     def _unique_ref(base: str, used: set) -> str:
         """The first free auto-numbered variant of a colliding ref: base if
-        free, else base_1, base_2, ... (phase 5.5 auto-numbering)."""
-        if base not in used:
-            return base
-        i = 1
-        while f"{base}_{i}" in used:
-            i += 1
-        return f"{base}_{i}"
+        free, else base_1, base_2, ... (phase 5.5 auto-numbering) — a THIN
+        alias of the ONE rule (§0.1): an EMPTY tree means no local half, so it
+        answers exactly the "used" half the door asks alongside it."""
+        return free_node_ref(None, "", base, (), taken=used, start=1)
 
     def _add_child_flow(self, tree: Tree, parent: TreeNode) -> None:
         """T1 (S.3.2): the node dialog lists live Role/Cluster candidates, so

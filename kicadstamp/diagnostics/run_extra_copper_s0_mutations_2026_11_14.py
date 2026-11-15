@@ -48,7 +48,7 @@ MUTATIONS = [
       "test_0v_a_selection_narrows_the_copper_and_never_the_pads"]),
 
     ("M2 a record outside the selection is `missing` again", CAPTURE,
-     "        if narrowed and not (candidates & selection_pads):\n",
+     "        if narrowed and not any(sig & selection_pads for sig in candidates):\n",
      "        if False:  # MUTATION: not-checked reads as not-found\n",
      ["test_0b_a_record_outside_the_selection_is_not_missing"]),
 
@@ -69,7 +69,8 @@ MUTATIONS = [
 
     ("M6 the auto-numbering door skips the local-name rule", DOCK,
      "                node.ref = free_node_ref(node.kind, tree.name, node.ref,\n"
-     "                                         tree.nodes)\n",
+     "                                         tree.nodes, taken=self._used_refs(),\n"
+     "                                         start=1)\n",
      "                node.ref = node.ref  # MUTATION: no local-name check\n",
      ["test_the_auto_number_skips_a_local_name_of_the_same_tree"]),
 

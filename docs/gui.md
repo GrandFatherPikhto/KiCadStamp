@@ -2192,6 +2192,16 @@ that gives a tree node its ref before the node lands in the buffer (the add-node
 the re-read) also asks the local-name rule, so a generated name can never collide with a mount's or
 a copper container's.
 
+**UPDATE 2026-11-15 (§0.1, the acceptance of that commit):** the «not checked» test asks whether the
+read copper really touches one of the record's pads — it used to compare a set of pad SETS with a
+set of pad LABELS, so the intersection was always empty and ANY selection hid a real «not found».
+The same one rule now knows BOTH bans at once: a generated name must not collide with a local name
+of the tree AND not with a record name the config already holds (`taken=`). Before, the re-read
+handed out a name the config already had, the report said «added», and the write dropped that record
+in silence — copper lost. Such a plan is now an error (`ValueError` naming the record), never a lost
+trace. The node dialog's auto-number is numbered by that same rule, from the base ref (`ref_1`,
+`ref_2`, …), so it cannot land on a name some node already carries either.
+
 Edits a `net_traces:` record (see [docs/config.md](config.md)'s `net_traces:` section) — the GUI
 face of `extract-net`/`apply --only=<net>` (plan `techdocs/handoff/deepseek/plan_2026_08_21_
 net_trace_dock.md`). Added 2026-08-21.

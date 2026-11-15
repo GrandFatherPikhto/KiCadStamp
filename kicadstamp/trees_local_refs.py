@@ -25,7 +25,7 @@ so every caller and docstring keeps working.
 """
 from __future__ import annotations
 
-from typing import Optional
+from typing import Iterable, Optional
 
 from .exceptions import ValidationError
 from .i18n import _
@@ -82,9 +82,10 @@ def local_ref_kind(nodes, ref: str) -> Optional[str]:
     return None
 
 
-def free_node_ref(kind: Optional[str], tree_name: str, ref: str, nodes) -> str:
-    """`ref` if the local-name rule lets a node of `kind` carry it in `tree_name`,
-    else the first `ref_2`, `ref_3`, … that it does.
+def free_node_ref(kind: Optional[str], tree_name: str, ref: str, nodes,
+                  taken: Iterable[str] = (), start: int = 2) -> str:
+    """`ref` if it may stand in `tree_name`, else the first `ref_<n>` (from
+    `start`) that may.
 
     THE answer every door needs before it puts a node into a tree's buffer
     (plan_2026_11_10_extra_copper_by_selection §0 п.6): a generated record name
@@ -93,15 +94,29 @@ def free_node_ref(kind: Optional[str], tree_name: str, ref: str, nodes) -> str:
     compares names itself — when the rule changes (a kind's collision check is
     lifted, plan_2026_11_14_mount_and_record_may_share_a_name), every door follows
     without a line of its own.
+
+    `taken` — names held OUTSIDE the tree's own buffer and just as unusable: the
+    config's record names for the re-read (§0.1), the "used" set for the node
+    dialog. Without it this helper picked `n__a__b_2` for a record that a
+    config ALREADY had under that name, and the write dropped the copper while
+    the report said "added". Both bans are ONE decision, so both live here.
+
+    `start` keeps each door's historical numbering: a record's name counts from
+    `_2` (`internode_copper.generate_trace_name`, the suffix a capture has always
+    used) and a node's auto-number from `_1` (phase 5.5, `TreesDock._unique_ref`).
     """
+    held = set(taken)
+
     def clashes(name: str) -> bool:
+        if name in held:
+            return True
         if kind in LOCAL_REF_MESSAGES:
             return local_ref_refusal(kind, tree_name, name, nodes) is not None
         return local_name_refusal(tree_name, name, nodes) is not None
 
     if not clashes(ref):
         return ref
-    suffix = 2
+    suffix = start
     while clashes(f"{ref}_{suffix}"):
         suffix += 1
     return f"{ref}_{suffix}"

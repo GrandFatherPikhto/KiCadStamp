@@ -11,14 +11,25 @@ NOT `missing`; the report's first line names the area. §0 п.5 adds the «this 
 places modules, their copper is re-read on their own tabs» line, and §0 п.6 makes
 every door that puts a node into a tree ask the local-name rule first.
 
+§0.1 (the acceptance of `38bff313`) closes the two holes that rule left: the
+«touches the selection» test compared a set of FROZENSETS with a set of STRINGS
+(always empty, so any selection hid a real `missing`), and the generated name
+avoided the tree's LOCAL names only — never the record names the config already
+holds, so a record written under a taken name was dropped in silence.
+
 The board/config doubles are the ones tests/net/test_internode_capture.py uses.
 """
 import dataclasses
 from types import SimpleNamespace
 
+import pytest
+
 from kicadstamp.config import Config, Entity, NetTrace, TemplateTrack
 from kicadstamp.domain.board import BoardLayer, Footprint, Track, Via
-from kicadstamp.internode_capture import plan_internode_reread, reread_report_lines
+from kicadstamp.internode_capture import (CapturedTrace, RereadPlan,
+                                          apply_reread_plan,
+                                          plan_internode_reread,
+                                          reread_report_lines)
 from kicadstamp.reread_area import read_reread_area
 from kicadstamp.trees import Tree, TreeAnchor, TreeNode, tree_from_dict, tree_to_dict
 from kicadstamp.trees_local_refs import free_node_ref, local_name_refusal
@@ -223,6 +234,28 @@ def test_0b_a_record_outside_the_selection_is_not_missing():
     assert "not in the selection: 1 record(s) — not checked" in text
 
 
+def test_0b2_a_record_the_selection_TOUCHES_is_still_missing():
+    """§0.1 дыра 1: `candidates & selection_pads` intersected a set of
+    FROZENSETS with a set of STRINGS, so the intersection was always empty and
+    ANY selection turned every unfound record into «not checked» — a real loss
+    hidden by the very mode meant to narrow the read. Here the read copper
+    touches `A.1`, one of the record's pads, and that record has no copper left:
+    it is `missing`, and the report says «not found»."""
+    board, fps, items = _area()
+    touched = _existing(name="gone__a__b", pads=("A.1", "Z.9"))
+    cfg = _cfg([_existing(), touched])
+    tree = _tree(net_trace_refs=("n__a__b", "gone__a__b"))
+
+    plan = plan_internode_reread(
+        board, cfg, tree, area_items=items[:1], area_footprints=fps,
+        sheet_names={}, narrowed=True, config_path=None)
+
+    assert plan.unchanged == ["n__a__b"]
+    assert plan.missing == ["gone__a__b"]           # NOT «not checked»
+    assert plan.not_in_selection == []
+    assert "not found:  gone__a__b" in "\n".join(reread_report_lines("t", plan))
+
+
 # ── 0г: the report's first line names the area ────────────────────────────
 
 def test_0g_the_report_names_the_area_in_both_modes():
@@ -291,14 +324,60 @@ def test_06_a_generated_name_avoids_a_local_name_of_the_tree():
 
 def test_06_free_node_ref_is_the_rule_every_door_asks():
     """(§0 п.6) ONE helper, so a door never compares names itself: the ref comes
-    back unchanged when the rule allows it, and `_2`, `_3`, … otherwise."""
+    back unchanged when the rule allows it, and `_2`, `_3`, … otherwise.
+    `taken` (§0.1) is the second half of the SAME decision: the config's record
+    names are as unusable as a local clash — and `start` keeps a node's own
+    numbering (`_1`) apart from a record's (`_2`, `generate_trace_name`'s)."""
     container = TreeNode(ref="x", kind="copper", xy=None, polar=None,
                          rotation=0.0, name=None, group=None, children=[])
     nodes = [container]
     assert free_node_ref("net_trace", "t", "other", nodes) == "other"
     assert free_node_ref("net_trace", "t", "x", nodes) == "x_2"
+    # a TAKEN name is skipped exactly like a local clash is
+    assert free_node_ref("net_trace", "t", "x", nodes, taken={"x_2"}) == "x_3"
+    assert free_node_ref("net_trace", "t", "y", nodes, taken={"y"}) == "y_2"
+    # a node's auto-number counts from `_1` (phase 5.5)
+    assert free_node_ref("net_trace", "t", "x", nodes, start=1) == "x_1"
     # it walks down into children, and a same-kind duplicate is a clash too
     nested = dataclasses.replace(container, children=[])
     parent = TreeNode(ref="p", kind="mount", xy=None, polar=None, rotation=0.0,
                       name=None, group=None, children=[nested])
     assert free_node_ref("mount", "t", "x", [parent]) == "x_2"
+
+
+# ── §0.1: a new record never takes a name the config already holds ─────────
+
+def test_06v_a_new_record_skips_a_record_name_the_config_already_has():
+    """§0.1 дыра 2: the copper container `n__a__b` forces a suffix and the
+    config ALREADY holds a record `n__a__b_2` (other pads). Before `taken=`, the
+    plan handed out that very name, the report said «added», and
+    `apply_reread_plan` dropped the new record in silence — the copper was gone.
+    Now the rule skips a taken name, so the record is `n__a__b_3` and the written
+    config carries BOTH."""
+    board, fps, items = _area()
+    container = TreeNode(ref="n__a__b", kind="copper", xy=None, polar=None,
+                         rotation=0.0, name=None, group=None, children=[])
+    tree = _tree(net_trace_refs=("n__a__b_2",), nodes=[container])
+    cfg = _cfg([_existing(name="n__a__b_2", pads=("C.1", "D.1"))])
+
+    plan = plan_internode_reread(
+        board, cfg, tree, area_items=items, area_footprints=fps,
+        sheet_names={}, config_path=None)
+
+    assert [c.identity for c in plan.added] == ["n__a__b_3"]
+    written = apply_reread_plan(cfg, plan)
+    assert [nt.name for nt in written.net_traces] == ["n__a__b_2", "n__a__b_3"]
+
+
+def test_06d_apply_refuses_to_drop_an_added_record_under_a_taken_name():
+    """§0.1: the safety net. A plan whose `added` record repeats a name the
+    config has is a PLANNER bug — the write must raise with that name instead of
+    skipping the record (and losing the copper the report calls «added»)."""
+    cfg = _cfg([_existing(name="n__a__b")])
+    plan = RereadPlan()
+    plan.added.append(CapturedTrace(record=_existing(name="n__a__b"),
+                                    identity="n__a__b", signature=frozenset(),
+                                    track_count=1, via_count=0))
+
+    with pytest.raises(ValueError, match="n__a__b"):
+        apply_reread_plan(cfg, plan)
