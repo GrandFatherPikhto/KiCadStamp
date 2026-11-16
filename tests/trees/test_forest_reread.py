@@ -181,7 +181,8 @@ def test_the_anchor_row_says_was_now_and_the_vote_count():
                           Vote("fpga/IC1", (-0.01, -3.08)),
                           Vote("mcu/U4", (-0.01, -3.08))])
 
-    row = plan_anchor("main", (0.0, 0.0), groups, mode=MODE_ABSORB)
+    row = plan_anchor("main", (0.0, 0.0), groups, anchor_rot_deg=0.0,
+                      mode=MODE_ABSORB)
     plan = plan_forest([], anchors=[row])
 
     assert row.now == (-0.01, -3.08)
@@ -194,11 +195,25 @@ def test_the_anchor_row_says_was_now_and_the_vote_count():
 def test_a_kept_anchor_row_says_nothing_moved():
     groups = group_votes([Vote("a", (1.0, 0.0))])
 
-    row = plan_anchor("t", (2.0, 3.0), groups, mode=MODE_KEEP)
+    row = plan_anchor("t", (2.0, 3.0), groups, anchor_rot_deg=0.0, mode=MODE_KEEP)
 
     assert row.now == row.was
     assert row.moved is False
     assert row.votes == 0 and row.total == 1
+
+
+def test_the_anchor_shift_is_converted_at_the_anchor_angle():
+    """The angle is MANDATORY (16.11 acceptance): the votes' Δ is in the BOARD
+    frame, the shift lives in the anchor's own frame. With the anchor at 90° a
+    board Δ of (−3, +2) becomes (−2, −3) in the shift's frame — and a caller that
+    forgets the angle cannot even compile the call."""
+    groups = group_votes([Vote("a", (-3.0, 2.0))])
+
+    row = plan_anchor("t", (1.0, 1.0), groups, anchor_rot_deg=90.0,
+                      mode=MODE_ABSORB)
+
+    assert row.now == (-1.0, -2.0)
+    assert row.moved is True
 
 
 # ── и: a turned anchor / 180° must not invent a rotation change ──────────

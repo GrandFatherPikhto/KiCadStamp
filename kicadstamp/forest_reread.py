@@ -39,7 +39,7 @@ from typing import Iterable, Optional
 
 from .i18n import _
 from .tree_anchor_read import DEG_TOLERANCE, MM_TOLERANCE
-from .tree_position import relative_rotation_deg
+from .tree_position import board_offset_to_local_mm, relative_rotation_deg
 
 #: The dialog's two intentions (the switch at the top of the table).
 MODE_ABSORB = "absorb"
@@ -223,20 +223,22 @@ class AnchorRow:
 
 
 def plan_anchor(tree: str, was: tuple[float, float], groups: list, *,
-                mode: str, override: Optional[str] = None,
-                to_config=None) -> AnchorRow:
+                anchor_rot_deg: float, mode: str,
+                override: Optional[str] = None) -> AnchorRow:
     """The tree's anchor row, and the decision behind it.
 
-    `to_config` converts a BOARD-frame delta into the shift's own (config) frame —
-    the wrapper passes `board_offset_to_local_mm` at the ANCHOR's angle. The default
-    is the identity, which is right for a zero anchor angle and is what the cells
-    use; the plan's «anchor shift: было → стало» is then the same arithmetic the
-    anchor Read does."""
+    `anchor_rot_deg` is MANDATORY (16.11 acceptance): the votes' Δ lives in the
+    BOARD frame and the shift is stored in the anchor's own frame BEFORE the tree
+    turns, so the conversion always happens — through `board_offset_to_local_mm`,
+    the same pair the anchor Read uses. There is deliberately no default: an
+    omitted angle would be silently right only for a zero-angle anchor and wrong
+    (and invisible) for a turned one, which is exactly the class of bug this
+    project keeps digging out."""
     choice = choose_anchor(groups, mode=mode, override=override)
     total = sum(g.size for g in groups)
     if choice.delta is None:
         return AnchorRow(tree, was, was, 0, total, choice.reason)
-    delta = to_config(choice.delta) if to_config is not None else choice.delta
+    delta = board_offset_to_local_mm(choice.delta, anchor_rot_deg)
     return AnchorRow(tree, was, (was[0] + delta[0], was[1] + delta[1]),
                      groups[0].size, total, choice.reason)
 
