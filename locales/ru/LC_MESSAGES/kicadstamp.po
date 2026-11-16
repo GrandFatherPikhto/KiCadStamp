@@ -3,7 +3,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version:  kicadstamp\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-11-16 18:57+0300\n"
+"POT-Creation-Date: 2026-11-16 19:49+0300\n"
 "PO-Revision-Date: 2026-07-27 12:00+0000\n"
 "Last-Translator: \n"
 "Language: ru\n"
@@ -6533,8 +6533,8 @@ msgid ""
 "told apart"
 msgstr ""
 "якорь дерева: голосовать могут два узла с именем {ref!r} ({a} и {b}) — "
-"местное имя не уникально между встроенными деревьями, поэтому их живые позы "
-"не различить"
+"местное имя не уникально между встроенными деревьями, поэтому их живые "
+"позы не различить"
 
 #: gui/docks/trees_anchor_read.py:102
 #, python-brace-format
@@ -6561,18 +6561,28 @@ msgid ""
 "Read current position: tree {tree!r} is placed by module {marker!r} in "
 "tree {owner!r} — its own anchor is not used; read on {owner!r}"
 msgstr ""
-"Чтение текущей позиции: дерево {tree!r} ставит модуль {marker!r} в дереве "
-"{owner!r} — собственный якорь дерева не используется; читайте на {owner!r}"
+"Чтение текущей позиции: дерево {tree!r} ставит модуль {marker!r} в дереве"
+" {owner!r} — собственный якорь дерева не используется; читайте на "
+"{owner!r}"
 
 #: gui/docks/trees_anchor_read.py:151
 msgid "Not connected — the tree anchor cannot be read."
 msgstr "Нет соединения — якорь дерева не прочитать."
 
-#: gui/docks/trees_anchor_read.py:181 gui/docks/trees_dock.py:548
+#: gui/docks/trees_anchor_read.py:172
+#, python-brace-format
+msgid ""
+"tree anchor: node {ref!r} is not in the layout — its pose cannot be "
+"predicted, so no shift can be derived"
+msgstr ""
+"якорь дерева: узла {ref!r} нет в раскладке — его позу не предсказать, поэтому "
+"сдвиг не вывести"
+
+#: gui/docks/trees_anchor_read.py:187 gui/docks/trees_dock.py:548
 msgid "this node's instance is MIRRORED on the live board"
 msgstr "экземпляр этого узла ОТЗЕРКАЛЕН на живой плате"
 
-#: gui/docks/trees_anchor_read.py:214
+#: gui/docks/trees_anchor_read.py:220
 #, python-brace-format
 msgid ""
 "tree {name!r}: shift ({x0:.3f}, {y0:.3f}) → ({x1:.3f}, {y1:.3f}) mm, read"
@@ -6581,26 +6591,26 @@ msgstr ""
 "дерево {name!r}: сдвиг ({x0:.3f}, {y0:.3f}) → ({x1:.3f}, {y1:.3f}) мм, "
 "прочитано по узлам: {n}"
 
-#: gui/docks/trees_anchor_read.py:233
+#: gui/docks/trees_anchor_read.py:239
 msgid "Create the tree first."
 msgstr "Сначала создайте дерево."
 
-#: gui/docks/trees_anchor_read.py:235
+#: gui/docks/trees_anchor_read.py:241
 msgid ""
 "This is a live (self) anchor — it already follows the board, so there is "
 "no shift to read."
 msgstr "Это живой якорь (self): он и так следует за платой, сдвига для чтения нет."
 
-#: gui/docks/trees_anchor_read.py:243
+#: gui/docks/trees_anchor_read.py:249
 #, python-brace-format
 msgid ""
 "This tree is placed by module {marker!r} in tree {owner!r} — read its "
 "anchor on {owner!r}."
 msgstr ""
-"Это дерево ставит модуль {marker!r} в дереве {owner!r} — читайте его якорь "
-"на {owner!r}."
+"Это дерево ставит модуль {marker!r} в дереве {owner!r} — читайте его "
+"якорь на {owner!r}."
 
-#: gui/docks/trees_anchor_read.py:247
+#: gui/docks/trees_anchor_read.py:253
 msgid ""
 "Read where the tree's top-level components really stand and correct the "
 "anchor's Shift X/Y — node offsets, the anchor point and the tree's angle "
@@ -6609,7 +6619,7 @@ msgstr ""
 "Прочитать, где на самом деле стоят верхние узлы дерева, и поправить Shift"
 " X/Y якоря — смещения узлов, точка якоря и угол дерева не меняются."
 
-#: gui/docks/trees_anchor_read.py:262
+#: gui/docks/trees_anchor_read.py:268
 #, python-brace-format
 msgid "Read current position failed: {error}"
 msgstr "Не удалось прочитать текущую позицию якоря дерева: {error}"

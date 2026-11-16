@@ -164,7 +164,13 @@ def read_tree_anchor(form) -> AnchorReadOutcome:
     for label, node in voters:
         pose = predicted.get(node.ref)
         if pose is None:
-            continue                    # laid out nowhere: nothing to compare with
+            # Laid out nowhere (the layout skipped it for a reason of its own, a
+            # mount base that did not resolve among them). Silence here would let
+            # the remaining voters answer "the shift is unchanged" while a node of
+            # this tree went unmeasured — the §1 remark on df8d1442.
+            return AnchorReadOutcome(refusal=_(
+                "tree anchor: node {ref!r} is not in the layout — its pose cannot be "
+                "predicted, so no shift can be derived").format(ref=label))
         address = node.anchor if node.kind == "component" else None
         try:
             live_pos, live_rot, mirrored = child_live_pose(

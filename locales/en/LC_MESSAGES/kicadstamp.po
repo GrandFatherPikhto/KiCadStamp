@@ -3,7 +3,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version:  kicadstamp\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-11-16 18:57+0300\n"
+"POT-Creation-Date: 2026-11-16 19:49+0300\n"
 "PO-Revision-Date: 2026-07-27 12:00+0000\n"
 "Last-Translator: \n"
 "Language: en\n"
@@ -6178,11 +6178,18 @@ msgstr ""
 msgid "Not connected — the tree anchor cannot be read."
 msgstr "Not connected — the tree anchor cannot be read."
 
-#: gui/docks/trees_anchor_read.py:181 gui/docks/trees_dock.py:548
+#: gui/docks/trees_anchor_read.py:172
+#, python-brace-format
+msgid ""
+"tree anchor: node {ref!r} is not in the layout — its pose cannot be "
+"predicted, so no shift can be derived"
+msgstr ""
+
+#: gui/docks/trees_anchor_read.py:187 gui/docks/trees_dock.py:548
 msgid "this node's instance is MIRRORED on the live board"
 msgstr ""
 
-#: gui/docks/trees_anchor_read.py:214
+#: gui/docks/trees_anchor_read.py:220
 #, python-brace-format
 msgid ""
 "tree {name!r}: shift ({x0:.3f}, {y0:.3f}) → ({x1:.3f}, {y1:.3f}) mm, read"
@@ -6191,11 +6198,11 @@ msgstr ""
 "tree {name!r}: shift ({x0:.3f}, {y0:.3f}) → ({x1:.3f}, {y1:.3f}) mm, read"
 " from {n} node(s)"
 
-#: gui/docks/trees_anchor_read.py:233
+#: gui/docks/trees_anchor_read.py:239
 msgid "Create the tree first."
 msgstr "Create the tree first."
 
-#: gui/docks/trees_anchor_read.py:235
+#: gui/docks/trees_anchor_read.py:241
 msgid ""
 "This is a live (self) anchor — it already follows the board, so there is "
 "no shift to read."
@@ -6203,14 +6210,14 @@ msgstr ""
 "This is a live (self) anchor — it already follows the board, so there is "
 "no shift to read."
 
-#: gui/docks/trees_anchor_read.py:243
+#: gui/docks/trees_anchor_read.py:249
 #, python-brace-format
 msgid ""
 "This tree is placed by module {marker!r} in tree {owner!r} — read its "
 "anchor on {owner!r}."
 msgstr ""
 
-#: gui/docks/trees_anchor_read.py:247
+#: gui/docks/trees_anchor_read.py:253
 msgid ""
 "Read where the tree's top-level components really stand and correct the "
 "anchor's Shift X/Y — node offsets, the anchor point and the tree's angle "
@@ -6220,7 +6227,7 @@ msgstr ""
 "anchor's Shift X/Y — node offsets, the anchor point and the tree's angle "
 "are not touched."
 
-#: gui/docks/trees_anchor_read.py:262
+#: gui/docks/trees_anchor_read.py:268
 #, python-brace-format
 msgid "Read current position failed: {error}"
 msgstr "Read current position failed: {error}"

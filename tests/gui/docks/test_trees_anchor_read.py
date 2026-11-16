@@ -282,6 +282,24 @@ def test_p5_two_voters_with_one_local_name_are_refused():
     assert "conn" in outcome.refusal and "sub/conn" in outcome.refusal
 
 
+def test_a_voter_missing_from_the_layout_is_refused_by_name(monkeypatch):
+    """The §1 remark on df8d1442: a voting node the layout skipped (a mount base
+    that did not resolve, for one) used to be dropped silently, so the REST could
+    answer "the shift is unchanged" while a node went unmeasured."""
+    main = _tree(nodes=[_node("U1", "placement"), _node("U2", "placement")])
+    form = _form(main)
+    form._live_adapter = lambda: object()
+    _fake_board(monkeypatch, rots={},
+                predicted={"U1": (0.0, 0.0)},
+                live={"U1": (0.0, 0.0, 0.0)})
+
+    outcome = read_tree_anchor(form)
+
+    assert outcome.shift is None
+    assert "U2" in outcome.refusal
+    assert "not in the layout" in outcome.refusal
+
+
 # ── р: the ANGLE is absolute against absolute, by modulo 360 ──────────────
 
 def test_r_a_part_standing_at_180_or_270_is_not_a_turn(monkeypatch):
