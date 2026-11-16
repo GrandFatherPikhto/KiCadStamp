@@ -3,7 +3,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version:  kicadstamp\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-11-16 19:49+0300\n"
+"POT-Creation-Date: 2026-11-16 20:13+0300\n"
 "PO-Revision-Date: 2026-07-27 12:00+0000\n"
 "Last-Translator: \n"
 "Language: ru\n"
@@ -6575,8 +6575,8 @@ msgid ""
 "tree anchor: node {ref!r} is not in the layout — its pose cannot be "
 "predicted, so no shift can be derived"
 msgstr ""
-"якорь дерева: узла {ref!r} нет в раскладке — его позу не предсказать, поэтому "
-"сдвиг не вывести"
+"якорь дерева: узла {ref!r} нет в раскладке — его позу не предсказать, "
+"поэтому сдвиг не вывести"
 
 #: gui/docks/trees_anchor_read.py:187 gui/docks/trees_dock.py:548
 msgid "this node's instance is MIRRORED on the live board"
@@ -11007,6 +11007,38 @@ msgstr "Резервная копия: {path}"
 msgid "flatten: wrote {path} ({files} files consolidated)"
 msgstr "flatten: записано {path} (слито {files} файл(ов))"
 
+#: kicadstamp/forest_reread.py:122
+msgid "anchor kept: chosen for this tree"
+msgstr "якорь не трогаю: так выбрано для этого дерева"
+
+#: kicadstamp/forest_reread.py:124
+msgid "anchor kept: blocks were moved by hand"
+msgstr "якорь не трогаю: блоки двигали руками"
+
+#: kicadstamp/forest_reread.py:126
+msgid "anchor kept: no node of this tree votes"
+msgstr "якорь не трогаю: в этом дереве некому голосовать"
+
+#: kicadstamp/forest_reread.py:131
+#, python-brace-format
+msgid "anchor kept: {n} groups of voters disagree equally — read each node"
+msgstr ""
+"якорь не трогаю: {n} групп голосов расходятся одинаково — каждый узел "
+"читается сам"
+
+#: kicadstamp/forest_reread.py:133
+#, python-brace-format
+msgid "anchor follows {n} of {total} voters"
+msgstr "якорь следует за {n} из {total} голосов"
+
+#: kicadstamp/forest_reread.py:224
+msgid "no position was read for this node"
+msgstr "для этого узла позиция не прочитана"
+
+#: kicadstamp/forest_reread.py:228
+msgid "the node stores no offset — nothing to rewrite"
+msgstr "узел не хранит смещения — переписывать нечего"
+
 #: kicadstamp/frame_node_pose.py:82
 msgid "no config is loaded, so no tree can place this instance"
 msgstr "конфиг не загружен, поэтому ни одно дерево не ставит этот инстанс"
@@ -12984,7 +13016,7 @@ msgstr ""
 "дерево {tree_name!r}: pivot-ref {pivot_ref!r} не найден в его собственной"
 " раскладке"
 
-#: kicadstamp/tree_position.py:935
+#: kicadstamp/tree_position.py:945
 #, python-brace-format
 msgid ""
 "self-anchor needs EXACTLY ONE top-level placement node on an Entity "
@@ -12995,12 +13027,12 @@ msgstr ""
 "{n} top-level узлов) — назовите узел через (self (ref \"...\")) либо "
 "добавьте явный (anchor ...) этому дереву"
 
-#: kicadstamp/placement/entity_placement.py:170 kicadstamp/tree_position.py:944
+#: kicadstamp/placement/entity_placement.py:170 kicadstamp/tree_position.py:954
 #, python-brace-format
 msgid "tree {name!r} self-anchor"
 msgstr "дерево {name!r} self-якорь"
 
-#: kicadstamp/tree_position.py:1090
+#: kicadstamp/tree_position.py:1100
 msgid ""
 "a tree anchor's live base needs the plain configuration tree (cfg.trees) "
 "— the rigid redraw cannot read it"
@@ -13008,14 +13040,14 @@ msgstr ""
 "живой базе якоря дерева нужно плоское дерево конфигурации (cfg.trees) — "
 "жёсткая перерисовка не может её прочитать"
 
-#: kicadstamp/tree_position.py:1152
+#: kicadstamp/tree_position.py:1162
 #, python-brace-format
 msgid ""
 "base {ref!r}: no rotation concept — assumed 0.0 for rigid-group "
 "composition"
 msgstr "база {ref!r}: нет понятия поворота — принято 0.0 для жёсткой композиции"
 
-#: kicadstamp/tree_position.py:1235
+#: kicadstamp/tree_position.py:1245
 #, python-brace-format
 msgid ""
 "tree redraw: node {name!r} has no resolvable live position ({error}) — "
@@ -13024,7 +13056,7 @@ msgstr ""
 "tree redraw: узел {name!r} без резолвной живой позиции ({error}) — "
 "перерисовывается из собственных полей записи, не жёстко"
 
-#: kicadstamp/tree_position.py:1569
+#: kicadstamp/tree_position.py:1579
 #, python-brace-format
 msgid ""
 "redraw conflict: tree {child!r} is embedded by active modules in several "
@@ -13034,7 +13066,7 @@ msgstr ""
 "сразу из нескольких деревьев ({parents}) — оставьте для этой перерисовки "
 "только один модуль"
 
-#: kicadstamp/tree_position.py:1589
+#: kicadstamp/tree_position.py:1599
 #, python-brace-format
 msgid ""
 "Tree {name!r} is placed through a module in this redraw — nodes checked "
@@ -13043,7 +13075,7 @@ msgstr ""
 "Дерево {name!r} в этой перерисовке размещается через модуль — узлы, "
 "отмеченные в самом дереве, применяются один раз через модуль"
 
-#: kicadstamp/tree_position.py:1650
+#: kicadstamp/tree_position.py:1660
 msgid "cross-tree anchor cycle in curated redraw forest"
 msgstr ""
 

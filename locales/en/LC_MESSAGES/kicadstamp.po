@@ -3,7 +3,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version:  kicadstamp\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-11-16 19:49+0300\n"
+"POT-Creation-Date: 2026-11-16 20:13+0300\n"
 "PO-Revision-Date: 2026-07-27 12:00+0000\n"
 "Last-Translator: \n"
 "Language: en\n"
@@ -10324,6 +10324,36 @@ msgstr "Backup: {path}"
 msgid "flatten: wrote {path} ({files} files consolidated)"
 msgstr "flatten: wrote {path} ({files} files consolidated)"
 
+#: kicadstamp/forest_reread.py:122
+msgid "anchor kept: chosen for this tree"
+msgstr ""
+
+#: kicadstamp/forest_reread.py:124
+msgid "anchor kept: blocks were moved by hand"
+msgstr ""
+
+#: kicadstamp/forest_reread.py:126
+msgid "anchor kept: no node of this tree votes"
+msgstr ""
+
+#: kicadstamp/forest_reread.py:131
+#, python-brace-format
+msgid "anchor kept: {n} groups of voters disagree equally — read each node"
+msgstr ""
+
+#: kicadstamp/forest_reread.py:133
+#, python-brace-format
+msgid "anchor follows {n} of {total} voters"
+msgstr ""
+
+#: kicadstamp/forest_reread.py:224
+msgid "no position was read for this node"
+msgstr ""
+
+#: kicadstamp/forest_reread.py:228
+msgid "the node stores no offset — nothing to rewrite"
+msgstr ""
+
 #: kicadstamp/frame_node_pose.py:82
 msgid "no config is loaded, so no tree can place this instance"
 msgstr ""
@@ -12179,7 +12209,7 @@ msgstr ""
 msgid "tree {tree_name!r}: pivot-ref {pivot_ref!r} not found in its own layout"
 msgstr ""
 
-#: kicadstamp/tree_position.py:935
+#: kicadstamp/tree_position.py:945
 #, python-brace-format
 msgid ""
 "self-anchor needs EXACTLY ONE top-level placement node on an Entity "
@@ -12187,18 +12217,18 @@ msgid ""
 "add an explicit (anchor ...) to this tree instead"
 msgstr ""
 
-#: kicadstamp/placement/entity_placement.py:170 kicadstamp/tree_position.py:944
+#: kicadstamp/placement/entity_placement.py:170 kicadstamp/tree_position.py:954
 #, python-brace-format
 msgid "tree {name!r} self-anchor"
 msgstr ""
 
-#: kicadstamp/tree_position.py:1090
+#: kicadstamp/tree_position.py:1100
 msgid ""
 "a tree anchor's live base needs the plain configuration tree (cfg.trees) "
 "— the rigid redraw cannot read it"
 msgstr ""
 
-#: kicadstamp/tree_position.py:1152
+#: kicadstamp/tree_position.py:1162
 #, python-brace-format
 msgid ""
 "base {ref!r}: no rotation concept — assumed 0.0 for rigid-group "
@@ -12207,7 +12237,7 @@ msgstr ""
 "base {ref!r}: no rotation concept — assumed 0.0 for rigid-group "
 "composition"
 
-#: kicadstamp/tree_position.py:1235
+#: kicadstamp/tree_position.py:1245
 #, python-brace-format
 msgid ""
 "tree redraw: node {name!r} has no resolvable live position ({error}) — "
@@ -12216,7 +12246,7 @@ msgstr ""
 "tree redraw: node {name!r} has no resolvable live position ({error}) — "
 "redrawn from its own record fields, not rigidly"
 
-#: kicadstamp/tree_position.py:1569
+#: kicadstamp/tree_position.py:1579
 #, python-brace-format
 msgid ""
 "redraw conflict: tree {child!r} is embedded by active modules in several "
@@ -12225,7 +12255,7 @@ msgstr ""
 "redraw conflict: tree {child!r} is embedded by active modules in several "
 "trees ({parents}) — uncheck one of the module markers for this redraw"
 
-#: kicadstamp/tree_position.py:1589
+#: kicadstamp/tree_position.py:1599
 #, python-brace-format
 msgid ""
 "Tree {name!r} is placed through a module in this redraw — nodes checked "
@@ -12234,7 +12264,7 @@ msgstr ""
 "Tree {name!r} is placed through a module in this redraw — nodes checked "
 "in the tree itself are applied once via the module"
 
-#: kicadstamp/tree_position.py:1650
+#: kicadstamp/tree_position.py:1660
 msgid "cross-tree anchor cycle in curated redraw forest"
 msgstr "cross-tree anchor cycle in curated redraw forest"
 
