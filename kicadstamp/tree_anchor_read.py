@@ -12,15 +12,19 @@ THE CONTRACT: after this read, a redraw of the tree moves nothing. Only
 `(shift x y)` changes; node `xy`s, the anchor's point and the tree's angle are
 never touched.
 
-WHAT VOTES: a TOP-LEVEL node that places itself — kind `placement` or `component`.
-A child is relative to its parent and moves with it; a `mount` node's base is a
-LIVE ROLE, not the tree anchor; `module`/`copper`/`point`/`external` place no
-record of their own. All of them stay out of the vote.
+WHAT VOTES: a TOP-LEVEL node that places itself — kind `placement` or `component`,
+plus the SAME kind of node inside a tree a top-level `module` node embeds
+(§1 of 16.11: Denis's `main` is `mh` and three modules, and the content is what
+really stands on the board). A CHILD is relative to its parent and moves with
+it; a `mount` node's base is a LIVE ROLE, not the tree anchor;
+`copper`/`point`/`external` place no record of their own. None of them votes.
 
 The caller supplies, per voting node, where the LAYOUT puts it and where the
-board actually has it (absolute, mm) — the live half is read elsewhere, once per
-node, through the project's own dispatcher. What is left here is: do the
-deltas agree, was anything turned, and what is the new shift.
+board actually has it — both ABSOLUTE (mm, degrees) — the live half is read
+elsewhere, once per node, through the project's own reader. Because both sides
+are absolute, the tree's own angle and the anchor's angle cancel: they never
+enter this comparison. What is left here is: do the deltas agree, was anything
+turned, and what is the new shift.
 """
 from __future__ import annotations
 
@@ -28,7 +32,7 @@ from dataclasses import dataclass
 from typing import Iterable, Optional
 
 from .i18n import _
-from .tree_position import board_offset_to_local_mm
+from .tree_position import board_offset_to_local_mm, relative_rotation_deg
 
 #: Two deltas closer than this are "the same move" (mm) — the board's own
 #: placement precision, the same 0.005 a node read compares with.
@@ -41,9 +45,13 @@ DEG_TOLERANCE = 0.01
 
 @dataclass(frozen=True)
 class VotingPose:
-    """ONE node that votes: its ref, the LAYOUT's pose (absolute, mm + degrees)
-    and the LIVE one. `error` is set when the live read failed for this node —
-    then the other three live fields are meaningless."""
+    """ONE node that votes: its LABEL, the LAYOUT's pose (absolute, mm + degrees)
+    and the LIVE one, also absolute. `error` is set when the live read failed for
+    this node — then the other three live fields are meaningless.
+
+    `ref` is a LABEL, not necessarily a bare ref: a node inside an embedded tree
+    arrives as `fpga/fpga_fpga`, so a refusal names the module it lives in — the
+    same words the tree row would show. Nothing here parses it."""
 
     ref: str
     predicted_mm: tuple[float, float]
@@ -103,9 +111,15 @@ def read_anchor_shift(votes: Iterable[VotingPose], *,
             "tree anchor: node {ref!r} could not be read — {error}").format(
                 ref=failed[0].ref, error=failed[0].error))
 
+    # ABSOLUTE against ABSOLUTE, by modulo 360: `relative_rotation_deg` is the
+    # project's own (−180, 180] normalisation, so a node standing still at 180°
+    # or 270° compares as 0, not as a "turn" (the §1 hole of 16.11: one side was
+    # relative to the anchor and the other absolute, so ANY turned anchor or any
+    # 180°/270° part refused falsely).
     turned = [vote for vote in votes
               if vote.live_rot_deg is not None
-              and abs(vote.live_rot_deg - vote.predicted_rot_deg) > DEG_TOLERANCE]
+              and abs(relative_rotation_deg(vote.live_rot_deg,
+                                            vote.predicted_rot_deg)) > DEG_TOLERANCE]
     if turned:
         vote = turned[0]
         return AnchorReadOutcome(refusal=_(

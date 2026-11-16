@@ -1064,8 +1064,14 @@ def test_the_read_position_seam_forwards_the_snapshot_to_its_base_resolve(
     accepts it. Driven on the module function (no widget, no board): the base
     resolver and the child pair are spies, so the child half never runs.
 
+    §1 of plan_2026_11_16_tree_anchor_read moved the CHILD half into
+    trees_base_pose.child_live_pose, so the child spies are patched THERE — the
+    assertion is unchanged: the snapshot must reach the pair.
+
     Mutation check: drop `snapshot=snapshot` from the `_resolve_node_base_pose` call
-    inside `_resolve_live_offset` and this fails on the spy's kwargs."""
+    inside `_resolve_live_offset`, or from the pair inside child_live_pose, and this
+    fails on the spy's kwargs."""
+    import gui.docks.trees_base_pose as base_pose_mod
     import gui.docks.trees_dock as trees_mod
     from kicadstamp.trees import Tree, TreeAnchor
 
@@ -1074,10 +1080,10 @@ def test_the_read_position_seam_forwards_the_snapshot_to_its_base_resolve(
         trees_mod, "_resolve_node_base_pose",
         lambda *a, **k: seen.append(k) or (Vector2.from_xy(0, 0), 0.0, False))
     monkeypatch.setattr(
-        trees_mod, "resolve_base_live_position",
+        base_pose_mod, "resolve_base_live_position",
         lambda *a, **k: seen.append(k) or Vector2.from_xy(0, 0))
     monkeypatch.setattr(
-        trees_mod, "resolve_base_rotation_deg",
+        base_pose_mod, "resolve_base_rotation_deg",
         lambda *a, **k: seen.append(k) or 0.0)
     cfg = SimpleNamespace(trees=[], cells={}, entities=[], points={},
                           clone_placements=[], coordinate_placements=[],

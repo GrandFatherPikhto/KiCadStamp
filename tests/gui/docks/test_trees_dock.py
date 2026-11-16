@@ -3084,6 +3084,7 @@ def test_resolve_live_offset_reads_new_ref_despite_existing_node_inline_anchor(
     CH0_DAC_BUF (legacy anchor_role) — resolves through the live resolvers.
     The unrelated node's FORK-1 conflict must not block the passive read.
     link_trees() itself still rejects the conflict (test_link_trees.py)."""
+    import gui.docks.trees_base_pose as base_pose_mod
     import gui.docks.trees_dock as td_mod
     from kicadstamp.domain.geometry import Vector2
     from kicadstamp.utils.units import MM
@@ -3093,14 +3094,16 @@ def test_resolve_live_offset_reads_new_ref_despite_existing_node_inline_anchor(
 
     # Т2-8: `_resolve_live_offset` now forwards `snapshot=` to this pair (the
     # identity half of the base resolve), so the doubles carry the keyword —
-    # the fake is COMPLETED, never the assert relaxed.
+    # the fake is COMPLETED, never the assert relaxed. §1 of
+    # plan_2026_11_16_tree_anchor_read moved the CHILD half into
+    # trees_base_pose.child_live_pose, so the pair is patched THERE.
     monkeypatch.setattr(
-        td_mod, "resolve_base_live_position",
+        base_pose_mod, "resolve_base_live_position",
         lambda adapter, cfg, ref, record, resolved_points, sheet_names,
         snapshot=None:
         Vector2.from_xy(int(10.0 * MM), int(20.0 * MM)))
     monkeypatch.setattr(
-        td_mod, "resolve_base_rotation_deg",
+        base_pose_mod, "resolve_base_rotation_deg",
         lambda adapter, cfg, ref, record, sheet_names, snapshot=None: 0.0)
 
     offset_mm, rotation = td_mod._resolve_live_offset(
@@ -5240,6 +5243,7 @@ def test_read_offset_is_what_the_node_would_store_and_node_position_returns_it(
     the SAME live base, reproduces the child's live position EXACTLY — for a
     rotated base too (today it stored the world delta, so a base-90 node landed
     somewhere else entirely)."""
+    import gui.docks.trees_base_pose as base_pose_mod
     import gui.docks.trees_dock as td_mod
 
     base_pos = Vector2.from_xy_mm(10.0, 20.0)
@@ -5250,9 +5254,10 @@ def test_read_offset_is_what_the_node_would_store_and_node_position_returns_it(
                         lambda *a, **k: (SimpleNamespace(kind="clone"), False))
     monkeypatch.setattr(td_mod, "_resolve_node_base_pose",
                         lambda *a, **k: (base_pos, base_rot, False))
-    monkeypatch.setattr(td_mod, "resolve_base_live_position",
+    # §1: the CHILD half now lives in trees_base_pose.child_live_pose.
+    monkeypatch.setattr(base_pose_mod, "resolve_base_live_position",
                         lambda *a, **k: child_pos)
-    monkeypatch.setattr(td_mod, "resolve_base_rotation_deg",
+    monkeypatch.setattr(base_pose_mod, "resolve_base_rotation_deg",
                         lambda *a, **k: child_deg)
 
     offset_mm, rotation = td_mod._resolve_live_offset(
@@ -5276,6 +5281,7 @@ def test_reread_is_idempotent_with_a_rotated_base(
     """§4.2: two consecutive reads of an UNMOVED board leave node.xy/
     node.rotation bit-identical. Before the fix a base-90 node gained +90 on
     the second press (the read returned the world delta)."""
+    import gui.docks.trees_base_pose as base_pose_mod
     import gui.docks.trees_dock as td_mod
 
     dock, _root = _dock_with(main_window, tmp_path, REREAD_ROT_CFG)
@@ -5292,9 +5298,10 @@ def test_reread_is_idempotent_with_a_rotated_base(
 
     monkeypatch.setattr(td_mod, "_resolve_node_base_pose",
                         lambda *a, **k: (base_pos, base_rot, False))
-    monkeypatch.setattr(td_mod, "resolve_base_live_position",
+    # §1: the CHILD half now lives in trees_base_pose.child_live_pose.
+    monkeypatch.setattr(base_pose_mod, "resolve_base_live_position",
                         lambda *a, **k: live_child)
-    monkeypatch.setattr(td_mod, "resolve_base_rotation_deg",
+    monkeypatch.setattr(base_pose_mod, "resolve_base_rotation_deg",
                         lambda *a, **k: live_child_deg)
 
     dock._reread_node_flow(tree, node)
@@ -8199,6 +8206,7 @@ def test_component_node_read_position_without_address_warns_and_writes_nothing(
     """С7: an empty address (no Ref, no Role) is refused with the picker's OWN
     message, the fields keep their values, and no board read is even attempted
     (the resolver is booby-trapped)."""
+    import gui.docks.trees_base_pose as base_pose_mod
     import gui.docks.trees_dock as td_mod
     dock, _root = _dock_with(main_window, tmp_path)
     tree = dock._current_tree()
@@ -8207,7 +8215,7 @@ def test_component_node_read_position_without_address_warns_and_writes_nothing(
                         lambda *a, **k: warnings.append(a) or None)
     monkeypatch.setattr(td_mod, "_resolve_live_offset",
                         lambda *a, **k: pytest.fail("no address -> no read"))
-    monkeypatch.setattr(td_mod, "resolve_component_footprint",
+    monkeypatch.setattr(base_pose_mod, "resolve_component_footprint",
                         lambda *a, **k: pytest.fail("no address -> no resolve"))
 
     dlg = _build_dialog(dock, tree, None, title="Edit node",
@@ -8230,12 +8238,13 @@ def test_component_node_read_position_fills_offset_and_rotation(
     """С8: with an address set the read fills the offset and the rotation from
     the live component relative to the parent base — the same two numbers a
     normal node stores."""
+    import gui.docks.trees_base_pose as base_pose_mod
     import gui.docks.trees_dock as td_mod
     dock, _root = _dock_with(main_window, tmp_path)
     tree = dock._current_tree()
     monkeypatch.setattr(td_mod, "_resolve_node_base_pose",
                         lambda *a, **k: (Vector2.from_xy_mm(0.0, 0.0), 0.0, False))
-    monkeypatch.setattr(td_mod, "resolve_component_footprint",
+    monkeypatch.setattr(base_pose_mod, "resolve_component_footprint",
                         lambda *a, **k: SimpleNamespace(
                             position=Vector2.from_xy_mm(10.0, 5.0),
                             angle_deg=30.0, layer=BoardLayer.BL_F_Cu))
@@ -8261,12 +8270,13 @@ def test_component_read_offset_is_the_local_delta_against_the_base(
     BOARD frame with the SAME base rotation, reproduces the live component's
     board delta — i.e. the read really is "component minus base, in the base's
     own frame", not a world delta wearing a local label."""
+    import gui.docks.trees_base_pose as base_pose_mod
     import gui.docks.trees_dock as td_mod
     base_pos = Vector2.from_xy_mm(10.0, 20.0)
     live = Vector2.from_xy_mm(13.0, 22.0)
     monkeypatch.setattr(td_mod, "_resolve_node_base_pose",
                         lambda *a, **k: (base_pos, base_rot, False))
-    monkeypatch.setattr(td_mod, "resolve_component_footprint",
+    monkeypatch.setattr(base_pose_mod, "resolve_component_footprint",
                         lambda *a, **k: SimpleNamespace(
                             position=live, angle_deg=base_rot + 40.0,
                             layer=BoardLayer.BL_F_Cu))
@@ -8284,6 +8294,7 @@ def test_resolve_live_offset_component_address_uses_the_project_resolver(monkeyp
     resolve_component_footprint on a synthetic node carrying the ADDRESS, and
     NEVER through the config probe (_resolve_probe_ref would look for a config
     record whose name is a local node name — the Ф6 defect)."""
+    import gui.docks.trees_base_pose as base_pose_mod
     import gui.docks.trees_dock as td_mod
     from kicadstamp.component_address import component_anchor
     seen = {}
@@ -8295,10 +8306,15 @@ def test_resolve_live_offset_component_address_uses_the_project_resolver(monkeyp
         return SimpleNamespace(position=Vector2.from_xy_mm(12.0, 3.0),
                                angle_deg=45.0, layer=BoardLayer.BL_F_Cu)
 
-    monkeypatch.setattr(td_mod, "resolve_component_footprint", _fake_fp)
+    monkeypatch.setattr(base_pose_mod, "resolve_component_footprint", _fake_fp)
     monkeypatch.setattr(td_mod, "_resolve_node_base_pose",
                         lambda *a, **k: (Vector2.from_xy_mm(10.0, 0.0), 0.0, False))
+    # Both halves refused to probe: the dock's (it does not even run with an
+    # address) and child_live_pose's.
     monkeypatch.setattr(td_mod, "_resolve_probe_ref",
+                        lambda *a, **k: pytest.fail(
+                            "a component node's ref is a LOCAL name"))
+    monkeypatch.setattr(base_pose_mod, "_resolve_probe_ref",
                         lambda *a, **k: pytest.fail(
                             "a component node's ref is a LOCAL name"))
     address = TreeAnchor(role="CONN_RENC", is_origin=False)
@@ -8316,10 +8332,11 @@ def test_resolve_live_offset_component_mirror_is_refused(monkeypatch):
     """С9: a mirrored live component is an honest refusal of the same class the
     mirror check already raises for a base/child — the trees layer stores no
     mirror, so it must not silently import an unmirrored pose."""
+    import gui.docks.trees_base_pose as base_pose_mod
     import gui.docks.trees_dock as td_mod
     monkeypatch.setattr(td_mod, "_resolve_node_base_pose",
                         lambda *a, **k: (Vector2.from_xy_mm(0.0, 0.0), 0.0, False))
-    monkeypatch.setattr(td_mod, "resolve_component_footprint",
+    monkeypatch.setattr(base_pose_mod, "resolve_component_footprint",
                         lambda *a, **k: SimpleNamespace(
                             position=Vector2.from_xy_mm(1.0, 1.0),
                             angle_deg=0.0, layer=BoardLayer.BL_B_Cu))
@@ -8336,6 +8353,7 @@ def test_component_node_read_position_mirrored_warns_and_writes_nothing(
     """С9 through the form: the mirror refusal reaches the user as the SAME
     QMessageBox.warning every other kind's refusal uses, with the fields
     untouched (no partial write)."""
+    import gui.docks.trees_base_pose as base_pose_mod
     import gui.docks.trees_dock as td_mod
     dock, _root = _dock_with(main_window, tmp_path)
     tree = dock._current_tree()
@@ -8344,7 +8362,7 @@ def test_component_node_read_position_mirrored_warns_and_writes_nothing(
                         lambda *a, **k: warnings.append(a) or None)
     monkeypatch.setattr(td_mod, "_resolve_node_base_pose",
                         lambda *a, **k: (Vector2.from_xy_mm(0.0, 0.0), 0.0, False))
-    monkeypatch.setattr(td_mod, "resolve_component_footprint",
+    monkeypatch.setattr(base_pose_mod, "resolve_component_footprint",
                         lambda *a, **k: SimpleNamespace(
                             position=Vector2.from_xy_mm(1.0, 1.0),
                             angle_deg=0.0, layer=BoardLayer.BL_B_Cu))
@@ -8368,6 +8386,7 @@ def test_component_node_read_position_not_found_warns_like_every_other_kind(
     """С9: an address that resolves to nothing is reported through the same
     ValidationError -> warning channel, with the resolver's own honest text
     ("... not found") reaching the user — no second error style."""
+    import gui.docks.trees_base_pose as base_pose_mod
     import gui.docks.trees_dock as td_mod
     dock, _root = _dock_with(main_window, tmp_path)
     tree = dock._current_tree()
@@ -8381,7 +8400,7 @@ def test_component_node_read_position_not_found_warns_like_every_other_kind(
 
     def _boom(*a, **k):
         raise ValidationError("tree node 'conn_renc': CONN_RENC not found")
-    monkeypatch.setattr(td_mod, "resolve_component_footprint", _boom)
+    monkeypatch.setattr(base_pose_mod, "resolve_component_footprint", _boom)
 
     dlg = _build_dialog(dock, tree, None, title="Edit node",
                         existing=_existing_node("conn_renc", "component",
@@ -8399,6 +8418,7 @@ def test_resolve_live_offset_keeps_the_record_path_without_an_address(monkeypatc
     """С10: `component_address` DEFAULTS to None, so every pre-existing caller
     keeps the historic probe path byte-for-byte — the component resolver is not
     even reachable without an address."""
+    import gui.docks.trees_base_pose as base_pose_mod
     import gui.docks.trees_dock as td_mod
     probed = []
     monkeypatch.setattr(td_mod, "_resolve_probe_ref",
@@ -8406,10 +8426,11 @@ def test_resolve_live_offset_keeps_the_record_path_without_an_address(monkeypatc
                                                 or (None, True)))
     monkeypatch.setattr(td_mod, "_resolve_node_base_pose",
                         lambda *a, **k: (Vector2.from_xy_mm(0.0, 0.0), 0.0, False))
-    monkeypatch.setattr(td_mod, "resolve_base_live_position",
+    monkeypatch.setattr(base_pose_mod, "resolve_base_live_position",
                         lambda *a, **k: Vector2.from_xy_mm(10.0, 0.0))
-    monkeypatch.setattr(td_mod, "resolve_base_rotation_deg", lambda *a, **k: 0.0)
-    monkeypatch.setattr(td_mod, "resolve_component_footprint",
+    monkeypatch.setattr(base_pose_mod, "resolve_base_rotation_deg",
+                        lambda *a, **k: 0.0)
+    monkeypatch.setattr(base_pose_mod, "resolve_component_footprint",
                         lambda *a, **k: pytest.fail(
                             "no address -> the component path must stay shut"))
 

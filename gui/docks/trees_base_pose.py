@@ -37,10 +37,12 @@ import math
 from typing import Optional
 
 from kicadstamp.anchor_graph import Record, build_records
+from kicadstamp.component_address import resolve_component_footprint
 from kicadstamp.exceptions import NonRigidClusterError, ValidationError
 from kicadstamp.i18n import _
 from kicadstamp.link_trees import (_build_by_key_index, _build_by_name_index,
                                    _resolve_node_ref)
+from kicadstamp.domain.board import BoardLayer
 from kicadstamp.domain.geometry import Vector2
 from kicadstamp.placement.services.component_resolver import (
     ComponentResolver,
@@ -49,7 +51,10 @@ from kicadstamp.placement.services.component_resolver import (
 from kicadstamp.tree_position import (MountFrames, _anchor_base_live_position,
                                       local_offset_to_board_mm,
                                       local_rotation_to_board_deg,
-                                      mount_node_poses, tree_layout_base)
+                                      mount_node_poses,
+                                      resolve_base_live_position,
+                                      resolve_base_rotation_deg,
+                                      tree_layout_base)
 from kicadstamp.trees import Tree, TreeAnchor, TreeNode
 from kicadstamp.utils.units import MM
 
@@ -58,10 +63,16 @@ from .live_position import read_record_live_pose
 logger = logging.getLogger(__name__)
 
 __all__ = [
+    "child_live_pose",
     "node_offset_of",
     "redraw_target",
     "resolve_node_base_pose",
 ]
+
+#: "resolve the child yourself from (ref, kind)" — the default of `child_live_pose`'s
+#: `child_record`. `None` is a MEANINGFUL value (an external refdes, which has no record),
+#: so it cannot double as "not given".
+_PROBE_CHILD = object()
 
 
 def _resolve_probe_ref(cfg, ref: str, kind: str | None) -> tuple[Record | None, bool]:
@@ -77,6 +88,76 @@ def _resolve_probe_ref(cfg, ref: str, kind: str | None) -> tuple[Record | None, 
     probe = TreeNode(ref=ref, kind=kind, xy=None, polar=None, rotation=0.0,
                      name=None, group=None, children=[])
     return _resolve_node_ref(probe, by_key, by_name)
+
+
+def _component_footprint_is_mirrored(fp) -> bool:
+    """Whether the live footprint a COMPONENT node's address resolved to sits on
+    the BACK copper side — the mirror the trees layer cannot store, refused by
+    the caller exactly like a mirrored base or a mirrored record child
+    (plan_2026_09_11 §2.3 discipline). A duck-typed double without a usable layer
+    reads as "not mirrored", the same tolerance tree_position's
+    _footprint_relative_mirror uses."""
+    return getattr(fp, "layer", None) == BoardLayer.BL_B_Cu
+
+
+def child_live_pose(cfg, adapter, sheet_names, ref: str, kind: str | None, *,
+                    component_address: Optional[TreeAnchor] = None,
+                    child_record=_PROBE_CHILD, snapshot=None,
+                    verdict: str | None = None
+                    ) -> tuple[Vector2, Optional[float], bool]:
+    """(position_nm, rotation_deg | None, mirror) of the record or COMPONENT a node
+    names — the child's pose ON THE BOARD, absolute, with no base subtracted.
+
+    This is the "where does this thing really stand" half of
+    `trees_dock._resolve_live_offset`, moved here (plan_2026_11_16_tree_anchor_read
+    §1) so that ONE function answers it and the anchor read cannot grow a second
+    copy: the offset read subtracts a base from it, the tree-anchor read compares it
+    with the layout. Nothing else changed — the same dispatcher, the same
+    `strict=True` on a placement Entity, the same two mirror refusals.
+
+    A COMPONENT node's `component_address` replaces the config probe for the CHILD
+    only: a component node's `ref` is a LOCAL NAME (link_trees resolves no record for
+    kind "component"), so the component it names can only come from the node's own
+    ADDRESS, resolved by component_address.resolve_component_footprint — the SAME
+    resolver the materializer and the rigid-group capture use. A mirrored live
+    component is refused here with an honest message instead of being silently read
+    as an unmirrored pose.
+
+    `child_record` — the record the caller already resolved, or `_PROBE_CHILD` (the
+    default) to resolve it here. `trees_dock._resolve_live_offset` passes its own
+    probe so the ORDER of its failures (probe -> base -> child) stays byte for byte
+    what the cells pin; `None` is a legitimate value (an external refdes) and does
+    NOT mean "resolve it yourself".
+
+    `verdict` (Ч2 of plan_2026_10_15_extract_and_read_paths_cleanup): the closing
+    line of the mirrored CHILD refusal. None keeps the historical footer; the READING
+    callers pass read_only_verdict()."""
+    if component_address is not None:
+        # The component the node ADDRESSES, never a config record (see the
+        # docstring). The address's `pad` takes no part in the resolution: a pad
+        # says where the component is SEATED (the node's own anchor mode), not
+        # which component it is — component_address's own rule.
+        synthetic = TreeNode(ref=ref, kind="component", xy=None, polar=None,
+                             rotation=0.0, name=None, group=None, children=[],
+                             anchor=component_address)
+        fp = resolve_component_footprint(adapter, synthetic, sheet_names)
+        return fp.position, float(fp.angle_deg), _component_footprint_is_mirrored(fp)
+    if child_record is _PROBE_CHILD:
+        child_record, _is_external = _resolve_probe_ref(cfg, ref, kind)
+    if child_record is not None and getattr(child_record, "kind", None) == "placement":
+        # strict=True (Ч1-А): the child's offset/rotation are saved into the
+        # config, so a non-rigid cluster of the CHILD's own instance refuses.
+        child_pose = read_record_live_pose(adapter, cfg, ref, child_record,
+                                          sheet_names, snapshot=snapshot,
+                                          strict=True)
+        return child_pose.position, child_pose.rotation_deg, child_pose.mirror
+    # Historic path, kept on tree_position's names so the pass-through kinds
+    # (clone/coordinate/point/external) answer exactly as before.
+    child_pos = resolve_base_live_position(adapter, cfg, ref, child_record, {},
+                                           sheet_names, snapshot=snapshot)
+    child_deg = resolve_base_rotation_deg(adapter, cfg, ref, child_record,
+                                          sheet_names, snapshot=snapshot)
+    return child_pos, child_deg, False
 
 
 def _mount_anchor_pose(cfg, adapter, sheet_names, tree: Tree,

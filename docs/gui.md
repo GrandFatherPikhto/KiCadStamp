@@ -1026,6 +1026,25 @@ The read is synchronous — one snapshot and one live pose per voting node, like
 arithmetic lives in `kicadstamp/tree_anchor_read.py` (Qt-free), the wiring in
 `gui/docks/trees_anchor_read.py`.
 
+**UPDATE 2026-11-16, §1 of the same plan (the first acceptance's two holes):** a top-level **`module`
+node now votes by its CONTENTS** — the top-level `placement`/`component` nodes of the tree it
+references, recursively through nested modules, each labelled `module/ref` (`fpga/fpga_fpga`). That is
+what the first version got wrong: on a `main` of `mh` plus three modules it measured `mh` alone, where
+Δ = 0, and would have answered "the shift is unchanged" while the next Redraw dragged all three modules
+2.99 mm along with the routing. Two refusals came with it: a `module` node whose ref names NO tree of the
+config (its content cannot be measured, so silence would be a lie) and two voting nodes with the SAME ref
+(a `component` node's ref is a LOCAL name, so an embedded tree may reuse its host's and the layout's pose
+map — keyed by ref — could not tell them apart). The live pose is now read **ABSOLUTELY**
+(`trees_base_pose.child_live_pose`, the same reader the offset read subtracts a base from) and the angle
+is compared absolute against absolute with `relative_rotation_deg`, i.e. modulo 360: a part standing at
+180°/270°, or a turned ANCHOR, no longer refuses falsely. The tree's own anchor is still resolved — for
+its ANGLE only, which is the frame the shift is stored in; **no embedded tree's anchor is resolved** (the
+layout does not use it, it may not resolve, and it must not affect the answer). Finally, the read has ONE
+kind of answer: a tree placed by a module gets the button DISABLED with the module and the owner in its
+tooltip, and if the read is reached anyway it logs its OWN line ("Read current position: tree 'power' is
+placed by module 'power' in tree 'main' — its own anchor is not used; read on 'main'"), never the
+Redraw wording, and never the `(None, None)` pair that crashed the slot on 16.11 18:13.
+
 **UPDATE 2026-09-16 (plan_2026_09_16_copper_pseudo_node):** every copper node (`kind "net_trace"`) of a
 tree is now drawn under ONE **"Copper (n)"** pseudo-row — the LAST row under the tree's anchor. It is a
 VIEW, not data: the row holds no `TreeNode`, it is not a node for any other part of the dock, its text is

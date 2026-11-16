@@ -61,7 +61,10 @@ CEILINGS = {
     "gui/docks/tree_from_selection.py": 845,
     # 6935 → 6933 (§0.1 of plan_2026_11_10_extra_copper_by_selection): the door
     # asks the ONE name rule, and `_unique_ref` became its thin alias.
-    "gui/docks/trees_dock.py": 6933,
+    # 6933 → 6907 (§1 of plan_2026_11_16_tree_anchor_read_current_position): the
+    # CHILD half of `_resolve_live_offset` moved to trees_base_pose.child_live_pose,
+    # so the anchor read and the offset read share ONE reader.
+    "gui/docks/trees_dock.py": 6907,
     "gui/fieldstool_window.py": 1158,
     "gui/main_window.py": 1052,
     # 1147: Claude's §2.2 of plan_2026_11_09_tree_instances_follow_template ASKED for "свойство
@@ -84,7 +87,12 @@ CEILINGS = {
     "kicadstamp/kicad/adapter.py": 1141,
     "kicadstamp/placement/entity_placement.py": 988,
     "kicadstamp/placement/services/clone_role_resolver.py": 935,
-    "kicadstamp/tree_position.py": 1926,
+    # 1926 → 1927 (§1 of plan_2026_11_16_tree_anchor_read_current_position): the
+    # layout gained an OPTIONAL `snapshot` keyword (signature + forward to the mount
+    # bases inside), so one connection snapshot serves a whole anchor read; the
+    # lines were paid for by compressing the layout docstring, only the signatures
+    # stayed.
+    "kicadstamp/tree_position.py": 1927,
     # 2381 → 2320 (§1 of plan_2026_11_14_used_refs_by_uuid): the local-name rule
     # and its wording moved to kicadstamp/trees_local_refs.py, and the other half
     # of the lock demands the number come DOWN in the same commit.

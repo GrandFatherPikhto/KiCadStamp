@@ -27,11 +27,14 @@ from PyQt6.QtWidgets import (QAbstractItemView, QComboBox, QDialog,
                              QTreeWidgetItemIterator, QVBoxLayout, QWidget)
 
 from kicadstamp.anchor_graph import build_records
-from kicadstamp.component_address import resolve_component_footprint
+# Re-export, not a use (plan_2026_11_16_tree_anchor_read §1): the CHILD half of
+# `_resolve_live_offset` now lives in trees_base_pose.child_live_pose; the names stay
+# here because the existing cells monkeypatch them on THIS module.
+from kicadstamp.component_address import resolve_component_footprint  # noqa: F401
 from kicadstamp.config import TreeInstance, load_config, load_tree
 from kicadstamp.adapter_factory import create_board_adapter
 from kicadstamp.config_writer import read_data, upsert_entity, write_data
-from kicadstamp.domain.geometry import BoardLayer, Vector2
+from kicadstamp.domain.geometry import Vector2
 from kicadstamp.exceptions import (
     NonRigidClusterError,
     ValidationError,
@@ -49,8 +52,8 @@ from kicadstamp.tree_position import (
     local_rotation_to_board_deg,
     rotate_offset_mm,
     tree_pivot_offset,
-    resolve_base_live_position,
-    resolve_base_rotation_deg,
+    resolve_base_live_position,  # noqa: F401 — re-export for callers/tests
+    resolve_base_rotation_deg,  # noqa: F401 — re-export for callers/tests
     relative_rotation_deg,
 )
 from kicadstamp.placement.anchor_identity import entity_is_self_anchor
@@ -90,6 +93,7 @@ from .trees_instances_refresh import InstancesRefresh
 # flow (trees_mount_rebase) asks the dock for its seams.
 from .trees_base_pose import _mount_anchor_pose  # noqa: F401 — re-export for callers/tests
 from .trees_base_pose import _resolve_probe_ref
+from .trees_base_pose import child_live_pose
 from .trees_base_pose import resolve_node_base_pose as _resolve_node_base_pose
 from .trees_embedding import module_nodes, refuse_embedded_tree
 from kicadstamp.tree_position import tree_layout_base  # noqa: F401 — re-export for tests
@@ -134,7 +138,7 @@ from .trees_anchor_read import (READ_LABEL, read_and_apply,
                                 update_button_state)
 from .trees_node_row import (apply_node_form, checked_record_refs,
                              is_handle_node, row_for_record, row_of)
-from .live_position import read_record_live_pose
+from .live_position import read_record_live_pose  # noqa: F401 — re-export for callers/tests
 from .copper_select import (identify_copper_report_lines, resolve_record,
                             run_identify_copper_worker,
                             run_select_record_copper_worker,
@@ -449,16 +453,6 @@ def _reparented_offset(cfg, adapter, sheet_names, tree: Tree, node: TreeNode,
                             (old_pos, old_deg), (new_pos, new_deg))
 
 
-def _component_footprint_is_mirrored(fp) -> bool:
-    """Whether the live footprint a COMPONENT node's address resolved to sits on
-    the BACK copper side — the mirror the trees layer cannot store, refused by
-    the caller exactly like a mirrored base or a mirrored record child
-    (plan_2026_09_11 §2.3 discipline). A duck-typed double without a usable layer
-    reads as "not mirrored", the same tolerance tree_position's
-    _footprint_relative_mirror uses."""
-    return getattr(fp, "layer", None) == BoardLayer.BL_B_Cu
-
-
 def _resolve_live_offset(cfg, adapter, sheet_names, tree: Tree,
                          parent_node: Optional[TreeNode], ref: str, kind: str | None,
                          base_anchor: Optional[TreeAnchor] = None,
@@ -541,34 +535,14 @@ def _resolve_live_offset(cfg, adapter, sheet_names, tree: Tree,
             verdict=verdict))
     base_rot = base_deg if base_deg is not None else 0.0
 
-    if component_address is not None:
-        # The component the node ADDRESSES, never a config record (see the
-        # docstring). The address's `pad` takes no part in the resolution: a pad
-        # says where the component is SEATED (the node's own anchor mode), not
-        # which component it is — component_address's own rule.
-        synthetic = TreeNode(ref=ref, kind="component", xy=None, polar=None,
-                             rotation=0.0, name=None, group=None, children=[],
-                             anchor=component_address)
-        fp = resolve_component_footprint(adapter, synthetic, sheet_names)
-        child_pos = fp.position
-        child_deg = float(fp.angle_deg)
-        child_mirror = _component_footprint_is_mirrored(fp)
-    elif child_record is not None and getattr(child_record, "kind", None) == "placement":
-        # strict=True (Ч1-А): the child's offset/rotation are saved into the
-        # config, so a non-rigid cluster of the CHILD's own instance refuses.
-        child_pose = read_record_live_pose(adapter, cfg, ref, child_record,
-                                          sheet_names, snapshot=snapshot,
-                                          strict=True)
-        child_pos = child_pose.position
-        child_deg = child_pose.rotation_deg
-        child_mirror = child_pose.mirror
-    else:
-        # Historic path, kept on THIS module's names for the monkeypatch seam.
-        child_pos = resolve_base_live_position(adapter, cfg, ref, child_record,
-                                               {}, sheet_names, snapshot=snapshot)
-        child_deg = resolve_base_rotation_deg(adapter, cfg, ref, child_record,
-                                              sheet_names, snapshot=snapshot)
-        child_mirror = False
+    # The child's ABSOLUTE pose — ONE function, shared with the tree-anchor read
+    # (plan_2026_11_16_tree_anchor_read §1), so the two can never resolve it
+    # differently. The probe stays HERE, above the base, because the cells pin
+    # that order of failures.
+    child_pos, child_deg, child_mirror = child_live_pose(
+        cfg, adapter, sheet_names, ref, kind,
+        component_address=component_address, child_record=child_record,
+        snapshot=snapshot, verdict=verdict)
     if child_mirror:
         raise ValidationError(format_fatal_error(
             _("this node's instance is MIRRORED on the live board"),

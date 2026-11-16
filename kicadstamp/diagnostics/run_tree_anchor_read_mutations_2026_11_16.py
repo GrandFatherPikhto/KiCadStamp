@@ -1,18 +1,15 @@
 # kicadstamp/diagnostics/run_tree_anchor_read_mutations_2026_11_16.py
-"""Mutation rows for plan_2026_11_16_tree_anchor_read_current_position — the
-«Read current position» button of a TREE ANCHOR.
+"""Mutation rows for plan_2026_11_16_tree_anchor_read_current_position.
 
-The contract is «after Read, a redraw moves nothing»: the shift only is corrected,
-the delta is measured live-minus-laid-out, converted at the ANCHOR's own angle, and
-only TOP-LEVEL self-placing nodes vote. Each row breaks exactly ONE of those:
+M1–M7 are the original task's contract: «after Read, a redraw moves nothing» —
+the shift only is corrected, the delta is measured live-minus-laid-out, converted
+at the ANCHOR's own angle, and only TOP-LEVEL self-placing nodes vote.
 
-  M1  the delta's sign is flipped                    (tree_anchor_read)
-  M2  the delta is added in the BOARD frame          (tree_anchor_read)
-  M3  children vote as well                          (trees_anchor_read)
-  M4  the agreement tolerance is a thousand times bigger (tree_anchor_read)
-  M5  a turned node is not refused                   (tree_anchor_read)
-  M6  the button writes a node's `xy` instead of the shift (trees_anchor_read)
-  M7  a cosmetic control (a comment must change nothing)
+M8–M13 are §1 of 16.11 (Denis's acceptance): module CONTENT votes (his `main` is
+`mh` + three modules, and the content is what really stands on the board), the
+angle is compared ABSOLUTE against ABSOLUTE by modulo 360, nested modules are
+walked, the refusal label keeps its module, and an embedded tree's click is ONE
+answer instead of a `(None, None)` pair that crashed the slot.
 
 Safeguards as in every harness here (rule 38): a template matching more than once
 is REFUSED; a row that reddens nothing is a MISS («zero red = MISS»); the control
@@ -51,13 +48,11 @@ MUTATIONS = [
      ["test_b_a_turned_anchor_converts_the_delta_into_its_own_frame"]),
 
     ("M3 children vote as well", WIRING,
-     "    for node in tree.nodes:\n",
-     "    _voters = list(tree.nodes)  # MUTATION: children vote\n"
-     "    _i = 0\n"
-     "    while _i < len(_voters):\n"
-     "        _voters.extend(_voters[_i].children or [])\n"
-     "        _i += 1\n"
-     "    for node in _voters:\n",
+     "    def walk(cur, chain, stack):\n"
+     "        for node in cur.nodes:\n",
+     "    def walk(cur, chain, stack):\n"
+     "        for node in cur.nodes + [c for n in cur.nodes  # MUTATION: children\n"
+     "                                 for c in (n.children or [])]:\n",
      ["test_z_children_are_not_asked_and_do_not_vote"]),
 
     ("M4 the agreement tolerance is a thousand times bigger", MATH,
@@ -68,7 +63,8 @@ MUTATIONS = [
     ("M5 a turned node is not refused", MATH,
      "    turned = [vote for vote in votes\n"
      "              if vote.live_rot_deg is not None\n"
-     "              and abs(vote.live_rot_deg - vote.predicted_rot_deg) > DEG_TOLERANCE]\n",
+     "              and abs(relative_rotation_deg(vote.live_rot_deg,\n"
+     "                                            vote.predicted_rot_deg)) > DEG_TOLERANCE]\n",
      "    turned = []  # MUTATION: an angle is not checked\n",
      ["test_g_a_turned_node_is_refused_with_its_angle"]),
 
@@ -79,7 +75,48 @@ MUTATIONS = [
      "        _node.xy = (outcome.shift[0], outcome.shift[1])  # MUTATION: node xy\n",
      ["test_the_outcome_writes_the_shift_fields_and_never_a_node_xy"]),
 
-    ("M7 cosmetic control (a comment must change nothing)", MATH,
+    # ── §1 of 16.11 ──────────────────────────────────────────────────────
+
+    ("M8 module content does not vote again", WIRING,
+     "            elif node.kind == \"module\":\n",
+     "            elif False:  # MUTATION: module content does not vote\n",
+     ["test_p_the_module_content_votes_and_disagreement_is_refused"]),
+
+    ("M9 the angle is compared without modulo 360", MATH,
+     "              and abs(relative_rotation_deg(vote.live_rot_deg,\n"
+     "                                            vote.predicted_rot_deg)) > DEG_TOLERANCE]\n",
+     "              and abs(vote.live_rot_deg - vote.predicted_rot_deg) > DEG_TOLERANCE]\n",
+     ["test_r_a_part_standing_at_180_or_270_is_not_a_turn"]),
+
+    ("M10 the live angle is made relative to the anchor again", WIRING,
+     "    return read_anchor_shift(votes, anchor_rot_deg=anchor_rot or 0.0,\n"
+     "                             old_shift=form._stored_anchor_shift)\n",
+     "    for _v in votes:  # MUTATION: relative live angle, absolute layout\n"
+     "        if _v.live_rot_deg is not None:\n"
+     "            object.__setattr__(_v, \"live_rot_deg\",\n"
+     "                               _v.live_rot_deg - (anchor_rot or 0.0))\n"
+     "    return read_anchor_shift(votes, anchor_rot_deg=anchor_rot or 0.0,\n"
+     "                             old_shift=form._stored_anchor_shift)\n",
+     ["test_r2_a_turned_anchor_does_not_shift_the_angle_check"]),
+
+    ("M11 nested modules are not walked", WIRING,
+     "                refusal = walk(child, chain + [str(node.ref)], stack + [child.name])\n",
+     "                refusal = None  # MUTATION: nested modules are not walked\n",
+     ["test_p3_a_nested_module_votes_with_the_whole_chain_in_its_label"]),
+
+    ("M12 the label loses the module it lives in", WIRING,
+     "    return \"/\".join(list(chain) + [str(ref)])\n",
+     "    return str(ref)  # MUTATION: no module in the label\n",
+     ["test_p_the_module_content_votes_and_disagreement_is_refused"]),
+
+    ("M13 the refusal reaches apply_outcome as None again", WIRING,
+     "    return apply_outcome(form, outcome)\n",
+     "    if not outcome.ok:  # MUTATION: the (None, None) shape again\n"
+     "        return apply_outcome(form, None)\n"
+     "    return apply_outcome(form, outcome)\n",
+     ["test_t_read_and_apply_on_an_embedded_tree_does_not_crash"]),
+
+    ("M14 cosmetic control (a comment must change nothing)", MATH,
      "    first_delta = deltas[0][1]\n",
      "    first_delta = deltas[0][1]  # MUTATION: cosmetic\n",
      "survive"),

@@ -528,24 +528,27 @@ def tree_layout_base(adapter, cfg, tree: "Tree", sheet_names, forest=None, *,
     the anchor lives, not where the content starts (plan §V.5.2)."""
     anchor_pos, anchor_rot = _anchor_base_live_position(
         adapter, cfg, tree, sheet_names, snapshot=snapshot)
-    # NOTE (Т2-4а of plan_2026_09_22_live_adapter_class): the snapshot reaches the
-    # ANCHOR half, which is the whole-board sweep. tree_effective_base's own pivot
-    # half (tree_pivot_offset) has no snapshot parameter yet, so a PIVOT-REF tree
-    # can still sweep there — named, not hidden; that seam belongs to the step that
-    # needs it.
+    # NOTE (Т2-4а): the snapshot reaches the ANCHOR half only; tree_effective_base's
+    # pivot half has no snapshot parameter, so a PIVOT-REF tree still sweeps there.
     return tree_effective_base(tree, anchor_pos, anchor_rot, forest,
                                adapter=adapter, cfg=cfg, sheet_names=sheet_names)
 
 
 def layout_tree_from_anchor(tree: "Tree", forest: "dict[str, Tree] | None" = None, *,
-                            adapter=None, cfg=None, sheet_names=None
+                            adapter=None, cfg=None, sheet_names=None,
+                            snapshot=None
                             ) -> dict[str, tuple[Vector2, float]]:
     """The live tree's whole content, laid out from its OWN anchor through the
     inner point + own angle (tree_layout_base) — the convenience wrapper the
-    curated redraw and the GUI use, so no caller can forget the seam."""
-    base_pos, base_rot = tree_layout_base(adapter, cfg, tree, sheet_names, forest)
+    curated redraw and the GUI use, so no caller can forget the seam.
+    `snapshot` (16.11.2026, §1 of plan_2026_11_16_tree_anchor_read) is forwarded
+    to the layout base and to the mount bases inside, so one connection snapshot
+    serves a whole read; None keeps every caller byte for byte."""
+    base_pos, base_rot = tree_layout_base(adapter, cfg, tree, sheet_names, forest,
+                                          snapshot=snapshot)
     return layout_tree_from_base(tree, base_pos, base_rot, forest,
-                                 adapter=adapter, cfg=cfg, sheet_names=sheet_names)
+                                 adapter=adapter, cfg=cfg, sheet_names=sheet_names,
+                                 snapshot=snapshot)
 
 
 def resolve_module_effective_base(marker_pos: Vector2, marker_rot_deg: float,
@@ -563,7 +566,7 @@ def resolve_module_effective_base(marker_pos: Vector2, marker_rot_deg: float,
 
 def layout_tree_from_base(tree: Tree, base_pos: Vector2, base_rot_deg: float,
                           forest: dict[str, Tree] | None = None, *,
-                          adapter=None, cfg=None, sheet_names=None
+                          adapter=None, cfg=None, sheet_names=None, snapshot=None
                           ) -> dict[str, tuple[Vector2, float]]:
     """Pure, NON-persistent layout of a tree's ENTIRE content from an absolute
     (base_pos, base_rot_deg) INSTEAD of its own anchor — the geometry module
@@ -577,8 +580,7 @@ def layout_tree_from_base(tree: Tree, base_pos: Vector2, base_rot_deg: float,
         to the module node — a module node carries only its own position.
     Returns {node.ref: (absolute_position, absolute_rotation_deg)} for every
     NON-module record node reached (module nodes place no record of their own).
-    Cycles cannot occur (link_trees rejects them); the stack is a defensive
-    guard for this pure helper.
+    Cycles cannot occur (link_trees rejects them); the stack is a defensive guard.
 
     NOTE the top-level `(base_pos, base_rot_deg)` is taken as given: THIS
     function does NOT apply `tree`'s own inner point / rotation — the caller
@@ -594,12 +596,10 @@ def layout_tree_from_base(tree: Tree, base_pos: Vector2, base_rot_deg: float,
     a cell THIS tree places — computed from this very layout base and the node
     path, no board needed) or LIVE (a role outside the tree — needs the board);
     mount_node_base picks between them structurally. `lay` therefore carries the
-    current tree and its OWN base alongside the running parent frame: a mount
-    node's internal method poses its placing node from the TREE base, not from
-    the mount's parent frame. adapter/cfg/sheet_names stay OPTIONAL: a mount
-    whose base still needs the board (a live role, or an internal one with a
-    pad) is a ValidationError when they are absent, never a silent wrong
-    position. Mount nodes place no record and are NOT in the returned map.
+    current tree and its OWN base alongside the running parent frame. adapter/
+    cfg/sheet_names stay OPTIONAL: a mount whose base still needs the board (a
+    live role, or an internal one with a pad) is a ValidationError when they are
+    absent, never a silent wrong position. Mounts are NOT in the returned map.
 
     A kind "copper" CONTAINER (2026-09-16, plan_2026_09_16_copper_node_order_
     and_container P.2.4) is not in the map either: it places nothing (`Node` it
@@ -621,7 +621,8 @@ def layout_tree_from_base(tree: Tree, base_pos: Vector2, base_rot_deg: float,
             base_pos, base_rot = pos, rot
             if n.kind == "mount":
                 frames = mount_node_poses(n, cur_tree, tbl_pos, tbl_rot,
-                                          adapter, cfg, sheet_names, forest)
+                                          adapter, cfg, sheet_names, forest,
+                                          snapshot=snapshot)
                 abs_pos, abs_rot = frames.point_pos, frames.point_rot
             else:
                 abs_pos = node_position(n, base_pos, base_rot)
