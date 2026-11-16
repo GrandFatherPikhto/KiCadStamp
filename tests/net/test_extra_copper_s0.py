@@ -342,7 +342,17 @@ def test_06_free_node_ref_is_the_rule_every_door_asks():
     nested = dataclasses.replace(container, children=[])
     parent = TreeNode(ref="p", kind="mount", xy=None, polar=None, rotation=0.0,
                       name=None, group=None, children=[nested])
-    assert free_node_ref("mount", "t", "x", [parent]) == "x_2"
+    assert free_node_ref("copper", "t", "x", [parent]) == "x_2"
+    # ... and a MOUNT clashes with a MOUNT only (16.11.2026: a mount and a record
+    # of one name are different things — plan_2026_11_14_mount_and_record_may_
+    # share_a_name — so `free_node_ref("mount", …)` beside a copper `x` keeps `x`)
+    assert free_node_ref("mount", "t", "x", [parent]) == "x"
+    nested_mount = TreeNode(ref="x", kind="mount", xy=None, polar=None,
+                            rotation=0.0, name=None, group=None, children=[],
+                            anchor=TreeAnchor(ref="R1"))
+    holder = TreeNode(ref="p", kind="mount", xy=None, polar=None, rotation=0.0,
+                      name=None, group=None, children=[nested_mount])
+    assert free_node_ref("mount", "t", "x", [holder]) == "x_2"
 
 
 # ── §0.1: a new record never takes a name the config already holds ─────────

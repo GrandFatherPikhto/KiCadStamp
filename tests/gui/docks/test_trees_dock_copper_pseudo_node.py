@@ -34,6 +34,8 @@ import kicadstamp.config_working_set as config_working_set
 from kicadstamp.config.sexp_format import dict_to_sexp
 from kicadstamp.trees import tree_to_sexp
 
+from tests.gui.conftest import row_of_ref
+
 import gui.docks.trees_dock as trees_dock_mod
 from gui import settings
 from gui.docks.trees_dock import TreesDock
@@ -256,7 +258,8 @@ def test_pseudo_node_has_a_marker_of_its_own_not_none(main_window, tmp_path):
     assert not isinstance(data, trees_dock_mod.TreeNode)
     assert trees_dock_mod._is_copper_group_item(data)
     # ...and it is not a "node" for the rest of the dock either
-    assert all(item is not pseudo for item in dock._node_items.values())
+    assert all(item is not pseudo
+               for _node, item in dock._node_items.values())
     assert len(dock._node_items) == 7  # 5 copper + 2 ordinary, nothing extra
 
 
@@ -349,9 +352,9 @@ def test_ordinary_nodes_keep_their_own_checkboxes(main_window, tmp_path):
     """The propagation is scoped to the pseudo row: checking an ORDINARY node
     still marks nothing but itself (no behaviour change outside Т1.2)."""
     dock, _root = _dock_with(main_window, tmp_path, _copper_tree_nodes())
-    item = dock._node_items["dac_buf_channel_0"]
+    item = row_of_ref(dock, "dac_buf_channel_0")
     item.setCheckState(0, Qt.CheckState.Checked)
-    assert dock._node_items["pif_avdd_channel_0"].checkState(0) \
+    assert row_of_ref(dock, "pif_avdd_channel_0").checkState(0) \
         == Qt.CheckState.Unchecked
     assert _pseudo_item(dock._current_tree_widget()).checkState(0) \
         == Qt.CheckState.Unchecked
@@ -365,7 +368,7 @@ def test_copper_node_menu_is_exactly_the_three_useful_actions(
     node and NOTHING else — no Add child/sibling, no Reread position, no
     Edit/Rename, no Move to/up/down."""
     dock, _root = _dock_with(main_window, tmp_path, _copper_tree_nodes())
-    item = dock._node_items[COPPER_REFS[0]]
+    item = row_of_ref(dock, COPPER_REFS[0])
     labels = _context_menu_labels(dock, item, monkeypatch)
     assert labels == ["Select copper on board", "Redraw", "Delete node"]
 
@@ -376,7 +379,7 @@ def test_plain_node_menu_is_unchanged(main_window, tmp_path, monkeypatch):
     become its children), which sits right after the two "add" items."""
     dock, _root = _dock_with(main_window, tmp_path, [
         {"ref": "dac_buf_channel_0", "kind": "external", "xy": [0.0, 0.0]}])
-    item = dock._node_items["dac_buf_channel_0"]
+    item = row_of_ref(dock, "dac_buf_channel_0")
     labels = _context_menu_labels(dock, item, monkeypatch)
     assert labels == ["Add child", "Add sibling", "Add mounts…",
                       "Reread current position",

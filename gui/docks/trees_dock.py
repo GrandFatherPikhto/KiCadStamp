@@ -130,7 +130,8 @@ from .trees_node_form import (LocalRefs, RecordRefs, UsedRefs, kind_menu_rows,
                               used_ref_index)
 from .trees_mount_point import (clear_mount_point, read_mount_point,
                                 show_mount_point)
-from .trees_node_row import apply_node_form
+from .trees_node_row import (apply_node_form, checked_record_refs,
+                             row_for_record, row_of)
 from .live_position import read_record_live_pose
 from .copper_select import (identify_copper_report_lines, resolve_record,
                             run_identify_copper_worker,
@@ -620,10 +621,10 @@ class TreesDock(QWidget):
         # LAST re-read did not find on the board — rendered as a "stale" mark,
         # never written to the config (design §6).
         self._stale_net_traces: set[str] = set()
-        # ref -> QTreeWidgetItem, rebuilt on every render — needed for the
-        # checkbox selection (Phase 4) and for the move "not into own
-        # descendant" guard (Phase 2).
-        self._node_items: dict[str, QTreeWidgetItem] = {}
+        # ONE entry per NODE, not per ref: `id(node) -> (node, item)`, rebuilt on
+        # every render — the checkbox selection (Phase 4), the move "not into own
+        # descendant" guard (Phase 2) and every row lookup (trees_node_row.row_of).
+        self._node_items: dict[int, tuple[TreeNode, QTreeWidgetItem]] = {}
         # Master-detail (plan §3): the ref of the node currently shown in the
         # ACTIVE page's Node tab, or None when the hint is shown. Lets the
         # selection handler skip a rebuild when the SAME node is re-selected
@@ -1410,7 +1411,7 @@ class TreesDock(QWidget):
         # Ч1 п.1: "Edit node…" means ONE node — the group selection (if any)
         # collapses onto the row being edited, so the panel really shows the
         # editor the action promises.
-        select_only(tree_widget, self._node_items.get(node.ref))
+        select_only(tree_widget, row_of(self, node))
 
     def _anchor_duplicate_refs(self, tree: Tree) -> set[str]:
         """Refs of `tree`'s top-level kind="placement" nodes that duplicate the
@@ -1529,7 +1530,7 @@ class TreesDock(QWidget):
         item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable
                       | Qt.ItemFlag.ItemIsUserTristate)
         item.setCheckState(0, Qt.CheckState.Unchecked)
-        self._node_items[node.ref] = item
+        self._node_items[id(node)] = (node, item)
         for child in node.children:
             self._render_node(item, child, expanded_refs,
                               dup_refs=dup_refs, dup_tooltip=dup_tooltip,
@@ -1588,7 +1589,7 @@ class TreesDock(QWidget):
         dup_tooltip = (_ANCHOR_DUPLICATE_TOOLTIP.format(role=tree.anchor.role)
                        if dup_refs else None)
         for node in _walk_nodes(tree.nodes):
-            item = self._node_items.get(node.ref)
+            item = row_of(self, node)
             if item is None:
                 continue
             is_handle = tree.pivot_ref is not None and node.ref == tree.pivot_ref
@@ -3192,7 +3193,7 @@ class TreesDock(QWidget):
             tree_widget = self._tree_widget_for(tree) or self._current_tree_widget()
             # Ч1 п.1: "whose copper is this?" names ONE node — the highlight
             # collapses any group selection onto it.
-            select_only(tree_widget, self._node_items.get(identity))
+            select_only(tree_widget, row_for_record(self, identity))
             return
 
     def _tree_of_ref(self, ref: str):
@@ -3900,8 +3901,7 @@ class TreesDock(QWidget):
         the dock's active tab. The tick state lives on the RENDERED rows, so the
         passed tree only names the run's target — the checked refs are the ones
         the user ticked."""
-        selected_refs = {ref for ref, item in self._node_items.items()
-                         if item.checkState(0) == Qt.CheckState.Checked}
+        selected_refs = checked_record_refs(self)
         self._run_curated_redraw(selected_refs, trigger, tree)
 
     def _on_redraw_whole_tree(self, trigger=None, tree=None) -> bool:

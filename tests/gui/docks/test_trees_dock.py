@@ -41,7 +41,7 @@ from tests.fakes.write_later import write_later
 # drive the event loop until the operation's token is released before they
 # assert on the node — see conftest._pump's own docstring for why the guard is
 # `not long_op_active` and not "the side effect is already visible".
-from tests.gui.conftest import _pump
+from tests.gui.conftest import _pump, row_of_ref
 
 
 @pytest.fixture(autouse=True)
@@ -513,7 +513,7 @@ def test_node_form_field_edit_marks_touched_and_apply_clears(main_window, tmp_pa
     dock, _root = _dock_with(main_window, tmp_path)
     tree = dock._current_tree()
     tree_widget = dock._tree_widget_of_page(dock.tree_tabs.widget(0))
-    tree_widget.setCurrentItem(dock._node_items[tree.nodes[0].ref])  # AMS1117_REG
+    tree_widget.setCurrentItem(row_of_ref(dock, tree.nodes[0].ref))  # AMS1117_REG
     form = _embedded_form(dock._active_form_page())
     assert isinstance(form, NodeFormWidget)
     assert form._touched is False
@@ -529,7 +529,7 @@ def test_node_form_offset_field_marks_touched(main_window, tmp_path):
     dock, _root = _dock_with(main_window, tmp_path)
     tree = dock._current_tree()
     tree_widget = dock._tree_widget_of_page(dock.tree_tabs.widget(0))
-    tree_widget.setCurrentItem(dock._node_items[tree.nodes[0].ref])
+    tree_widget.setCurrentItem(row_of_ref(dock, tree.nodes[0].ref))
     form = _embedded_form(dock._active_form_page())
     assert isinstance(form, NodeFormWidget)
     assert form._touched is False
@@ -586,7 +586,7 @@ def test_rebuild_accepts_the_active_page_form(main_window, tmp_path):
     dock, _root = _dock_with(main_window, tmp_path)
     tree = dock._current_tree()
     tree_widget = dock._tree_widget_of_page(dock.tree_tabs.widget(0))
-    tree_widget.setCurrentItem(dock._node_items[tree.nodes[0].ref])
+    tree_widget.setCurrentItem(row_of_ref(dock, tree.nodes[0].ref))
     form = _embedded_form(dock._active_form_page())
     assert isinstance(form, NodeFormWidget)
     form.name_edit.setText("unsaved")
@@ -622,7 +622,7 @@ def test_instance_tree_right_panel_is_read_only(main_window, tmp_path):
     assert isinstance(page, QLabel)
     assert "read-only" in page.text()
     dock._current_tree_widget().expandAll()
-    node_item = dock._node_items["dac_buf__ch1_dac_buf"]
+    node_item = row_of_ref(dock, "dac_buf__ch1_dac_buf")
     dock._current_tree_widget().setCurrentItem(node_item)
     page = dock._active_form_page()
     assert isinstance(page, QLabel)
@@ -656,7 +656,7 @@ def test_context_edit_node_shows_node_form(main_window, tmp_path, monkeypatch):
     tree = dock._current_tree()
     node = tree.nodes[0]
     dock._current_tree_widget().expandAll()
-    item = dock._node_items[node.ref]
+    item = row_of_ref(dock, node.ref)
     actions = dict(_context_menu_actions(dock, item, monkeypatch))
     actions["Edit node…"].trigger()
     form = _embedded_form(dock._active_form_page())
@@ -672,7 +672,7 @@ def test_context_set_anchor_shows_anchor_form(main_window, tmp_path, monkeypatch
     tree = dock._current_tree()
     dock._current_tree_widget().expandAll()
     dock._current_tree_widget().setCurrentItem(
-        dock._node_items[tree.nodes[0].ref])
+        row_of_ref(dock, tree.nodes[0].ref))
     assert isinstance(_embedded_form(dock._active_form_page()), NodeFormWidget)
     anchor_item = _children(dock._current_tree_widget().invisibleRootItem())[0]
     actions = dict(_context_menu_actions(dock, anchor_item, monkeypatch))
@@ -1863,9 +1863,9 @@ def test_redraw_selected_collects_checked_refs_and_calls_worker(
         main_window, tmp_path, monkeypatch):
     dock, _root = _dock_with(main_window, tmp_path)
 
-    ams_item = dock._node_items["AMS1117_REG"]
+    ams_item = row_of_ref(dock, "AMS1117_REG")
     ams_item.setCheckState(0, Qt.CheckState.Checked)
-    r_item = dock._node_items["R_AROUND"]
+    r_item = row_of_ref(dock, "R_AROUND")
     r_item.setCheckState(0, Qt.CheckState.Checked)
 
     captured = {}
@@ -1879,7 +1879,11 @@ def test_redraw_selected_collects_checked_refs_and_calls_worker(
 
     assert captured
     assert captured["payload"]["tree_name"] == "power_tree"
-    assert captured["payload"]["selected_refs"] == {"AMS1117_REG", "R_AROUND"}
+    # A checked row hands in its whole SUBTREE's records (plan_2026_11_14_mount_
+    # and_record_may_share_a_name п.2) — `C_OUT` comes with its parent, and a
+    # checked `mount` would bring its children while its own name stays out.
+    assert captured["payload"]["selected_refs"] == {"AMS1117_REG", "C_OUT",
+                                                    "R_AROUND"}
     assert captured["payload"]["trees"] is dock._trees
 
 
@@ -2162,7 +2166,7 @@ def test_context_menu_on_node_offers_reread_and_edit(main_window, tmp_path, monk
     by stubbing itemAt to return the node item."""
     dock, _root = _dock_with(main_window, tmp_path)
     tree_widget = dock._current_tree_widget()
-    ams_item = dock._node_items["AMS1117_REG"]
+    ams_item = row_of_ref(dock, "AMS1117_REG")
     monkeypatch.setattr(tree_widget, "itemAt", lambda pos: ams_item)
     actions = dict(_context_menu_actions(dock, ams_item, monkeypatch))
     assert "Reread current position" in actions
@@ -2190,7 +2194,7 @@ def test_context_menu_moves_a_node_up_and_down(main_window, tmp_path, monkeypatc
     assert [n.ref for n in tree.nodes] == ["A_NODE", "B_NODE", "C_NODE"]
 
     widget = dock._current_tree_widget()
-    first_item = dock._node_items["A_NODE"]
+    first_item = row_of_ref(dock, "A_NODE")
     monkeypatch.setattr(widget, "itemAt", lambda pos: first_item)
     actions = dict(_context_menu_actions(dock, first_item, monkeypatch))
     # The first node cannot go up, so that direction is simply not offered (the
@@ -2736,7 +2740,7 @@ def test_master_detail_node_tab_apply_mutates_node_and_marks_dirty(main_window, 
     node = tree.nodes[0]  # AMS1117_REG (clone, xy 5,2)
     node.rotation = 1.0
     tree_widget = dock._tree_widget_of_page(dock.tree_tabs.widget(0))
-    tree_widget.setCurrentItem(dock._node_items[node.ref])
+    tree_widget.setCurrentItem(row_of_ref(dock, node.ref))
     form = _embedded_form(dock._active_form_page())
     assert isinstance(form, NodeFormWidget)
     form.rotation_edit.setText("77")
@@ -3827,7 +3831,7 @@ def test_master_detail_module_node_apply_leaves_the_tree_pivot_untouched(
     dock.tree_tabs.setCurrentIndex(dock._trees.index(fpga))
     tree_widget = dock._tree_widget_of_page(dock.tree_tabs.currentWidget())
     tree_widget.expandAll()
-    tree_widget.setCurrentItem(dock._node_items[node.ref])
+    tree_widget.setCurrentItem(row_of_ref(dock, node.ref))
     form = _embedded_form(dock._active_form_page())
     assert isinstance(form, NodeFormWidget)
     form.offset_widget.x_edit.setText("11.0")
@@ -3856,7 +3860,7 @@ def test_master_detail_row_carries_one_apply_button_whatever_the_kind(
     tree_widget = dock._tree_widget_of_page(dock.tree_tabs.currentWidget())
     tree_widget.expandAll()
 
-    tree_widget.setCurrentItem(dock._node_items[module_node.ref])
+    tree_widget.setCurrentItem(row_of_ref(dock, module_node.ref))
     page = dock._active_form_page()
     form = _embedded_form(page)
     assert isinstance(form, NodeFormWidget)
@@ -3897,7 +3901,7 @@ def test_render_tree_shows_module_tag(main_window, tmp_path):
     whole other tree"); the underlying kind value stays "module" everywhere
     else (data/grammar unaffected, display-only)."""
     dock, _root = _module_dock(main_window, tmp_path)
-    item = dock._node_items["ch0_dac_buf"]
+    item = row_of_ref(dock, "ch0_dac_buf")
     assert "(Tree)" in item.text(0)
 
 
@@ -3930,7 +3934,7 @@ def test_double_click_navigation_module_and_embedded_in(main_window, tmp_path):
 
     # Double-click the module node (on the fpga tab) -> ch0 tab.
     dock.tree_tabs.setCurrentIndex(fpga_idx)
-    mod_item = dock._node_items["ch0_dac_buf"]
+    mod_item = row_of_ref(dock, "ch0_dac_buf")
     dock._on_node_activated(mod_item, 0)
     assert dock.tree_tabs.currentIndex() == ch0_idx
 
@@ -3987,7 +3991,7 @@ def test_instance_context_menu_offers_no_structural_actions(
     dock, _ = _instance_dock(main_window, tmp_path)
     dock.tree_tabs.setCurrentIndex(1)  # ch1_dac_buf (the instance)
     dock._current_tree_widget().expandAll()
-    node_item = dock._node_items["dac_buf__ch1_dac_buf"]
+    node_item = row_of_ref(dock, "dac_buf__ch1_dac_buf")
     actions = dict(_context_menu_actions(dock, node_item, monkeypatch))
     labels = set(actions)
     for forbidden in ("Add child", "Add sibling", "Edit node…",
@@ -4004,7 +4008,7 @@ def test_template_context_menu_still_offers_structural_actions(
     dock, _ = _instance_dock(main_window, tmp_path)
     dock.tree_tabs.setCurrentIndex(0)  # dac_buf_tpl (the template)
     dock._current_tree_widget().expandAll()
-    node_item = dock._node_items["dac_buf"]
+    node_item = row_of_ref(dock, "dac_buf")
     assert node_item.text(0).startswith("dac_buf")
     actions = dict(_context_menu_actions(dock, node_item, monkeypatch))
     labels = set(actions)
@@ -4074,8 +4078,8 @@ def test_save_rebuilds_the_instance_tabs_of_an_edited_template(
                  rotation=0.0, name=None, group=None))
     dock._mark_dirty()
     dock._rebuild_tabs()   # a structural edit re-renders every tab ...
-    assert "extra_sw" in dock._node_items
-    assert "extra_sw__ch1_dac_buf" not in dock._node_items, (
+    assert row_of_ref(dock, "extra_sw") is not None
+    assert row_of_ref(dock, "extra_sw__ch1_dac_buf") is None, (
         "... but a re-render draws the SAME instance Tree object: the copy is "
         "generated at LOAD, so the instance tab still shows the old geometry")
 
@@ -4084,7 +4088,7 @@ def test_save_rebuilds_the_instance_tabs_of_an_edited_template(
     inst = next(t for t in dock._trees if t.name == "ch1_dac_buf")
     assert [n.ref for n in inst.nodes[0].children] == [
         "pif_avdd__ch1_dac_buf", "extra_sw__ch1_dac_buf"]
-    assert "extra_sw__ch1_dac_buf" in dock._node_items, (
+    assert row_of_ref(dock, "extra_sw__ch1_dac_buf") is not None, (
         "after Save the instance tab must carry the template's new node")
     assert dock.tree_tabs.count() == 2         # template + its one instance
     assert dock._dirty is False
@@ -4139,7 +4143,7 @@ def test_a_dirty_reload_refreshes_generated_tabs_and_keeps_a_manual_edit(
     dock = TreesDock(main_window)
     dock.set_root_file(root)
     assert [t.name for t in dock._trees] == ["dac_buf_tpl", "manual", "ch1_dac_buf"]
-    assert "extra_sw__ch1_dac_buf" not in dock._node_items
+    assert row_of_ref(dock, "extra_sw__ch1_dac_buf") is None
     manual = _add_manual_node(dock)
 
     # The template gained a node ON DISK while this buffer is dirty.
@@ -4161,7 +4165,7 @@ def test_a_dirty_reload_refreshes_generated_tabs_and_keeps_a_manual_edit(
     inst = next(t for t in dock._trees if t.name == "ch1_dac_buf")
     assert [n.ref for n in inst.nodes[0].children] == [
         "pif_avdd__ch1_dac_buf", "extra_sw__ch1_dac_buf"]
-    assert "extra_sw__ch1_dac_buf" in dock._node_items
+    assert row_of_ref(dock, "extra_sw__ch1_dac_buf") is not None
     kept = next(t for t in dock._trees if t.name == "manual")
     assert kept is manual, "a hand-written tree must survive the reload untouched"
     assert [n.ref for n in kept.nodes] == ["MANUAL_A", "MANUAL_B"]
@@ -4231,7 +4235,7 @@ def test_a_save_that_rebuilds_instances_keeps_a_manual_edit(
 
     dock._do_save()
 
-    assert "extra_sw__ch1_dac_buf" in dock._node_items
+    assert row_of_ref(dock, "extra_sw__ch1_dac_buf") is not None
     kept = next(t for t in dock._trees if t.name == "manual")
     assert [n.ref for n in kept.nodes] == ["MANUAL_A", "MANUAL_B"]
     raw = sexp_to_dict(root.read_text(encoding="utf-8"))
@@ -4854,7 +4858,7 @@ def test_context_menu_on_copper_node_offers_redraw(main_window, tmp_path, monkey
                         "anchor_role": "FPGA", "anchor_pad": "1"}]}
     dock, _root = _dock_with(main_window, tmp_path, trees)
     tree_widget = dock._current_tree_widget()
-    copper_item = dock._node_items["2v5_oa__dac_buf__pif_oa_n2v5"]
+    copper_item = row_of_ref(dock, "2v5_oa__dac_buf__pif_oa_n2v5")
     monkeypatch.setattr(tree_widget, "itemAt", lambda pos: copper_item)
     actions = dict(_context_menu_actions(dock, copper_item, monkeypatch))
     assert "Select copper on board" in actions
@@ -4897,7 +4901,7 @@ def test_double_click_on_plain_node_shows_node_form(main_window, tmp_path):
     dock, _root = _dock_with(main_window, tmp_path)
     tree = dock._current_tree()
     node = tree.nodes[0]
-    item = dock._node_items[node.ref]
+    item = row_of_ref(dock, node.ref)
     dock._on_node_activated(item, 0)
     form = _embedded_form(dock._active_form_page())
     assert isinstance(form, NodeFormWidget)
@@ -4914,7 +4918,7 @@ def test_double_click_on_module_node_switches_tab(main_window, tmp_path, monkeyp
     # UserRole payload drives the branch).
     node = TreeNode(ref="ch0", kind="module", xy=None, polar=None, rotation=0.0,
                     name=None, group=None, children=[])
-    item = dock._node_items[tree.nodes[0].ref]
+    item = row_of_ref(dock, tree.nodes[0].ref)
     item.setData(0, Qt.ItemDataRole.UserRole, node)
     dock._on_node_activated(item, 0)
     assert switched == ["ch0"]
@@ -5056,12 +5060,12 @@ def test_anchor_duplicate_node_is_marked_in_trees_dock(main_window):
     dock = TreesDock(main_window)
     widget = _render_tree_direct(dock, cfg, tree)  # keep alive (owns the items)
 
-    dup = dock._node_items["conn_pm5v_power"]
+    dup = row_of_ref(dock, "conn_pm5v_power")
     assert dup.background(0).color() == _ANCHOR_DUPLICATE_BG
     assert dup.toolTip(0)
     assert "anchor" in dup.toolTip(0)
 
-    normal = dock._node_items["ldo_adj_n2v5_power"]
+    normal = row_of_ref(dock, "ldo_adj_n2v5_power")
     assert normal.background(0).color() != _ANCHOR_DUPLICATE_BG
     assert normal.toolTip(0) == ""
 
@@ -5077,7 +5081,7 @@ def test_tree_without_duplicate_has_no_marked_node(main_window):
     dock = TreesDock(main_window)
     widget = _render_tree_direct(dock, cfg, tree)  # keep alive (owns the items)
     for ref in ("conn_pm5v_power", "ldo_adj_n2v5_power"):
-        item = dock._node_items[ref]
+        item = row_of_ref(dock, ref)
         assert item.background(0).color() != _ANCHOR_DUPLICATE_BG
         assert item.toolTip(0) == ""
 
@@ -5125,7 +5129,7 @@ def test_auto_anchor_tree_single_node_not_marked(main_window):
     cfg.trees = [tree]
     dock = TreesDock(main_window)
     widget = _render_tree_direct(dock, cfg, tree)  # keep alive (owns the items)
-    item = dock._node_items["fpga"]
+    item = row_of_ref(dock, "fpga")
     assert item.background(0).color() != _ANCHOR_DUPLICATE_BG
     assert item.toolTip(0) == ""
 
@@ -6582,7 +6586,7 @@ def test_panel_shows_the_mount_node_form_with_its_picker(main_window, tmp_path):
     dock, _root = _dock_with(main_window, tmp_path, trees)
     tree_widget = dock._current_tree_widget()
     tree_widget.expandAll()
-    tree_widget.setCurrentItem(dock._node_items["m_ad_dac"])
+    tree_widget.setCurrentItem(row_of_ref(dock, "m_ad_dac"))
     form = _embedded_form(dock._active_form_page())
     assert isinstance(form, NodeFormWidget)
     assert form.kind_combo.currentData() == "mount"
@@ -7007,12 +7011,12 @@ def test_render_tree_marks_the_pivot_ref_handle(main_window):
     dock = TreesDock(main_window)
     widget = QTreeWidget()
     dock._render_tree(widget, tree)
-    assert "(handle)" in dock._node_items["A"].text(0)
-    assert "(handle)" not in dock._node_items["B"].text(0)
+    assert "(handle)" in row_of_ref(dock, "A").text(0)
+    assert "(handle)" not in row_of_ref(dock, "B").text(0)
     tree.pivot_ref = "B"
     dock._refresh_tree_marks(tree)
-    assert "(handle)" not in dock._node_items["A"].text(0)
-    assert "(handle)" in dock._node_items["B"].text(0)
+    assert "(handle)" not in row_of_ref(dock, "A").text(0)
+    assert "(handle)" in row_of_ref(dock, "B").text(0)
 
 
 # ═══════════════════════════════════════════════════════════════════════════

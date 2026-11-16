@@ -36,8 +36,13 @@ from __future__ import annotations
 
 import copy
 import logging
+from typing import Optional
+
+from PyQt6.QtCore import Qt
+from PyQt6.QtWidgets import QTreeWidgetItem
 
 from kicadstamp.config.form_identity import node_ref_uuid
+from kicadstamp.trees_local_refs import NAME_ONLY_KINDS
 from kicadstamp.exceptions import ValidationError
 from kicadstamp.i18n import _
 from kicadstamp.trees import TreeNode, tree_from_dict, tree_to_dict
@@ -293,28 +298,74 @@ def apply_node_form(form) -> bool:
     return True
 
 
+# ── the row registry: ONE row per NODE ────────────────────────────────────────
+#
+# `dock._node_items` maps `id(node)` to `(node, item)` — see plan_2026_11_14_
+# mount_and_record_may_share_a_name Ч1. It used to map the node's REF and span the
+# whole dock, so two trees carrying one name (a mount in t1, a record node in t2 —
+# legal since that plan) overwrote each other and one row became unreachable.
+# The VALUE keeps the node itself: an `id` is reused after a buffer rebuild, so a
+# stale key must answer None instead of handing back somebody else's row.
+# `TreeNode` cannot be the key — it is a mutable dataclass, therefore unhashable.
+
+
+def row_of(dock, node: TreeNode) -> Optional[QTreeWidgetItem]:
+    """The rendered row of THIS node, or None (no rebuilt/stale row matches)."""
+    entry = (getattr(dock, "_node_items", None) or {}).get(id(node))
+    if entry is None or entry[0] is not node:
+        return None
+    return entry[1]
+
+
+def row_for_record(dock, ref: str) -> Optional[QTreeWidgetItem]:
+    """The row of the node that PLACES the record `ref` — record kinds only.
+
+    "The row of that name" is ambiguous BY CONSTRUCTION now: a local NAME may be
+    a record's name too (`mount` since 16.11.2026). A caller that means the
+    RECORD — the identified-copper highlight — must skip the name-only kinds, and
+    this is that one walk."""
+    if not ref:
+        return None
+    for node, item in (getattr(dock, "_node_items", None) or {}).values():
+        if node.ref == ref and node.kind not in NAME_ONLY_KINDS:
+            return item
+    return None
+
+
+def checked_record_refs(dock) -> set[str]:
+    """`selected_refs` of "Redraw selected": the RECORDS of every CHECKED row.
+
+    A ticked node hands in its whole subtree's records (`subtree_refs`) and never
+    its own local name: a mount/copper/component places nothing, and since its
+    name may equal a record's (16.11.2026) the name alone would emit somebody
+    else's record. The tick no longer depends on which row the registry happened
+    to keep — every row of every tree is its own entry."""
+    from .trees_accept import subtree_refs
+
+    refs: set[str] = set()
+    for node, item in (getattr(dock, "_node_items", None) or {}).values():
+        if item.checkState(0) == Qt.CheckState.Checked:
+            refs.update(subtree_refs(node))
+    return refs
+
+
 def refresh_node_row(dock, tree, node: TreeNode, old_ref: str) -> None:
-    """Re-key and repaint ONE row after an in-place node edit.
+    """Repaint ONE row after an in-place node edit.
 
-    `node` is the edited TreeNode (already carrying its NEW ref), `old_ref` its
-    ref BEFORE the edit. The SAME QTreeWidgetItem moves from
-    `dock._node_items[old_ref]` to `dock._node_items[node.ref]` — a dict move, so
-    the widget item itself, its selection and its expansion state all survive and
-    no item is created — and is then repainted by `dock._refresh_tree_marks(tree)`,
-    the render's OWN routine. The dock's master-detail identity
-    (`_current_node_ref`) follows the node, so re-selecting the row keeps the
-    SAME (still open) form instead of tearing it down.
+    `node` is the edited TreeNode (already carrying its NEW ref); `old_ref` is its
+    ref BEFORE the edit. NOTHING is re-keyed any more: the registry is keyed by the
+    NODE's identity and the edit mutates the node IN PLACE (design §9.4), so the
+    row is found by the very object that changed — the old `pop(old_ref)`/
+    `[node.ref] =` move went with the name key. The row is then repainted by
+    `dock._refresh_tree_marks(tree)`, the render's OWN routine. The dock's
+    master-detail identity (`_current_node_ref`) follows the node, so re-selecting
+    the row keeps the SAME (still open) form instead of tearing it down.
 
-    A no-op when the dock carries no registry row for `old_ref` — a headless or
-    standalone form with no built tree widget (the modal dialog's Edit mode in a
-    test, a create-tree form), where there is no row to update."""
-    items = getattr(dock, "_node_items", None)
-    if items is None:
+    A no-op when the dock carries no registry at all — a headless or standalone
+    form with no built tree widget (the modal dialog's Edit mode in a test, a
+    create-tree form), where there is no row to update."""
+    if getattr(dock, "_node_items", None) is None:
         return
-    item = items.pop(old_ref, None)
-    if item is None:
-        return
-    items[node.ref] = item
     if tree is not None:
         # The render's own text/marks routine — the row is repainted from the
         # node the form just committed, never by a second calculation here.

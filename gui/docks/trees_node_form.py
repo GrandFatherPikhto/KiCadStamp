@@ -393,8 +393,13 @@ def mark_used_items(combo, index: Optional[UsedRefs], own, resolve,
         place = (index.place(resolve(data[0], name), name,
                              own_uuid=own_uuid, own_name=own_ref)
                  if index is not None else None)
-        holder = None if place is not None or local is None \
-            else local.local_kind_of(name)
+        # The SECOND reason is asked of the RULE, not of "is a local node there":
+        # a kind whose collision ban is gone (`mount` since 16.11.2026) must not
+        # grey the row the loader would accept — the grey and the refusal are the
+        # same question (`ref_use_refusal` asks `LocalRefs.refusal`).
+        holder = None
+        if place is None and local is not None and local.refusal(data[0], name):
+            holder = local.local_kind_of(name)
         if place is None and holder is None:
             continue
         item = combo.model().item(row)

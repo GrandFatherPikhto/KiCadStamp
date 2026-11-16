@@ -66,6 +66,7 @@ from gui.docks.trees_move_flow import (RehangPlan, _GROUP_COPPER_SKIPPED,
                                        run_drop_move)
 
 from tests.fakes.write_later import write_later
+from tests.gui.conftest import row_of_ref
 from tests.gui.docks.test_trees_dock import sync_long_ops  # noqa: F401 — fixture
 from tests.gui.docks.test_trees_dock_group_move import (_pose_stub, _row_node,
                                                         _select_rows)
@@ -381,7 +382,7 @@ def test_a_pseudo_row_is_not_a_node(main_window, tmp_path):
 
     assert node_of_item(anchor_item) is None
     assert node_of_item(named) is None
-    assert node_of_item(dock._node_items["R_ONE"]) is not None
+    assert node_of_item(row_of_ref(dock, "R_ONE")) is not None
 
 
 def _drop_event():
@@ -404,7 +405,7 @@ def test_the_drop_never_lets_qt_move_the_items(
                         lambda t: [_row_node(dock, "R_ONE")])
     widget = dock._tree_widget_for(tree)
     monkeypatch.setattr(widget, "itemAt",
-                        lambda pos: dock._node_items["mnt_b"])
+                        lambda pos: row_of_ref(dock, "mnt_b"))
     monkeypatch.setattr(widget, "dropIndicatorPosition", lambda: _POSITION.OnItem)
     qt_calls: list = []
     monkeypatch.setattr(QTreeWidget, "dropEvent",
@@ -427,7 +428,7 @@ def test_a_drop_between_rows_is_not_accepted(
                         lambda t: [_row_node(dock, "R_ONE")])
     widget = dock._tree_widget_for(tree)
     monkeypatch.setattr(widget, "itemAt",
-                        lambda pos: dock._node_items["mnt_b"])
+                        lambda pos: row_of_ref(dock, "mnt_b"))
     monkeypatch.setattr(widget, "dropIndicatorPosition",
                         lambda: _POSITION.BelowItem)
     called: list = []
@@ -463,7 +464,7 @@ def test_drag_move_event_runs_the_base_handler_first(
     widget = dock._tree_widget_for(tree)
     monkeypatch.setattr(widget, "dropIndicatorPosition", lambda: _POSITION.OnItem)
     monkeypatch.setattr(widget, "itemAt",
-                        lambda pos: dock._node_items["mnt_b"])
+                        lambda pos: row_of_ref(dock, "mnt_b"))
     order: list[str] = []
     monkeypatch.setattr(QTreeWidget, "dragMoveEvent",
                         lambda self, event: order.append("base"))
@@ -535,7 +536,7 @@ def test_the_rebuilt_items_agree_with_the_model_after_a_drop(
     _select_rows(dock, "R_ONE")
     widget = dock._tree_widget_for(tree)
     monkeypatch.setattr(widget, "itemAt",
-                        lambda pos: dock._node_items["mnt_b"])
+                        lambda pos: row_of_ref(dock, "mnt_b"))
     monkeypatch.setattr(widget, "dropIndicatorPosition", lambda: _POSITION.OnItem)
 
     widget.dropEvent(_drop_event())
@@ -554,7 +555,7 @@ def test_the_rebuilt_items_agree_with_the_model_after_a_drop(
     walk(fresh.invisibleRootItem())
     assert sorted(rows) == sorted(_model_refs(tree)), \
         "every model node has its row and no row outlived a node"
-    assert dock._node_items["R_ONE"].parent() is dock._node_items["mnt_b"], \
+    assert row_of_ref(dock, "R_ONE").parent() is row_of_ref(dock, "mnt_b"), \
         "the rebuilt widget shows the node under its new parent"
 
 

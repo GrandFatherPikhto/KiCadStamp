@@ -35,6 +35,7 @@ from kipy.geometry import Vector2 as KipyVector2
 import gui.board_overlay as board_overlay_mod
 import gui.overlay_markers as markers_mod
 import gui.docks.trees_dock as td_mod
+from tests.gui.conftest import row_of_ref
 from gui.docks.trees_dock import (
     NodeFormWidget,
     _NodeDialog,
@@ -444,7 +445,7 @@ def test_leaving_the_node_takes_the_figures_down(
     no closeEvent is ever delivered to a plain QWidget)."""
     env = _mount_setup(main_window, tmp_path, monkeypatch)
     tree_widget = env.dock._current_tree_widget()
-    tree_widget.setCurrentItem(env.dock._node_items["M1"])
+    tree_widget.setCurrentItem(row_of_ref(env.dock, "M1"))
     form = env.dock._embedded_form_of(
         env.dock._panel_page(env.dock._active_form_panel()))
     assert isinstance(form, NodeFormWidget)

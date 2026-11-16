@@ -48,6 +48,7 @@ from kicadstamp.trees import tree_to_sexp
 from kicadstamp.utils.units import MM
 
 import gui.docks.trees_dock as trees_dock_mod
+from tests.gui.conftest import row_of_ref
 from gui.docks.trees_dock import TreesDock
 from gui.docks.trees_mount_rebase import (_AXES_FROM_NEW_ANCHOR,
                                           _CHILDREN_UNREADABLE,
@@ -67,7 +68,7 @@ MOUNT_XY = (2.0, 0.0)
 
 def _row_node(dock, ref):
     """The TreeNode a ROW carries — what the flow reads from the selection."""
-    return dock._node_items[ref].data(0, Qt.ItemDataRole.UserRole)
+    return row_of_ref(dock, ref).data(0, Qt.ItemDataRole.UserRole)
 
 
 def _dock_with(main_window, tmp_path):
@@ -478,7 +479,7 @@ def test_the_node_form_shows_the_new_anchor_after_the_command(
     _pick(monkeypatch)
     widget = dock._current_tree_widget()
     widget.clearSelection()
-    dock._node_items["MNT"].setSelected(True)
+    row_of_ref(dock, "MNT").setSelected(True)
 
     dock._mount_anchor_flow(tree, _row_node(dock, "MNT"))
 
@@ -518,10 +519,10 @@ def test_the_menu_offers_the_action_for_a_mount_node_alone(
     Mutation check: drop the kind test and the record node's row carries it too."""
     dock = _dock_with(main_window, tmp_path)
 
-    labels = _context_menu_labels(dock, dock._node_items["MNT"], monkeypatch)
+    labels = _context_menu_labels(dock, row_of_ref(dock, "MNT"), monkeypatch)
     assert trees_dock_mod._("Change anchor from selection…") in labels
     assert trees_dock_mod._("Move to…") in labels, "the existing action stays"
 
-    labels = _context_menu_labels(dock, dock._node_items["R_ONE"], monkeypatch)
+    labels = _context_menu_labels(dock, row_of_ref(dock, "R_ONE"), monkeypatch)
     assert trees_dock_mod._("Change anchor from selection…") not in labels
     assert trees_dock_mod._("Move to…") in labels

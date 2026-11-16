@@ -779,16 +779,16 @@ def apply_reread_plan(cfg: Config, plan: RereadPlan) -> Config:
     in the list and therefore the order everything else reads — and an added
     record is appended. NOTHING is removed: a `missing` record stays exactly as
     it is (design §6). An `added` name the config already holds is a PLANNER bug
-    and raises (§0.1) — such a record used to be skipped in silence, and the
-    copper it carried was lost while the report said "added"."""
+    and raises (§0.1) — it used to be skipped in silence, losing its copper."""
     updates = {c.identity: c.record for c, _ in plan.updated}
     merged = [updates.get(net_trace_effective_name(nt), nt)
               for nt in cfg.net_traces]
     present = {net_trace_effective_name(nt) for nt in merged}
     for c in plan.added:
         if c.identity in present:
-            raise ValueError(f"re-read plan adds {c.identity!r}, a name the config "
-                             "already has — a record is never dropped")
+            raise ValueError(_(
+                "re-read plan adds {name!r}, a name the config already has — a "
+                "record is never dropped").format(name=c.identity))
         present.add(c.identity)
         merged.append(c.record)
     return dataclasses.replace(cfg, net_traces=merged)

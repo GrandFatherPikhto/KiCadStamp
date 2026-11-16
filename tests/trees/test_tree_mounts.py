@@ -429,13 +429,16 @@ class TestPlanMountNodes:
         assert plan.nodes == []
         assert "mnt_7" in plan.refusals[0]
 
-    def test_a_name_colliding_with_a_positioned_node_is_refused_by_the_loader(self):
-        """The mount-name rule is the LOADER's (unique in the tree, no collision
-        with a positioned node) — the plan runs it instead of restating it."""
+    def test_a_name_like_a_positioned_node_of_the_same_tree_is_accepted(self):
+        """The mount-name rule is the LOADER's, and the loader's answer is what
+        the plan runs instead of restating it. Since 16.11.2026 that answer no
+        longer forbids a mount to carry a positioned node's name
+        (plan_2026_11_14_mount_and_record_may_share_a_name), so this plan — which
+        used to be REFUSED — must now pass."""
         plan = plan_mount_nodes("R_ONE", _rows(_pad("7")), selected=["7"],
                                 address=_ADDRESS, tree=self._tree_with_a_record())
-        assert plan.nodes == []
-        assert "positioned node" in plan.refusals[0]
+        assert plan.ok, plan.refusals
+        assert [node.ref for node in plan.nodes] == ["R_ONE"]
 
     def test_a_name_used_in_another_tree_is_not_this_tree_s_business(self):
         """Mount refs are LOCAL names: the same name in another tree is legal, so

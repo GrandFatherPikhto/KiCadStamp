@@ -1415,6 +1415,18 @@ context-menu entry — is gone. Extracting a standalone Cell from a fully-select
 single **Extract cluster…** dialog (**Tools → Config**, see the [Extract](#extract) section); the group
 is then placed by a normal tree node or a `tree_instances:` template.
 
+**UPDATE 2026-11-16 (plan_2026_11_14_mount_and_record_may_share_a_name):** a `mount` node and a
+positioned node may carry the SAME ref — in one tree or in different ones. A mount is a point of
+reference and places nothing; a positioned node PLACES a record, and the loader tells them apart by
+kind and uuid, not by name (Denis, 14.11: «маунт и сущность — не одно и то же»). So the node form no
+longer greys a record whose name a mount of that tree carries, Apply accepts it and `load_config`
+reads the result; the loader still refuses two MOUNTS of one name in one tree, and the second check
+(«a local name may not equal a positioned node's ref») stays for `copper`/`component`. The row
+registry is keyed by the NODE (`trees_node_row.row_of`), so two rows of one name no longer overwrite
+each other: «Edit node…» selects the row that was asked about, a ticked mount redraws the records of
+its SUBTREE (its own name is not a record — «Redraw whole tree» likewise lists records only), and a
+Ref edit moves nothing but the node.
+
 ## Add mounts… (2026-11-04, plan_2026_11_03_add_mounts_table)
 
 **Where.** In a tree tab, right-click a **node** → **Add mounts…** and the mounts it creates become that

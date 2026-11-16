@@ -14,11 +14,16 @@ was greyed in the node form and could not be added. Two causes, both covered her
 The fixture has TWO trees on purpose: `t1` holds the node that occupies a name,
 and the new node is added to `t2` — the shape of Denis's own case, where the
 mount lives in `fpga` and the entity is needed elsewhere. What must NOT change:
-a REAL repeat of the same record stays greyed and refused (cell в); a mount still
-may not share its ref with a positioned node of ITS OWN tree
-(`trees._validate_local_refs`, cell а's second half); and the loader's rule 2 —
-"a ref appears in at most one node in the file" — still refuses a duplicate REF
-for a ref that names no record at all.
+a REAL repeat of the same record stays greyed and refused (cell в), and the
+loader's rule 2 — "a ref appears in at most one node in the file" — still refuses
+a duplicate REF for a ref that names no record at all.
+
+The SECOND half of the local-name rule ("a local name may not equal a positioned
+node's ref") was lifted for a MOUNT on 16.11.2026 (plan_2026_11_14_mount_and_
+record_may_share_a_name): a mount is a point of reference, a positioned node
+PLACES a record, and kind + uuid tell them apart — so cells а2, з and м moved to
+the kinds that still carry that check (`LOCAL_COLLISION_KINDS`, read off the rule
+itself), and its mount half is pinned as ALLOWED (з2, м2).
 """
 from __future__ import annotations
 
@@ -32,6 +37,7 @@ from kicadstamp.config.sexp_format import dict_to_sexp
 from kicadstamp.exceptions import ValidationError
 from kicadstamp.trees import (TreeAnchor, TreeNode, node_kind_label,
                               tree_from_dict, tree_to_dict)
+from kicadstamp.trees_local_refs import LOCAL_COLLISION_KINDS
 
 #: Records enough for every cell: two sections sharing ONE name (SHARED_X as an
 #: ENTITY and as a POINT), a CELL named like an ENTITY (SHARED_Y), and two plain
@@ -168,13 +174,17 @@ def test_a_a_mount_and_an_entity_of_one_name_do_not_block_each_other(
     tree_from_dict(tree_to_dict(dock._trees[T2]))     # no fatal
 
 
-def test_a2_the_same_pair_inside_ONE_tree_is_still_a_load_time_fatal(
+def test_a2_a_COPPER_container_may_still_not_take_a_positioned_node_s_name(
         main_window, tmp_path):
-    """What this fix does NOT loosen (plan "Не делать"): a mount's ref still may
-    not collide with a POSITIONED node of its OWN tree — the tree's later stages
-    must be able to say which node is meant (`trees._validate_local_refs`)."""
+    """What this fix does NOT loosen: the SECOND half of the local-name rule, for
+    the kinds that still carry it. A copper CONTAINER named like a positioned
+    node of its own tree is a load-time fatal as before — the container lookup
+    must be able to say which node is meant (`LOCAL_COLLISION_KINDS`). The same
+    pair with a MOUNT is legal since 16.11.2026 (plan_2026_11_14_mount_and_record
+    _may_share_a_name), which is why this cell moved off the mount."""
     dock = _dock(main_window, tmp_path)
-    _add_node(dock, "ENT_SHARED", "mount", anchor=_mount_anchor())
+    # a copper CONTAINER carries no anchor (only a mount may), so it is added bare
+    _add_node(dock, "ENT_SHARED", "copper", tree=T1)
     _add_node(dock, "ENT_SHARED", "placement", tree=T1)
 
     with pytest.raises(ValidationError, match="collide with a positioned node"):
@@ -301,6 +311,9 @@ def test_zh_the_local_kind_list_has_one_owner():
 # cell, `copper` is a parameter of `з`).
 
 LOCAL_KINDS = ("mount", "copper", "component")
+#: The kinds whose local name may STILL not equal a positioned node's ref — read
+#: off the rule's own table, so a lifted ban can never leave these cells stale.
+COLLIDING_LOCAL_KINDS = tuple(sorted(LOCAL_COLLISION_KINDS))
 
 
 def _local_node(dock, ref: str, kind: str, tree: int = T1) -> TreeNode:
@@ -309,7 +322,7 @@ def _local_node(dock, ref: str, kind: str, tree: int = T1) -> TreeNode:
     return _add_node(dock, ref, kind, anchor=_mount_anchor(), tree=tree)
 
 
-@pytest.mark.parametrize("local_kind", LOCAL_KINDS)
+@pytest.mark.parametrize("local_kind", COLLIDING_LOCAL_KINDS)
 def test_z_a_record_named_like_a_local_node_of_the_SAME_tree_is_refused(
         main_window, tmp_path, monkeypatch, local_kind):
     """Клетки з и к: the local node `ENT_SHARED` stands in t1 and the node is being
@@ -317,7 +330,9 @@ def test_z_a_record_named_like_a_local_node_of_the_SAME_tree_is_refused(
     same tree"), so the row is greyed with ITS OWN hint (no record stands
     anywhere, so "already stands in tree …" would name the wrong thing) and Apply
     refuses in the LOADER's words. Nothing is touched on the way: neither the
-    buffer nor the dirty flag."""
+    buffer nor the dirty flag.
+
+    Parametrized by `COLLIDING_LOCAL_KINDS`: a MOUNT is no longer one of them."""
     dock = _dock(main_window, tmp_path)
     _local_node(dock, "ENT_SHARED", local_kind)
     before = [(n.ref, n.kind) for n in dock._trees[T1].nodes]
@@ -339,6 +354,24 @@ def test_z_a_record_named_like_a_local_node_of_the_SAME_tree_is_refused(
     load_config(str(tmp_path / "root.sexp"))          # the file on disk still reads
 
 
+def test_z2_a_record_named_like_a_MOUNT_of_the_same_tree_is_offered(
+        main_window, tmp_path):
+    """The MOUNT half of the second check is gone (16.11.2026): the mount
+    `ENT_SHARED` stands in t1, the ENTITY of that name is being added to the SAME
+    tree — the row is NOT greyed, Apply accepts, and the resulting file loads."""
+    dock = _dock(main_window, tmp_path)
+    _local_node(dock, "ENT_SHARED", "mount")
+
+    dlg = _dialog(dock, "placement", tree=T1)
+    assert _enabled(dlg, "ENT_SHARED") is True
+    built = _accepted(dlg, "ENT_SHARED")
+    assert built is not None and built.ref == "ENT_SHARED"
+
+    dock._trees[T1].nodes.append(built)
+    tree_from_dict(tree_to_dict(dock._trees[T1]))     # a mount is not a record
+    load_config(str(tmp_path / "root.sexp"))
+
+
 @pytest.mark.parametrize("local_kind", LOCAL_KINDS)
 def test_i_a_record_named_like_a_local_node_of_ANOTHER_tree_stays_available(
         main_window, tmp_path, local_kind):
@@ -357,14 +390,14 @@ def test_i_a_record_named_like_a_local_node_of_ANOTHER_tree_stays_available(
     tree_from_dict(tree_to_dict(dock._trees[T2]))      # no fatal
 
 
-@pytest.mark.parametrize("local_kind", ("mount", "copper"))
+@pytest.mark.parametrize("local_kind", COLLIDING_LOCAL_KINDS)
 def test_m_a_local_node_renamed_onto_a_positioned_node_is_refused(
         main_window, tmp_path, monkeypatch, local_kind):
-    """Клетки м (mount) и м2 (copper): the REVERSE direction, in the node window.
-    `vccint_5` stands in t1 as a local node and `fpga_vccint_5` as a positioned
-    one; renaming the local node onto the positioned node's ref is refused in the
-    LOADER's words. Before §1 Apply accepted it — the same defect as the direct
-    direction, just reached from the other side."""
+    """The REVERSE direction, in the node window, for the kinds that still carry
+    the check. `vccint_5` stands in t1 as a local node and `fpga_vccint_5` as a
+    positioned one; renaming the local node onto the positioned node's ref is
+    refused in the LOADER's words. Before §1 Apply accepted it — the same defect
+    as the direct direction, just reached from the other side."""
     dock = _dock(main_window, tmp_path)
     local = _local_node(dock, "vccint_5", local_kind)
     _add_node(dock, "fpga_vccint_5", "placement",
@@ -384,3 +417,21 @@ def test_m_a_local_node_renamed_onto_a_positioned_node_is_refused(
     # node"): an edit that changes only the offset must still go through.
     dlg = _dialog(dock, local_kind, existing=local, tree=T1)
     assert _accepted(dlg, "vccint_5") is not None
+
+
+def test_m2_a_MOUNT_renamed_onto_a_positioned_node_is_accepted(
+        main_window, tmp_path):
+    """The reverse direction for a MOUNT: the ban is lifted (16.11.2026), so
+    renaming the mount `vccint_5` onto the positioned node `fpga_vccint_5` is
+    accepted, and the resulting tree loads."""
+    dock = _dock(main_window, tmp_path)
+    local = _local_node(dock, "vccint_5", "mount")
+    _add_node(dock, "fpga_vccint_5", "placement",
+              ref_uuid=_uuid_of(dock, "entities", "ENT_REAL"))
+
+    dlg = _dialog(dock, "mount", existing=local, tree=T1)
+    built = _accepted(dlg, "fpga_vccint_5")
+    assert built is not None and built.ref == "fpga_vccint_5"
+
+    local.ref = "fpga_vccint_5"
+    tree_from_dict(tree_to_dict(dock._trees[T1]))     # no fatal any more

@@ -4,20 +4,25 @@
 A `mount` / `copper` / `component` node's ref is a NAME local to its tree, not a
 config record (plan §Y.1.3 for a mount, plan_2026_09_16_copper_node_order_and_
 container P.2.4 for a copper container, plan Э3/Т3.2 for a component node). The
-loader therefore checks it per tree, and BOTH checks are load-time fatals:
+loader therefore checks it per tree, and the checks are load-time fatals:
 
-  * the name is unique among the refs of ITS OWN kind in the tree;
-  * it does not collide with ANY other node's ref of the same tree — in EITHER
-    direction: a positioned node may not take a local name, and a local node may
-    not take a positioned node's name. Otherwise the tree's later stages (its own
-    inner point, the copper container lookup) could not say which node is meant.
+  * the name is unique among the refs of ITS OWN kind in the tree — for EVERY
+    local kind;
+  * it does not collide with ANY positioned node's ref of the same tree — only
+    for `LOCAL_COLLISION_KINDS`. This second check was LIFTED for a `mount` on
+    16.11.2026 (plan_2026_11_14_mount_and_record_may_share_a_name): a mount is a
+    point of reference, a positioned node PLACES a record, and the two are told
+    apart by kind and uuid rather than by name — Denis's word, and the reason 24
+    mounts had to be renamed for a rule that no longer exists. `copper` and
+    `component` keep the check until their own answer is given.
 
 `validate_local_refs` is the load-time form, called by BOTH node parsers; the
 three `local_*` helpers are the SAME rule for ONE ref and answer with the very
 same text instead of raising, so the node form can refuse exactly what the loader
 would refuse (plan_2026_11_14_used_refs_by_uuid §1 — before it, the GUI let a
 mount and an entity of one name into one tree and the next `load_config` died on
-"collide with a positioned node").
+"collide with a positioned node"; since the mount half of that ban is gone, the
+same door now refuses a COPPER container doing it).
 
 Moved out of `kicadstamp/trees.py` (which may only shrink) with thin aliases left
 behind: `trees._LOCAL_REF_MESSAGES` and `trees._validate_local_refs` still exist,
@@ -30,18 +35,17 @@ from typing import Iterable, Optional
 from .exceptions import ValidationError
 from .i18n import _
 
-#: {local kind: (not_unique, collides)} — the two texts of the rule.
-#: The "mount" pair is VERBATIM what these messages have always been (they are
-#: user-facing and must not drift); "copper" gets the same two checks worded for
-#: a container, "component" for a node that places a live component. The KEYS are
-#: the complete list of local-name kinds the rule applies to.
-LOCAL_REF_MESSAGES: dict[str, tuple[str, str]] = {
+#: {local kind: (not_unique, collides)} — the texts of the rule. The KEYS are the
+#: complete list of local-name kinds the rule applies to, and a `None` SECOND
+#: element means "this kind has no collision ban": the table IS the rule, so
+#: lifting one is a one-word edit here and there is never a second list to drift.
+#: The "mount" uniqueness text is VERBATIM what it has always been (user-facing,
+#: must not drift); its collision text is gone with the ban (16.11.2026).
+LOCAL_REF_MESSAGES: dict[str, tuple[str, Optional[str]]] = {
     "mount": (
         _("tree {tree!r}: mount node ref(s) {refs} are not unique — a "
           "mount node's ref must identify exactly one node in the tree"),
-        _("tree {tree!r}: mount node ref(s) {refs} collide with a "
-          "positioned node of the same tree — mount refs must be "
-          "distinct so a node can be named unambiguously"),
+        None,   # a mount MAY share its name with a positioned node (16.11.2026)
     ),
     "copper": (
         _("tree {tree!r}: copper node ref(s) {refs} are not unique — a "
@@ -59,6 +63,19 @@ LOCAL_REF_MESSAGES: dict[str, tuple[str, str]] = {
           "distinct so a node can be named unambiguously"),
     ),
 }
+
+#: The kinds whose local name may not equal a POSITIONED node's ref — read off the
+#: table above, so a lifted ban cannot leave a stale second list behind.
+LOCAL_COLLISION_KINDS = frozenset(kind for kind, (_u, c)
+                                  in LOCAL_REF_MESSAGES.items() if c)
+
+#: The kinds whose ref is a local NAME and never a record — exactly the names the
+#: table above rules on. Read by the redraw's selection sets, which must collect
+#: RECORDS: since a name may equal a record's (16.11.2026) a local node's ref
+#: would otherwise pull in somebody else's record. A `module` is deliberately NOT
+#: here: its ref is another tree's NAME and is the marker that ACTIVATES that
+#: tree's content in a redraw.
+NAME_ONLY_KINDS = frozenset(LOCAL_REF_MESSAGES)
 
 
 def _walk(nodes):
@@ -124,20 +141,25 @@ def free_node_ref(kind: Optional[str], tree_name: str, ref: str, nodes,
 
 def local_name_refusal(tree_name: str, ref: str, nodes) -> Optional[str]:
     """The loader's refusal for a node of ANY OTHER kind being named `ref` in this
-    tree — None when no local node carries that name. The text is the SAME one
+    tree — None when no local node carries that name, or when that kind has no
+    collision ban left (`mount` since 16.11.2026). The text is the SAME one
     `validate_local_refs` would raise."""
     kind = local_ref_kind(nodes, ref)
     if kind is None:
         return None
-    return LOCAL_REF_MESSAGES[kind][1].format(tree=tree_name, refs=ref)
+    collides = LOCAL_REF_MESSAGES[kind][1]
+    if collides is None:
+        return None
+    return collides.format(tree=tree_name, refs=ref)
 
 
 def local_ref_refusal(kind: Optional[str], tree_name: str, ref: str, nodes, *,
                       own=None) -> Optional[str]:
     """The loader's refusal for a node OF A LOCAL KIND `kind` being named `ref` in
-    this tree — the REVERSE direction (a mount renamed onto a positioned node, or
-    onto another mount of its own kind). None for a non-local kind, an empty ref,
-    or a name that breaks nothing.
+    this tree: ALWAYS the uniqueness of its own kind, plus the REVERSE collision
+    check where that kind still has one (a copper container named like a
+    positioned node). None for a non-local kind, an empty ref, or a name that
+    breaks nothing.
 
     `own` is the node being EDITED: it is not "another node", so editing a mount
     without renaming it never trips the uniqueness check."""
@@ -149,17 +171,21 @@ def local_ref_refusal(kind: Optional[str], tree_name: str, ref: str, nodes, *,
             if n is not own and n.kind == kind and n.ref == ref]
     if same:
         return not_unique.format(tree=tree_name, refs=ref)
+    if collides is None:
+        return None
     if any(n is not own and n.kind != kind and n.ref == ref for n in _walk(nodes)):
         return collides.format(tree=tree_name, refs=ref)
     return None
 
 
 def validate_local_refs(nodes: list, tree_name: str) -> None:
-    """Per-tree ref uniqueness for the LOCAL-NAME kinds — the load-time form of
-    the rule, run by both node parsers. Both checks are reported separately (they
-    mean different things) and each is a fatal.
+    """Per-tree ref checks for the LOCAL-NAME kinds — the load-time form of the
+    rule, run by both node parsers. The uniqueness check ALWAYS runs; the
+    collision check only where the table still carries its text
+    (`LOCAL_COLLISION_KINDS`). Both are reported separately (they mean different
+    things) and each is a fatal.
 
-    ONE walk per kind, with per-kind texts, so the mount messages stay verbatim
+    ONE walk per kind, with per-kind texts, so the mount message stays verbatim
     while copper gets wording that says "container". "module" is deliberately
     NOT here: a module's ref is another tree's NAME and the "same tree embedded
     twice under one parent" case is guarded by link_trees' own duplicate rule.
@@ -178,6 +204,8 @@ def validate_local_refs(nodes: list, tree_name: str) -> None:
         if duplicates:
             raise ValidationError(not_unique.format(tree=tree_name,
                                                     refs=", ".join(duplicates)))
+        if collides is None:
+            continue
         collisions = sorted(local_refs & placed_refs)
         if collisions:
             raise ValidationError(collides.format(tree=tree_name,

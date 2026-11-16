@@ -201,7 +201,7 @@ def _redraw_whole_tree(dock, tree, monkeypatch):
     a `tree` = the root context menu. Returns the starts, empty when it refused."""
     from PyQt6.QtCore import Qt as _Qt
 
-    for item in dock._node_items.values():      # «whole tree» ignores the ticks, but be clean
+    for _node, item in dock._node_items.values():      # «whole tree» ignores the ticks, but be clean
         item.setCheckState(0, _Qt.CheckState.Unchecked)
     starts = _capture_starts(monkeypatch)
     dock._on_redraw_whole_tree(None, tree)
@@ -213,8 +213,8 @@ def _redraw_selected(dock, refs, monkeypatch, tree=None):
     `tree` = the tree the ROOT context menu passed (None = the Tools menu, active tab)."""
     from PyQt6.QtCore import Qt as _Qt
 
-    for ref, item in dock._node_items.items():
-        item.setCheckState(0, _Qt.CheckState.Checked if ref in refs
+    for _key, (node, item) in dock._node_items.items():
+        item.setCheckState(0, _Qt.CheckState.Checked if node.ref in refs
                            else _Qt.CheckState.Unchecked)
     starts = _capture_starts(monkeypatch)
     dock._on_redraw_selected(None, tree)

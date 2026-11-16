@@ -34,6 +34,8 @@ from kicadstamp.config_writer import read_data
 from kicadstamp.config.sexp_format import dict_to_sexp
 from kicadstamp.trees import tree_from_dict
 
+from tests.gui.conftest import row_of_ref
+
 import gui.docks.trees_dock as trees_dock_mod
 from gui.docks.trees_delete import (delete_action_text, referenced_identities,
                                      remove_net_trace_records, run_delete_nodes)
@@ -120,7 +122,7 @@ def _select(dock, *refs):
     tree_widget = dock._current_tree_widget()
     tree_widget.clearSelection()
     for ref in refs:
-        dock._node_items[ref].setSelected(True)
+        row_of_ref(dock, ref).setSelected(True)
 
 
 # ── C1: the group, and its records ─────────────────────────────────────────
@@ -312,7 +314,7 @@ def test_a_copper_container_takes_its_children_and_their_records(
              {"ref": "EXT", "kind": "external", "xy": [0.0, 0.0]}]
     dock, root = _dock_with(main_window, tmp_path, nodes)
     tree = dock._current_tree()
-    assert "CU" not in dock._node_items, \
+    assert row_of_ref(dock, "CU") is None, \
         "the container is not drawn — the reason this cell calls the flow directly"
 
     assert run_delete_nodes(dock, tree, clicked=tree.nodes[0]) == 1
@@ -347,7 +349,7 @@ def test_the_pseudo_row_is_skipped_in_a_mixed_selection(main_window, tmp_path,
     assert pseudo is not None, "the fixture has copper, so the fold exists"
     dock._current_tree_widget().clearSelection()
     pseudo.setSelected(True)
-    dock._node_items["EXT"].setSelected(True)
+    row_of_ref(dock, "EXT").setSelected(True)
 
     dock._delete_node_flow(tree, tree.nodes[0])
 
@@ -394,7 +396,7 @@ def test_the_copper_menu_item_uses_the_counted_label(main_window, tmp_path,
     dock, _root = _dock_with(main_window, tmp_path, _copper_nodes(*COPPER[:2]))
     tree = dock._current_tree()
     _select(dock, COPPER[0], COPPER[1])
-    item = dock._node_items[COPPER[0]]
+    item = row_of_ref(dock, COPPER[0])
     monkeypatch.setattr(trees_dock_mod.QMenu, "exec", lambda self, *a, **k: None)
     captured = []
     original = trees_dock_mod.QMenu.addAction

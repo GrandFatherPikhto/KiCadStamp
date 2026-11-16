@@ -843,15 +843,18 @@ def test_mount_ref_must_be_unique_in_the_tree(tmp_path):
         load_trees(_write(tmp_path, text))
 
 
-def test_mount_ref_colliding_with_a_positioned_node_is_fatal(tmp_path):
-    """A mount ref equal to a POSITIONED node's ref of the same tree is fatal —
-    a later stage could not say which node is meant (plan §Y.1.3)."""
+def test_mount_ref_may_equal_a_positioned_node_of_the_same_tree(tmp_path):
+    """A mount ref equal to a POSITIONED node's ref of the same tree LOADS since
+    16.11.2026 (plan_2026_11_14_mount_and_record_may_share_a_name): a mount is a
+    point of reference, a positioned node PLACES a record, and the loader tells
+    them apart by kind and uuid. The rule that still holds is the uniqueness of
+    mounts among THEMSELVES (`test_two_mounts_of_one_name_...`, below)."""
     text = """(kicadstamp-trees
   (tree (name "t") (anchor (origin))
     (node (ref "E1") (kind placement) (xy 0 0))
     (node (ref "E1") (kind mount) (anchor (role "A")))))"""
-    with pytest.raises(ValidationError, match="collide"):
-        load_trees(_write(tmp_path, text))
+    trees = load_trees(_write(tmp_path, text))
+    assert [n.kind for n in trees[0].nodes] == ["placement", "mount"]
 
 
 # ── Copper CONTAINER (kind "copper") ───────────────────────────────────────

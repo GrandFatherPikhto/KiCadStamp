@@ -28,6 +28,7 @@ from kicadstamp.registry import make_registry_key
 from kicadstamp.utils.units import MM
 from tests.fakes.format3 import (det_uuid, format3,  # noqa: F401 — pytest fixture
                                  identity_value)
+from tests.gui.conftest import row_of_ref
 
 import gui.docks.copper_select as copper_select_mod
 import gui.docks.trees_dock as trees_dock_mod
@@ -282,7 +283,7 @@ def test_finish_logs_and_highlights_the_identified_node(main_window, tmp_path, c
     assert "bridge_one: 1" in caplog.text
     assert "(tree node)" in caplog.text
     # the NODE (not the copper) is selected
-    item = dock._node_items["bridge_one"]
+    item = row_of_ref(dock, "bridge_one")
     assert dock._current_tree_widget().currentItem() is item
 
 

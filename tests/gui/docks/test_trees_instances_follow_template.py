@@ -27,6 +27,7 @@ from gui.docks.trees_dock import TreesDock
 from gui.worker import start_long_op
 
 from tests.fakes.write_later import write_later
+from tests.gui.conftest import row_of_ref
 from tests.gui.docks.test_trees_dock import _dirty_instance_cfg
 
 TEMPLATE = "dac_buf_tpl"
@@ -142,14 +143,14 @@ def test_a_deleted_template_node_leaves_the_clone_at_once(main_window, tmp_path)
     template = _tree(dock, TEMPLATE)
     victim = next(n for n in template.nodes[0].children if n.ref == "pif_avdd")
     manual = _tree(dock, "manual")
-    assert "pif_avdd__ch1_dac_buf" in dock._node_items
+    assert row_of_ref(dock, "pif_avdd__ch1_dac_buf") is not None
 
     dock._delete_node_flow(template, victim)
     staged = root.read_text(encoding="utf-8")     # the dock's OWN staging, not the refresh
     assert _refresh(dock) is True
 
     assert [n.ref for n in _tree(dock, CLONE).nodes[0].children] == []
-    assert "pif_avdd__ch1_dac_buf" not in dock._node_items
+    assert row_of_ref(dock, "pif_avdd__ch1_dac_buf") is None
     assert "pif_avdd__ch1_dac_buf" not in {e.name for e in dock._cfg.entities}
     assert root.read_text(encoding="utf-8") == staged, "the refresh must not write"
     assert _tree(dock, "manual") is manual
@@ -170,7 +171,7 @@ def test_an_added_template_node_arrives_with_its_geometry(main_window, tmp_path)
     copy = next(n for n in _tree(dock, CLONE).nodes[0].children
                 if n.ref == "extra_sw__ch1_dac_buf")
     assert copy.xy == source.xy
-    assert "extra_sw__ch1_dac_buf" in dock._node_items
+    assert row_of_ref(dock, "extra_sw__ch1_dac_buf") is not None
 
 
 @pytest.mark.parametrize("dock_name", ["entity_dock", "cells_dock", "net_trace_dock"])
@@ -221,14 +222,14 @@ def test_a_refused_expansion_keeps_the_clones_and_says_it_once(
     assert _refresh(dock) is False
     assert len(said) == 1, said
     assert [t.name for t in dock._trees] == [TEMPLATE, "manual", CLONE]
-    assert "pif_avdd__ch1_dac_buf" in dock._node_items
+    assert row_of_ref(dock, "pif_avdd__ch1_dac_buf") is not None
 
     assert _refresh(dock) is False                 # the same refusal again
     assert len(said) == 1, "the same sentence twice in a row is noise"
 
     _write(root, _dirty_instance_cfg(extra_template_node=True))
     assert _refresh(dock) is True
-    assert "extra_sw__ch1_dac_buf" in dock._node_items
+    assert row_of_ref(dock, "extra_sw__ch1_dac_buf") is not None
 
 
 def test_five_edits_are_one_config_read(main_window, tmp_path, monkeypatch):
@@ -323,7 +324,7 @@ def test_a_finished_operation_no_longer_blocks_the_refresh(main_window, tmp_path
     assert dock._instances_refresh._timer.isActive(), "the deferral must re-arm itself"
 
     assert _wait_for(lambda: not ok.running), "the worker thread never finished"
-    assert _wait_for(lambda: "extra_sw__ch1_dac_buf" in dock._node_items), (
+    assert _wait_for(lambda: row_of_ref(dock, "extra_sw__ch1_dac_buf") is not None), (
         "the deferred refresh must run after the operation, with no second _mark_dirty")
 
     def _boom():
@@ -397,7 +398,7 @@ def test_a_clean_buffer_refresh_keeps_the_templates_own_nodes(main_window, tmp_p
     dock, root = _dock(main_window, tmp_path)
     assert dock._dirty is False
     template = _tree(dock, TEMPLATE)
-    row_node = dock._node_items["pif_avdd"].data(0, Qt.ItemDataRole.UserRole)
+    row_node = row_of_ref(dock, "pif_avdd").data(0, Qt.ItemDataRole.UserRole)
     assert isinstance(row_node, TreeNode)
 
     # A REAL graph change on disk — another writer added a node to the template.
@@ -535,7 +536,7 @@ def test_a_working_set_write_alone_reaches_the_clone(hub, tmp_path, monkeypatch)
     from kicadstamp.config_working_set import WORKING_SET
 
     dock, root = _hub_instances(hub, tmp_path)
-    assert "pif_avdd__ch1_dac_buf" in dock._node_items
+    assert row_of_ref(dock, "pif_avdd__ch1_dac_buf") is not None
     assert dock._instances_refresh._timer.isActive() is False
 
     cfg_before = dock._cfg
@@ -645,7 +646,7 @@ def test_a_broken_template_on_the_working_set_path_says_it_once(
                                "gui.docks.trees_dock")]
     assert len(said) == 1, said
     assert "no_such_entity" in said[0], said
-    assert "pif_avdd__ch1_dac_buf" in dock._node_items, "the clones keep their last good state"
+    assert row_of_ref(dock, "pif_avdd__ch1_dac_buf") is not None, "the clones keep their last good state"
 
 
 #: The two ConfigTreeDock actions §3 names ("переименование или удаление в дереве конфига"):

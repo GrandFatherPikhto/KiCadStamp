@@ -28,6 +28,7 @@ from kicadstamp.domain.board import BoardLayer, Track, Via
 from kicadstamp.domain.geometry import Vector2
 from kicadstamp.utils.units import MM
 from tests.fakes.format3 import det_uuid
+from tests.gui.conftest import row_of_ref
 
 import gui.docks.copper_select as copper_select_mod
 import gui.docks.net_trace as net_trace_mod
@@ -247,7 +248,7 @@ class _FakeQMenu:
 
 def _menu_for(dock, tree, target_node, monkeypatch):
     _FakeQMenu.instances = []
-    item = dock._node_items[target_node.ref]
+    item = row_of_ref(dock, target_node.ref)
     fake_widget = MagicMock()
     fake_widget.itemAt.return_value = item
     monkeypatch.setattr(trees_dock_mod, "QMenu", _FakeQMenu)

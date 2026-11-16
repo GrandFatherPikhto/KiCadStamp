@@ -93,15 +93,23 @@ def _anchor_label(anchor: TreeAnchor) -> str:
 
 
 def collect_tree_refs(tree: "Tree") -> list[str]:
-    """ALL node refs of a Tree, DFS parent-before-child, regardless of any
+    """Every RECORD ref of a Tree, DFS parent-before-child, regardless of any
     checkbox state — the selection source for "Redraw whole tree"
     (plan_2026_08_29_fork1_rigid_redraw_override.md §5): the whole operation
-    must not depend on the UI checkbox state, only on the tree structure."""
+    must not depend on the UI checkbox state, only on the tree structure.
+
+    A local NAME (`mount`/`copper`/`component`) is skipped: it places nothing and
+    since 16.11.2026 may equal a record's name, so handing it in would emit that
+    record (plan_2026_11_14_mount_and_record_may_share_a_name п.2). A `module`
+    marker KEEPS its ref — it is the tree name that activates the content."""
+    from kicadstamp.trees_local_refs import NAME_ONLY_KINDS
+
     refs: list[str] = []
 
     def walk(nodes: list) -> None:
         for node in nodes:
-            refs.append(node.ref)
+            if node.ref and node.kind not in NAME_ONLY_KINDS:
+                refs.append(node.ref)
             walk(node.children)
 
     walk(tree.nodes)

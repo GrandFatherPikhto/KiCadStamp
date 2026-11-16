@@ -21,6 +21,7 @@ from gui.docks import trees_accept
 from gui.docks.trees_dock import (AnchorFormWidget, NodeFormWidget, _NodeDialog)
 from kicadstamp.trees import TreeAnchor, TreeNode
 
+from tests.gui.conftest import row_of_ref
 from tests.gui.docks.test_trees_dock import (_children, _dock_with,
                                              _embedded_form)
 
@@ -175,7 +176,9 @@ def test_apply_on_a_mount_node_redraws_its_own_subtree(main_window, tmp_path,
                                                        monkeypatch):
     """Cell 8: a `mount` node names no record, so its edit lives on its CHILDREN.
     One Apply: the edit is accepted AND the curated redraw of the subtree is
-    started with `selected_refs` = the node + its descendants (the anchor/opora
+    started with `selected_refs` = its RECORDS only — the mount's own local name
+    is not a record and stays out (plan_2026_11_14_mount_and_record_may_share_a_
+    name п.2), here `{"M1_CHILD"}` (the anchor/opora
     itself is in the set only as the subtree's ROOT — the curated plan does not
     move it; that guarantee is tree_position's own, tested there)."""
     dock, _root = _dock_with(main_window, tmp_path)
@@ -183,7 +186,7 @@ def test_apply_on_a_mount_node_redraws_its_own_subtree(main_window, tmp_path,
     tree.nodes.append(MOUNT_NODE)
     dock._rebuild_tabs()
     tree_widget = _tree_widget(dock)
-    tree_widget.setCurrentItem(dock._node_items["M1"])
+    tree_widget.setCurrentItem(row_of_ref(dock, "M1"))
     form = _embedded_form(dock._active_form_page())
     assert isinstance(form, NodeFormWidget)
     calls = []
@@ -195,7 +198,7 @@ def test_apply_on_a_mount_node_redraws_its_own_subtree(main_window, tmp_path,
     assert MOUNT_NODE.name == "mount_edited"
     assert len(calls) == 1, calls
     payload = calls[0][0][5]
-    assert payload["selected_refs"] == {"M1", "M1_CHILD"}
+    assert payload["selected_refs"] == {"M1_CHILD"}
     assert payload["tree_name"] == "power_tree"
 
 

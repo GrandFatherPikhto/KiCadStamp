@@ -37,6 +37,7 @@ from kicadstamp.trees import tree_to_sexp
 from kicadstamp.utils.units import MM
 
 import gui.docks.trees_dock as trees_dock_mod
+from tests.gui.conftest import row_of_ref
 from gui.docks.trees_dock import TreesDock
 from gui.docks.trees_move_flow import _OFFSET_READ_FROM_BOARD
 
@@ -50,7 +51,7 @@ MOUNT_X_MM = {"mnt_a": 10.0, "mnt_b": 30.0}
 
 def _row_node(dock, ref):
     """The TreeNode a ROW carries — what the flow reads from the selection."""
-    return dock._node_items[ref].data(0, Qt.ItemDataRole.UserRole)
+    return row_of_ref(dock, ref).data(0, Qt.ItemDataRole.UserRole)
 
 
 def _dock_with(main_window, tmp_path):
@@ -94,7 +95,7 @@ def _select_rows(dock, *refs):
     tree_widget = dock._current_tree_widget()
     tree_widget.clearSelection()
     for ref in refs:
-        dock._node_items[ref].setSelected(True)
+        row_of_ref(dock, ref).setSelected(True)
     return tree_widget
 
 

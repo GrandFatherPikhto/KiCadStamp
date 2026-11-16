@@ -138,10 +138,11 @@ def rebuild_clone_pages(dock, names) -> bool:
 
     Two traps, both measured here (the cells that found them are named):
 
-    * `_node_items` is keyed by REF and is filled by the RENDER, so the rows of THIS page must
-      go first — and «this page» is decided by the row's OWN tree widget, not by the buffer
-      tree: a rebuilt copy is a NEW Tree object, so walking the new nodes would leave the refs
-      of the OLD ones behind (cell а).
+    * `_node_items` is filled by the RENDER, so the rows of THIS page must go first — and «this
+      page» is decided by the row's OWN tree widget, not by the buffer tree: a rebuilt copy is a
+      NEW Tree object, so walking the new nodes would leave the rows of the OLD ones behind
+      (cell а). Since the registry is keyed by the NODE's identity (plan_2026_11_14_mount_and_
+      record_may_share_a_name Ч1), the pop walks the VALUES and drops this widget's rows.
     * the widget's SIGNALS are blocked for the render: `clear()` emits `itemSelectionChanged`,
       and the dock's handler re-fills the ACTIVE page's form with a fresh widget — the template
       page's open form died by a refresh of somebody else's page (cell ж). The expansion state
@@ -158,9 +159,9 @@ def rebuild_clone_pages(dock, names) -> bool:
             return False
         tree = dock._trees[index]
         panel = dock._form_panel_of_page(page)
-        for ref, item in list(dock._node_items.items()):
+        for key, (_node, item) in list(dock._node_items.items()):
             if item.treeWidget() is tree_widget:
-                dock._node_items.pop(ref, None)
+                dock._node_items.pop(key, None)
         # The LIVE expansion of that tab (not the persisted one): a refresh must not collapse
         # rows the user had opened.
         state = dock._capture_tree_expansion(tree_widget)

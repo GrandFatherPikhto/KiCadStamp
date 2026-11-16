@@ -62,6 +62,21 @@ _THIS_MODULE = sys.modules[__name__]
 _qapp_keepalive = None
 
 
+def row_of_ref(dock, ref: str):
+    """TEST SEAM: the rendered row of the node whose REF is `ref` (any kind).
+
+    The dock's registry (`TreesDock._node_items`) is keyed by the NODE's identity
+    and stores `(node, item)` (plan_2026_11_14_mount_and_record_may_share_a_name
+    Ч1) — two nodes of ONE name are legal since 16.11.2026, so a name key cannot
+    address a row. A fixture's refs are unique by construction, so the cells keep
+    asking "the row of this ref" through this one walk. Returns None when the
+    ref has no row (the row was removed, or the node is not rendered)."""
+    for node, item in dock._node_items.values():
+        if node.ref == ref:
+            return item
+    return None
+
+
 @pytest.fixture(scope="session")
 def qapp_keepalive_holder():
     """The module object of THIS conftest, for the guard cell.

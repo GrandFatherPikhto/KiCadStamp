@@ -21,6 +21,7 @@ from PyQt6.QtWidgets import QTreeWidget
 from gui.docks.trees_dock import NodeFormWidget, TreesDock
 
 from tests.fakes.format3 import det_uuid, format3  # noqa: F401 — pytest fixture
+from tests.gui.conftest import row_of_ref
 from tests.fakes.write_later import write_later
 
 
@@ -85,7 +86,7 @@ def _open_form(dock: TreesDock, ref: str):
     widget = dock._tree_widget_of_page(dock.tree_tabs.widget(0))
     assert isinstance(widget, QTreeWidget)
     widget.expandAll()
-    item = dock._node_items[ref]
+    item = row_of_ref(dock, ref)
     widget.setCurrentItem(item)
     form = dock._embedded_form_of(dock._panel_page(dock._active_form_panel()))
     assert isinstance(form, NodeFormWidget)
@@ -94,10 +95,15 @@ def _open_form(dock: TreesDock, ref: str):
 
 def test_node_form_ref_change_updates_row_in_place(main_window, tmp_path,
                                                    monkeypatch):
-    """Ref edit -> Apply: the SAME row moves to the new `_node_items` key, its
-    text is the new ref, the old key is gone, the selection and the expansion
-    survive, and the whole dock is NOT rebuilt (`_rebuild_tabs` would tear the
-    open form down)."""
+    """Ref edit -> Apply: the SAME row is found under the NEW ref, its text is the
+    new ref, nothing answers to the OLD ref any more, the selection and the
+    expansion survive, and the whole dock is NOT rebuilt (`_rebuild_tabs` would
+    tear the open form down).
+
+    Since the registry is keyed by the NODE (plan_2026_11_14_mount_and_record_may_
+    share_a_name Ч1) there is no key to move at all: the edit mutates the node in
+    place, so `row_of`/`row_of_ref` find the row through the object. The cell is
+    kept as the behavioural lock on "the row follows the edit"."""
     dock = _dock(main_window, tmp_path)
     widget, item, form = _open_form(dock, "A")
     node = form._existing
@@ -113,8 +119,8 @@ def test_node_form_ref_change_updates_row_in_place(main_window, tmp_path,
     assert form.apply() is True
 
     assert node.ref == "A2"
-    assert "A" not in dock._node_items
-    assert dock._node_items["A2"] is item          # the SAME widget item
+    assert row_of_ref(dock, "A") is None
+    assert row_of_ref(dock, "A2") is item          # the SAME widget item
     assert item.text(0) == "A2 (External)"         # render's own text idiom
     assert widget.currentItem() is item            # selection kept
     assert item.isExpanded() is True               # expansion kept
@@ -123,8 +129,8 @@ def test_node_form_ref_change_updates_row_in_place(main_window, tmp_path,
 
 
 def test_node_form_kind_change_updates_row_text(main_window, tmp_path):
-    """Kind edit (same ref) -> Apply: the `_node_items` key stays, but the row's
-    text follows the new kind tag through the render's OWN text routine.
+    """Kind edit (same ref) -> Apply: the registry entry stays (same node), but
+    the row's text follows the new kind tag through the render's OWN routine.
 
     Ч3 class Б: the transition is between two MENU kinds now ("placement" ->
     "mount") — the property under test ("the row text follows the kind") is the
@@ -158,7 +164,7 @@ def test_node_form_kind_change_updates_row_text(main_window, tmp_path):
     assert form.apply() is True
 
     assert node.kind == "mount"
-    assert dock._node_items["A"] is item
+    assert row_of_ref(dock, "A") is item
     assert item.text(0) == "A (Mount)"
 
 
@@ -168,12 +174,12 @@ def test_node_form_ref_change_when_no_board_keeps_child_rows(main_window,
     subtree stays reachable under the moved parent item."""
     dock = _dock(main_window, tmp_path)
     _widget, item, form = _open_form(dock, "A")
-    child_item = dock._node_items["A_CHILD"]
+    child_item = row_of_ref(dock, "A_CHILD")
 
     form.ref_combo.setCurrentText("A_RENAMED")
     assert form.apply() is True
 
-    assert dock._node_items["A_CHILD"] is child_item
+    assert row_of_ref(dock, "A_CHILD") is child_item
     assert child_item.parent() is item             # still the renamed parent's
 
 

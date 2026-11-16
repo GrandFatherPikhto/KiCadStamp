@@ -41,6 +41,7 @@ from PyQt6.QtWidgets import QTreeWidget, QTreeWidgetItemIterator
 
 from kicadstamp.i18n import _
 from kicadstamp.trees import TreeNode
+from kicadstamp.trees_local_refs import NAME_ONLY_KINDS
 
 from ..connection import ui_thread_board_read, worker_timeout_ms
 from ..worker import start_long_op
@@ -437,12 +438,18 @@ def redraw_node(dock, node: TreeNode) -> bool:
 # ── subtree redraw of a node that names no record ─────────────────────────
 
 def subtree_refs(node: TreeNode) -> set[str]:
-    """`node.ref` PLUS every descendant's ref — the `selected_refs` of the
-    curated redraw of a `mount`/`copper`/`point`/`external` subtree."""
+    """Every RECORD ref of `node`'s subtree — the `selected_refs` of the curated
+    redraw of a `mount`/`copper`/`point`/`external` subtree.
+
+    The node's OWN ref counts only when it names a record: a `mount`/`copper`/
+    `component` ref is a local NAME that places nothing, and since 16.11.2026 it
+    may be the very name of a record of another node — handing it in would emit
+    that record (plan_2026_11_14_mount_and_record_may_share_a_name п.2). A ticked
+    mount still hands in its CHILDREN's records, which is what it is for."""
     refs: set[str] = set()
 
     def walk(current: TreeNode) -> None:
-        if current.ref:
+        if current.ref and current.kind not in NAME_ONLY_KINDS:
             refs.add(current.ref)
         for child in current.children or ():
             walk(child)
@@ -475,24 +482,28 @@ def redraw_subtree(dock, node: Optional[TreeNode]) -> Optional[bool]:
     plan_2026_11_09_node_redraw_from_live_parent): "handled" and "started" are different
     things, and a form that claims «Redraw started» on a refusal is a lie.
 
-    A node with NO children starts NOTHING and says nothing: the edit changed a position
-    nothing on the board follows, so the honest answer is the caller's status line — not a
-    worker that would place its own name (which a `mount`/`copper`/`point`/`external` node
-    does not have).
+    A node whose SUBTREE names NO RECORD starts NOTHING and says nothing: the edit changed
+    a position nothing on the board follows, so the honest answer is the caller's status
+    line — not a worker that would place its own name (a `mount`/`copper` node has none:
+    plan_2026_11_14_mount_and_record_may_share_a_name п.2 keeps local names out of
+    `selected_refs`, so "has children" became "has records").
 
     A node of a tree a `module` PLACES is REFUSED here (§4.1): the curated worker lays the
     subtree out from the tree's own anchor — the Grid Origin. Measured on the live board,
     every `mount` child in `switch_a` drifts by the module's (−32.000, +35.000) mm."""
     if node is None or node.kind not in SUBTREE_KINDS:
         return None
-    refs = subtree_refs(node)
-    if len(refs) <= 1:
-        return False
     tree = _owning_tree(dock, node)
     if tree is None:
         return False
+    # The REFUSAL comes before the emptiness check: a node of an embedded tree is
+    # refused whether or not its subtree happens to name records, and the caller
+    # must hear the reason rather than "nothing to redraw".
     if refuse_embedded_tree(dock._trees, tree, node_ref=node.ref):
         return False                     # handled here: refused, nothing started
+    refs = subtree_refs(node)
+    if not refs:
+        return False
     payload = {
         "config_path": str(dock._root_path) if dock._root_path else "",
         "cfg": dock._cfg,
