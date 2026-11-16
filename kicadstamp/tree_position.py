@@ -545,7 +545,8 @@ def layout_tree_from_anchor(tree: "Tree", forest: "dict[str, Tree] | None" = Non
     to the layout base and to the mount bases inside, so one connection snapshot
     serves a whole read; None keeps every caller byte for byte.
     `module_bases` (16.11.2026, plan_2026_11_16_reread_forest_from_board, Ч0 п.4)
-    is an OUT dict filled by the same walk (see layout_tree_from_base)."""
+    is an OUT dict filled by the same walk — `{module ref: (tree name, marker pos,
+    marker rot, eff pos, eff rot)}`, see layout_tree_from_base."""
     base_pos, base_rot = tree_layout_base(adapter, cfg, tree, sheet_names, forest,
                                           snapshot=snapshot)
     return layout_tree_from_base(tree, base_pos, base_rot, forest,
@@ -639,12 +640,19 @@ def layout_tree_from_base(tree: Tree, base_pos: Vector2, base_rot_deg: float,
                     child, abs_pos, abs_rot, forest,
                     adapter=adapter, cfg=cfg, sheet_names=sheet_names)
                 if module_bases is not None:
-                    # The base this module's content is laid from — handed OUT here,
-                    # at the one place it is computed, so a reader (the forest
-                    # re-read) uses the base Redraw uses BY CONSTRUCTION instead of
+                    # Handed OUT here, at the one place BOTH poses are known, so a
+                    # reader uses what Redraw uses BY CONSTRUCTION instead of
                     # rebuilding the composition (plan_2026_11_16_reread_forest_
-                    # from_board, Ч0 п.4).
-                    module_bases[n.ref] = (child.name, eff_pos, eff_rot)
+                    # from_board, Ч0 п.4):
+                    #   (tree name, marker pos, marker rot, eff pos, eff rot)
+                    # MARKER — where the module node itself lands (abs_pos/abs_rot,
+                    # BEFORE the embedded tree's inner point is inverted);
+                    # EFF — the frame its content is stored in (pivot applied).
+                    # A reader that must sit in the SAME stage as the tree's own
+                    # anchor point takes the MARKER; one that needs the frame the
+                    # content numbers live in takes EFF.
+                    module_bases[n.ref] = (child.name, abs_pos, abs_rot,
+                                           eff_pos, eff_rot)
                 stack.append(child.name)
                 lay(child.nodes, eff_pos, eff_rot, child, eff_pos, eff_rot)
                 stack.pop()

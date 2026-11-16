@@ -13,8 +13,9 @@ from kicadstamp.forest_reread import (MODE_ABSORB, MODE_KEEP, OVERRIDE_KEEP,
                                       NodeRead, Skip, SyncRow, Vote,
                                       choose_anchor, group_votes, plan_anchor,
                                       plan_forest, sync_embedded_anchor, to_polar)
-from kicadstamp.tree_position import tree_effective_base
-from kicadstamp.trees import Tree, TreeAnchor
+from kicadstamp.tree_position import layout_tree_from_base, tree_effective_base
+from kicadstamp.trees import Tree, TreeAnchor, TreeNode
+from kicadstamp.utils.units import MM
 
 
 # ── а1/а2: Origin moved — the biggest group gives the new anchor shift ────
@@ -218,6 +219,29 @@ def test_the_anchor_shift_is_converted_at_the_anchor_angle():
 
     assert row.now == (-1.0, -2.0)
     assert row.moved is True
+
+
+def test_module_bases_carry_the_marker_and_the_effective_base():
+    """`module_bases` hands out BOTH poses of one module: its MARKER (where the node
+    lands, BEFORE the embedded tree's pivot is inverted — what the sync needs) and
+    the EFF base its content is stored in. Handing the wrong one to the sync would
+    compare two frames."""
+    child = Tree(name="power", anchor=TreeAnchor(is_origin=True), nodes=[],
+                 pivot_xy=(5.0, 0.0), rotation=0.0)
+    marker_node = TreeNode(ref="power", kind="module", xy=(6.0, -64.0), polar=None,
+                           rotation=0.0, name=None, group=None, children=[])
+    main = Tree(name="main", anchor=TreeAnchor(is_origin=True),
+                nodes=[marker_node])
+    bases: dict = {}
+
+    layout_tree_from_base(main, Vector2.from_xy(0, 0), 0.0,
+                          {"main": main, "power": child}, module_bases=bases)
+
+    name, marker_pos, marker_rot, eff_pos, eff_rot = bases["power"]
+    assert name == "power"
+    assert (marker_pos.x / MM, marker_pos.y / MM) == (6.0, -64.0)   # the MARKER
+    assert eff_pos.x / MM == 1.0                                   # 6 − pivot (5, 0)
+    assert marker_rot == 0.0 and eff_rot == 0.0
 
 
 # ── а4: an EMBEDDED tree's own anchor is synced to its module ────────────
