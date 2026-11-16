@@ -1004,6 +1004,28 @@ visualisation and are never written to the config. The suspension point itself h
 construction it always lands exactly on the anchor (`resolve_module_effective_base` inverts the pivot onto
 the marker), so a second circle there would sit on top of the anchor.
 
+**UPDATE 2026-11-16 (plan_2026_11_16_tree_anchor_read_current_position):** the anchor block's **Shift
+X/Y** row carries a **Read current position** button — the SAME label the node form's read uses. It
+measures where the tree's top-level nodes really stand and corrects the shift, so that after the read a
+**Redraw moves nothing**: this is the cure for a board whose Grid Origin was moved AFTER the tree was
+laid out (the anchor then resolves to the new Origin while the routed content still stands where the old
+one put it). Only the shift changes — node `xy`s, the anchor's point and the tree's angle are never
+touched, the answer lands in the form's own fields (buffer only: Apply/Save stay the user's actions) and
+NOTHING is written to the board. The arithmetic: lay the tree out from the CURRENT anchor (the predicted
+poses), read the LIVE pose of every top-level `placement`/`component` node on ONE snapshot, and take
+Δ = live − predicted; if every Δ agrees within 0.005 mm, the new shift is the old one plus Δ converted at
+the ANCHOR's angle (the shift is stored in the config frame). Refusals are ONE Log line with the fields
+untouched: the deltas disagree (each ref with its `(dx, dy)` in mm, ordered by distance from the first —
+no majority vote, because which node was moved by hand is the user's call), a node was turned by more than
+0.01° (its ref and angle — a shift cannot express a rotation), nothing voted, the tree is placed by a
+module (the existing `refuse_embedded_tree` says which one, in which parent), no live connection or the
+socket is busy. **Children, `mount`, `module`, `copper`, `point` and `external` nodes never vote**: a child
+is relative to its parent, a mount's base is a LIVE role, and the rest place no record of their own. A
+self (live) anchor disables the button with the reason in its tooltip, since it already follows the board.
+The read is synchronous — one snapshot and one live pose per voting node, like a node read — and the
+arithmetic lives in `kicadstamp/tree_anchor_read.py` (Qt-free), the wiring in
+`gui/docks/trees_anchor_read.py`.
+
 **UPDATE 2026-09-16 (plan_2026_09_16_copper_pseudo_node):** every copper node (`kind "net_trace"`) of a
 tree is now drawn under ONE **"Copper (n)"** pseudo-row — the LAST row under the tree's anchor. It is a
 VIEW, not data: the row holds no `TreeNode`, it is not a node for any other part of the dock, its text is

@@ -130,6 +130,8 @@ from .trees_node_form import (LocalRefs, RecordRefs, UsedRefs, kind_menu_rows,
                               used_ref_index)
 from .trees_mount_point import (clear_mount_point, read_mount_point,
                                 show_mount_point)
+from .trees_anchor_read import (READ_LABEL, read_and_apply,
+                                update_button_state)
 from .trees_node_row import (apply_node_form, checked_record_refs,
                              is_handle_node, row_for_record, row_of)
 from .live_position import read_record_live_pose
@@ -5810,6 +5812,9 @@ class AnchorFormWidget(QWidget):
         self.shift_y_edit = QLineEdit()
         self.shift_y_edit.setPlaceholderText(_("shift Y mm (0)"))
         shift_layout.addWidget(self.shift_y_edit)
+        self.read_anchor_button = QPushButton(_(READ_LABEL))
+        self.read_anchor_button.clicked.connect(lambda: read_and_apply(self))
+        shift_layout.addWidget(self.read_anchor_button)
         form.addRow(self.shift_row)
         self.shift_reason_label = QLabel("")
         self.shift_reason_label.setWordWrap(True)
@@ -6468,6 +6473,7 @@ class AnchorFormWidget(QWidget):
         # The toggle's label follows the map, which survives a GUI restart —
         # so it is (re)read whenever the form (re)loads a tree.
         self._refresh_show_markers_button()
+        update_button_state(self)
         if self._tree is None:
             self.settings_box.setVisible(False)
             # No tree yet (create-tree dialog): no stored shift, no live base.
@@ -6727,16 +6733,10 @@ class AnchorFormWidget(QWidget):
         return self._live_connection()
 
     # ── This form's board reads: what the snapshot removes, what it does not ──
-    # Т2-8. Same discipline as NodeFormWidget (whose leaf table names the measured
-    # numbers): no adapter is handed to this form by the dock, so every read below
-    # takes the LIVE one at its own point, under its OWN sign.
-    #
-    #   A1 the anchor base (role mode)   332 field scans -> 0, 1 cache walk
-    #   A2 the pivot button              0 exchanges when the pivot rides no mount,
-    #                                    332 -> 332 scans when it hangs under one —
-    #                                    `tree_pivot_offset` takes no snapshot
-    #   A3 the marker toggle             shapes, not footprints: one shapes read per
-    #                                    drawn figure, on a worker
+    # Т2-8, the NodeFormWidget discipline (its leaf table holds the numbers): each
+    # read takes the LIVE adapter at its own point under its OWN sign. A1 anchor base
+    # 332 scans -> 0, 1 cache walk; A2 pivot button 0 exchanges, 332 -> 332 under a
+    # mount; A3 the marker toggle reads shapes on a worker.
 
     def _live_adapter(self):
         """The adapter ONE read of this form must use — the INJECTED one when the
