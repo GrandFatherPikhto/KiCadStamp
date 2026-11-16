@@ -1045,6 +1045,39 @@ tooltip, and if the read is reached anyway it logs its OWN line ("Read current p
 placed by module 'power' in tree 'main' — its own anchor is not used; read on 'main'"), never the
 Redraw wording, and never the `(None, None)` pair that crashed the slot on 16.11 18:13.
 
+**UPDATE 2026-11-16 (plan_2026_11_16_reread_forest_from_board, commit 1):** **Tools → Trees → Reread
+positions from board…** reads the WHOLE forest from the live board ONCE and then shows a table of what
+that read would rewrite — the manual repair for a routed board whose Grid Origin was moved after the
+trees were laid out (which is what tore hand routing apart on 16.11: a Redraw of one module moved four
+cells by 3.08 mm). The read is ONE pass in a worker under `start_long_op`; the table is built from that
+pass and nothing else, so the switch at its top — **Origin moved — absorb in anchors** / **Blocks moved
+by hand — keep anchors** — and each tree's **anchor follows** box re-decide the SAME read and cannot see
+two different boards. What the table shows: one row per tree ANCHOR (was → now, with the vote count), one
+per node that will be written (in the node's OWN shape — a Polar node stays «r ∠ φ», a turned node
+carries its angle), one per embedded tree whose own anchor is synced to its module, and one per SKIP with
+its reason. Apply writes the CONFIG BUFFER only — an anchor's `shift_xy`, a node's `xy`/`polar`/`rotation`
+— and marks it dirty; Save is still the user's own action, the board is never touched, and Cancel writes
+NOTHING at all.
+
+How the read decides: each standalone tree is laid out once from its own anchor (`module_bases` comes out
+of that same walk, so a module's frame is what Redraw uses by construction); every voting node is read
+absolutely with `child_live_pose` and the biggest group of equally shifted voters gives the tree's new
+ANCHOR shift — ties leave the anchor alone and read each node (the anchor Read's own no-majority rule);
+other voters are then read against the base with the NEW shift. **The module rule:** when ALL top-level
+content of a module moved together, the MODULE's `xy` takes `content − anchor` and the content's `xy`s are
+not written at all; when it moved every which way, the module's `xy` stays and each content node is
+written. An embedded tree is synced to the marker of its module AFTER the owner's new shift and the
+module's own move — in that order, or the tree lands on the module's previous place. `_kept_trees` (the
+per-tree boxes) is not the field-override store; the name is deliberate. Nodes that did not move
+(Δ < 0.005 mm and < 0.01°) are not rewritten, so a still board produces no rows at all and Apply is off.
+
+**PARITY CAVEAT:** a top node is read from the RAW anchor (its angle, no pivot, no tree angle) while the
+layout measures from the EFFECTIVE base; on a tree with its own `rotation` or a pivot the two diverge by
+the numbers measured in `done_2026_11_16_tree_anchor_read_s1.md`, and reconciling them is a separate task.
+The arithmetic is `kicadstamp/forest_reread.py` (Qt-free, celled without a board), the read and the plan
+`gui/docks/trees_reread_board.py`, the table `gui/docks/trees_reread_dialog.py`, and the menu entry
+`gui/docks/trees_menu_actions.py` (built there because `gui/main_window.py` sits at its Rule-45 ceiling).
+
 **UPDATE 2026-09-16 (plan_2026_09_16_copper_pseudo_node):** every copper node (`kind "net_trace"`) of a
 tree is now drawn under ONE **"Copper (n)"** pseudo-row — the LAST row under the tree's anchor. It is a
 VIEW, not data: the row holds no `TreeNode`, it is not a node for any other part of the dock, its text is
