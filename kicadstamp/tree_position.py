@@ -536,19 +536,21 @@ def tree_layout_base(adapter, cfg, tree: "Tree", sheet_names, forest=None, *,
 
 def layout_tree_from_anchor(tree: "Tree", forest: "dict[str, Tree] | None" = None, *,
                             adapter=None, cfg=None, sheet_names=None,
-                            snapshot=None
+                            snapshot=None, module_bases=None
                             ) -> dict[str, tuple[Vector2, float]]:
     """The live tree's whole content, laid out from its OWN anchor through the
     inner point + own angle (tree_layout_base) — the convenience wrapper the
     curated redraw and the GUI use, so no caller can forget the seam.
     `snapshot` (16.11.2026, §1 of plan_2026_11_16_tree_anchor_read) is forwarded
     to the layout base and to the mount bases inside, so one connection snapshot
-    serves a whole read; None keeps every caller byte for byte."""
+    serves a whole read; None keeps every caller byte for byte.
+    `module_bases` (16.11.2026, plan_2026_11_16_reread_forest_from_board, Ч0 п.4)
+    is an OUT dict filled by the same walk (see layout_tree_from_base)."""
     base_pos, base_rot = tree_layout_base(adapter, cfg, tree, sheet_names, forest,
                                           snapshot=snapshot)
     return layout_tree_from_base(tree, base_pos, base_rot, forest,
                                  adapter=adapter, cfg=cfg, sheet_names=sheet_names,
-                                 snapshot=snapshot)
+                                 snapshot=snapshot, module_bases=module_bases)
 
 
 def resolve_module_effective_base(marker_pos: Vector2, marker_rot_deg: float,
@@ -566,7 +568,8 @@ def resolve_module_effective_base(marker_pos: Vector2, marker_rot_deg: float,
 
 def layout_tree_from_base(tree: Tree, base_pos: Vector2, base_rot_deg: float,
                           forest: dict[str, Tree] | None = None, *,
-                          adapter=None, cfg=None, sheet_names=None, snapshot=None
+                          adapter=None, cfg=None, sheet_names=None, snapshot=None,
+                          module_bases: dict | None = None
                           ) -> dict[str, tuple[Vector2, float]]:
     """Pure, NON-persistent layout of a tree's ENTIRE content from an absolute
     (base_pos, base_rot_deg) INSTEAD of its own anchor — the geometry module
@@ -635,6 +638,13 @@ def layout_tree_from_base(tree: Tree, base_pos: Vector2, base_rot_deg: float,
                 eff_pos, eff_rot = tree_effective_base(
                     child, abs_pos, abs_rot, forest,
                     adapter=adapter, cfg=cfg, sheet_names=sheet_names)
+                if module_bases is not None:
+                    # The base this module's content is laid from — handed OUT here,
+                    # at the one place it is computed, so a reader (the forest
+                    # re-read) uses the base Redraw uses BY CONSTRUCTION instead of
+                    # rebuilding the composition (plan_2026_11_16_reread_forest_
+                    # from_board, Ч0 п.4).
+                    module_bases[n.ref] = (child.name, eff_pos, eff_rot)
                 stack.append(child.name)
                 lay(child.nodes, eff_pos, eff_rot, child, eff_pos, eff_rot)
                 stack.pop()

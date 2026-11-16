@@ -89,10 +89,11 @@ CEILINGS = {
     "kicadstamp/placement/services/clone_role_resolver.py": 935,
     # 1926 → 1927 (§1 of plan_2026_11_16_tree_anchor_read_current_position): the
     # layout gained an OPTIONAL `snapshot` keyword (signature + forward to the mount
-    # bases inside), so one connection snapshot serves a whole anchor read; the
-    # lines were paid for by compressing the layout docstring, only the signatures
-    # stayed.
-    "kicadstamp/tree_position.py": 1927,
+    # bases inside), so one connection snapshot serves a whole anchor read.
+    # 1927 → 1937 (Ч0 п.4 of plan_2026_11_16_reread_forest_from_board): the SAME walk
+    # now hands its per-module effective bases OUT (`module_bases`), so the re-read
+    # uses the base Redraw uses instead of rebuilding the composition.
+    "kicadstamp/tree_position.py": 1937,
     # 2381 → 2320 (§1 of plan_2026_11_14_used_refs_by_uuid): the local-name rule
     # and its wording moved to kicadstamp/trees_local_refs.py, and the other half
     # of the lock demands the number come DOWN in the same commit.
