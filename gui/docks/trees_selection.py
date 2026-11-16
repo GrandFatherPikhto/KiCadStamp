@@ -28,6 +28,7 @@ from PyQt6.QtWidgets import (QLabel, QTreeWidget, QTreeWidgetItem,
 
 from kicadstamp.i18n import _
 from kicadstamp.trees import Tree, TreeNode
+from kicadstamp.trees_local_refs import NAME_ONLY_KINDS
 
 
 def on_selection_changed(dock) -> None:
@@ -183,9 +184,14 @@ def select_tree_node(dock, tree_name: str, node_ref: str) -> bool:
 
 def item_of_ref(tree_widget: Optional[QTreeWidget],
                 ref: str) -> Optional[QTreeWidgetItem]:
-    """The row of the node whose `ref` is `ref`, anywhere in `tree_widget` — the ONE
+    """The row of the RECORD named `ref`, anywhere in `tree_widget` — the ONE
     lookup of "the row for this node name", shared by every entry point that is handed a
     node NAME rather than a node (Ч2б-2: a check report's `to_node` is exactly that).
+
+    A name may be carried by a record AND by a local NAME of the same tree (a `mount`,
+    plan_2026_11_14_mount_and_record_may_share_a_name §1), so the RECORD wins and the
+    local row is only a fallback — the callers mean a record ("К ноде в дереве" of a
+    check report, an identified-copper highlight).
 
     Only a real `TreeNode` can match: the pseudo-rows (the anchor, "⇐ embedded in X",
     "→ instance: X") carry a str or nothing and the "Copper" group carries a marker, so
@@ -194,13 +200,16 @@ def item_of_ref(tree_widget: Optional[QTreeWidget],
     if tree_widget is None or not ref:
         return None
     it = QTreeWidgetItemIterator(tree_widget)
+    fallback = None
     while it.value() is not None:
         item = it.value()
         data = item.data(0, Qt.ItemDataRole.UserRole)
         if isinstance(data, TreeNode) and data.ref == ref:
-            return item
+            if data.kind not in NAME_ONLY_KINDS:
+                return item
+            fallback = fallback if fallback is not None else item
         it += 1
-    return None
+    return fallback
 
 
 def select_only(tree_widget: Optional[QTreeWidget],

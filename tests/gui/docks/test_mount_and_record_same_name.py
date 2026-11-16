@@ -12,17 +12,22 @@ A mount and a positioned node are different things (kind + uuid), so they may
 carry one name in ONE tree since 16.11.2026: cells а, б, в, д, е and з pin that,
 while the loader keeps refusing two MOUNTS of one name (д).
 """
+import copy
+
 import pytest
 from PyQt6.QtCore import Qt
 
 from gui.docks.trees_accept import subtree_refs
 from gui.docks.trees_dock import TreesDock, collect_tree_refs
-from gui.docks.trees_node_row import checked_record_refs
+from gui.docks.trees_node_row import (_probe_tree, checked_record_refs,
+                                      plan_node_edit)
+from gui.docks.trees_selection import select_tree_node
 from kicadstamp.config.loader import load_config
 from kicadstamp.config.sexp_format import dict_to_sexp
+from kicadstamp.config_writer import append_tree_child_node
 from kicadstamp.exceptions import ValidationError
-from kicadstamp.trees import (Tree, TreeAnchor, TreeNode, tree_from_dict,
-                              tree_to_dict)
+from kicadstamp.trees import (Tree, TreeAnchor, TreeNode, load_trees,
+                              tree_from_dict, tree_to_dict)
 from tests.gui.conftest import row_of_ref
 
 CFG = {
@@ -269,3 +274,143 @@ def test_z_redraw_sets_carry_no_local_names(main_window, tmp_path):
     assert subtree_refs(mount) == {"X"}
     bare = _node("M2", "mount", anchor=TreeAnchor(role="R3"))
     assert subtree_refs(bare) == set()
+
+
+# ── §1: every name-based lookup inside one tree (cells и–о) ───────────────
+
+def _built(node, **over):
+    built = copy.deepcopy(node)
+    for key, value in over.items():
+        setattr(built, key, value)
+    return built
+
+
+def test_i_editing_the_child_under_the_mount_of_its_own_name(
+        main_window, tmp_path):
+    """Cell и (the live case): editing the entity `X` that hangs under the MOUNT
+    `X`. The probe copy must take the edit to THAT node — it used to find the
+    mount by name, put the child's xy on it and leave the copy without a mount at
+    all, so `plan_node_edit` refused with «record 'X' already has a node»."""
+    dock, _root = _dock(main_window, tmp_path)
+    mount, entity = _one_tree_pair(dock)
+    built = _built(entity, xy=(5.0, 5.0))
+
+    assert plan_node_edit(dock, dock._trees[0], entity, built, cfg=dock._cfg,
+                          selected_parent=mount, current_parent=mount) is None
+
+    probe = _probe_tree(dock, dock._trees[0], entity, built, mount, mount)
+    assert [node.kind for node in probe.nodes] == ["mount"]
+    assert probe.nodes[0].ref == "X"
+    assert probe.nodes[0].children[0].xy == (5.0, 5.0)
+    tree_from_dict(tree_to_dict(probe))       # the outcome the loader reads
+
+
+def test_k_editing_the_mount_itself_leaves_the_child_alone(
+        main_window, tmp_path):
+    """Cell к: the edit of the MOUNT lands on the mount — its child (the entity
+    `X`) is not touched."""
+    dock, _root = _dock(main_window, tmp_path)
+    mount, entity = _one_tree_pair(dock)
+    built = _built(mount, anchor=TreeAnchor(role="R9"))
+
+    assert plan_node_edit(dock, dock._trees[0], mount, built, cfg=dock._cfg,
+                          selected_parent=None, current_parent=None) is None
+
+    probe = _probe_tree(dock, dock._trees[0], mount, built, None, None)
+    assert probe.nodes[0].anchor.role == "R9"
+    assert probe.nodes[0].children[0].ref == "X"
+    assert probe.nodes[0].children[0].xy == (1.0, 1.0)
+
+
+def test_l_moving_the_record_out_from_under_the_mount_of_its_own_name(
+        main_window, tmp_path):
+    """Cell л: the entity `X` re-hung from the mount `X` onto another node — the
+    MOVED node is the entity, and the mount is left without children."""
+    dock, _root = _dock(main_window, tmp_path)
+    mount, entity = _one_tree_pair(dock)
+    other = _node("OTHER", "external")
+    dock._trees[0].nodes.append(other)
+    built = _built(entity, xy=(3.0, 3.0))
+
+    probe = _probe_tree(dock, dock._trees[0], entity, built, other, mount)
+    mount_copy = next(node for node in probe.nodes if node.kind == "mount")
+    assert mount_copy.children == []
+    moved = next(node for node in probe.nodes if node.ref == "OTHER")
+    assert [child.ref for child in moved.children] == ["X"]
+    assert moved.children[0].xy == (3.0, 3.0)
+
+
+@pytest.mark.parametrize("record_first", [True, False])
+def test_m_tree_level_refs_name_the_record_in_BOTH_orders(tmp_path,
+                                                          record_first):
+    """Cell м: `pivot-ref X` and `(self (ref X))` name the RECORD whether it is
+    written above or below the mount `X`. The validator's `{ref: node}` map let
+    the LAST one win, so one of the two orders was a load-time fatal naming the
+    mount."""
+    record = '(node (ref "X") (kind placement) (xy 0 0))'
+    mount = '(node (ref "X") (kind mount) (anchor (role "A")))'
+    body = "\n    ".join([record, mount] if record_first else [mount, record])
+    text = ('(kicadstamp-trees\n'
+            '  (tree (name "t") (anchor (self (ref "X"))) (pivot-ref "X")\n'
+            f'    {body}))')
+    path = tmp_path / "trees.sexp"
+    path.write_text(text, encoding="utf-8")
+
+    tree = load_trees(str(path))[0]
+
+    assert tree.pivot_ref == "X"
+    assert tree.anchor.self_ref == "X"
+    assert [node.kind for node in tree.nodes] == (
+        ["placement", "mount"] if record_first else ["mount", "placement"])
+
+
+def test_m2_a_tree_level_ref_naming_ONLY_a_mount_keeps_its_own_message(tmp_path):
+    """The kind-specific refusal is still there — it now fires only when NO
+    record carries the name."""
+    text = ('(kicadstamp-trees\n'
+            '  (tree (name "t") (anchor (origin)) (pivot-ref "X")\n'
+            '    (node (ref "X") (kind mount) (anchor (role "A")))))')
+    path = tmp_path / "trees.sexp"
+    path.write_text(text, encoding="utf-8")
+
+    with pytest.raises(ValidationError, match="is a kind 'mount' node"):
+        load_trees(str(path))
+
+
+def test_n_the_writer_refuses_an_ambiguous_parent_and_takes_the_kind(tmp_path):
+    """Cell н: the «add a node under a parent» writer. With the NAME alone and a
+    mount + a record carrying it, it refuses (never a pick by file order); told
+    the parent's KIND, it appends under that node."""
+    cfg = dict(CFG)
+    cfg["trees"] = [{"name": "t1", "anchor": {"origin": True}, "nodes": [
+        {"ref": "X", "kind": "mount", "anchor": {"role": "R1"}},
+        {"ref": "X", "kind": "external", "xy": [1.0, 1.0]}]}]
+    path = tmp_path / "root.sexp"
+    path.write_text(dict_to_sexp(cfg, format_number=2), encoding="utf-8")
+    # A format-3 write resolves its reference UUIDs against the ACTIVE GRAPH
+    # ROOT (the same precondition every writer cell sets up).
+    from kicadstamp.config_working_set import set_active_graph_root
+    set_active_graph_root(path)
+    node = {"ref": "NEW", "kind": "external", "xy": [2.0, 2.0]}
+
+    with pytest.raises(OSError, match="ambiguous"):
+        append_tree_child_node(path, "t1", "X", dict(node))
+
+    assert append_tree_child_node(path, "t1", "X", dict(node),
+                                  parent_kind="mount") is True
+    loaded = load_config(str(path))[0]
+    mount = next(n for n in loaded.trees[0].nodes if n.kind == "mount")
+    assert [child.ref for child in mount.children] == ["NEW"]
+
+
+def test_o_selecting_the_record_by_name_picks_the_record_row(
+        main_window, tmp_path):
+    """Cell о: «К ноде в дереве» is handed a NAME — with a mount of that name in
+    the same tree it must land on the RECORD's row."""
+    dock, _root = _dock(main_window, tmp_path)
+    mount, entity = _one_tree_pair(dock)
+    widget = dock._tree_widget_for(dock._trees[0])
+
+    assert select_tree_node(dock, "t1", "X") is True
+
+    assert widget.selectedItems() == [_row(widget, entity)]

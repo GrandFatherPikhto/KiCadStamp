@@ -75,7 +75,10 @@ CEILINGS = {
     "kicadstamp/config/models.py": 1149,
     "kicadstamp/config/sexp_format.py": 1363,
     "kicadstamp/config/tree_instances.py": 954,
-    "kicadstamp/config_writer.py": 842,
+    # 842 → 864 (§1 of plan_2026_11_14_mount_and_record_may_share_a_name): the
+    # "add a node under a parent" writer now collects EVERY node of that name and
+    # refuses an ambiguous parent instead of picking one by file order.
+    "kicadstamp/config_writer.py": 864,
     "kicadstamp/diagnostics/net_from_role_audit.py": 897,
     "kicadstamp/diagnostics/probe_gui_min_sizes.py": 874,
     "kicadstamp/kicad/adapter.py": 1141,
@@ -85,7 +88,9 @@ CEILINGS = {
     # 2381 → 2320 (§1 of plan_2026_11_14_used_refs_by_uuid): the local-name rule
     # and its wording moved to kicadstamp/trees_local_refs.py, and the other half
     # of the lock demands the number come DOWN in the same commit.
-    "kicadstamp/trees.py": 2320,
+    # 2320 → 2319 (§1 of plan_2026_11_14_mount_and_record_may_share_a_name): the
+    # tree-level ref resolver moved to trees_local_refs.node_named_for_tree_ref.
+    "kicadstamp/trees.py": 2319,
 }
 
 #: Measured on the base commit: 587 product modules, 29 of them over `BIG`. The count is a

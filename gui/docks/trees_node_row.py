@@ -81,6 +81,48 @@ def copy_node_onto(target: TreeNode, built: TreeNode) -> None:
     target.anchor = built.anchor
 
 
+def is_handle_node(pivot_ref, node: TreeNode) -> bool:
+    """True when `node` is the RECORD a tree's `pivot-ref` names — the row that
+    carries the "handle" (inner point) mark. A local NAME may equal that ref since
+    16.11.2026 (plan_2026_11_14_mount_and_record_may_share_a_name §1), and the
+    mark on a mount would point at a node the layout can never use."""
+    return (pivot_ref is not None and node.ref == pivot_ref
+            and node.kind not in NAME_ONLY_KINDS)
+
+
+def node_path(tree, node: TreeNode):
+    """Where `node` sits in `tree`: child INDICES from the root, or None when it
+    is not there. THE identity a `deepcopy` preserves and a NAME no longer is —
+    a mount and a record may share one (plan_2026_11_14_mount_and_record_may_
+    share_a_name §1: a probe built by name put a child's edit onto the mount)."""
+    def walk(nodes, prefix: tuple) -> Optional[tuple]:
+        for index, current in enumerate(nodes or ()):
+            here = prefix + (index,)
+            if current is node:
+                return here
+            hit = walk(getattr(current, "children", None), here)
+            if hit is not None:
+                return hit
+        return None
+
+    return walk(getattr(tree, "nodes", None), ())
+
+
+def node_at_path(tree, path: Optional[tuple]) -> Optional[TreeNode]:
+    """The node at `node_path`'s indices, or None when the path no longer fits
+    (a copy with a different shape, a tree that changed)."""
+    if path is None:
+        return None
+    nodes = getattr(tree, "nodes", None)
+    node = None
+    for index in path:
+        if not nodes or index >= len(nodes):
+            return None
+        node = nodes[index]
+        nodes = getattr(node, "children", None)
+    return node
+
+
 def _node_by_ref(tree, ref: str):
     """The node of `tree` whose ref is `ref`, or None. Refs are unique within a
     tree (the loader's rule 2 makes them unique across the whole file), so this
@@ -130,14 +172,24 @@ def _probe_tree(dock, tree, node: TreeNode, built: TreeNode,
     The re-hang goes through the dock's own removal point (`_detach_node`, the
     one place a node leaves a sibling list), never a second copy of it."""
     probe = copy.deepcopy(tree)
-    probe_node = _node_by_ref(probe, node.ref)
+    # ПО ПУТИ, not by name: a mount and a record may carry one name in this tree
+    # (§1), and `_node_by_ref` would land the edit on whichever came first.
+    probe_node = node_at_path(probe, node_path(tree, node))
+    if probe_node is None:
+        return None                  # the node is not in this tree: nothing to probe
     copy_node_onto(probe_node, built)
     if selected_parent is not current_parent:
+        # The NEW parent is resolved on the copy BEFORE anything leaves it: a
+        # node's departure shifts the indices of every later sibling.
+        target = (None if selected_parent is None
+                  else node_at_path(probe, node_path(tree, selected_parent)))
         dock._detach_node(probe, probe_node)
         if selected_parent is None:
             probe.nodes.append(probe_node)
+        elif target is not None:
+            target.children.append(probe_node)
         else:
-            _node_by_ref(probe, selected_parent.ref).children.append(probe_node)
+            return None              # the chosen parent is not in this tree
     cascade_tree_refs(probe, node.ref, built.ref)
     return probe
 
@@ -183,10 +235,17 @@ def plan_node_edit(dock, tree, node: TreeNode, built: TreeNode, *,
     seen: set[str] = set()
     try:
         for candidate in list(forest):
-            data = tree_to_dict(
-                _probe_tree(dock, candidate, node, built,
-                            selected_parent, current_parent)
-                if candidate is tree else candidate)
+            if candidate is tree:
+                probe = _probe_tree(dock, candidate, node, built,
+                                    selected_parent, current_parent)
+                if probe is None:
+                    # The node (or the chosen parent) is not in this tree — the
+                    # create-tree flow, never an edit of a real node. Nothing to
+                    # probe; the OTHER trees are still checked.
+                    continue
+                data = tree_to_dict(probe)
+            else:
+                data = tree_to_dict(candidate)
             tree_from_dict(data, seen)
     except ValidationError as exc:
         return _refusal_text(exc, node)

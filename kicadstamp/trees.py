@@ -41,7 +41,8 @@ from typing import TYPE_CHECKING
 from .cloner.sexp import atom, child, children, is_node, load_file, save_file, sval, sym
 from .exceptions import ValidationError
 from .i18n import _
-from .trees_local_refs import validate_local_refs as _validate_local_refs
+from .trees_local_refs import (node_named_for_tree_ref,
+                               validate_local_refs as _validate_local_refs)
 from .utils.units import MM
 
 if TYPE_CHECKING:
@@ -653,8 +654,7 @@ def _validate_self_ref(tree_name: str, nodes: list[TreeNode],
     violations are load-time fatals, mirroring _validate_tree_pivot_ref."""
     if anchor is None or not anchor.is_self or anchor.self_ref is None:
         return
-    by_ref = {n.ref: n for n in _walk_nodes(nodes)}
-    target = by_ref.get(anchor.self_ref)
+    target = node_named_for_tree_ref(nodes, anchor.self_ref)
     if target is None:
         _fatal(_("tree {name!r}: self anchor ref {ref!r} names no node of this "
                  "tree").format(name=tree_name, ref=anchor.self_ref))
@@ -1510,8 +1510,7 @@ def _validate_tree_pivot_ref(tree_name: str, nodes: list[TreeNode],
     three are load-time fatals on BOTH paths (s-expr and dict bridge)."""
     if pivot_ref is None:
         return
-    by_ref = {n.ref: n for n in _walk_nodes(nodes)}
-    target = by_ref.get(pivot_ref)
+    target = node_named_for_tree_ref(nodes, pivot_ref)
     if target is None:
         _fatal(_("tree {name!r}: pivot-ref {ref!r} names no node of this tree")
                .format(name=tree_name, ref=pivot_ref))

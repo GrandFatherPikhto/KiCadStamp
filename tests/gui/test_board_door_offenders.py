@@ -847,7 +847,11 @@ def test_the_connection_snapshot_reaches_each_branchs_resolver(
         tp_mod, "resolve_base_live_position",
         lambda *a, **k: seen.append(k) or Vector2.from_xy_mm(1.0, 2.0))
     if branch.startswith("the node"):
-        index = dock.parent_combo.findData("PARENT")
+        # The row's data is (kind, ref) — a mount and a record may share a name
+        # (plan_2026_11_14_mount_and_record_may_share_a_name §1).
+        index = next((i for i in range(dock.parent_combo.count())
+                      if (dock.parent_combo.itemData(i) or (None, None))[1]
+                      == "PARENT"), -1)
         assert index >= 0, "the rig's PARENT node is not in the parent combo"
         dock.parent_combo.setCurrentIndex(index)
 

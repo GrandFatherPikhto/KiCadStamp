@@ -147,6 +147,17 @@ def _make_place_dock(main_window, root: Path):
     return dock
 
 
+def _parent_row(dock, ref):
+    """The parent_combo row whose node carries `ref`, or -1. The row's data is
+    (kind, ref): a mount and a record may share a name (plan_2026_11_14_mount_
+    and_record_may_share_a_name §1), so the name alone is not the parent."""
+    for idx in range(dock.parent_combo.count()):
+        data = dock.parent_combo.itemData(idx)
+        if data is not None and data[1] == ref:
+            return idx
+    return -1
+
+
 def _fill_form(dock, *, scheme="amp", tree="main", parent_ref=None,
                name="NEWENT", rotation="45.0", x=1.5, y=2.5):
     """Drive the form into a valid Place state. parent_ref None == the
@@ -156,7 +167,7 @@ def _fill_form(dock, *, scheme="amp", tree="main", parent_ref=None,
     if parent_ref is None:
         dock.parent_combo.setCurrentIndex(0)
     else:
-        idx = dock.parent_combo.findData(parent_ref)
+        idx = _parent_row(dock, parent_ref)
         assert idx >= 0, f"parent {parent_ref!r} not among parent candidates"
         dock.parent_combo.setCurrentIndex(idx)
     dock.name_edit.setText(name)
@@ -169,9 +180,10 @@ def _fill_form(dock, *, scheme="amp", tree="main", parent_ref=None,
 
 class _Node:
     """Minimal TreeNode stand-in for collect_parent_candidates (it only reads
-    .ref/.name/.children)."""
-    def __init__(self, ref, name=None, children=()):
+    .kind/.ref/.name/.children)."""
+    def __init__(self, ref, name=None, children=(), kind="placement"):
         self.ref = ref
+        self.kind = kind
         self.name = name
         self.children = list(children)
 
@@ -192,13 +204,15 @@ def test_collect_parent_candidates_dfs_parent_before_child_indented():
                               _Node("C2", name="C2")]),  # name == ref -> no parens
         _Node("P2", name="power"),
     ])
+    # The DATA is (kind, ref), not the ref: a mount and a record may carry one
+    # name in one tree, and a parent picker must tell the two apart.
     assert collect_parent_candidates(tree) == [
         (None, _TOP_LEVEL_LABEL),
-        ("P1", "P1"),
+        (("placement", "P1"), "P1"),
         # depth 1 -> two leading spaces; name shown only when != ref
-        ("C1", "  C1 (child-one)"),
-        ("C2", "  C2"),
-        ("P2", "P2 (power)"),
+        (("placement", "C1"), "  C1 (child-one)"),
+        (("placement", "C2"), "  C2"),
+        (("placement", "P2"), "P2 (power)"),
     ]
 
 

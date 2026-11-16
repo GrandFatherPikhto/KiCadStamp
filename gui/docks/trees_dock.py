@@ -131,7 +131,7 @@ from .trees_node_form import (LocalRefs, RecordRefs, UsedRefs, kind_menu_rows,
 from .trees_mount_point import (clear_mount_point, read_mount_point,
                                 show_mount_point)
 from .trees_node_row import (apply_node_form, checked_record_refs,
-                             row_for_record, row_of)
+                             is_handle_node, row_for_record, row_of)
 from .live_position import read_record_live_pose
 from .copper_select import (identify_copper_report_lines, resolve_record,
                             run_identify_copper_worker,
@@ -1515,7 +1515,7 @@ class TreesDock(QWidget):
                                   pivot_ref=pivot_ref)
             return
         item = QTreeWidgetItem(parent_item)
-        is_handle = pivot_ref is not None and node.ref == pivot_ref
+        is_handle = is_handle_node(pivot_ref, node)
         stale = self._is_stale_net_trace(node)
         item.setText(0, self._node_item_text(node, is_handle=is_handle,
                                              stale=stale))
@@ -1592,7 +1592,7 @@ class TreesDock(QWidget):
             item = row_of(self, node)
             if item is None:
                 continue
-            is_handle = tree.pivot_ref is not None and node.ref == tree.pivot_ref
+            is_handle = is_handle_node(tree.pivot_ref, node)
             stale = self._is_stale_net_trace(node)
             item.setText(0, self._node_item_text(node, is_handle=is_handle,
                                                  stale=stale))

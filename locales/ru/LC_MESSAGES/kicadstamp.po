@@ -3,7 +3,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version:  kicadstamp\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-11-16 13:20+0300\n"
+"POT-Creation-Date: 2026-11-16 14:36+0300\n"
 "PO-Revision-Date: 2026-07-27 12:00+0000\n"
 "Last-Translator: \n"
 "Language: ru\n"
@@ -349,7 +349,7 @@ msgstr "Отпечатки"
 #: gui/docks/cell_editor.py:2063 gui/docks/cell_editor.py:2386
 #: gui/docks/cell_editor.py:2486 gui/docks/change_cell_flow.py:189
 #: gui/docks/change_cell_flow.py:228 gui/docks/create_entity_flow.py:64
-#: gui/docks/imprint_place.py:731 gui/docks/net_trace.py:320
+#: gui/docks/imprint_place.py:741 gui/docks/net_trace.py:320
 #: gui/docks/net_trace.py:429 gui/docks/net_trace.py:495
 #: gui/docks/net_trace.py:594 gui/docks/points.py:433 gui/docks/points.py:539
 #: gui/docks/points.py:716 gui/docks/points.py:883
@@ -1102,7 +1102,7 @@ msgstr "Переименовать дерево..."
 msgid "Delete tree..."
 msgstr "Удалить дерево..."
 
-#: gui/main_window.py:302 kicadstamp/trees.py:152
+#: gui/main_window.py:302 kicadstamp/trees.py:153
 msgid "Copper"
 msgstr "Медь"
 
@@ -1846,7 +1846,7 @@ msgid "Anchor (ref/role)"
 msgstr "Якорь (ref/роль)"
 
 #: gui/docks/_anchor_origin.py:57 gui/docks/trees_dock.py:5629
-#: kicadstamp/trees.py:150
+#: kicadstamp/trees.py:151
 msgid "Point"
 msgstr "Точка"
 
@@ -2139,7 +2139,7 @@ msgid "already: {name}"
 msgstr "уже есть: {name}"
 
 #: gui/docks/add_entities.py:271 gui/docks/create_entity.py:347
-#: gui/docks/create_entity_flow.py:157 gui/docks/imprint_place.py:715
+#: gui/docks/create_entity_flow.py:157 gui/docks/imprint_place.py:725
 #, python-brace-format
 msgid "An entity named {name!r} already exists."
 msgstr "Сущность с именем {name!r} уже существует."
@@ -2500,7 +2500,7 @@ msgstr "Содержимое:"
 msgid "Cell:"
 msgstr "Шаблон:"
 
-#: gui/docks/cell_editor.py:657 gui/docks/imprint_place.py:253
+#: gui/docks/cell_editor.py:657 gui/docks/imprint_place.py:256
 #: gui/docks/trees_dock.py:4176
 msgid "Rotation (deg):"
 msgstr "Поворот (град):"
@@ -4518,7 +4518,7 @@ msgstr "Кластеры разнесены {when} — не сохраняй п�
 msgid "Fully selected Cluster:"
 msgstr "Полностью выделенный кластер:"
 
-#: gui/docks/extract_cluster_dialog.py:85 gui/docks/imprint_place.py:256
+#: gui/docks/extract_cluster_dialog.py:85 gui/docks/imprint_place.py:259
 msgid "Entity name:"
 msgstr "Имя Entity:"
 
@@ -4685,7 +4685,7 @@ msgid "(0, 0) = the region centre — x/y are mm offsets from it."
 msgstr "(0, 0) = центр региона — x/y это смещения в мм от него."
 
 #: gui/docks/imprint.py:482 gui/docks/imprint_dialogs.py:235
-#: gui/docks/imprint_place.py:535 gui/docks/imprint_place.py:548
+#: gui/docks/imprint_place.py:541 gui/docks/imprint_place.py:554
 msgid "Take from selection"
 msgstr "Взять из выделения"
 
@@ -4948,15 +4948,15 @@ msgstr ""
 "сокет KiCad) — смещение X/Y из выделения НЕ заполнено. Галочка «Взять из "
 "выделения» снята; попробуйте ещё раз через момент."
 
-#: gui/docks/imprint_place.py:202 gui/docks/imprint_place.py:669
+#: gui/docks/imprint_place.py:205 gui/docks/imprint_place.py:679
 msgid "Place Imprint"
 msgstr "Разместить Imprint"
 
-#: gui/docks/imprint_place.py:212 gui/entity/page.py:169
+#: gui/docks/imprint_place.py:215 gui/entity/page.py:169
 msgid "Imprint:"
 msgstr "Imprint:"
 
-#: gui/docks/imprint_place.py:217
+#: gui/docks/imprint_place.py:220
 msgid ""
 "Leave empty to place on the sheet the Imprint was recorded from (in "
 "place); pick another sheet to place onto its twin."
@@ -4964,39 +4964,39 @@ msgstr ""
 "Оставьте пустым, чтобы разместить на листе, с которого была записана "
 "Imprint (на месте); выберите другой лист, чтобы разместить на его твине."
 
-#: gui/docks/imprint_place.py:219
+#: gui/docks/imprint_place.py:222
 msgid "Target sheet:"
 msgstr "Целевой лист:"
 
-#: gui/docks/imprint_place.py:225
+#: gui/docks/imprint_place.py:228
 msgid "Tree:"
 msgstr "Дерево:"
 
-#: gui/docks/imprint_place.py:228
+#: gui/docks/imprint_place.py:231
 msgid "Top level = relative to the tree anchor."
 msgstr "Верхний уровень = относительно якоря дерева."
 
-#: gui/docks/imprint_place.py:229
+#: gui/docks/imprint_place.py:232
 msgid "Parent node:"
 msgstr "Родительский узел:"
 
-#: gui/docks/imprint_place.py:234
+#: gui/docks/imprint_place.py:237
 msgid "Take from selection (center of the selected group)"
 msgstr "Взять из выделения (центр выбранной группы)"
 
-#: gui/docks/imprint_place.py:246
+#: gui/docks/imprint_place.py:249
 msgid "X offset (mm):"
 msgstr "Смещение X (мм):"
 
-#: gui/docks/imprint_place.py:247
+#: gui/docks/imprint_place.py:250
 msgid "Y offset (mm):"
 msgstr "Смещение Y (мм):"
 
-#: gui/docks/imprint_place.py:255
+#: gui/docks/imprint_place.py:258
 msgid "new Entity name (must be unique)"
 msgstr "имя новой Entity (должно быть уникальным)"
 
-#: gui/docks/imprint_place.py:260
+#: gui/docks/imprint_place.py:263
 msgid ""
 "Place adds a tree Entity that references the Imprint by name — it never "
 "copies the recorded geometry and never touches the live board until you "
@@ -5006,24 +5006,24 @@ msgstr ""
 " геометрия записи не копируется, и живая плата не затрагивается, пока вы "
 "не выполните Redraw узла дерева."
 
-#: gui/docks/imprint_place.py:267
+#: gui/docks/imprint_place.py:270
 msgid "Place"
 msgstr "Разместить"
 
-#: gui/docks/imprint_place.py:314
+#: gui/docks/imprint_place.py:317
 #, python-brace-format
 msgid "Failed to load the config: {error}"
 msgstr "Не удалось загрузить конфиг: {error}"
 
-#: gui/docks/imprint_place.py:335
+#: gui/docks/imprint_place.py:338
 msgid "no Imprints recorded — use Tools → Imprints → Record..."
 msgstr "Imprint ещё не записаны — используйте Tools → Imprints → Record..."
 
-#: gui/docks/imprint_place.py:345
+#: gui/docks/imprint_place.py:348
 msgid "no editable trees in this config"
 msgstr "в этом конфиге нет редактируемых деревьев"
 
-#: gui/docks/imprint_place.py:536
+#: gui/docks/imprint_place.py:542
 msgid ""
 "Cannot derive the node offset from the selection — enter the X/Y offset "
 "manually."
@@ -5031,51 +5031,51 @@ msgstr ""
 "Не удаётся вычислить смещение узла из выделения — введите смещение X/Y "
 "вручную."
 
-#: gui/docks/imprint_place.py:677
+#: gui/docks/imprint_place.py:687
 #, python-brace-format
 msgid "Placed Imprint {scheme!r} as Entity {entity!r} under tree {tree!r}."
 msgstr "Imprint {scheme!r} размещена как Entity {entity!r} в дереве {tree!r}."
 
-#: gui/docks/imprint_place.py:699
+#: gui/docks/imprint_place.py:709
 msgid "Select an Imprint to place."
 msgstr "Выберите Imprint для размещения."
 
-#: gui/docks/imprint_place.py:702
+#: gui/docks/imprint_place.py:712
 #, python-brace-format
 msgid "Unknown Imprint {name!r}."
 msgstr "Неизвестный Imprint {name!r}."
 
-#: gui/docks/imprint_place.py:705
+#: gui/docks/imprint_place.py:715
 msgid "Pick a tree to place into."
 msgstr "Выберите дерево, в которое разместить."
 
-#: gui/docks/imprint_place.py:707
+#: gui/docks/imprint_place.py:717
 #, python-brace-format
 msgid "Unknown tree {name!r}."
 msgstr "Неизвестное дерево {name!r}."
 
-#: gui/docks/imprint_place.py:711
+#: gui/docks/imprint_place.py:721
 msgid "Entity name is required."
 msgstr "Требуется имя сущности."
 
-#: gui/docks/imprint_place.py:721 gui/docks/trees_dock.py:5399
+#: gui/docks/imprint_place.py:731 gui/docks/trees_dock.py:5399
 msgid "Rotation must be a number."
 msgstr ""
 
-#: gui/docks/imprint_place.py:734
+#: gui/docks/imprint_place.py:744
 msgid "Failed to load the config."
 msgstr "Не удалось загрузить конфиг."
 
-#: gui/docks/imprint_place.py:768
+#: gui/docks/imprint_place.py:780
 msgid "Place failed — check the log."
 msgstr "Размещение не удалось — проверьте журнал."
 
-#: gui/docks/imprint_place.py:772
+#: gui/docks/imprint_place.py:784
 #, python-brace-format
 msgid "Tree {name!r} not found in the config graph."
 msgstr "Дерево {name!r} не найдено в графе конфига."
 
-#: gui/docks/imprint_place.py:784
+#: gui/docks/imprint_place.py:797
 #, python-brace-format
 msgid "Place failed: {error}"
 msgstr "Размещение не удалось: {error}"
@@ -5751,7 +5751,7 @@ msgstr "Показ всех точек не удался: {error}"
 
 #: gui/docks/profile_import.py:36 gui/docks/profile_import.py:39
 #: gui/docks/tree_from_selection_dialog.py:145 gui/entity/page.py:119
-#: kicadstamp/trees.py:145
+#: kicadstamp/trees.py:146
 msgid "Entity"
 msgstr "Сущность"
 
@@ -7021,7 +7021,7 @@ msgid "Mount point: the figures could not be removed from the board ({error})"
 msgstr "Точка mount: фигуры не удалось убрать с платы ({error})"
 
 # anchor source tabs (S-D, 2026-09-05)
-#: gui/docks/trees_dock.py:5237 kicadstamp/trees.py:153
+#: gui/docks/trees_dock.py:5237 kicadstamp/trees.py:154
 msgid "Component"
 msgstr "Компонент"
 
@@ -7210,7 +7210,7 @@ msgstr ""
 msgid "Point name is required."
 msgstr "Требуется имя точки."
 
-#: gui/docks/trees_dock.py:6693 gui/docks/trees_node_row.py:297
+#: gui/docks/trees_dock.py:6693 gui/docks/trees_node_row.py:356
 msgid "Applied — keep editing or Redraw."
 msgstr "Применено — можно править дальше или Redraw."
 
@@ -7576,24 +7576,24 @@ msgstr ""
 "Запись {ref!r} {where} — у записи ровно один источник положения; "
 "перенесите узел или встройте дерево {tree!r} как узел (дерево)."
 
-#: gui/docks/trees_node_row.py:199
+#: gui/docks/trees_node_row.py:258
 #, python-brace-format
 msgid "{error} — the node keeps {ref!r}"
 msgstr "{error} — узел сохраняет {ref!r}"
 
-#: gui/docks/trees_node_row.py:212
+#: gui/docks/trees_node_row.py:271
 #, python-brace-format
 msgid "{old!r} → {new!r}: the tree's pivot ref and self anchor follow."
 msgstr ""
 "{old!r} → {new!r}: за узлом следуют точка подвеса дерева и его якорь "
 "(self)."
 
-#: gui/docks/trees_node_row.py:215
+#: gui/docks/trees_node_row.py:274
 #, python-brace-format
 msgid "{old!r} → {new!r}: the tree's pivot ref follows."
 msgstr "{old!r} → {new!r}: за узлом следует точка подвеса дерева."
 
-#: gui/docks/trees_node_row.py:217
+#: gui/docks/trees_node_row.py:276
 #, python-brace-format
 msgid "{old!r} → {new!r}: the tree's self anchor follows."
 msgstr "{old!r} → {new!r}: за узлом следует якорь дерева (self)."
@@ -7625,22 +7625,22 @@ msgstr "ничего не запланировано — смотри лог"
 msgid "{count} warning(s) — see log"
 msgstr ""
 
-#: gui/docks/trees_selection.py:75 gui/docks/trees_selection.py:122
+#: gui/docks/trees_selection.py:76 gui/docks/trees_selection.py:123
 #, python-brace-format
 msgid "{n} nodes selected"
 msgstr "Выделено узлов: {n}"
 
-#: gui/docks/trees_selection.py:95
+#: gui/docks/trees_selection.py:96
 #, python-brace-format
 msgid "{ref}: xy=({x:.3f}, {y:.3f}) mm"
 msgstr "{ref}: xy=({x:.3f}, {y:.3f}) мм"
 
-#: gui/docks/trees_selection.py:98
+#: gui/docks/trees_selection.py:99
 #, python-brace-format
 msgid "{ref}: r={r:.3f} mm, angle={a:.3f}°"
 msgstr ""
 
-#: gui/docks/trees_selection.py:100
+#: gui/docks/trees_selection.py:101
 #, python-brace-format
 msgid "{ref}: no offset"
 msgstr "У {ref} нет смещения"
@@ -10491,22 +10491,31 @@ msgstr ""
 "не удаётся сохранить {name!r} в {section}: это имя уже занято другой "
 "записью — переименуйте её или выберите другое имя"
 
-#: kicadstamp/config_writer.py:486 kicadstamp/config_writer.py:605
+#: kicadstamp/config_writer.py:486 kicadstamp/config_writer.py:615
 #, python-brace-format
 msgid "trees: in {path} is not a list — refusing to touch it"
 msgstr "trees: в {path} не является списком — не трогаю"
 
-#: kicadstamp/config_writer.py:610
+#: kicadstamp/config_writer.py:620
 #, python-brace-format
 msgid "tree {name!r} not found in {path}"
 msgstr "дерево {name!r} не найдено в {path}"
 
-#: kicadstamp/config_writer.py:617
+#: kicadstamp/config_writer.py:631
 #, python-brace-format
 msgid "tree {name!r} has no node {ref!r} to append under"
 msgstr "у дерева {name!r} нет узла {ref!r}, под который добавить"
 
-#: kicadstamp/config_writer.py:748
+#: kicadstamp/config_writer.py:638
+#, python-brace-format
+msgid ""
+"tree {name!r}: parent {ref!r} is ambiguous — more than one node of this "
+"tree carries that name"
+msgstr ""
+"дерево {name!r}: родитель {ref!r} неоднозначен — в этом дереве больше одного "
+"узла с таким именем"
+
+#: kicadstamp/config_writer.py:770
 #, python-brace-format
 msgid "include: in {path} is not a list — refusing to touch it"
 msgstr "include: в {path} не является списком — не трогаю"
@@ -11152,7 +11161,7 @@ msgstr ""
 "дерево {tree!r}: узел {ref!r} не ссылается ни на одну запись net_traces: "
 "— пропущен"
 
-#: kicadstamp/internode_capture.py:791
+#: kicadstamp/internode_capture.py:790
 #, python-brace-format
 msgid ""
 "re-read plan adds {name!r}, a name the config already has — a record is "
@@ -12909,46 +12918,46 @@ msgstr ""
 msgid "cross-tree anchor cycle in curated redraw forest"
 msgstr ""
 
-#: kicadstamp/trees.py:146
+#: kicadstamp/trees.py:147
 msgid "Mount"
 msgstr "Крепление"
 
-#: kicadstamp/trees.py:147
+#: kicadstamp/trees.py:148
 msgid "Tree"
 msgstr "Дерево"
 
-#: kicadstamp/trees.py:148
+#: kicadstamp/trees.py:149
 msgid "Inter-node copper"
 msgstr "Медь между узлами"
 
-#: kicadstamp/trees.py:149
+#: kicadstamp/trees.py:150
 msgid "Coordinate"
 msgstr ""
 
-#: kicadstamp/trees.py:151
+#: kicadstamp/trees.py:152
 msgid "External"
 msgstr "Внешний"
 
-#: kicadstamp/trees.py:339 kicadstamp/trees.py:2104
+#: kicadstamp/trees.py:340 kicadstamp/trees.py:2103
 #, python-brace-format
 msgid "node {ref!r}: invalid kind {kind!r} — expected one of {kinds}"
 msgstr ""
 
-#: kicadstamp/trees.py:353 kicadstamp/trees.py:2028
+#: kicadstamp/trees.py:354 kicadstamp/trees.py:2027
 #, python-brace-format
 msgid "node {ref!r}: {key} must be exactly two numbers"
 msgstr ""
 
-#: kicadstamp/trees.py:365 kicadstamp/trees.py:2161
+#: kicadstamp/trees.py:366 kicadstamp/trees.py:2160
 #, python-brace-format
 msgid "node {ref!r}: rotation must be a number"
 msgstr ""
 
-#: kicadstamp/trees.py:386
+#: kicadstamp/trees.py:387
 msgid "anchor: shift must be exactly two numbers"
 msgstr "anchor: shift должен быть ровно двумя числами"
 
-#: kicadstamp/trees.py:420
+#: kicadstamp/trees.py:421
 msgid ""
 "anchor must specify exactly one of (origin), (ref \"...\"), (role "
 "\"...\"), (point \"...\"), (self ...)"
@@ -12956,19 +12965,19 @@ msgstr ""
 "якорь обязан задавать ровно одно из (origin), (ref \"...\"), (role "
 "\"...\"), (point \"...\"), (self ...)"
 
-#: kicadstamp/trees.py:424
+#: kicadstamp/trees.py:425
 msgid "anchor: (origin) and (external) are mutually exclusive"
 msgstr "anchor: (origin) и (external) взаимоисключающие"
 
-#: kicadstamp/trees.py:433
+#: kicadstamp/trees.py:434
 msgid "anchor: (external) is only valid with a (ref \"...\") anchor"
 msgstr ""
 
-#: kicadstamp/trees.py:447 kicadstamp/trees.py:450
+#: kicadstamp/trees.py:448 kicadstamp/trees.py:451
 msgid "anchor: only a (uuid \"…\") may follow a (point \"…\")"
 msgstr "якорь: после (point \"…\") может стоять только (uuid \"…\")"
 
-#: kicadstamp/trees.py:488
+#: kicadstamp/trees.py:489
 #, python-brace-format
 msgid ""
 "mount node {ref!r}: anchor supports only (role ...) — "
@@ -12977,12 +12986,12 @@ msgstr ""
 "mount-узел {ref!r}: якорь поддерживает только (role ...) — "
 "origin/ref/point/external/self/shift допустимы только у якоря дерева"
 
-#: kicadstamp/trees.py:493
+#: kicadstamp/trees.py:494
 #, python-brace-format
 msgid "mount node {ref!r}: anchor needs a (role ...)"
 msgstr "mount-узел {ref!r}: anchor требует (role ...)"
 
-#: kicadstamp/trees.py:525
+#: kicadstamp/trees.py:526
 #, python-brace-format
 msgid ""
 "component node {ref!r}: anchor supports only (ref ...) or (role ...) — "
@@ -12991,7 +13000,7 @@ msgstr ""
 "узел-компонент {ref!r}: anchor поддерживает только (ref ...) или (role "
 "...) — origin/point/external/self/shift относятся только к якорю дерева"
 
-#: kicadstamp/trees.py:531
+#: kicadstamp/trees.py:532
 #, python-brace-format
 msgid ""
 "component node {ref!r}: the address must be (ref ...) OR (role ...), not "
@@ -13000,22 +13009,22 @@ msgstr ""
 "узел-компонент {ref!r}: адрес должен быть (ref ...) ИЛИ (role ...), но не"
 " оба"
 
-#: kicadstamp/trees.py:534
+#: kicadstamp/trees.py:535
 #, python-brace-format
 msgid "component node {ref!r}: needs an address — (ref \"...\") or (role \"...\")"
 msgstr "узел-компонент {ref!r}: нужен адрес — (ref \"...\") или (role \"...\")"
 
-#: kicadstamp/trees.py:579
+#: kicadstamp/trees.py:580
 #, python-brace-format
 msgid "{first} and {second}"
 msgstr "{first} и {second}"
 
-#: kicadstamp/trees.py:584
+#: kicadstamp/trees.py:585
 #, python-brace-format
 msgid "tree {tree!r}: two component nodes carry the same address: {pairs}"
 msgstr "дерево {tree!r}: два узла-компонента несут один и тот же адрес: {pairs}"
 
-#: kicadstamp/trees.py:587
+#: kicadstamp/trees.py:588
 msgid ""
 "a component is placed by exactly one node — give one of them its own "
 "address"
@@ -13023,7 +13032,7 @@ msgstr ""
 "компонент размещается ровно одним узлом — дайте одному из них собственный"
 " адрес"
 
-#: kicadstamp/trees.py:623
+#: kicadstamp/trees.py:624
 #, python-brace-format
 msgid ""
 "tree {tree!r}: {count} kind \"copper\" containers — a tree may have at "
@@ -13033,11 +13042,11 @@ msgstr ""
 " не более одного, он единственный дом для межузловых узлов меди этого "
 "дерева"
 
-#: kicadstamp/trees.py:628
+#: kicadstamp/trees.py:629
 msgid "keep one container and move the remaining copper nodes under it"
 msgstr "оставь один контейнер, а остальные узлы меди перенеси внутрь него"
 
-#: kicadstamp/trees.py:636
+#: kicadstamp/trees.py:637
 #, python-brace-format
 msgid ""
 "tree {tree!r}: copper container {container!r} has child(ren) that are not"
@@ -13046,7 +13055,7 @@ msgstr ""
 "дерево {tree!r}: у контейнера меди {container!r} есть дети, которые не "
 "являются медью: {refs}"
 
-#: kicadstamp/trees.py:640
+#: kicadstamp/trees.py:641
 msgid ""
 "a kind \"copper\" container may hold only kind \"net_trace\" (inter-node "
 "copper) nodes"
@@ -13170,7 +13179,7 @@ msgstr ""
 "точкой — каждая перерисовка двигала бы её, поэтому дерево НЕ "
 "перерисовывается: {violations}"
 
-#: kicadstamp/trees.py:1302 kicadstamp/trees.py:2095
+#: kicadstamp/trees.py:1302 kicadstamp/trees.py:2094
 #, python-brace-format
 msgid "{location}: node is missing a (ref ...)"
 msgstr ""
@@ -13180,7 +13189,7 @@ msgstr ""
 msgid "{location}: only a (uuid \"…\") may follow a node's ref"
 msgstr "{location}: после ref узла допустим только (uuid \"…\")"
 
-#: kicadstamp/trees.py:1330 kicadstamp/trees.py:2113
+#: kicadstamp/trees.py:1330 kicadstamp/trees.py:2112
 #, python-brace-format
 msgid ""
 "{location}: a {kind!r} node references no record, so its ref carries no "
@@ -13225,7 +13234,7 @@ msgstr ""
 "— старая грамматика own_anchor удалена 2026-09-11; запустите конвертер "
 "деревьев (kicadstamp convert-trees) на этом конфиге"
 
-#: kicadstamp/trees.py:1368 kicadstamp/trees.py:2146
+#: kicadstamp/trees.py:1368 kicadstamp/trees.py:2145
 #, python-brace-format
 msgid "node {ref!r}: xy and polar are mutually exclusive (use exactly one)"
 msgstr "узел {ref!r}: xy и polar взаимоисключающие — задайте ровно одно"
@@ -13241,22 +13250,22 @@ msgstr ""
 "переехала на уровень (tree ...); запусти конвертер деревьев (kicadstamp "
 "convert-trees) на этом конфиге"
 
-#: kicadstamp/trees.py:1415 kicadstamp/trees.py:2187
+#: kicadstamp/trees.py:1415 kicadstamp/trees.py:2186
 #, python-brace-format
 msgid "tree {name!r}: {key} must be exactly two numbers"
 msgstr "дерево {name!r}: {key} должен состоять ровно из двух чисел"
 
-#: kicadstamp/trees.py:1426 kicadstamp/trees.py:2317
+#: kicadstamp/trees.py:1426 kicadstamp/trees.py:2316
 #, python-brace-format
 msgid "tree {name!r}: rotation must be a number"
 msgstr "дерево {name!r}: rotation должен быть числом"
 
-#: kicadstamp/trees.py:1516
+#: kicadstamp/trees.py:1515
 #, python-brace-format
 msgid "tree {name!r}: pivot-ref {ref!r} names no node of this tree"
 msgstr "дерево {name!r}: pivot-ref {ref!r} не называет ни одного узла этого дерева"
 
-#: kicadstamp/trees.py:1520
+#: kicadstamp/trees.py:1519
 #, python-brace-format
 msgid ""
 "tree {name!r}: pivot-ref {ref!r} is a kind \"external\" node — a live "
@@ -13265,7 +13274,7 @@ msgstr ""
 "дерево {name!r}: pivot-ref {ref!r} — узел вида \"external\": живой refdes"
 " непереносим, поэтому он не может быть внутренней точкой дерева"
 
-#: kicadstamp/trees.py:1530
+#: kicadstamp/trees.py:1529
 #, python-brace-format
 msgid ""
 "tree {name!r}: pivot-ref {ref!r} is a kind {kind!r} node, which the "
@@ -13277,7 +13286,7 @@ msgstr ""
 "используй в качестве внутренней точки узел этого дерева, опирающийся на "
 "запись"
 
-#: kicadstamp/trees.py:1536
+#: kicadstamp/trees.py:1535
 #, python-brace-format
 msgid ""
 "tree {name!r}: pivot-ref {ref!r} hangs under mount node {mount!r} — a "
@@ -13290,7 +13299,7 @@ msgstr ""
 "деревом, поэтому он не может быть внутренней точкой дерева (используй "
 "узел вне mount-поддерева или pivot-xy)"
 
-#: kicadstamp/trees.py:1556
+#: kicadstamp/trees.py:1555
 #, python-brace-format
 msgid ""
 "tree {name!r}: pivot-xy, pivot-polar and pivot-ref are mutually exclusive"
@@ -13299,29 +13308,29 @@ msgstr ""
 "дерево {name!r}: pivot-xy, pivot-polar и pivot-ref взаимоисключающие "
 "(используй не более одного)"
 
-#: kicadstamp/trees.py:1570
+#: kicadstamp/trees.py:1569
 #, python-brace-format
 msgid "{location}: a tree is missing a (name ...)"
 msgstr ""
 
-#: kicadstamp/trees.py:1573
+#: kicadstamp/trees.py:1572
 #, python-brace-format
 msgid ""
 "{location}: duplicate tree name {name!r} — tree names must be unique "
 "within one config"
 msgstr ""
 
-#: kicadstamp/trees.py:1618
+#: kicadstamp/trees.py:1617
 #, python-brace-format
 msgid "{path}: top level must be (kicadstamp-trees ...)"
 msgstr ""
 
-#: kicadstamp/trees.py:2039
+#: kicadstamp/trees.py:2038
 #, python-brace-format
 msgid "mount node {ref!r}: anchor must be a mapping"
 msgstr "mount-узел {ref!r}: anchor должен быть отображением"
 
-#: kicadstamp/trees.py:2044
+#: kicadstamp/trees.py:2043
 #, python-brace-format
 msgid ""
 "mount node {ref!r}: anchor supports only role — {keys} are tree-anchor-"
@@ -13330,17 +13339,17 @@ msgstr ""
 "mount-узел {ref!r}: anchor поддерживает только role — {keys} относятся "
 "только к якорю дерева"
 
-#: kicadstamp/trees.py:2048
+#: kicadstamp/trees.py:2047
 #, python-brace-format
 msgid "mount node {ref!r}: anchor needs a role"
 msgstr "mount-узел {ref!r}: anchor требует роль"
 
-#: kicadstamp/trees.py:2063
+#: kicadstamp/trees.py:2062
 #, python-brace-format
 msgid "component node {ref!r}: anchor must be a mapping"
 msgstr "узел-компонент {ref!r}: anchor должен быть отображением"
 
-#: kicadstamp/trees.py:2067
+#: kicadstamp/trees.py:2066
 #, python-brace-format
 msgid ""
 "component node {ref!r}: anchor supports only ref or role — {keys} are "
@@ -13349,24 +13358,24 @@ msgstr ""
 "узел-компонент {ref!r}: anchor поддерживает только ref или role — {keys} "
 "относятся только к якорю дерева"
 
-#: kicadstamp/trees.py:2073
+#: kicadstamp/trees.py:2072
 #, python-brace-format
 msgid "component node {ref!r}: the address must be ref OR role, not both"
 msgstr "узел-компонент {ref!r}: адрес должен быть ref ИЛИ role, но не оба"
 
-#: kicadstamp/trees.py:2076
+#: kicadstamp/trees.py:2075
 #, python-brace-format
 msgid "component node {ref!r}: needs an address — ref or role"
 msgstr "узел-компонент {ref!r}: нужен адрес — ref или role"
 
-#: kicadstamp/trees.py:2117
+#: kicadstamp/trees.py:2116
 #, python-brace-format
 msgid ""
 "{location}: record {ref!r} already has a node elsewhere in this config — "
 "a record's position source must be exactly one"
 msgstr ""
 
-#: kicadstamp/trees.py:2125
+#: kicadstamp/trees.py:2124
 #, python-brace-format
 msgid ""
 "mount node {ref!r}: needs an anchor mapping with role — a mount node is a"
@@ -13375,7 +13384,7 @@ msgstr ""
 "mount-узел {ref!r}: требуется отображение anchor с ролью — mount-узел это"
 " точка отсчёта, сам он ничего не размещает"
 
-#: kicadstamp/trees.py:2131
+#: kicadstamp/trees.py:2130
 #, python-brace-format
 msgid ""
 "component node {ref!r}: needs an anchor mapping with the ADDRESS of the "
@@ -13384,7 +13393,7 @@ msgstr ""
 "узел-компонент {ref!r}: нужен anchor-отображение с АДРЕСОМ размещаемого "
 "компонента — ref или role"
 
-#: kicadstamp/trees.py:2137
+#: kicadstamp/trees.py:2136
 #, python-brace-format
 msgid ""
 "node {ref!r}: a nested anchor mapping is only valid on a kind mount node "
@@ -13395,7 +13404,7 @@ msgstr ""
 "mount — старая грамматика own_anchor удалена 2026-09-11; запустите "
 "конвертер деревьев (kicadstamp convert-trees) на этом конфиге"
 
-#: kicadstamp/trees.py:2154
+#: kicadstamp/trees.py:2153
 #, python-brace-format
 msgid ""
 "node {ref!r}: {key} is no longer valid on a node — the tree's inner point"
@@ -13406,12 +13415,12 @@ msgstr ""
 "переехала на уровень TREES; запусти конвертер деревьев (kicadstamp "
 "convert-trees) на этом конфиге"
 
-#: kicadstamp/trees.py:2202
+#: kicadstamp/trees.py:2201
 #, python-brace-format
 msgid "tree {name!r}: pivot_ref must be a string"
 msgstr "дерево {name!r}: pivot_ref должен быть строкой"
 
-#: kicadstamp/trees.py:2204
+#: kicadstamp/trees.py:2203
 #, python-brace-format
 msgid ""
 "tree {name!r}: pivot_xy, pivot_polar and pivot_ref are mutually exclusive"
@@ -13420,40 +13429,40 @@ msgstr ""
 "дерево {name!r}: pivot_xy, pivot_polar и pivot_ref взаимоисключающие "
 "(используй не более одного)"
 
-#: kicadstamp/trees.py:2221
+#: kicadstamp/trees.py:2220
 #, python-brace-format
 msgid "tree {name!r}: anchor shift must be exactly two numbers"
 msgstr "tree {name!r}: сдвиг якоря должен быть ровно двумя числами"
 
-#: kicadstamp/trees.py:2242 kicadstamp/trees.py:2283
+#: kicadstamp/trees.py:2241 kicadstamp/trees.py:2282
 msgid "anchor must specify exactly one of origin/ref/role/point/self"
 msgstr "якорь обязан задавать ровно одно из origin/ref/role/point/self"
 
-#: kicadstamp/trees.py:2246 kicadstamp/trees.py:2276
+#: kicadstamp/trees.py:2245 kicadstamp/trees.py:2275
 msgid "anchor: point_uuid needs a point base"
 msgstr "якорь: point_uuid требует базы point"
 
-#: kicadstamp/trees.py:2248
+#: kicadstamp/trees.py:2247
 msgid "anchor: shift needs a base — set one of origin/ref/role/point/self"
 msgstr "якорь: shift требует базы — задайте одно из origin/ref/role/point/self"
 
-#: kicadstamp/trees.py:2253
+#: kicadstamp/trees.py:2252
 msgid "anchor: origin and external are mutually exclusive"
 msgstr "anchor: (origin) и (external) взаимоисключающие"
 
-#: kicadstamp/trees.py:2258
+#: kicadstamp/trees.py:2257
 msgid "anchor: self must be a mapping with an optional ref/pad"
 msgstr "якорь: self должен быть отображением с необязательными ref/pad"
 
-#: kicadstamp/trees.py:2274
+#: kicadstamp/trees.py:2273
 msgid "anchor: external is only valid with a ref anchor"
 msgstr ""
 
-#: kicadstamp/trees.py:2298
+#: kicadstamp/trees.py:2297
 msgid "tree must be a mapping"
 msgstr ""
 
-#: kicadstamp/trees.py:2304
+#: kicadstamp/trees.py:2303
 msgid "a tree is missing a (name ...)"
 msgstr ""
 

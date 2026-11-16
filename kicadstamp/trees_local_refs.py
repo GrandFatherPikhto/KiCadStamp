@@ -87,6 +87,24 @@ def _walk(nodes):
         yield from _walk(node.children)
 
 
+def node_named_for_tree_ref(nodes, ref: str):
+    """The node a TREE-LEVEL ref (a `pivot-ref`, a self anchor's `(ref ...)`)
+    names: the RECORD of that name, or — only when no record carries it — the
+    LOCAL node. Both refs mean the RECORD, and a `mount` may share a record's
+    name (16.11.2026), so "the last one in the file wins" would make a tree's
+    readability depend on node ORDER (plan_2026_11_14_mount_and_record_may_share_
+    a_name §1). Lives HERE, next to the rule that says which kinds are names
+    rather than records — and `kicadstamp/trees.py` (which may not grow) calls it."""
+    fallback = None
+    for node in _walk(nodes):
+        if node.ref != ref:
+            continue
+        if node.kind not in NAME_ONLY_KINDS:
+            return node
+        fallback = fallback or node
+    return fallback
+
+
 def local_ref_kind(nodes, ref: str) -> Optional[str]:
     """The LOCAL kind of the first node carrying `ref` as a local name, or None.
     Used for the FORWARD direction: a record whose name a local node already

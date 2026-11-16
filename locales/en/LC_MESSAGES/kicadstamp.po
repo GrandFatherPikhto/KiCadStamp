@@ -3,7 +3,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version:  kicadstamp\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-11-16 13:20+0300\n"
+"POT-Creation-Date: 2026-11-16 14:36+0300\n"
 "PO-Revision-Date: 2026-07-27 12:00+0000\n"
 "Last-Translator: \n"
 "Language: en\n"
@@ -312,7 +312,7 @@ msgstr ""
 #: gui/docks/cell_editor.py:2063 gui/docks/cell_editor.py:2386
 #: gui/docks/cell_editor.py:2486 gui/docks/change_cell_flow.py:189
 #: gui/docks/change_cell_flow.py:228 gui/docks/create_entity_flow.py:64
-#: gui/docks/imprint_place.py:731 gui/docks/net_trace.py:320
+#: gui/docks/imprint_place.py:741 gui/docks/net_trace.py:320
 #: gui/docks/net_trace.py:429 gui/docks/net_trace.py:495
 #: gui/docks/net_trace.py:594 gui/docks/points.py:433 gui/docks/points.py:539
 #: gui/docks/points.py:716 gui/docks/points.py:883
@@ -1045,7 +1045,7 @@ msgstr "Rename tree..."
 msgid "Delete tree..."
 msgstr "Delete tree..."
 
-#: gui/main_window.py:302 kicadstamp/trees.py:152
+#: gui/main_window.py:302 kicadstamp/trees.py:153
 msgid "Copper"
 msgstr ""
 
@@ -1715,7 +1715,7 @@ msgid "Anchor (ref/role)"
 msgstr "Anchor (ref/role)"
 
 #: gui/docks/_anchor_origin.py:57 gui/docks/trees_dock.py:5629
-#: kicadstamp/trees.py:150
+#: kicadstamp/trees.py:151
 msgid "Point"
 msgstr "Point"
 
@@ -1998,7 +1998,7 @@ msgid "already: {name}"
 msgstr ""
 
 #: gui/docks/add_entities.py:271 gui/docks/create_entity.py:347
-#: gui/docks/create_entity_flow.py:157 gui/docks/imprint_place.py:715
+#: gui/docks/create_entity_flow.py:157 gui/docks/imprint_place.py:725
 #, python-brace-format
 msgid "An entity named {name!r} already exists."
 msgstr ""
@@ -2351,7 +2351,7 @@ msgstr "Content:"
 msgid "Cell:"
 msgstr "Cell:"
 
-#: gui/docks/cell_editor.py:657 gui/docks/imprint_place.py:253
+#: gui/docks/cell_editor.py:657 gui/docks/imprint_place.py:256
 #: gui/docks/trees_dock.py:4176
 msgid "Rotation (deg):"
 msgstr "Rotation (deg):"
@@ -4266,7 +4266,7 @@ msgstr ""
 msgid "Fully selected Cluster:"
 msgstr ""
 
-#: gui/docks/extract_cluster_dialog.py:85 gui/docks/imprint_place.py:256
+#: gui/docks/extract_cluster_dialog.py:85 gui/docks/imprint_place.py:259
 msgid "Entity name:"
 msgstr ""
 
@@ -4413,7 +4413,7 @@ msgid "(0, 0) = the region centre — x/y are mm offsets from it."
 msgstr ""
 
 #: gui/docks/imprint.py:482 gui/docks/imprint_dialogs.py:235
-#: gui/docks/imprint_place.py:535 gui/docks/imprint_place.py:548
+#: gui/docks/imprint_place.py:541 gui/docks/imprint_place.py:554
 msgid "Take from selection"
 msgstr ""
 
@@ -4655,127 +4655,127 @@ msgid ""
 "selection. “Take from selection” was turned off; try again in a moment."
 msgstr ""
 
-#: gui/docks/imprint_place.py:202 gui/docks/imprint_place.py:669
+#: gui/docks/imprint_place.py:205 gui/docks/imprint_place.py:679
 msgid "Place Imprint"
 msgstr ""
 
-#: gui/docks/imprint_place.py:212 gui/entity/page.py:169
+#: gui/docks/imprint_place.py:215 gui/entity/page.py:169
 msgid "Imprint:"
 msgstr ""
 
-#: gui/docks/imprint_place.py:217
+#: gui/docks/imprint_place.py:220
 msgid ""
 "Leave empty to place on the sheet the Imprint was recorded from (in "
 "place); pick another sheet to place onto its twin."
 msgstr ""
 
-#: gui/docks/imprint_place.py:219
+#: gui/docks/imprint_place.py:222
 msgid "Target sheet:"
 msgstr ""
 
-#: gui/docks/imprint_place.py:225
+#: gui/docks/imprint_place.py:228
 msgid "Tree:"
 msgstr ""
 
-#: gui/docks/imprint_place.py:228
+#: gui/docks/imprint_place.py:231
 msgid "Top level = relative to the tree anchor."
 msgstr ""
 
-#: gui/docks/imprint_place.py:229
+#: gui/docks/imprint_place.py:232
 msgid "Parent node:"
 msgstr ""
 
-#: gui/docks/imprint_place.py:234
+#: gui/docks/imprint_place.py:237
 msgid "Take from selection (center of the selected group)"
 msgstr ""
 
-#: gui/docks/imprint_place.py:246
+#: gui/docks/imprint_place.py:249
 msgid "X offset (mm):"
 msgstr ""
 
-#: gui/docks/imprint_place.py:247
+#: gui/docks/imprint_place.py:250
 msgid "Y offset (mm):"
 msgstr ""
 
-#: gui/docks/imprint_place.py:255
+#: gui/docks/imprint_place.py:258
 msgid "new Entity name (must be unique)"
 msgstr ""
 
-#: gui/docks/imprint_place.py:260
+#: gui/docks/imprint_place.py:263
 msgid ""
 "Place adds a tree Entity that references the Imprint by name — it never "
 "copies the recorded geometry and never touches the live board until you "
 "Redraw the tree node."
 msgstr ""
 
-#: gui/docks/imprint_place.py:267
+#: gui/docks/imprint_place.py:270
 msgid "Place"
 msgstr ""
 
-#: gui/docks/imprint_place.py:314
+#: gui/docks/imprint_place.py:317
 #, python-brace-format
 msgid "Failed to load the config: {error}"
 msgstr ""
 
-#: gui/docks/imprint_place.py:335
+#: gui/docks/imprint_place.py:338
 msgid "no Imprints recorded — use Tools → Imprints → Record..."
 msgstr ""
 
-#: gui/docks/imprint_place.py:345
+#: gui/docks/imprint_place.py:348
 msgid "no editable trees in this config"
 msgstr ""
 
-#: gui/docks/imprint_place.py:536
+#: gui/docks/imprint_place.py:542
 msgid ""
 "Cannot derive the node offset from the selection — enter the X/Y offset "
 "manually."
 msgstr ""
 
-#: gui/docks/imprint_place.py:677
+#: gui/docks/imprint_place.py:687
 #, python-brace-format
 msgid "Placed Imprint {scheme!r} as Entity {entity!r} under tree {tree!r}."
 msgstr ""
 
-#: gui/docks/imprint_place.py:699
+#: gui/docks/imprint_place.py:709
 msgid "Select an Imprint to place."
 msgstr ""
 
-#: gui/docks/imprint_place.py:702
+#: gui/docks/imprint_place.py:712
 #, python-brace-format
 msgid "Unknown Imprint {name!r}."
 msgstr ""
 
-#: gui/docks/imprint_place.py:705
+#: gui/docks/imprint_place.py:715
 msgid "Pick a tree to place into."
 msgstr ""
 
-#: gui/docks/imprint_place.py:707
+#: gui/docks/imprint_place.py:717
 #, python-brace-format
 msgid "Unknown tree {name!r}."
 msgstr ""
 
-#: gui/docks/imprint_place.py:711
+#: gui/docks/imprint_place.py:721
 msgid "Entity name is required."
 msgstr "Entity name is required."
 
-#: gui/docks/imprint_place.py:721 gui/docks/trees_dock.py:5399
+#: gui/docks/imprint_place.py:731 gui/docks/trees_dock.py:5399
 msgid "Rotation must be a number."
 msgstr "Rotation must be a number."
 
-#: gui/docks/imprint_place.py:734
+#: gui/docks/imprint_place.py:744
 msgid "Failed to load the config."
 msgstr ""
 
-#: gui/docks/imprint_place.py:768
+#: gui/docks/imprint_place.py:780
 msgid "Place failed — check the log."
 msgstr ""
 
-#: gui/docks/imprint_place.py:772
+#: gui/docks/imprint_place.py:784
 #, python-brace-format
 msgid "Tree {name!r} not found in the config graph."
 msgstr ""
 
-#: gui/docks/imprint_place.py:784
+#: gui/docks/imprint_place.py:797
 #, python-brace-format
 msgid "Place failed: {error}"
 msgstr ""
@@ -5392,7 +5392,7 @@ msgstr ""
 
 #: gui/docks/profile_import.py:36 gui/docks/profile_import.py:39
 #: gui/docks/tree_from_selection_dialog.py:145 gui/entity/page.py:119
-#: kicadstamp/trees.py:145
+#: kicadstamp/trees.py:146
 msgid "Entity"
 msgstr "Entity"
 
@@ -6597,7 +6597,7 @@ msgid "Mount point: the figures could not be removed from the board ({error})"
 msgstr ""
 
 # anchor source tabs (S-D, 2026-09-05)
-#: gui/docks/trees_dock.py:5237 kicadstamp/trees.py:153
+#: gui/docks/trees_dock.py:5237 kicadstamp/trees.py:154
 msgid "Component"
 msgstr ""
 
@@ -6767,7 +6767,7 @@ msgstr "Angle: {text!r} is not a number."
 msgid "Point name is required."
 msgstr "Point name is required."
 
-#: gui/docks/trees_dock.py:6693 gui/docks/trees_node_row.py:297
+#: gui/docks/trees_dock.py:6693 gui/docks/trees_node_row.py:356
 msgid "Applied — keep editing or Redraw."
 msgstr "Applied — keep editing or Redraw."
 
@@ -7112,22 +7112,22 @@ msgstr ""
 "Record {ref!r} {where} — a record has exactly one position source; move "
 "the node, or embed tree {tree!r} as a Tree node."
 
-#: gui/docks/trees_node_row.py:199
+#: gui/docks/trees_node_row.py:258
 #, python-brace-format
 msgid "{error} — the node keeps {ref!r}"
 msgstr ""
 
-#: gui/docks/trees_node_row.py:212
+#: gui/docks/trees_node_row.py:271
 #, python-brace-format
 msgid "{old!r} → {new!r}: the tree's pivot ref and self anchor follow."
 msgstr ""
 
-#: gui/docks/trees_node_row.py:215
+#: gui/docks/trees_node_row.py:274
 #, python-brace-format
 msgid "{old!r} → {new!r}: the tree's pivot ref follows."
 msgstr ""
 
-#: gui/docks/trees_node_row.py:217
+#: gui/docks/trees_node_row.py:276
 #, python-brace-format
 msgid "{old!r} → {new!r}: the tree's self anchor follows."
 msgstr ""
@@ -7159,22 +7159,22 @@ msgstr "nothing was planned — see the log"
 msgid "{count} warning(s) — see log"
 msgstr "{count} warning(s) — see log"
 
-#: gui/docks/trees_selection.py:75 gui/docks/trees_selection.py:122
+#: gui/docks/trees_selection.py:76 gui/docks/trees_selection.py:123
 #, python-brace-format
 msgid "{n} nodes selected"
 msgstr "{n} nodes selected"
 
-#: gui/docks/trees_selection.py:95
+#: gui/docks/trees_selection.py:96
 #, python-brace-format
 msgid "{ref}: xy=({x:.3f}, {y:.3f}) mm"
 msgstr "{ref}: xy=({x:.3f}, {y:.3f}) mm"
 
-#: gui/docks/trees_selection.py:98
+#: gui/docks/trees_selection.py:99
 #, python-brace-format
 msgid "{ref}: r={r:.3f} mm, angle={a:.3f}°"
 msgstr "{ref}: r={r:.3f} mm, angle={a:.3f}°"
 
-#: gui/docks/trees_selection.py:100
+#: gui/docks/trees_selection.py:101
 #, python-brace-format
 msgid "{ref}: no offset"
 msgstr "{ref}: no offset"
@@ -9833,22 +9833,31 @@ msgid ""
 "record — rename that record first, or choose another name"
 msgstr ""
 
-#: kicadstamp/config_writer.py:486 kicadstamp/config_writer.py:605
+#: kicadstamp/config_writer.py:486 kicadstamp/config_writer.py:615
 #, python-brace-format
 msgid "trees: in {path} is not a list — refusing to touch it"
 msgstr "trees: in {path} is not a list — refusing to touch it"
 
-#: kicadstamp/config_writer.py:610
+#: kicadstamp/config_writer.py:620
 #, python-brace-format
 msgid "tree {name!r} not found in {path}"
 msgstr ""
 
-#: kicadstamp/config_writer.py:617
+#: kicadstamp/config_writer.py:631
 #, python-brace-format
 msgid "tree {name!r} has no node {ref!r} to append under"
 msgstr ""
 
-#: kicadstamp/config_writer.py:748
+#: kicadstamp/config_writer.py:638
+#, python-brace-format
+msgid ""
+"tree {name!r}: parent {ref!r} is ambiguous — more than one node of this "
+"tree carries that name"
+msgstr ""
+"tree {name!r}: parent {ref!r} is ambiguous — more than one node of this "
+"tree carries that name"
+
+#: kicadstamp/config_writer.py:770
 #, python-brace-format
 msgid "include: in {path} is not a list — refusing to touch it"
 msgstr "include: in {path} is not a list — refusing to touch it"
@@ -10452,7 +10461,7 @@ msgstr ""
 msgid "tree {tree!r}: node {ref!r} references no net_traces: record — skipped"
 msgstr "tree {tree!r}: node {ref!r} references no net_traces: record — skipped"
 
-#: kicadstamp/internode_capture.py:791
+#: kicadstamp/internode_capture.py:790
 #, python-brace-format
 msgid ""
 "re-read plan adds {name!r}, a name the config already has — a record is "
@@ -12114,76 +12123,76 @@ msgstr ""
 msgid "cross-tree anchor cycle in curated redraw forest"
 msgstr "cross-tree anchor cycle in curated redraw forest"
 
-#: kicadstamp/trees.py:146
+#: kicadstamp/trees.py:147
 msgid "Mount"
 msgstr "Mount"
 
-#: kicadstamp/trees.py:147
+#: kicadstamp/trees.py:148
 msgid "Tree"
 msgstr "Tree"
 
-#: kicadstamp/trees.py:148
+#: kicadstamp/trees.py:149
 msgid "Inter-node copper"
 msgstr "Inter-node copper"
 
-#: kicadstamp/trees.py:149
+#: kicadstamp/trees.py:150
 msgid "Coordinate"
 msgstr "Coordinate"
 
-#: kicadstamp/trees.py:151
+#: kicadstamp/trees.py:152
 msgid "External"
 msgstr "External"
 
-#: kicadstamp/trees.py:339 kicadstamp/trees.py:2104
+#: kicadstamp/trees.py:340 kicadstamp/trees.py:2103
 #, python-brace-format
 msgid "node {ref!r}: invalid kind {kind!r} — expected one of {kinds}"
 msgstr "node {ref!r}: invalid kind {kind!r} — expected one of {kinds}"
 
-#: kicadstamp/trees.py:353 kicadstamp/trees.py:2028
+#: kicadstamp/trees.py:354 kicadstamp/trees.py:2027
 #, python-brace-format
 msgid "node {ref!r}: {key} must be exactly two numbers"
 msgstr "node {ref!r}: {key} must be exactly two numbers"
 
-#: kicadstamp/trees.py:365 kicadstamp/trees.py:2161
+#: kicadstamp/trees.py:366 kicadstamp/trees.py:2160
 #, python-brace-format
 msgid "node {ref!r}: rotation must be a number"
 msgstr "node {ref!r}: rotation must be a number"
 
-#: kicadstamp/trees.py:386
+#: kicadstamp/trees.py:387
 msgid "anchor: shift must be exactly two numbers"
 msgstr ""
 
-#: kicadstamp/trees.py:420
+#: kicadstamp/trees.py:421
 msgid ""
 "anchor must specify exactly one of (origin), (ref \"...\"), (role "
 "\"...\"), (point \"...\"), (self ...)"
 msgstr ""
 
-#: kicadstamp/trees.py:424
+#: kicadstamp/trees.py:425
 msgid "anchor: (origin) and (external) are mutually exclusive"
 msgstr "anchor: (origin) and (external) are mutually exclusive"
 
-#: kicadstamp/trees.py:433
+#: kicadstamp/trees.py:434
 msgid "anchor: (external) is only valid with a (ref \"...\") anchor"
 msgstr "anchor: (external) is only valid with a (ref \"...\") anchor"
 
-#: kicadstamp/trees.py:447 kicadstamp/trees.py:450
+#: kicadstamp/trees.py:448 kicadstamp/trees.py:451
 msgid "anchor: only a (uuid \"…\") may follow a (point \"…\")"
 msgstr ""
 
-#: kicadstamp/trees.py:488
+#: kicadstamp/trees.py:489
 #, python-brace-format
 msgid ""
 "mount node {ref!r}: anchor supports only (role ...) — "
 "origin/ref/point/external/self/shift are tree-anchor-only"
 msgstr ""
 
-#: kicadstamp/trees.py:493
+#: kicadstamp/trees.py:494
 #, python-brace-format
 msgid "mount node {ref!r}: anchor needs a (role ...)"
 msgstr ""
 
-#: kicadstamp/trees.py:525
+#: kicadstamp/trees.py:526
 #, python-brace-format
 msgid ""
 "component node {ref!r}: anchor supports only (ref ...) or (role ...) — "
@@ -12192,7 +12201,7 @@ msgstr ""
 "component node {ref!r}: anchor supports only (ref ...) or (role ...) — "
 "origin/point/external/self/shift are tree-anchor-only"
 
-#: kicadstamp/trees.py:531
+#: kicadstamp/trees.py:532
 #, python-brace-format
 msgid ""
 "component node {ref!r}: the address must be (ref ...) OR (role ...), not "
@@ -12201,22 +12210,22 @@ msgstr ""
 "component node {ref!r}: the address must be (ref ...) OR (role ...), not "
 "both"
 
-#: kicadstamp/trees.py:534
+#: kicadstamp/trees.py:535
 #, python-brace-format
 msgid "component node {ref!r}: needs an address — (ref \"...\") or (role \"...\")"
 msgstr "component node {ref!r}: needs an address — (ref \"...\") or (role \"...\")"
 
-#: kicadstamp/trees.py:579
+#: kicadstamp/trees.py:580
 #, python-brace-format
 msgid "{first} and {second}"
 msgstr "{first} and {second}"
 
-#: kicadstamp/trees.py:584
+#: kicadstamp/trees.py:585
 #, python-brace-format
 msgid "tree {tree!r}: two component nodes carry the same address: {pairs}"
 msgstr "tree {tree!r}: two component nodes carry the same address: {pairs}"
 
-#: kicadstamp/trees.py:587
+#: kicadstamp/trees.py:588
 msgid ""
 "a component is placed by exactly one node — give one of them its own "
 "address"
@@ -12224,25 +12233,25 @@ msgstr ""
 "a component is placed by exactly one node — give one of them its own "
 "address"
 
-#: kicadstamp/trees.py:623
+#: kicadstamp/trees.py:624
 #, python-brace-format
 msgid ""
 "tree {tree!r}: {count} kind \"copper\" containers — a tree may have at "
 "most one, it is the single home of that tree's inter-node copper nodes"
 msgstr ""
 
-#: kicadstamp/trees.py:628
+#: kicadstamp/trees.py:629
 msgid "keep one container and move the remaining copper nodes under it"
 msgstr ""
 
-#: kicadstamp/trees.py:636
+#: kicadstamp/trees.py:637
 #, python-brace-format
 msgid ""
 "tree {tree!r}: copper container {container!r} has child(ren) that are not"
 " copper: {refs}"
 msgstr ""
 
-#: kicadstamp/trees.py:640
+#: kicadstamp/trees.py:641
 msgid ""
 "a kind \"copper\" container may hold only kind \"net_trace\" (inter-node "
 "copper) nodes"
@@ -12332,7 +12341,7 @@ msgid ""
 "would move it, so the tree is NOT redrawn: {violations}"
 msgstr ""
 
-#: kicadstamp/trees.py:1302 kicadstamp/trees.py:2095
+#: kicadstamp/trees.py:1302 kicadstamp/trees.py:2094
 #, python-brace-format
 msgid "{location}: node is missing a (ref ...)"
 msgstr "{location}: node is missing a (ref ...)"
@@ -12342,7 +12351,7 @@ msgstr "{location}: node is missing a (ref ...)"
 msgid "{location}: only a (uuid \"…\") may follow a node's ref"
 msgstr ""
 
-#: kicadstamp/trees.py:1330 kicadstamp/trees.py:2113
+#: kicadstamp/trees.py:1330 kicadstamp/trees.py:2112
 #, python-brace-format
 msgid ""
 "{location}: a {kind!r} node references no record, so its ref carries no "
@@ -12382,7 +12391,7 @@ msgid ""
 "converter (kicadstamp convert-trees) on this config"
 msgstr ""
 
-#: kicadstamp/trees.py:1368 kicadstamp/trees.py:2146
+#: kicadstamp/trees.py:1368 kicadstamp/trees.py:2145
 #, python-brace-format
 msgid "node {ref!r}: xy and polar are mutually exclusive (use exactly one)"
 msgstr "node {ref!r}: xy and polar are mutually exclusive (use exactly one)"
@@ -12395,29 +12404,29 @@ msgid ""
 "convert-trees) on this config"
 msgstr ""
 
-#: kicadstamp/trees.py:1415 kicadstamp/trees.py:2187
+#: kicadstamp/trees.py:1415 kicadstamp/trees.py:2186
 #, python-brace-format
 msgid "tree {name!r}: {key} must be exactly two numbers"
 msgstr ""
 
-#: kicadstamp/trees.py:1426 kicadstamp/trees.py:2317
+#: kicadstamp/trees.py:1426 kicadstamp/trees.py:2316
 #, python-brace-format
 msgid "tree {name!r}: rotation must be a number"
 msgstr ""
 
-#: kicadstamp/trees.py:1516
+#: kicadstamp/trees.py:1515
 #, python-brace-format
 msgid "tree {name!r}: pivot-ref {ref!r} names no node of this tree"
 msgstr ""
 
-#: kicadstamp/trees.py:1520
+#: kicadstamp/trees.py:1519
 #, python-brace-format
 msgid ""
 "tree {name!r}: pivot-ref {ref!r} is a kind \"external\" node — a live "
 "refdes is not portable, so it cannot be the tree's inner point"
 msgstr ""
 
-#: kicadstamp/trees.py:1530
+#: kicadstamp/trees.py:1529
 #, python-brace-format
 msgid ""
 "tree {name!r}: pivot-ref {ref!r} is a kind {kind!r} node, which the "
@@ -12425,7 +12434,7 @@ msgid ""
 "record-backed node of this tree as the inner point"
 msgstr ""
 
-#: kicadstamp/trees.py:1536
+#: kicadstamp/trees.py:1535
 #, python-brace-format
 msgid ""
 "tree {name!r}: pivot-ref {ref!r} hangs under mount node {mount!r} — a "
@@ -12434,19 +12443,19 @@ msgid ""
 "node outside the mount subtree, or pivot-xy)"
 msgstr ""
 
-#: kicadstamp/trees.py:1556
+#: kicadstamp/trees.py:1555
 #, python-brace-format
 msgid ""
 "tree {name!r}: pivot-xy, pivot-polar and pivot-ref are mutually exclusive"
 " (use at most one)"
 msgstr ""
 
-#: kicadstamp/trees.py:1570
+#: kicadstamp/trees.py:1569
 #, python-brace-format
 msgid "{location}: a tree is missing a (name ...)"
 msgstr "{location}: a tree is missing a (name ...)"
 
-#: kicadstamp/trees.py:1573
+#: kicadstamp/trees.py:1572
 #, python-brace-format
 msgid ""
 "{location}: duplicate tree name {name!r} — tree names must be unique "
@@ -12455,34 +12464,34 @@ msgstr ""
 "{location}: duplicate tree name {name!r} — tree names must be unique "
 "within one config"
 
-#: kicadstamp/trees.py:1618
+#: kicadstamp/trees.py:1617
 #, python-brace-format
 msgid "{path}: top level must be (kicadstamp-trees ...)"
 msgstr "{path}: top level must be (kicadstamp-trees ...)"
 
-#: kicadstamp/trees.py:2039
+#: kicadstamp/trees.py:2038
 #, python-brace-format
 msgid "mount node {ref!r}: anchor must be a mapping"
 msgstr ""
 
-#: kicadstamp/trees.py:2044
+#: kicadstamp/trees.py:2043
 #, python-brace-format
 msgid ""
 "mount node {ref!r}: anchor supports only role — {keys} are tree-anchor-"
 "only"
 msgstr ""
 
-#: kicadstamp/trees.py:2048
+#: kicadstamp/trees.py:2047
 #, python-brace-format
 msgid "mount node {ref!r}: anchor needs a role"
 msgstr ""
 
-#: kicadstamp/trees.py:2063
+#: kicadstamp/trees.py:2062
 #, python-brace-format
 msgid "component node {ref!r}: anchor must be a mapping"
 msgstr "component node {ref!r}: anchor must be a mapping"
 
-#: kicadstamp/trees.py:2067
+#: kicadstamp/trees.py:2066
 #, python-brace-format
 msgid ""
 "component node {ref!r}: anchor supports only ref or role — {keys} are "
@@ -12491,17 +12500,17 @@ msgstr ""
 "component node {ref!r}: anchor supports only ref or role — {keys} are "
 "tree-anchor-only"
 
-#: kicadstamp/trees.py:2073
+#: kicadstamp/trees.py:2072
 #, python-brace-format
 msgid "component node {ref!r}: the address must be ref OR role, not both"
 msgstr "component node {ref!r}: the address must be ref OR role, not both"
 
-#: kicadstamp/trees.py:2076
+#: kicadstamp/trees.py:2075
 #, python-brace-format
 msgid "component node {ref!r}: needs an address — ref or role"
 msgstr "component node {ref!r}: needs an address — ref or role"
 
-#: kicadstamp/trees.py:2117
+#: kicadstamp/trees.py:2116
 #, python-brace-format
 msgid ""
 "{location}: record {ref!r} already has a node elsewhere in this config — "
@@ -12510,14 +12519,14 @@ msgstr ""
 "{location}: record {ref!r} already has a node elsewhere in this config — "
 "a record's position source must be exactly one"
 
-#: kicadstamp/trees.py:2125
+#: kicadstamp/trees.py:2124
 #, python-brace-format
 msgid ""
 "mount node {ref!r}: needs an anchor mapping with role — a mount node is a"
 " point of reference and places nothing itself"
 msgstr ""
 
-#: kicadstamp/trees.py:2131
+#: kicadstamp/trees.py:2130
 #, python-brace-format
 msgid ""
 "component node {ref!r}: needs an anchor mapping with the ADDRESS of the "
@@ -12526,7 +12535,7 @@ msgstr ""
 "component node {ref!r}: needs an anchor mapping with the ADDRESS of the "
 "component it places — ref or role"
 
-#: kicadstamp/trees.py:2137
+#: kicadstamp/trees.py:2136
 #, python-brace-format
 msgid ""
 "node {ref!r}: a nested anchor mapping is only valid on a kind mount node "
@@ -12534,7 +12543,7 @@ msgid ""
 "converter (kicadstamp convert-trees) on this config"
 msgstr ""
 
-#: kicadstamp/trees.py:2154
+#: kicadstamp/trees.py:2153
 #, python-brace-format
 msgid ""
 "node {ref!r}: {key} is no longer valid on a node — the tree's inner point"
@@ -12542,52 +12551,52 @@ msgid ""
 "trees) on this config"
 msgstr ""
 
-#: kicadstamp/trees.py:2202
+#: kicadstamp/trees.py:2201
 #, python-brace-format
 msgid "tree {name!r}: pivot_ref must be a string"
 msgstr ""
 
-#: kicadstamp/trees.py:2204
+#: kicadstamp/trees.py:2203
 #, python-brace-format
 msgid ""
 "tree {name!r}: pivot_xy, pivot_polar and pivot_ref are mutually exclusive"
 " (use at most one)"
 msgstr ""
 
-#: kicadstamp/trees.py:2221
+#: kicadstamp/trees.py:2220
 #, python-brace-format
 msgid "tree {name!r}: anchor shift must be exactly two numbers"
 msgstr ""
 
-#: kicadstamp/trees.py:2242 kicadstamp/trees.py:2283
+#: kicadstamp/trees.py:2241 kicadstamp/trees.py:2282
 msgid "anchor must specify exactly one of origin/ref/role/point/self"
 msgstr ""
 
-#: kicadstamp/trees.py:2246 kicadstamp/trees.py:2276
+#: kicadstamp/trees.py:2245 kicadstamp/trees.py:2275
 msgid "anchor: point_uuid needs a point base"
 msgstr ""
 
-#: kicadstamp/trees.py:2248
+#: kicadstamp/trees.py:2247
 msgid "anchor: shift needs a base — set one of origin/ref/role/point/self"
 msgstr ""
 
-#: kicadstamp/trees.py:2253
+#: kicadstamp/trees.py:2252
 msgid "anchor: origin and external are mutually exclusive"
 msgstr "anchor: origin and external are mutually exclusive"
 
-#: kicadstamp/trees.py:2258
+#: kicadstamp/trees.py:2257
 msgid "anchor: self must be a mapping with an optional ref/pad"
 msgstr ""
 
-#: kicadstamp/trees.py:2274
+#: kicadstamp/trees.py:2273
 msgid "anchor: external is only valid with a ref anchor"
 msgstr "anchor: external is only valid with a ref anchor"
 
-#: kicadstamp/trees.py:2298
+#: kicadstamp/trees.py:2297
 msgid "tree must be a mapping"
 msgstr "tree must be a mapping"
 
-#: kicadstamp/trees.py:2304
+#: kicadstamp/trees.py:2303
 msgid "a tree is missing a (name ...)"
 msgstr "a tree is missing a (name ...)"
 

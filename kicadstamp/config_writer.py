@@ -542,20 +542,23 @@ def upsert_entity_placement(path: Path, entity_name: str, origin: Dict[str, Any]
     return changed
 
 
-def _find_node_by_ref(nodes: list, ref: str) -> Optional[dict]:
-    """Recursively find the node dict whose ref == ref inside `nodes` (a
-    tree's top-level "nodes" list, or a node's own nested "children" — the
-    grammar stores children under "children", NOT "nodes"; see
-    trees.py::_node_to_dict). Returns the node dict or None."""
+def _nodes_by_ref(nodes: list, ref: str) -> list:
+    """EVERY node dict whose ref == ref inside `nodes` (a tree's top-level
+    "nodes" list, or a node's own nested "children" — the grammar stores children
+    under "children", NOT "nodes"; see trees.py::_node_to_dict).
+
+    A list, not the first hit: a `mount` and a record may carry one name in one
+    tree (plan_2026_11_14_mount_and_record_may_share_a_name), so "the first one
+    the file order offers" is not an answer. The caller decides — a known
+    (kind, ref) or a path, and otherwise refuses."""
+    out: list = []
     for n in nodes:
         if not isinstance(n, dict):
             continue
         if n.get("ref") == ref:
-            return n
-        hit = _find_node_by_ref(n.get("children") or [], ref)
-        if hit is not None:
-            return hit
-    return None
+            out.append(n)
+        out.extend(_nodes_by_ref(n.get("children") or [], ref))
+    return out
 
 
 def _without_identity(value):
@@ -575,7 +578,8 @@ def _without_identity(value):
 
 def append_tree_child_node(path: Path, tree_name: str,
                            parent_ref: Optional[str],
-                           node_dict: Dict[str, Any]) -> bool:
+                           node_dict: Dict[str, Any], *,
+                           parent_kind: Optional[str] = None) -> bool:
     """Append ONE placement node to an EXISTING tree as a CHILD of an existing
     node (parent_ref) — or as a new TOP-LEVEL node of that tree (parent_ref is
     None) — P6 "Place Imprint" (plan_2026_09_05_scheme_list.md §6.2): the
@@ -595,6 +599,12 @@ def append_tree_child_node(path: Path, tree_name: str,
     link_trees fatals on a placement ref that does not resolve to an Entity,
     so a pre-existing node with this ref cannot exist).
 
+    `parent_kind` names the parent EXACTLY when the caller knows it (the picker
+    row it came from): a `mount` and a positioned node may carry one name in one
+    tree (plan_2026_11_14_mount_and_record_may_share_a_name), and with the name
+    alone such a parent is ambiguous — that is an OSError, never a pick by file
+    order.
+
     Returns whether anything changed. Raises OSError when the trees: section
     is not a list, the named tree does not exist in `path`, or parent_ref is
     set but no node with that ref exists anywhere in the tree (a missing
@@ -612,11 +622,23 @@ def append_tree_child_node(path: Path, tree_name: str,
     if parent_ref is None:
         target = tree_dict.setdefault("nodes", [])
     else:
-        parent = _find_node_by_ref(tree_dict.get("nodes") or [], parent_ref)
-        if parent is None:
+        hits = _nodes_by_ref(tree_dict.get("nodes") or [], parent_ref)
+        if parent_kind is not None:
+            # The caller KNOWS the parent's kind (the picker row it came from):
+            # (kind, name) is the parent, exactly.
+            hits = [h for h in hits if (h.get("kind") or None) == parent_kind]
+        if not hits:
             raise OSError(_("tree {name!r} has no node {ref!r} to append under")
                           .format(name=tree_name, ref=parent_ref))
-        target = parent.setdefault("children", [])
+        if len(hits) > 1:
+            # A mount and a record of ONE name (plan_2026_11_14_mount_and_record
+            # _may_share_a_name): this caller knows the NAME only, so picking one
+            # of them by file order would put the node under the wrong parent.
+            raise OSError(_(
+                "tree {name!r}: parent {ref!r} is ambiguous — more than one node "
+                "of this tree carries that name").format(name=tree_name,
+                                                         ref=parent_ref))
+        target = hits[0].setdefault("children", [])
     if any(_without_identity(n) == _without_identity(node_dict)
            for n in target if isinstance(n, dict)):
         return False

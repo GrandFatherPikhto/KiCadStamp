@@ -88,23 +88,23 @@ _BOARD_BUSY_TEXT = _(
     "“Take from selection” was turned off; try again in a moment.")
 
 
-def collect_parent_candidates(tree) -> List[tuple[Optional[str], str]]:
-    """[(parent_ref | None, display)] for the parent_combo of one Tree: the
+def collect_parent_candidates(tree) -> List[tuple[Optional[tuple], str]]:
+    """[(parent | None, display)] for the parent_combo of one Tree: the
     top-level sentinel first (None — the node lands in ``tree.nodes``), then
     EVERY node of the tree, DFS, parent-before-child, indented by depth.
 
-    A node is identified by its ``ref`` (link_trees guarantees a ref appears
-    in at most one node of the whole config, so it is unambiguous here too);
-    ``name`` is only a display decoration when it differs from the ref.
-    Pure/Qt-free — callable from tests and from the combo rebuild."""
-    out: List[tuple[Optional[str], str]] = [(None, _TOP_LEVEL)]
+    A node is identified by ITS KIND AND NAME — ``(kind, ref)``, not the ref
+    alone: a `mount` and a positioned node may carry one name in one tree
+    (plan_2026_11_14_mount_and_record_may_share_a_name), and the picker shows
+    exactly two rows for them. Pure/Qt-free — callable from tests too."""
+    out: List[tuple[Optional[tuple], str]] = [(None, _TOP_LEVEL)]
 
     def walk(nodes: list, depth: int) -> None:
         for n in nodes or []:
             label = "  " * depth + str(n.ref)
             if n.name and n.name != n.ref:
                 label += f" ({n.name})"
-            out.append((n.ref, label))
+            out.append(((n.kind, n.ref), label))
             walk(n.children, depth + 1)
 
     walk(tree.nodes if tree is not None else [], 0)
@@ -376,12 +376,15 @@ class ImprintPlaceFormWidget(QWidget):
         self.parent_combo.blockSignals(True)
         self.parent_combo.clear()
         tree = self._selected_tree()
-        for ref, label in collect_parent_candidates(tree):
-            self.parent_combo.addItem(label, ref)
+        for parent, label in collect_parent_candidates(tree):
+            self.parent_combo.addItem(label, parent)
         if current is not None:
-            idx = self.parent_combo.findData(current)
-            if idx >= 0:
-                self.parent_combo.setCurrentIndex(idx)
+            # compare the DATA ourselves: a (kind, name) tuple is not something
+            # QComboBox.findData matches reliably (QVariant equality).
+            for idx in range(self.parent_combo.count()):
+                if self.parent_combo.itemData(idx) == current:
+                    self.parent_combo.setCurrentIndex(idx)
+                    break
         elif self.parent_combo.count():
             self.parent_combo.setCurrentIndex(0)
         self.parent_combo.blockSignals(False)
@@ -627,8 +630,8 @@ class ImprintPlaceFormWidget(QWidget):
         from kicadstamp.utils.units import MM
 
         sheet_names = dict(getattr(self._ctx, "sheet_names", {}) or {})
-        parent_ref = self.parent_combo.currentData()
-        if parent_ref is None:
+        parent = self.parent_combo.currentData()      # (kind, ref) or None
+        if parent is None:
             pos, _rot = _anchor_base_live_position(adapter, cfg, tree, sheet_names,
                                                    snapshot=snapshot)
             return (pos.x / MM, pos.y / MM)
@@ -636,7 +639,7 @@ class ImprintPlaceFormWidget(QWidget):
         # real tree node — external refs resolve directly, records via the
         # kind dispatch of resolve_base_live_position).
         from .trees_dock import _resolve_probe_ref
-        parent_node = self._find_node_by_ref(tree, parent_ref)
+        parent_node = self._find_node_at(tree, parent)
         if parent_node is None:
             return None
         record, _is_external = _resolve_probe_ref(cfg, parent_node.ref,
@@ -645,12 +648,14 @@ class ImprintPlaceFormWidget(QWidget):
                                          {}, sheet_names, snapshot=snapshot)
         return (pos.x / MM, pos.y / MM)
 
-    def _find_node_by_ref(self, tree, ref: str):
-        """DFS the Tree for the node with `ref` (top-level or nested), or None
-        — parent_combo selections must resolve to a real node of the tree."""
+    def _find_node_at(self, tree, parent):
+        """The node the combo row `parent` = (kind, ref) names, or None — a mount
+        and a record of one name are TWO rows here, so the KIND decides."""
+        kind, ref = parent
+
         def walk(nodes):
             for n in nodes or []:
-                if n.ref == ref:
+                if n.ref == ref and n.kind == kind:
                     return n
                 hit = walk(n.children)
                 if hit is not None:
@@ -735,7 +740,8 @@ class ImprintPlaceFormWidget(QWidget):
             return None
         scheme = self.imprint_combo.currentText().strip()
         tree_name = self.tree_combo.currentText().strip()
-        parent_ref = self.parent_combo.currentData()  # None == top level
+        parent = self.parent_combo.currentData()      # (kind, ref) | None == top
+        parent_kind, parent_ref = (parent if parent is not None else (None, None))
         entity_name = self.name_edit.text().strip()
         source = self._selected_source_sheet or ""
         sheet_text = self.sheet_combo.currentText().strip()
@@ -747,6 +753,7 @@ class ImprintPlaceFormWidget(QWidget):
             "sheet": sheet,
             "tree": tree_name,
             "parent_ref": parent_ref,
+            "parent_kind": parent_kind,
             "entity": entity_name,
             "x_mm": self.x_spin.value(),
             "y_mm": self.y_spin.value(),
@@ -779,7 +786,8 @@ class ImprintPlaceFormWidget(QWidget):
                 payload["entity"], payload["x_mm"], payload["y_mm"],
                 payload["rotation"])
             append_tree_child_node(Path(path), payload["tree"],
-                                   payload["parent_ref"], node)
+                                   payload["parent_ref"], node,
+                                   parent_kind=payload.get("parent_kind"))
         except (OSError, ValidationError) as e:
             return {"error": _("Place failed: {error}").format(error=e)}
         return {"ok": True,
