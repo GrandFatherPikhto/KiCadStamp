@@ -3,7 +3,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version:  kicadstamp\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-11-16 22:35+0300\n"
+"POT-Creation-Date: 2026-11-16 23:40+0300\n"
 "PO-Revision-Date: 2026-07-27 12:00+0000\n"
 "Last-Translator: \n"
 "Language: ru\n"
@@ -328,7 +328,7 @@ msgstr "Компоненты"
 msgid "Config"
 msgstr "Конфиг"
 
-#: gui/dock_hub.py:238 gui/docks/config_tree.py:167 gui/main_window.py:268
+#: gui/dock_hub.py:238 gui/docks/config_tree.py:167 gui/main_window.py:269
 msgid "Trees"
 msgstr "Деревья"
 
@@ -395,7 +395,7 @@ msgstr ""
 #: gui/docks/imprint.py:788 gui/docks/imprint_dialogs.py:356
 #: gui/docks/net_trace.py:339 gui/docks/trees_dock.py:2887
 #: gui/docks/trees_dock.py:3096 gui/docks/trees_dock.py:3145
-#: gui/extract_cluster_flow.py:196
+#: gui/docks/trees_reread_dialog.py:307 gui/extract_cluster_flow.py:196
 msgid "reading the board"
 msgstr "чтение платы"
 
@@ -973,7 +973,7 @@ msgstr "Убрать из include:"
 #: gui/docks/cell_layers.py:111 gui/docks/instances_dialog.py:473
 #: gui/docks/profile_import.py:176 gui/docks/settings_dialog.py:52
 #: gui/docks/trees_dock.py:5480 gui/docks/trees_dock.py:6873
-#: gui/include_recovery.py:122
+#: gui/docks/trees_reread_dialog.py:170 gui/include_recovery.py:122
 msgid "Cancel"
 msgstr "Отмена"
 
@@ -1001,7 +1001,7 @@ msgid "Force-close selected"
 msgstr "Принудительно закрыть выбранное"
 
 #: gui/docks/profile_import.py:107 gui/docks/trees_dock.py:5466
-#: gui/kicad_processes_dialog.py:61 gui/main_window.py:221
+#: gui/kicad_processes_dialog.py:61 gui/main_window.py:222
 msgid "Close"
 msgstr "Закрыть"
 
@@ -1046,59 +1046,59 @@ msgstr "Закрываю PID {pid}…"
 msgid "PID {pid} did not confirm closing within a reasonable time."
 msgstr "PID {pid} не подтвердил закрытие за разумное время."
 
-#: gui/main_window.py:151 gui/tray.py:52
+#: gui/main_window.py:152 gui/tray.py:52
 msgid "KiCadStamp"
 msgstr "KiCadStamp"
 
-#: gui/main_window.py:186
+#: gui/main_window.py:187
 msgid "&File"
 msgstr "&Файл"
 
-#: gui/main_window.py:187
+#: gui/main_window.py:188
 msgid "&Project..."
 msgstr "&Проект..."
 
-#: gui/main_window.py:204
+#: gui/main_window.py:205
 msgid "Recent project"
 msgstr "Недавний проект"
 
-#: gui/main_window.py:213 gui/main_window.py:897
+#: gui/main_window.py:214 gui/main_window.py:897
 msgid "&Save"
 msgstr "&Сохранить"
 
-#: gui/main_window.py:217
+#: gui/main_window.py:218
 msgid "&Discard unsaved changes..."
 msgstr "&Отменить несохранённые изменения..."
 
-#: gui/main_window.py:226
+#: gui/main_window.py:227
 msgid "&Quit"
 msgstr "&Выход"
 
-#: gui/main_window.py:247
+#: gui/main_window.py:248
 msgid "Edit"
 msgstr "Правка"
 
-#: gui/main_window.py:248
+#: gui/main_window.py:249
 msgid "&Import from profile..."
 msgstr "&Импорт из профиля..."
 
-#: gui/main_window.py:261
+#: gui/main_window.py:262
 msgid "Tools"
 msgstr "Инструменты"
 
-#: gui/main_window.py:273
+#: gui/main_window.py:275
 msgid "Extract tree..."
 msgstr "Извлечь дерево..."
 
-#: gui/main_window.py:283
+#: gui/main_window.py:286
 msgid "Create tree..."
 msgstr "Создать дерево..."
 
-#: gui/docks/trees_dock.py:2443 gui/main_window.py:287
+#: gui/docks/trees_dock.py:2443 gui/main_window.py:288
 msgid "Rename tree..."
 msgstr "Переименовать дерево..."
 
-#: gui/docks/trees_dock.py:2445 gui/main_window.py:291
+#: gui/docks/trees_dock.py:2445 gui/main_window.py:290
 msgid "Delete tree..."
 msgstr "Удалить дерево..."
 
@@ -1668,7 +1668,8 @@ msgstr "Проект не загружен — сначала откройте �
 #: gui/docks/trees_dock.py:2852 gui/docks/trees_dock.py:2948
 #: gui/docks/trees_dock.py:3072 gui/docks/trees_dock.py:3129
 #: gui/docks/trees_dock.py:4925 gui/docks/trees_mount_point.py:61
-#: gui/docks/trees_mount_point.py:127 gui/select_internode_copper.py:239
+#: gui/docks/trees_mount_point.py:127 gui/docks/trees_reread_dialog.py:288
+#: gui/select_internode_copper.py:239
 msgid "No live board connection — connect KiCad first."
 msgstr "Нет соединения с платой — сначала подключись к KiCad."
 
@@ -1926,7 +1927,7 @@ msgstr "Картезианская"
 msgid "Polar"
 msgstr "Радиальная"
 
-#: gui/docks/_anchor_origin.py:201
+#: gui/docks/_anchor_origin.py:201 gui/docks/trees_reread_dialog.py:152
 msgid "Mode:"
 msgstr "Режим:"
 
@@ -7374,6 +7375,10 @@ msgstr ""
 "Дерево {name!r}: маркер базы не нарисован — слой оверлея {layer!r} не "
 "включён на этой плате, либо не удалось прочитать плату."
 
+#: gui/docks/trees_menu_actions.py:42
+msgid "Reread positions from board..."
+msgstr "Перечитать позиции с платы..."
+
 #: gui/docks/trees_mount_point.py:94
 #, python-brace-format
 msgid ""
@@ -7770,6 +7775,87 @@ msgid "embedded anchor kept: the tree that places {tree!r} was not read"
 msgstr ""
 "якорь встроенного дерева не трогаю: дерево, размещающее {tree!r}, не "
 "прочитано"
+
+#: gui/docks/trees_reread_dialog.py:48
+msgid "Origin moved — absorb in anchors"
+msgstr "Origin переехал — поглотить сдвиг в якорях"
+
+#: gui/docks/trees_reread_dialog.py:49
+msgid "Blocks moved by hand — keep anchors"
+msgstr "Блоки двигали руками — якоря не трогать"
+
+#: gui/docks/trees_reread_dialog.py:74
+#, python-brace-format
+msgid " · angle Δ {deg}°"
+msgstr " · Δ угла {deg}°"
+
+#: gui/docks/trees_reread_dialog.py:128
+#, python-brace-format
+msgid "Reread positions: {n} node(s) changed in {m} tree(s), {k} skipped"
+msgstr "Перечитаны позиции: узлов изменено {n} в деревьях {m}, пропущено {k}"
+
+#: gui/docks/trees_reread_dialog.py:139
+msgid "Reread positions from board"
+msgstr "Перечитать позиции с платы"
+
+#: gui/docks/trees_reread_dialog.py:161 kicadstamp/trees.py:148
+msgid "Tree"
+msgstr "Дерево"
+
+#: gui/docks/trees_reread_dialog.py:161
+msgid "Node"
+msgstr "Узел"
+
+#: gui/docks/trees_reread_dialog.py:161
+msgid "Was → Now"
+msgstr "Было → Стало"
+
+#: gui/docks/trees_reread_dialog.py:161
+msgid "Δ"
+msgstr "Δ"
+
+#: gui/docks/trees_reread_dialog.py:161
+msgid "Note"
+msgstr "Примечание"
+
+#: gui/docks/trees_reread_dialog.py:168
+msgid "Apply to buffer"
+msgstr "Применить к буферу"
+
+#: gui/docks/trees_reread_dialog.py:195
+msgid ""
+"The whole forest was read once. Flipping the mode or a tree's box re-"
+"decides the same read — nothing is written until Apply, and the board "
+"itself is never touched."
+msgstr ""
+"Весь лес прочитан один раз. Переключение режима или флажка дерева "
+"пересчитывает то же самое чтение — ничего не пишется до «Применить», и "
+"сама плата не трогается."
+
+#: gui/docks/trees_reread_dialog.py:202
+msgid "nothing moved — nothing to write"
+msgstr "ничего не сдвинулось — писать нечего"
+
+#: gui/docks/trees_reread_dialog.py:204
+msgid "anchor shift"
+msgstr "сдвиг якоря"
+
+#: gui/docks/trees_reread_dialog.py:208
+msgid "anchor follows"
+msgstr "якорь следует за"
+
+#: gui/docks/trees_reread_dialog.py:215
+msgid "embedded anchor synced to module"
+msgstr "якорь встроенного дерева выровнен с модулем"
+
+#: gui/docks/trees_reread_dialog.py:271
+#, python-brace-format
+msgid "Reread positions failed: {error}"
+msgstr "Перечитать позиции не удалось: {error}"
+
+#: gui/docks/trees_reread_dialog.py:284
+msgid "There are no trees to reread yet."
+msgstr "Деревьев для перечитывания ещё нет."
 
 #: gui/docks/trees_selection.py:76 gui/docks/trees_selection.py:123
 #, python-brace-format
@@ -13142,10 +13228,6 @@ msgstr ""
 #: kicadstamp/trees.py:147
 msgid "Mount"
 msgstr "Крепление"
-
-#: kicadstamp/trees.py:148
-msgid "Tree"
-msgstr "Дерево"
 
 #: kicadstamp/trees.py:149
 msgid "Inter-node copper"

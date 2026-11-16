@@ -957,10 +957,14 @@ def test_tools_trees_submenu_groups_all_tree_actions(real_main_window):
     sub = submenus[0].menu()
     # Separators read as "" in QAction.text() — they are part of the pinned
     # list on purpose (the plan fixes the order AND the separators).
+    # "Reread positions from board..." joined on 16.11.2026 (plan_2026_11_16_
+    # reread_forest_from_board, commit 1) right after the management block — it is
+    # the flow that repairs what a moved Origin broke, and it comes before the
+    # per-tree Copper block because it acts on the WHOLE forest.
     assert [a.text() for a in sub.actions()] == [
         "Extract tree...", "Create tree...", "Rename tree...", "Delete tree...",
-        "", "Copper", "", "Redraw selected", "Redraw whole tree", "",
-        "Instances...",
+        "", "Reread positions from board...", "Copper", "",
+        "Redraw selected", "Redraw whole tree", "", "Instances...",
     ]
     # "Edit Cell..."/"Extract cluster (by selection)" live in the Config
     # submenu (2026-09-06), NOT at the Tools root.

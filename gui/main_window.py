@@ -102,6 +102,7 @@ from .view_menu import build_view_menu
 from .connection import BoardConnection, LATENCY_KIND_FAST
 from .dock_hub import DockHub
 from .app_icon import build_app_icon
+from .docks import trees_menu_actions as menu_actions
 from .docks._common import display_path, format_ms
 from .docks.profile_import import run_import_dialog
 from .hotkeys import build_action
@@ -276,10 +277,8 @@ class MainWindow(QMainWindow):
         self.trees_menu.addAction(self.extract_tree_action)
         # "Extract cluster..." is NOT here: it lives in Tools → Config (the same
         # handler) — Denis, 13.10 (plan_2026_10_13_trees_menus_cleanup Ч1).
-        # Whole-tree management (relocated from the TreesDock toolbar,
-        # 2026-09-03): "Create tree..." is the empty/manual tree — the dock's
-        # old "Add tree…" renamed — and answers the missing "Создать дерево"
-        # entry next to "Extract tree...".
+        # Whole-tree management (relocated from the TreesDock toolbar, 2026-09-03):
+        # "Create tree..." is the empty/manual tree, the dock's old "Add tree…".
         self.create_tree_action = QAction(_("Create tree..."), self)
         self.create_tree_action.triggered.connect(
             lambda: self._dock_hub.create_tree())
@@ -293,6 +292,7 @@ class MainWindow(QMainWindow):
             lambda: self._dock_hub.delete_tree())
         self.trees_menu.addAction(self.delete_tree_action)
         self.trees_menu.addSeparator()
+        menu_actions.add_reread_positions_action(self, self.trees_menu)
         # ── "Copper" submenu (2026-10-07, plan_2026_10_05_tree_reread_modules
         #    Т5): everything about the CURRENT tree's inter-node copper, in the
         #    order a user works — reread it, select what a reread WOULD take,
