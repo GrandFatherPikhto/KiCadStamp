@@ -3,7 +3,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version:  kicadstamp\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-11-16 20:13+0300\n"
+"POT-Creation-Date: 2026-11-16 21:31+0300\n"
 "PO-Revision-Date: 2026-07-27 12:00+0000\n"
 "Last-Translator: \n"
 "Language: ru\n"
@@ -11019,23 +11019,32 @@ msgstr "якорь не трогаю: блоки двигали руками"
 msgid "anchor kept: no node of this tree votes"
 msgstr "якорь не трогаю: в этом дереве некому голосовать"
 
-#: kicadstamp/forest_reread.py:131
+#: kicadstamp/forest_reread.py:135
 #, python-brace-format
 msgid "anchor kept: {n} groups of voters disagree equally — read each node"
 msgstr ""
 "якорь не трогаю: {n} групп голосов расходятся одинаково — каждый узел "
 "читается сам"
 
-#: kicadstamp/forest_reread.py:133
+#: kicadstamp/forest_reread.py:138
 #, python-brace-format
 msgid "anchor follows {n} of {total} voters"
 msgstr "якорь следует за {n} из {total} голосов"
 
-#: kicadstamp/forest_reread.py:224
+#: kicadstamp/forest_reread.py:295
+#, python-brace-format
+msgid ""
+"embedded anchor kept: the module is turned {module}° while the tree's own"
+" anchor is at {anchor}° — a shift cannot express a rotation"
+msgstr ""
+"якорь встроенного дерева не трогаю: модуль повёрнут на {module}°, а "
+"собственный якорь дерева — на {anchor}°, а сдвигом поворот не выразить"
+
+#: kicadstamp/forest_reread.py:359
 msgid "no position was read for this node"
 msgstr "для этого узла позиция не прочитана"
 
-#: kicadstamp/forest_reread.py:228
+#: kicadstamp/forest_reread.py:363
 msgid "the node stores no offset — nothing to rewrite"
 msgstr "узел не хранит смещения — переписывать нечего"
 

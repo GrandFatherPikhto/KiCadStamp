@@ -8,9 +8,13 @@ celled here is what the plan asks to be decided: which group the anchor follows,
 when the anchor is left alone, what stays out of the file, and what shape the
 value is written in.
 """
+from kicadstamp.domain.geometry import Vector2
 from kicadstamp.forest_reread import (MODE_ABSORB, MODE_KEEP, OVERRIDE_KEEP,
-                                      NodeRead, Vote, choose_anchor, group_votes,
-                                      plan_anchor, plan_forest, to_polar)
+                                      NodeRead, Skip, SyncRow, Vote,
+                                      choose_anchor, group_votes, plan_anchor,
+                                      plan_forest, sync_embedded_anchor, to_polar)
+from kicadstamp.tree_position import tree_effective_base
+from kicadstamp.trees import Tree, TreeAnchor
 
 
 # ── а1/а2: Origin moved — the biggest group gives the new anchor shift ────
@@ -214,6 +218,61 @@ def test_the_anchor_shift_is_converted_at_the_anchor_angle():
 
     assert row.now == (-1.0, -2.0)
     assert row.moved is True
+
+
+# ── а4: an EMBEDDED tree's own anchor is synced to its module ────────────
+
+def test_a4_the_embedded_anchor_is_synced_to_the_module():
+    """а4 (live 16.11): `power`'s own anchor is Origin + (5, −60), the module
+    `power` in `main` stands at (6, −64). The synced shift lands on the module's
+    marker EXACTLY — not on the old shift plus the difference, which would count
+    the shift twice."""
+    row = sync_embedded_anchor("power", (0.0, 0.0), anchor_rot_deg=0.0,
+                              module_marker_mm=(6.0, -64.0), module_rot_deg=0.0,
+                              current_shift=(5.0, -60.0))
+
+    assert isinstance(row, SyncRow)
+    assert row.was == (5.0, -60.0)
+    assert row.now == (6.0, -64.0)
+    assert row.moved is True
+
+    # idempotent: a second sync with the new shift changes nothing
+    again = sync_embedded_anchor("power", (0.0, 0.0), anchor_rot_deg=0.0,
+                                module_marker_mm=(6.0, -64.0), module_rot_deg=0.0,
+                                current_shift=row.now)
+    assert again.now == row.now
+
+
+def test_the_pivot_is_compared_at_the_same_stage():
+    """The tree has an inner point (5, 0): the module's MARKER is the target, so
+    the pivot applies to both sides identically and the two effective bases come
+    out equal — the owner's tab and the tree's own tab place content the same."""
+    tree = Tree(name="power", anchor=TreeAnchor(is_origin=True), nodes=[],
+                pivot_xy=(5.0, 0.0), rotation=0.0)
+    marker = (6.0, -64.0)
+
+    row = sync_embedded_anchor("power", (0.0, 0.0), anchor_rot_deg=0.0,
+                               module_marker_mm=marker, module_rot_deg=0.0,
+                               current_shift=(0.0, 0.0))
+    own_base, own_rot = tree_effective_base(
+        tree, Vector2.from_xy_mm(row.now[0], row.now[1]), 0.0)
+    module_base, module_base_rot = tree_effective_base(
+        tree, Vector2.from_xy_mm(marker[0], marker[1]), 0.0)
+
+    assert abs(own_base.x - module_base.x) <= 1
+    assert abs(own_base.y - module_base.y) <= 1
+    assert abs(own_rot - module_base_rot) <= 1e-9
+
+
+def test_a_turned_module_is_refused_instead_of_synced():
+    """A shift cannot express a rotation: the module turned against the own anchor
+    is one skip line, never a silently wrong shift."""
+    row = sync_embedded_anchor("power", (0.0, 0.0), anchor_rot_deg=0.0,
+                               module_marker_mm=(6.0, -64.0), module_rot_deg=90.0,
+                               current_shift=(5.0, -60.0))
+
+    assert isinstance(row, Skip)
+    assert "cannot express a rotation" in row.reason
 
 
 # ── и: a turned anchor / 180° must not invent a rotation change ──────────

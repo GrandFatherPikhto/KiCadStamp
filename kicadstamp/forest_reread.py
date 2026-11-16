@@ -243,11 +243,75 @@ def plan_anchor(tree: str, was: tuple[float, float], groups: list, *,
                      groups[0].size, total, choice.reason)
 
 
+@dataclass(frozen=True)
+class SyncRow:
+    """One EMBEDDED tree's row: «embedded anchor synced to module: was → now».
+
+    An embedded tree's own anchor is not used by the layout — its place comes from
+    the module that embeds it (plan п.1 as revised 16.11 evening). Its own shift is
+    therefore chosen so that its own base lands EXACTLY on the module's effective
+    base, which is what makes the tree's own tab agree with the owner's tab; the
+    16.11 live case is `power`: own anchor Origin + (5, −60) against the module's
+    (6, −64), which made «Reread current position» on `power` shift a node by
+    (−1, +4) relative to what `main` places."""
+
+    tree: str
+    was: tuple[float, float]
+    now: tuple[float, float]
+
+    @property
+    def moved(self) -> bool:
+        return (abs(self.now[0] - self.was[0]) > MM_TOLERANCE
+                or abs(self.now[1] - self.was[1]) > MM_TOLERANCE)
+
+
+def sync_embedded_anchor(tree: str, raw_point_mm: tuple[float, float], *,
+                         anchor_rot_deg: float,
+                         module_marker_mm: tuple[float, float],
+                         module_rot_deg: float,
+                         current_shift: tuple[float, float]):
+    """(SyncRow | Skip) — the embedded tree's own shift that puts its base onto the
+    module's.
+
+    `raw_point_mm` is the tree's OWN ANCHOR POINT **without its own shift** (the
+    Origin), and the answer is that difference — NOT the old shift plus it: adding
+    the old one would count the shift twice (16.11 acceptance). Converting through
+    `board_offset_to_local_mm` at the anchor's angle keeps the frame rule in one
+    place, and the answer is idempotent because it does not depend on the old shift.
+
+    `module_marker_mm` is the MODULE's own marker — the pose the layout lays the
+    embedded tree from, BEFORE its inner point is inverted. Both sides of the
+    subtraction are therefore at the SAME STAGE: the same pivot then applies to
+    both, and the two effective bases come out equal by construction. Passing the
+    module's ALREADY-pivoted base here would compare two frames and sync the tree to
+    the wrong place (16.11 acceptance).
+
+    One refusal lives here because it is pure: an angle difference between the
+    module and the own anchor — a SHIFT cannot express a rotation. The caller adds
+    its own two (an anchor that is not point/origin-with-shift, and a tree embedded
+    by two markers)."""
+    if abs(relative_rotation_deg(module_rot_deg, anchor_rot_deg)) > DEG_TOLERANCE:
+        return Skip(tree, "", _(
+            "embedded anchor kept: the module is turned {module}° while the tree's "
+            "own anchor is at {anchor}° — a shift cannot express a rotation").format(
+                module=round(module_rot_deg, 3), anchor=round(anchor_rot_deg, 3)))
+    delta = board_offset_to_local_mm(
+        (module_marker_mm[0] - raw_point_mm[0],
+         module_marker_mm[1] - raw_point_mm[1]),
+        anchor_rot_deg)
+    return SyncRow(tree, current_shift, delta)
+
+
 @dataclass
 class ForestPlan:
     changes: list = field(default_factory=list)
     skipped: list = field(default_factory=list)
     anchors: list = field(default_factory=list)
+    synced: list = field(default_factory=list)
+
+    @property
+    def synced_moved(self) -> int:
+        return len([row for row in self.synced if row.moved])
 
     @property
     def changed(self) -> int:
@@ -277,15 +341,16 @@ def _shown(offset, polar: bool):
     return to_polar(offset) if polar else offset
 
 
-def plan_forest(reads: Iterable[NodeRead], *, anchors=()) -> ForestPlan:
+def plan_forest(reads: Iterable[NodeRead], *, anchors=(), synced=()) -> ForestPlan:
     """The table: what changes, what is skipped and why, plus the per-tree anchor
-    rows (`plan_anchor`) the caller decided on.
+    rows (`plan_anchor`) and the embedded-anchor sync rows (`sync_embedded_anchor`)
+    the caller decided on.
 
     A node is WRITTEN only when its value really moves (Δ > MM_TOLERANCE mm, or a
     turn > DEG_TOLERANCE by modulo 360) — an unmoved node must not put rounding
     noise into the file. A node that could not be read, or that the caller could
     not place, is a SKIP with its reason — never a silent absence."""
-    plan = ForestPlan(anchors=list(anchors))
+    plan = ForestPlan(anchors=list(anchors), synced=list(synced))
     for read in reads:
         if read.error is not None:
             plan.skipped.append(Skip(read.tree, read.ref, read.error))
