@@ -127,8 +127,13 @@ def choose_anchor(groups: list[Group], *, mode: str,
     biggest = groups[0]
     rivals = [g for g in groups[1:] if not _close(g.delta, biggest.delta)]
     if rivals and rivals[0].size >= biggest.size:
+        # How many groups tie for the top size — the number the user is shown. It
+        # used to be a literal `{n}` (16.11 acceptance): the sentence went out
+        # unformatted, so the dialog said "{n} groups" in every language.
+        tied = 1 + len([g for g in rivals if g.size == biggest.size])
         return AnchorChoice(None, _(
-            "anchor kept: {n} groups of voters disagree equally — read each node"))
+            "anchor kept: {n} groups of voters disagree equally — read each node"
+        ).format(n=tied))
     return AnchorChoice(biggest.delta, _(
         "anchor follows {n} of {total} voters").format(
             n=biggest.size, total=sum(g.size for g in groups)))
@@ -159,7 +164,12 @@ class NodeRead:
 @dataclass(frozen=True)
 class Change:
     """One node that WILL be written: its value before and after, plus the Δ the
-    table shows. `now` is in the node's own representation (see `polar`)."""
+    table shows. `now` is in the node's own representation (see `polar`).
+
+    The ROTATION travels too (`was_rotation`/`now_rotation`, relative to the node's
+    base): a node that was only TURNED has Δ = (0, 0) and used to produce an empty
+    row, so its angle was never written (16.11 acceptance). `moved`/`turned` say
+    which half changed — the dialog shows the other one in its own column."""
 
     tree: str
     ref: str
@@ -167,6 +177,20 @@ class Change:
     now: tuple[float, float]
     delta: tuple[float, float]
     polar: bool = False
+    was_rotation: Optional[float] = None
+    now_rotation: Optional[float] = None
+
+    @property
+    def moved(self) -> bool:
+        return (abs(self.delta[0]) > MM_TOLERANCE
+                or abs(self.delta[1]) > MM_TOLERANCE)
+
+    @property
+    def turned(self) -> bool:
+        if self.was_rotation is None or self.now_rotation is None:
+            return False
+        return abs(relative_rotation_deg(self.now_rotation,
+                                        self.was_rotation)) > DEG_TOLERANCE
 
 
 @dataclass(frozen=True)
@@ -178,10 +202,50 @@ class Skip:
     reason: str
 
 
+@dataclass(frozen=True)
+class AnchorRow:
+    """One tree's row: «anchor shift: was → now (N of M voters)». `was`/`now` are
+    the stored SHIFT (config frame, mm) — the number the anchor form shows — so the
+    row is cellable without Qt, and the dialog and the buffer write read the same
+    thing (16.11 acceptance: the anchor rows did not exist in the pure plan)."""
+
+    tree: str
+    was: tuple[float, float]
+    now: tuple[float, float]
+    votes: int
+    total: int
+    reason: str
+
+    @property
+    def moved(self) -> bool:
+        return (abs(self.now[0] - self.was[0]) > MM_TOLERANCE
+                or abs(self.now[1] - self.was[1]) > MM_TOLERANCE)
+
+
+def plan_anchor(tree: str, was: tuple[float, float], groups: list, *,
+                mode: str, override: Optional[str] = None,
+                to_config=None) -> AnchorRow:
+    """The tree's anchor row, and the decision behind it.
+
+    `to_config` converts a BOARD-frame delta into the shift's own (config) frame —
+    the wrapper passes `board_offset_to_local_mm` at the ANCHOR's angle. The default
+    is the identity, which is right for a zero anchor angle and is what the cells
+    use; the plan's «anchor shift: было → стало» is then the same arithmetic the
+    anchor Read does."""
+    choice = choose_anchor(groups, mode=mode, override=override)
+    total = sum(g.size for g in groups)
+    if choice.delta is None:
+        return AnchorRow(tree, was, was, 0, total, choice.reason)
+    delta = to_config(choice.delta) if to_config is not None else choice.delta
+    return AnchorRow(tree, was, (was[0] + delta[0], was[1] + delta[1]),
+                     groups[0].size, total, choice.reason)
+
+
 @dataclass
 class ForestPlan:
     changes: list = field(default_factory=list)
     skipped: list = field(default_factory=list)
+    anchors: list = field(default_factory=list)
 
     @property
     def changed(self) -> int:
@@ -192,8 +256,12 @@ class ForestPlan:
         return len(self.skipped)
 
     @property
+    def anchors_moved(self) -> int:
+        return len([row for row in self.anchors if row.moved])
+
+    @property
     def empty(self) -> bool:
-        return not self.changes and not self.skipped
+        return not self.changes and not self.skipped and not self.anchors_moved
 
 
 def to_polar(offset_mm: tuple[float, float]) -> tuple[float, float]:
@@ -207,14 +275,15 @@ def _shown(offset, polar: bool):
     return to_polar(offset) if polar else offset
 
 
-def plan_forest(reads: Iterable[NodeRead]) -> ForestPlan:
-    """The table: what changes, what is skipped and why.
+def plan_forest(reads: Iterable[NodeRead], *, anchors=()) -> ForestPlan:
+    """The table: what changes, what is skipped and why, plus the per-tree anchor
+    rows (`plan_anchor`) the caller decided on.
 
     A node is WRITTEN only when its value really moves (Δ > MM_TOLERANCE mm, or a
     turn > DEG_TOLERANCE by modulo 360) — an unmoved node must not put rounding
     noise into the file. A node that could not be read, or that the caller could
     not place, is a SKIP with its reason — never a silent absence."""
-    plan = ForestPlan()
+    plan = ForestPlan(anchors=list(anchors))
     for read in reads:
         if read.error is not None:
             plan.skipped.append(Skip(read.tree, read.ref, read.error))
@@ -243,5 +312,7 @@ def plan_forest(reads: Iterable[NodeRead]) -> ForestPlan:
             now=_shown(new_offset, read.polar),
             delta=(new_offset[0] - read.stored_offset[0],
                    new_offset[1] - read.stored_offset[1]),
-            polar=read.polar))
+            polar=read.polar,
+            was_rotation=read.stored_rotation,
+            now_rotation=read.rotation_deg))
     return plan

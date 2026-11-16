@@ -10,7 +10,7 @@ value is written in.
 """
 from kicadstamp.forest_reread import (MODE_ABSORB, MODE_KEEP, OVERRIDE_KEEP,
                                       NodeRead, Vote, choose_anchor, group_votes,
-                                      plan_forest, to_polar)
+                                      plan_anchor, plan_forest, to_polar)
 
 
 # ── а1/а2: Origin moved — the biggest group gives the new anchor shift ────
@@ -31,7 +31,8 @@ def test_a2_the_biggest_group_gives_the_anchor_delta():
 
 def test_a3_two_equal_groups_leave_the_anchor_alone():
     """а3: with no strict majority the user decides which block moved — the anchor
-    stays and every node is read on its own."""
+    stays and every node is read on its own. The sentence must carry the NUMBER of
+    tied groups (16.11 acceptance: it used to go out as a literal `{n}`)."""
     groups = group_votes([Vote("a", (1.0, 0.0)), Vote("b", (1.0, 0.0)),
                           Vote("c", (0.0, 2.0)), Vote("d", (0.0, 2.0))])
 
@@ -39,6 +40,8 @@ def test_a3_two_equal_groups_leave_the_anchor_alone():
 
     assert choice.delta is None
     assert "disagree equally" in choice.reason
+    assert "2 groups" in choice.reason
+    assert "{n}" not in choice.reason
 
 
 def test_a5_keep_anchors_never_touches_the_anchor():
@@ -151,6 +154,51 @@ def test_a_node_without_a_stored_offset_is_skipped_not_invented():
 
     assert plan.changed == 0
     assert plan.skipped_count == 1
+
+
+# ── the three model holes of the 16.11 acceptance ────────────────────────
+
+def test_a_node_that_was_only_turned_still_gets_a_row():
+    """«Поворот теряется»: a node turned in place has Δ = (0, 0); the row must
+    still say so, and carry BOTH angles, or the angle would never be written."""
+    plan = plan_forest([
+        NodeRead("t", "u1", offset_mm=(1.0, 2.0), rotation_deg=15.0,
+                 stored_offset=(1.0, 2.0), stored_rotation=0.0)])
+
+    assert plan.changed == 1
+    change = plan.changes[0]
+    assert change.moved is False
+    assert change.turned is True
+    assert change.was_rotation == 0.0
+    assert change.now_rotation == 15.0
+
+
+def test_the_anchor_row_says_was_now_and_the_vote_count():
+    """«Строк якоря нет в плане»: the anchor row belongs to the pure plan, with the
+    stored shift before and after and (N of M)."""
+    groups = group_votes([Vote("mh", (0.0, -0.09)),
+                          Vote("power/J1", (-0.01, -3.08)),
+                          Vote("fpga/IC1", (-0.01, -3.08)),
+                          Vote("mcu/U4", (-0.01, -3.08))])
+
+    row = plan_anchor("main", (0.0, 0.0), groups, mode=MODE_ABSORB)
+    plan = plan_forest([], anchors=[row])
+
+    assert row.now == (-0.01, -3.08)
+    assert row.votes == 3 and row.total == 4
+    assert row.moved is True
+    assert plan.anchors_moved == 1
+    assert plan.empty is False
+
+
+def test_a_kept_anchor_row_says_nothing_moved():
+    groups = group_votes([Vote("a", (1.0, 0.0))])
+
+    row = plan_anchor("t", (2.0, 3.0), groups, mode=MODE_KEEP)
+
+    assert row.now == row.was
+    assert row.moved is False
+    assert row.votes == 0 and row.total == 1
 
 
 # ── и: a turned anchor / 180° must not invent a rotation change ──────────

@@ -99,6 +99,19 @@ MUTATIONS = [
      "                      read.offset_mm[1])\n",
      ["test_a2_the_node_is_read_against_the_base_with_the_new_shift"]),
 
+    ("M11 the tie sentence goes out unformatted", DECIDE,
+     "            \"anchor kept: {n} groups of voters disagree equally — read each node\"\n"
+     "        ).format(n=tied))\n",
+     "            \"anchor kept: {n} groups of voters disagree equally — read each node\"\n"
+     "        ))  # MUTATION: a literal {n}\n",
+     ["test_a3_two_equal_groups_leave_the_anchor_alone"]),
+
+    ("M12 a turned node loses its rotation in the row", DECIDE,
+     "            was_rotation=read.stored_rotation,\n"
+     "            now_rotation=read.rotation_deg))\n",
+     "            ))  # MUTATION: rotation lost\n",
+     ["test_a_node_that_was_only_turned_still_gets_a_row"]),
+
     ("M10 cosmetic control (a comment must change nothing)", DECIDE,
      "    biggest = groups[0]\n",
      "    biggest = groups[0]  # MUTATION: cosmetic\n",
