@@ -36,6 +36,8 @@ from PyQt6.QtWidgets import (QCheckBox, QComboBox, QDialog, QDialogButtonBox,
 
 from kicadstamp.forest_reread import MODE_ABSORB, MODE_KEEP, OVERRIDE_KEEP
 from kicadstamp.i18n import _
+from kicadstamp.tree_anchor_read import DEG_TOLERANCE
+from kicadstamp.tree_position import relative_rotation_deg
 from kicadstamp.trees import _walk_nodes
 
 from ..ui_utils import remember_dialog_size
@@ -88,18 +90,51 @@ def _node_of(tree, ref):
     return None
 
 
+def _value(number: float) -> float:
+    """A number as the CONFIG file should hold it: six decimals, and `-0.0` folded
+    into `0.0`.
+
+    Without this the profile ended up with `19.999999`, `-30.000001`, `-0.0` and
+    `-1.5031179999999997` after two Applys (Ф6 of the 17.11 acceptance): the noise
+    is invisible in the dialog (three decimals there) but it IS what the file says,
+    and `-0.0` reads as a sign nobody typed. `round(x, 6) + 0.0` is the whole fix —
+    adding a positive zero to a negative zero yields a positive zero."""
+    return round(float(number), 6) + 0.0
+
+
+def _rotation_to_write(change) -> Optional[float]:
+    """The angle to store: the STORED one when the live one equals it modulo 360.
+
+    A part standing at 180° is read back as −180° by the board, and writing the
+    READ value rewrote an untouched angle as `-180.0` in the profile (Ф6: `fpga_
+    vccint_29`, `fpga_vccio_26`, `pif_1v2_vccint`, `pif_3v3_vdda` …). Both spellings
+    are the same pose, so the file keeps what it had — no diff, no review noise."""
+    live = change.now_rotation
+    stored = change.was_rotation
+    if live is None:
+        return None
+    if (stored is not None
+            and abs(relative_rotation_deg(live, stored)) <= DEG_TOLERANCE):
+        return _value(stored)
+    return _value(live)
+
+
 def _set_shift(tree, shift) -> bool:
     anchor = getattr(tree, "anchor", None)
     if anchor is None:
         return False
-    anchor.shift_xy = (float(shift[0]), float(shift[1]))
+    anchor.shift_xy = (_value(shift[0]), _value(shift[1]))
     return True
 
 
 def apply_plan(dock, plan) -> int:
     """Write the plan into the trees of the open project's buffer. Returns how many
     values were written. NOTHING here touches the board, and nothing runs on a
-    Cancel — the caller only ever passes an accepted plan."""
+    Cancel — the caller only ever passes an accepted plan.
+
+    Every number goes through `_value` and every angle through `_rotation_to_write`:
+    what lands in the file is what the next Save writes, so the profile must not
+    collect float tails or a flipped `180 → −180` for a node nobody moved."""
     trees = {tree.name: tree for tree in (getattr(dock, "_trees", None) or [])}
     written = 0
     for row in list(plan.anchors) + list(plan.synced):
@@ -111,14 +146,16 @@ def apply_plan(dock, plan) -> int:
         node = _node_of(trees.get(change.tree), change.ref)
         if node is None:
             continue
+        pair = (_value(change.now[0]), _value(change.now[1]))
         if change.polar:
-            node.polar = (float(change.now[0]), float(change.now[1]))
+            node.polar = pair
             node.xy = None
         else:
-            node.xy = (float(change.now[0]), float(change.now[1]))
+            node.xy = pair
             node.polar = None
-        if change.now_rotation is not None:
-            node.rotation = float(change.now_rotation)
+        rotation = _rotation_to_write(change)
+        if rotation is not None:
+            node.rotation = rotation
         written += 1
     return written
 

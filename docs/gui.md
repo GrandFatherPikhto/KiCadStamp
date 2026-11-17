@@ -1088,7 +1088,10 @@ has its marker on a live parent, so its content is a SKIP with the reason («nes
 «moved together» rule is written for top modules only), and a tree placed by TWO module nodes is not
 walked twice — one skip, one module row. The whole forest is read against ONE connection snapshot
 (`_connection_snapshot`, the same identity half a form's `_live_snapshot` hands to the anchor read), so
-a role or parent resolve never walks the board a second time.
+a role or parent resolve never walks the board a second time. Apply writes six-decimal numbers with
+`-0.0` folded into `0.0`, and keeps a node's STORED angle when the live one equals it modulo 360 — a
+node that was only MOVED is not rewritten as `180 → −180`, and the profile collects no float tails
+(`-1.5031179999999997`, Ф6 of the same acceptance).
 
 **UPDATE 2026-09-16 (plan_2026_09_16_copper_pseudo_node):** every copper node (`kind "net_trace"`) of a
 tree is now drawn under ONE **"Copper (n)"** pseudo-row — the LAST row under the tree's anchor. It is a

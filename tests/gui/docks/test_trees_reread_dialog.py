@@ -17,6 +17,7 @@ import gui.docks.trees_reread_dialog as dialog_mod
 from gui.docks.trees_reread_dialog import (RereadForestDialog, apply_plan,
                                            open_reread_table,
                                            run_reread_positions)
+from kicadstamp.forest_reread import AnchorRow, Change, ForestPlan
 from kicadstamp.trees import Tree, TreeAnchor, TreeNode
 
 
@@ -36,9 +37,9 @@ def _node(tree, ref, offset, stored, *, source="anchor", anchor_tree="main",
             "source": source, "error": None}
 
 
-def _tree_node(ref, *, xy=(0.0, 0.0), polar=None):
-    return TreeNode(ref=ref, kind="placement", xy=xy, polar=polar, rotation=0.0,
-                    name=None, group=None, children=[])
+def _tree_node(ref, *, xy=(0.0, 0.0), polar=None, rotation=0.0):
+    return TreeNode(ref=ref, kind="placement", xy=xy, polar=polar,
+                    rotation=rotation, name=None, group=None, children=[])
 
 
 def _dock(trees, *, adapter=object()):
@@ -233,6 +234,74 @@ def test_the_worker_payload_carries_the_shared_adapter_and_a_copy_of_sheets(
     assert [t.name for t in seen["payload"]["trees"]] == ["main"]
     assert seen["worker"] is dialog_mod.read_forest
     assert dock._active_op == "op"
+
+
+# ── Ф6 приёмки `484139cf` (17.11): what actually lands in the FILE ─────────
+
+def test_f6_a_node_that_was_only_moved_keeps_its_stored_angle(qapp):
+    """Ф6: 180° is stored, the board reads −180° — the same pose. The file must keep
+    180, not flip the angle of a node nobody turned (the live profile had it on
+    `fpga_vccint_29`, `fpga_vccio_26`, `pif_1v2_vccint`, `pif_3v3_vdda` …)."""
+    node = _tree_node("U1", rotation=180.0)
+    tree = Tree(name="main", anchor=TreeAnchor(is_origin=True), nodes=[node])
+    dock, _touched = _dock([tree])
+    plan = ForestPlan(changes=[Change(
+        tree="main", ref="U1", was=(0.0, 0.0), now=(2.0, 0.0), delta=(2.0, 0.0),
+        polar=False, was_rotation=180.0, now_rotation=-180.0)])
+
+    assert apply_plan(dock, plan) == 1
+
+    assert node.xy == (2.0, 0.0)
+    assert node.rotation == 180.0
+
+
+def test_f6_a_turned_node_still_gets_the_read_angle(qapp):
+    """The other half of the rule: it is «equal modulo 360», not «never write»."""
+    node = _tree_node("U1", rotation=0.0)
+    tree = Tree(name="main", anchor=TreeAnchor(is_origin=True), nodes=[node])
+    dock, _touched = _dock([tree])
+    plan = ForestPlan(changes=[Change(
+        tree="main", ref="U1", was=(0.0, 0.0), now=(0.0, 0.0), delta=(0.0, 0.0),
+        polar=False, was_rotation=0.0, now_rotation=90.0)])
+
+    assert apply_plan(dock, plan) == 1
+
+    assert node.rotation == 90.0
+
+
+def test_f6_written_numbers_have_no_float_tail_and_no_negative_zero(qapp):
+    """Ф6: two Applys left `19.999999`, `-30.000001`, `-0.0` and `-1.5031179999999997`
+    in the profile. Six decimals and a folded zero are the whole fix."""
+    node = _tree_node("U1")
+    tree = Tree(name="main", anchor=TreeAnchor(is_origin=True), nodes=[node])
+    dock, _touched = _dock([tree])
+    plan = ForestPlan(changes=[Change(
+        tree="main", ref="U1", was=(0.0, 0.0),
+        now=(-1.5031179999999997, -0.0), delta=(-1.5031179999999997, -0.0),
+        polar=False)])
+
+    assert apply_plan(dock, plan) == 1
+
+    assert node.xy == (-1.503118, 0.0)
+    assert str(node.xy[1]) == "0.0"          # NOT "-0.0"
+
+
+def test_f6_a_polar_row_and_an_anchor_shift_are_written_the_same_way(qapp):
+    node = _tree_node("J1", xy=None, polar=(5.0, 30.0))
+    tree = Tree(name="power", anchor=TreeAnchor(is_origin=True, shift_xy=(0.0, 0.0)),
+                nodes=[node])
+    dock, _touched = _dock([tree])
+    plan = ForestPlan(
+        changes=[Change(tree="power", ref="J1", was=(5.0, 30.0),
+                        now=(-1.5031179999999997, 30.000000000000004),
+                        delta=(0.0, 0.0), polar=True)],
+        anchors=[AnchorRow("power", (0.0, 0.0), (1.9999999999999998, -0.0),
+                           1, 1, "")])
+
+    assert apply_plan(dock, plan) == 2
+
+    assert node.polar == (-1.503118, 30.0)
+    assert tree.anchor.shift_xy == (2.0, 0.0)
 
 
 def test_the_menu_entry_exists_and_calls_the_flow(real_main_window, monkeypatch):
