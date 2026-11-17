@@ -95,6 +95,7 @@ from .trees_base_pose import _mount_anchor_pose  # noqa: F401 — re-export for 
 from .trees_base_pose import _resolve_probe_ref
 from .trees_base_pose import child_live_pose
 from .trees_base_pose import resolve_node_base_pose as _resolve_node_base_pose
+from .redraw_drift import confirm_redraw_drift
 from .trees_embedding import module_nodes, refuse_embedded_tree
 from kicadstamp.tree_position import tree_layout_base  # noqa: F401 — re-export for tests
 from .trees_markers import (  # noqa: F401 — re-export for callers and tests
@@ -3223,12 +3224,11 @@ class TreesDock(QWidget):
         return None
 
     def _redraw_edited_node(self, node: TreeNode) -> bool:
-        """Thin seam (rule 45): the body, its docstring, its three refusals and its FOURTH
-        door (`SUBTREE_KINDS`, refused on a module-placed tree in §4.1) moved VERBATIM to
-        `trees_accept.redraw_node`. That module already owns the form's redraw doors, and it
-        has to RETURN whether a worker started — the form says «refused» instead of
-        «started» on `False` (§4.2). The NAME stays here because the existing callers (the
-        node context menu and `redraw_form`) go through it, and so do the cells."""
+        """Thin seam (rule 45): the body, its three refusals and its FOURTH door
+        (`SUBTREE_KINDS`, refused on a module-placed tree in §4.1) moved VERBATIM to
+        `trees_accept.redraw_node`, which must RETURN whether a worker started — the
+        form says «refused» on `False` (§4.2). The NAME stays here because the node
+        context menu, `redraw_form` and the cells go through it."""
         return trees_accept.redraw_node(self, node)
 
     def _move_node_flow(self, tree: Tree, node: TreeNode) -> None:
@@ -3842,15 +3842,16 @@ class TreesDock(QWidget):
         if tree_name is None:
             return
         target = tree if tree is not None else self._current_tree()
-        # §3, measured: a `placement` PARENT's base comes from the TREE, so on a MODULE-placed
-        # tree even a CHILD-ONLY selection re-projects onto the Grid Origin (−32.000, +35.000)
-        # mm for `conn_out_sw_a` alone — hence the refusal covers the whole run.
+        # §3, measured: a `placement` PARENT's base comes from the TREE, so even a
+        # CHILD-ONLY selection on a MODULE-placed tree re-projects onto the Grid Origin.
         if target is not None and self._embedded_tree_refused(target):
             return
         if not selected_refs:
             self._show_status(_("Nothing selected — check some nodes first."))
             return
         if not self._confirm_first_run_redraw():
+            return
+        if not confirm_redraw_drift(self, target, selected_refs):
             return
         payload = {
             "config_path": str(self._root_path) if self._root_path else "",
@@ -3917,18 +3918,12 @@ class TreesDock(QWidget):
         return True
 
     def _run_forest_redraw_with_refs(self, refs: set, trigger=None) -> None:
-        """Shared worker invocation of the FOREST curated redraw —
-        "Redraw whole tree" (the CURRENT tree's nodes, plan_2026_09_14 Э1) is the
-        ONLY caller since the forest-wide "Full redraw" item was removed
-        (2026-10-13). start_long_op keeps it off the UI thread, same worker
-        pattern as run_curated_tree_redraw_worker, and the FULL trees list is
-        ALWAYS in the payload: run_curated_forest_redraw resolves module markers
-        by tree name, so a caller that narrowed the SELECTION must still hand
-        over every tree (otherwise the by_tree lookup silently finds nothing and
-        the embedded content stays put).
-
-        `trigger` is the Tools-menu QAction the caller was started by, greyed
-        out for the duration (Э2, plan_2026_09_12_busy_indicator)."""
+        """Shared worker invocation of the FOREST curated redraw — "Redraw whole
+        tree" (the CURRENT tree's nodes, plan_2026_09_14 Э1) is its ONLY caller.
+        The FULL trees list is ALWAYS in the payload: run_curated_forest_redraw
+        resolves module markers by tree NAME, so a narrowed SELECTION must still
+        hand over every tree or the embedded content stays put.
+        `trigger` is the Tools-menu QAction the caller was started by (Э2)."""
         if not self._trees or not self._root_path or self._cfg is None:
             self._show_status(_("Nothing to redraw."))
             return
@@ -3936,6 +3931,8 @@ class TreesDock(QWidget):
             self._show_status(_("Nothing to redraw."))
             return
         if not self._confirm_first_run_redraw():
+            return
+        if not confirm_redraw_drift(self, self._current_tree(), refs):
             return
         payload = {
             "config_path": str(self._root_path),

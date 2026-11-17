@@ -1093,6 +1093,20 @@ a role or parent resolve never walks the board a second time. Apply writes six-d
 node that was only MOVED is not rewritten as `180 → −180`, and the profile collects no float tails
 (`-1.5031179999999997`, Ф6 of the same acceptance).
 
+**UPDATE 2026-11-17 (commit 2 of the same plan):** every GUI **Redraw** — a node, «Redraw selected»,
+«Redraw whole tree», a module — now ASKS before it writes when it would move parts by more than
+**0.1 mm**. The dialog says how many parts move, the largest move and the first few refs by name, plus
+how many copper records of the run will be deleted and re-created (the `net_trace` nodes of the set —
+their record's geometry lives in the record). **«Cancel» costs zero transactions** (nothing was started
+yet) and writes one Log line; «Redraw anyway» runs exactly as before. The numbers come from the two
+reads a Redraw already uses — `layout_tree_from_anchor` for where the part will go and
+`child_live_pose` for where it stands — so there is no second planner. It is synchronous on purpose,
+like the first-run copper heads-up: the caller branches on the answer BEFORE the worker starts, and a
+modal dialog from a worker thread is not a thing. A busy shared socket means "proceed" (the check
+cannot read), a part the layout does not place is not counted, and the CLI is untouched (`--dry-run`
+is its own preview). One implementation, four doors: `gui/docks/redraw_drift.py`
+`confirm_redraw_drift`.
+
 **UPDATE 2026-09-16 (plan_2026_09_16_copper_pseudo_node):** every copper node (`kind "net_trace"`) of a
 tree is now drawn under ONE **"Copper (n)"** pseudo-row — the LAST row under the tree's anchor. It is a
 VIEW, not data: the row holds no `TreeNode`, it is not a node for any other part of the dock, its text is
