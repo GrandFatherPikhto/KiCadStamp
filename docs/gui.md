@@ -1093,19 +1093,21 @@ a role or parent resolve never walks the board a second time. Apply writes six-d
 node that was only MOVED is not rewritten as `180 → −180`, and the profile collects no float tails
 (`-1.5031179999999997`, Ф6 of the same acceptance).
 
-**UPDATE 2026-11-17 (commit 2 of the same plan):** every GUI **Redraw** — a node, «Redraw selected»,
-«Redraw whole tree», a module — now ASKS before it writes when it would move parts by more than
-**0.1 mm**. The dialog says how many parts move, the largest move and the first few refs by name, plus
-how many copper records of the run will be deleted and re-created (the `net_trace` nodes of the set —
-their record's geometry lives in the record). **«Cancel» costs zero transactions** (nothing was started
-yet) and writes one Log line; «Redraw anyway» runs exactly as before. The numbers come from the two
-reads a Redraw already uses — `layout_tree_from_anchor` for where the part will go and
-`child_live_pose` for where it stands — so there is no second planner. It is synchronous on purpose,
-like the first-run copper heads-up: the caller branches on the answer BEFORE the worker starts, and a
-modal dialog from a worker thread is not a thing. A busy shared socket means "proceed" (the check
-cannot read), a part the layout does not place is not counted, and the CLI is untouched (`--dry-run`
-is its own preview). One implementation, four doors: `gui/docks/redraw_drift.py`
-`confirm_redraw_drift`.
+**UPDATE 2026-11-17 (commit 2 of the same plan, after К2-Ф7/Ф8/Ф9):** every GUI **Redraw** — a node,
+«Redraw selected», «Redraw whole tree», a module — WRITES TO THE LOG what it is about to do: which
+parts move more than **0.1 mm** or turn more than **1°**, the biggest move first, the first five refs
+by name (a turn is shown as `C1 180°`, a move as `U1 3.080 mm`) and, when the run re-creates copper,
+a second line saying how many records. One line per run, `logger.warning`. **There is no window and no
+refusal**: Denis, 17.11 — «таких предупреждений нигде, кроме как в логе быть не должно. Они жутко
+тормозят работу!» — so a Redraw never stops because of a drift, and no door branches on the answer.
+
+The numbers come from the two reads a Redraw already uses — `layout_tree_from_anchor` for where the
+part will go and `child_live_pose` for where it stands — so there is no second planner. A **`module`
+marker is expanded to the content it activates** (`expand_modules`), and the node index is the WHOLE
+FOREST, not the door's own tree: the content of an embedded tree is not in the owner's node list, which
+is exactly the 16.11 case. A part the layout does not place (a mount, a copper record) is not named, a
+busy shared socket skips the measurement, and the CLI is untouched (`--dry-run` is its own preview).
+One implementation, four doors: `gui/docks/redraw_drift.py` `log_redraw_drift`.
 
 **UPDATE 2026-09-16 (plan_2026_09_16_copper_pseudo_node):** every copper node (`kind "net_trace"`) of a
 tree is now drawn under ONE **"Copper (n)"** pseudo-row — the LAST row under the tree's anchor. It is a

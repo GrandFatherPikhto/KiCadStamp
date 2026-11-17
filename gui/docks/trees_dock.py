@@ -95,7 +95,7 @@ from .trees_base_pose import _mount_anchor_pose  # noqa: F401 — re-export for 
 from .trees_base_pose import _resolve_probe_ref
 from .trees_base_pose import child_live_pose
 from .trees_base_pose import resolve_node_base_pose as _resolve_node_base_pose
-from .redraw_drift import confirm_redraw_drift
+from .redraw_drift import log_redraw_drift
 from .trees_embedding import module_nodes, refuse_embedded_tree
 from kicadstamp.tree_position import tree_layout_base  # noqa: F401 — re-export for tests
 from .trees_markers import (  # noqa: F401 — re-export for callers and tests
@@ -3851,8 +3851,7 @@ class TreesDock(QWidget):
             return
         if not self._confirm_first_run_redraw():
             return
-        if not confirm_redraw_drift(self, target, selected_refs):
-            return
+        log_redraw_drift(self, target, selected_refs)
         payload = {
             "config_path": str(self._root_path) if self._root_path else "",
             "cfg": self._cfg,
@@ -3932,8 +3931,7 @@ class TreesDock(QWidget):
             return
         if not self._confirm_first_run_redraw():
             return
-        if not confirm_redraw_drift(self, self._current_tree(), refs):
-            return
+        log_redraw_drift(self, self._current_tree(), refs)
         payload = {
             "config_path": str(self._root_path),
             "cfg": self._cfg,

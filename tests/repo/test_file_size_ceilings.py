@@ -64,10 +64,10 @@ CEILINGS = {
     # 6933 → 6907 (§1 of plan_2026_11_16_tree_anchor_read_current_position): the
     # CHILD half of `_resolve_live_offset` moved to trees_base_pose.child_live_pose,
     # so the anchor read and the offset read share ONE reader.
-    # 6907 → 6904 (commit 2 of plan_2026_11_16_reread_forest_from_board): the two
-    # Redraw doors ask `redraw_drift.confirm_redraw_drift` (one guard, one call
-    # site each), paid by shortening three comments in the same file.
-    "gui/docks/trees_dock.py": 6904,
+    # 6907 → 6902 (commit 2 of plan_2026_11_16_reread_forest_from_board, after К2-Ф9):
+    # the two Redraw doors call `redraw_drift.log_redraw_drift` (one Log line, no
+    # branching), which REPLACED the two-line `if not confirm_redraw_drift(...)` pair.
+    "gui/docks/trees_dock.py": 6902,
     "gui/fieldstool_window.py": 1158,
     "gui/main_window.py": 1052,
     # 1147: Claude's §2.2 of plan_2026_11_09_tree_instances_follow_template ASKED for "свойство

@@ -1,22 +1,26 @@
 # tests/gui/docks/test_redraw_drift.py
-"""Cells н, о, п, р of plan_2026_11_16_reread_forest_from_board, commit 2 — the
-Redraw move guard.
+"""К2-Ф7/Ф8/Ф9 of plan_2026_11_16_reread_forest_from_board — the Redraw move journal.
 
-The contract: a Redraw that would shift parts by more than `DRIFT_MM` (0.1 mm) ASKS
-first, «Cancel» costs zero transactions, «Redraw anyway» runs exactly as before, and
-ALL FOUR GUI doors ask through the ONE function (`redraw_drift.confirm_redraw_drift`).
+The contract after the 17.11 acceptance:
+
+* Ф7 — the measurement walks the WHOLE FOREST, not the door's own tree, and a `module`
+  marker in the set is expanded to its content (`expand_modules`). Without that the
+  guard was blind to module content — i.e. exactly to the 16.11 case;
+* Ф8 — a part that TURNS by more than 1° is named too, at zero distance: a two-pad part
+  rotated 180° keeps its centre and swaps its pads;
+* Ф9 — Denis, 17.11: no window at all. The result is ONE Log line and the run goes on;
+  no door branches on it and `redraw_drift` holds no `QMessageBox`.
 
 The board is faked at the two seams the measurement really uses — the layout
-(`layout_tree_from_anchor`) and the live pose (`child_live_pose`) — so every cell
-states its geometry explicitly and no Qt widget is constructed.
+(`layout_tree_from_anchor`) and the live pose (`child_live_pose`).
 """
 import ast
 from pathlib import Path
 from types import SimpleNamespace
 
 import gui.docks.redraw_drift as drift_mod
-from gui.docks.redraw_drift import (confirm_redraw_drift, copper_records_in,
-                                    measure_drift)
+from gui.docks.redraw_drift import (copper_records_in, expand_modules,
+                                    log_redraw_drift, measure_drift)
 from kicadstamp.domain.geometry import Vector2
 from kicadstamp.trees import Tree, TreeAnchor, TreeNode
 
@@ -28,76 +32,144 @@ def _node(ref, kind="placement", *, xy=(0.0, 0.0), children=()):
                     name=None, group=None, children=list(children))
 
 
-def _tree(nodes):
-    return Tree(name="main", anchor=TreeAnchor(is_origin=True), nodes=list(nodes))
+def _tree(name, nodes):
+    return Tree(name=name, anchor=TreeAnchor(is_origin=True), nodes=list(nodes))
 
 
-def _dock(tree, *, adapter=object()):
+def _dock(*trees, adapter=object()):
     dock = SimpleNamespace(
-        _cfg=SimpleNamespace(trees=[tree]), _trees=[tree],
+        _cfg=SimpleNamespace(trees=list(trees)), _trees=list(trees),
         _ctx=SimpleNamespace(sheet_names={}), _active_op=None,
         _root_path="/tmp/root", _main_window=SimpleNamespace(connection=None))
     dock._live_adapter = lambda: adapter
     return dock
 
 
-def _wire(monkeypatch, *, predicted_mm, live_mm):
+def _wire(monkeypatch, *, predicted_mm, live_mm, predicted_deg=None,
+          live_deg=None):
     """The two seams of one measurement: where the layout puts it, where it stands."""
+    predicted_deg = predicted_deg or {}
+    live_deg = live_deg or {}
     monkeypatch.setattr(
         drift_mod, "layout_tree_from_anchor",
-        lambda *a, **k: {ref: (Vector2.from_xy_mm(x, y), 0.0)
+        lambda *a, **k: {ref: (Vector2.from_xy_mm(x, y), predicted_deg.get(ref, 0.0))
                          for ref, (x, y) in predicted_mm.items()})
     monkeypatch.setattr(
         drift_mod, "child_live_pose",
         lambda cfg, adapter, sheets, ref, kind, **k:
-            (Vector2.from_xy_mm(*live_mm[ref]), 0.0, False))
+            (Vector2.from_xy_mm(*live_mm[ref]), live_deg.get(ref, 0.0), False))
 
 
-# ── о: a move below the threshold is not a question ───────────────────────
-
-def test_o_a_three_micrometre_move_does_not_ask(monkeypatch):
-    tree = _tree([_node("u1")])
-    _wire(monkeypatch, predicted_mm={"u1": (0.0, 0.0)},
-          live_mm={"u1": (0.003, 0.0)})
-    asked = []
-    monkeypatch.setattr(drift_mod, "_ask", lambda *a: asked.append(a) or True)
-
-    assert confirm_redraw_drift(_dock(tree), tree, {"u1"}) is True
-    assert asked == []
+def _warnings(caplog) -> list:
+    return [record.getMessage() for record in caplog.records
+            if record.levelname == "WARNING"]
 
 
-def test_measure_drift_reports_nothing_below_the_threshold(monkeypatch):
-    tree = _tree([_node("u1"), _node("u2")])
-    _wire(monkeypatch, predicted_mm={"u1": (0.0, 0.0), "u2": (0.0, 0.0)},
-          live_mm={"u1": (0.05, 0.0), "u2": (0.0, 0.0)})
+# ── о: a move below both thresholds is silent ─────────────────────────────
 
-    assert measure_drift(object(), SimpleNamespace(trees=[tree]), tree,
-                         {"u1", "u2"}, {}) == []
+def test_o_a_three_micrometre_move_says_nothing(monkeypatch, caplog):
+    tree = _tree("main", [_node("u1")])
+    _wire(monkeypatch, predicted_mm={"u1": (0.0, 0.0)}, live_mm={"u1": (0.003, 0.0)})
 
+    with caplog.at_level("WARNING"):
+        log_redraw_drift(_dock(tree), tree, {"u1"})
 
-# ── н: 3.08 mm asks, and Cancel writes nothing ────────────────────────────
-
-def test_n_a_three_millimetre_move_asks_and_cancel_writes_nothing(monkeypatch):
-    """н: the dialog is the REAL one (`QMessageBox.question`), not a stubbed `_ask` —
-    otherwise a mutation that makes «Cancel» return True would kill nothing."""
-    tree = _tree([_node("u1")])
-    _wire(monkeypatch, predicted_mm={"u1": (0.0, 0.0)},
-          live_mm={"u1": (3.08, 0.0)})
-    asked = []
-    monkeypatch.setattr(
-        drift_mod.QMessageBox, "question",
-        lambda *a, **k: asked.append(a) or
-        drift_mod.QMessageBox.StandardButton.Cancel)
-
-    assert confirm_redraw_drift(_dock(tree), tree, {"u1"}) is False
-
-    assert asked, "the guard must ASK before a 3.08 mm move"
-    text = asked[0][2]
-    assert "3.080" in text and "u1" in text
+    assert _warnings(caplog) == []
 
 
-def test_the_biggest_move_comes_first(monkeypatch):
-    tree = _tree([_node("u1"), _node("u2")])
+# ── Ф7: the whole forest is measured, and a marker expands to its content ─
+
+def _main_and_fpga():
+    c1 = _node("C1", xy=(2.0, 0.0))
+    u1 = _node("U1", xy=(0.0, 0.0), children=[c1])
+    fpga = _tree("fpga", [u1])
+    main = _tree("main", [_node("mh"), _node("fpga", "module", xy=(10.0, 10.0))])
+    return main, fpga
+
+
+def test_f7_the_module_door_names_the_content_it_activates(monkeypatch, caplog):
+    """The door passes the MARKER (`{fpga}`); the content `U1`/`C1` lives in another
+    tree, so walking the owner's own nodes found nothing and the 16.11 case went
+    unnamed."""
+    main, fpga = _main_and_fpga()
+    _wire(monkeypatch,
+          predicted_mm={"U1": (10.0, 10.0), "C1": (12.0, 10.0)},
+          live_mm={"U1": (10.0, 13.08), "C1": (12.0, 13.08)})
+
+    with caplog.at_level("WARNING"):
+        log_redraw_drift(_dock(main, fpga), main, {"fpga"})
+
+    line = _warnings(caplog)[0]
+    assert "2 part(s)" in line and "3.080" in line
+    assert "U1" in line and "C1" in line
+
+
+def test_f7_the_whole_tree_door_names_marker_content_too(monkeypatch, caplog):
+    main, fpga = _main_and_fpga()
+    _wire(monkeypatch,
+          predicted_mm={"U1": (10.0, 10.0), "C1": (12.0, 10.0)},
+          live_mm={"U1": (10.0, 13.08), "C1": (12.0, 13.08)})
+
+    with caplog.at_level("WARNING"):
+        log_redraw_drift(_dock(main, fpga), main, {"mh", "fpga"})
+
+    assert "U1" in _warnings(caplog)[0]
+
+
+def test_f7_expand_modules_walks_nested_markers():
+    inner = _tree("inner", [_node("R1")])
+    middle = _tree("middle", [_node("M1"), _node("inner", "module")])
+    outer = _tree("outer", [_node("O1"), _node("middle", "module")])
+    forest = {"inner": inner, "middle": middle, "outer": outer}
+
+    assert expand_modules({"outer"}, forest) == {"outer", "O1", "middle", "M1",
+                                                 "inner", "R1"}
+    assert expand_modules({"O1"}, forest) == {"O1"}
+
+
+def test_f7_the_index_sees_a_node_of_another_tree(monkeypatch):
+    """`measure_drift` decides kind/anchor from the FOREST index, never from the
+    door's own list."""
+    main, fpga = _main_and_fpga()
+    _wire(monkeypatch, predicted_mm={"U1": (10.0, 10.0)},
+          live_mm={"U1": (10.0, 10.0)})
+
+    rows = measure_drift(object(), SimpleNamespace(trees=[main, fpga]), main,
+                         {"fpga"}, {})
+
+    assert rows == []          # 0 mm, 0°: found, and not worth naming
+
+
+# ── Ф8: a turn is a reason to name a part, at zero distance ───────────────
+
+def test_f8_a_half_turn_at_zero_distance_is_named_with_its_angle(monkeypatch,
+                                                                 caplog):
+    tree = _tree("main", [_node("C1")])
+    _wire(monkeypatch, predicted_mm={"C1": (0.0, 0.0)},
+          live_mm={"C1": (0.0, 0.0)},
+          predicted_deg={"C1": 0.0}, live_deg={"C1": 180.0})
+
+    with caplog.at_level("WARNING"):
+        log_redraw_drift(_dock(tree), tree, {"C1"})
+
+    line = _warnings(caplog)[0]
+    assert "C1 180°" in line
+
+
+def test_f8_a_tiny_turn_is_silent(monkeypatch, caplog):
+    tree = _tree("main", [_node("C1")])
+    _wire(monkeypatch, predicted_mm={"C1": (0.0, 0.0)},
+          live_mm={"C1": (0.0, 0.0)},
+          predicted_deg={"C1": 0.0}, live_deg={"C1": 0.005})
+
+    with caplog.at_level("WARNING"):
+        log_redraw_drift(_dock(tree), tree, {"C1"})
+
+    assert _warnings(caplog) == []
+
+
+def test_f8_the_biggest_move_comes_first(monkeypatch):
+    tree = _tree("main", [_node("u1"), _node("u2")])
     _wire(monkeypatch, predicted_mm={"u1": (0.0, 0.0), "u2": (0.0, 0.0)},
           live_mm={"u1": (0.2, 0.0), "u2": (1.5, 0.0)})
 
@@ -105,13 +177,10 @@ def test_the_biggest_move_comes_first(monkeypatch):
                          {"u1", "u2"}, {})
 
     assert [row.ref for row in rows] == ["u2", "u1"]
-    assert abs(rows[0].delta_mm - 1.5) < 1e-9
 
 
 def test_a_part_the_layout_does_not_place_is_not_counted(monkeypatch):
-    """A mount or a copper record has no layout pose — the guard names parts that
-    WILL be moved, and a guess is not a number."""
-    tree = _tree([_node("mnt", "mount"), _node("c1", "net_trace")])
+    tree = _tree("main", [_node("mnt", "mount"), _node("c1", "net_trace")])
     _wire(monkeypatch, predicted_mm={}, live_mm={"mnt": (5.0, 0.0),
                                                  "c1": (5.0, 0.0)})
 
@@ -119,86 +188,88 @@ def test_a_part_the_layout_does_not_place_is_not_counted(monkeypatch):
                          {"mnt", "c1"}, {}) == []
 
 
-# ── п: «Redraw anyway» lets it through ────────────────────────────────────
-
-def test_p_anyway_lets_the_run_go(monkeypatch):
-    tree = _tree([_node("u1")])
-    _wire(monkeypatch, predicted_mm={"u1": (0.0, 0.0)},
-          live_mm={"u1": (-2.0, 2.0)})
-    monkeypatch.setattr(
-        drift_mod.QMessageBox, "question",
-        lambda *a, **k: drift_mod.QMessageBox.StandardButton.Yes)
-
-    assert confirm_redraw_drift(_dock(tree), tree, {"u1"}) is True
-
-
-# ── copper: counted from the run's own set, never guessed ─────────────────
+# ── copper: counted from the run's own set, markers expanded ─────────────
 
 def test_the_recreated_copper_is_counted_from_the_runs_own_set():
-    tree = _tree([_node("c1", "net_trace"), _node("c2", "net_trace"),
-                  _node("u1")])
+    inner = _tree("inner", [_node("c1", "net_trace")])
+    main = _tree("main", [_node("c2", "net_trace"), _node("u1"),
+                          _node("inner", "module")])
+    cfg = SimpleNamespace(trees=[main, inner])
 
-    assert copper_records_in(tree, {"c1", "c2", "u1"}) == 2
-    assert copper_records_in(tree, {"u1"}) == 0
-
-
-# ── no connection / no tree / busy socket: the run goes on ────────────────
-
-def test_without_a_board_the_guard_lets_the_run_go(monkeypatch):
-    tree = _tree([_node("u1")])
-    dock = _dock(tree, adapter=None)
-    asked = []
-    monkeypatch.setattr(drift_mod, "_ask", lambda *a: asked.append(a) or False)
-
-    assert confirm_redraw_drift(dock, tree, {"u1"}) is True
-    assert asked == []
+    assert copper_records_in(cfg, {"c2", "u1"}) == 1
+    assert copper_records_in(cfg, {"inner"}) == 1
+    assert copper_records_in(cfg, {"u1"}) == 0
 
 
-def test_a_busy_socket_means_no_question(monkeypatch):
-    """The ~400 ms poll tick owns the shared socket: the check cannot read, so the
-    run proceeds exactly as it did before this guard existed."""
-    tree = _tree([_node("u1")])
+# ── no board / busy socket / no tree: silence, and the run goes on ───────
+
+def test_without_a_board_nothing_is_written(monkeypatch, caplog):
+    tree = _tree("main", [_node("u1")])
+    _wire(monkeypatch, predicted_mm={"u1": (0.0, 0.0)},
+          live_mm={"u1": (3.0, 0.0)})
+
+    with caplog.at_level("WARNING"):
+        log_redraw_drift(_dock(tree, adapter=None), tree, {"u1"})
+
+    assert _warnings(caplog) == []
+
+
+def test_a_busy_socket_skips_the_measurement(monkeypatch, caplog):
+    tree = _tree("main", [_node("u1")])
+    _wire(monkeypatch, predicted_mm={"u1": (0.0, 0.0)},
+          live_mm={"u1": (3.0, 0.0)})
     monkeypatch.setattr(drift_mod, "socket_busy", lambda connection: True)
-    asked = []
-    monkeypatch.setattr(drift_mod, "_ask", lambda *a: asked.append(a) or False)
 
-    assert confirm_redraw_drift(_dock(tree), tree, {"u1"}) is True
-    assert asked == []
+    with caplog.at_level("WARNING"):
+        log_redraw_drift(_dock(tree), tree, {"u1"})
 
-
-def test_no_tree_or_no_refs_is_not_a_question(monkeypatch):
-    asked = []
-    monkeypatch.setattr(drift_mod, "_ask", lambda *a: asked.append(a) or False)
-
-    assert confirm_redraw_drift(_dock(_tree([])), None, {"u1"}) is True
-    assert confirm_redraw_drift(_dock(_tree([])), _tree([]), set()) is True
-    assert asked == []
+    assert _warnings(caplog) == []
 
 
-# ── р: all four doors ask through the ONE function ────────────────────────
+def test_no_tree_or_no_refs_writes_nothing(monkeypatch, caplog):
+    tree = _tree("main", [_node("u1")])
+    _wire(monkeypatch, predicted_mm={"u1": (0.0, 0.0)},
+          live_mm={"u1": (3.0, 0.0)})
 
-def _calls_in(path: Path) -> int:
-    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-    return sum(1 for node in ast.walk(tree)
+    with caplog.at_level("WARNING"):
+        log_redraw_drift(_dock(tree), None, {"u1"})
+        log_redraw_drift(_dock(tree), tree, set())
+
+    assert _warnings(caplog) == []
+
+
+# ── Ф9: no window, and no door branches on the answer ────────────────────
+
+def _module_ast(path: str):
+    return ast.parse((REPO / path).read_text(encoding="utf-8"), filename=path)
+
+
+def test_f9_the_module_holds_no_message_box():
+    tree = _module_ast("gui/docks/redraw_drift.py")
+    names = {node.id for node in ast.walk(tree) if isinstance(node, ast.Name)}
+    names |= {node.attr for node in ast.walk(tree) if isinstance(node, ast.Attribute)}
+    assert "QMessageBox" not in names
+    assert "QtWidgets" not in names
+
+
+def test_f9_every_door_calls_the_journal_and_never_branches_on_it():
+    """The four doors call `log_redraw_drift(...)` as a STATEMENT: not one of the calls
+    sits inside an `if` test, so no door can refuse a redraw because of a drift."""
+    for path in ("gui/docks/trees_accept.py", "gui/docks/trees_dock.py"):
+        tree = _module_ast(path)
+        calls = [node for node in ast.walk(tree)
+                 if isinstance(node, ast.Call)
+                 and getattr(node.func, "id", None) == "log_redraw_drift"]
+        assert calls, path
+        in_tests = {id(node) for node in ast.walk(tree)
+                    if isinstance(node, ast.If) for node in ast.walk(node.test)}
+        assert not [call for call in calls if id(call) in in_tests], path
+
+
+def test_f9_the_four_doors_are_still_the_four():
+    assert sum(1 for node in ast.walk(_module_ast("gui/docks/trees_accept.py"))
                if isinstance(node, ast.Call)
-               and getattr(node.func, "id", None) == "confirm_redraw_drift")
-
-
-def test_r_every_redraw_door_calls_the_one_guard():
-    """The node and the module doors live in `trees_accept.redraw_node`; «Redraw
-    selected» and «Redraw whole tree» are the two calls in `trees_dock`. One
-    implementation, four doors — the same shape `refuse_embedded_tree` has."""
-    assert _calls_in(REPO / "gui/docks/trees_accept.py") == 1
-    assert _calls_in(REPO / "gui/docks/trees_dock.py") == 2
-
-
-def test_r_the_guard_is_asked_before_the_worker_starts():
-    """Position in the code, not just presence: both `trees_dock` calls stand ABOVE
-    the `start_long_op(...)` of their door, so a refusal costs zero transactions."""
-    source = (REPO / "gui/docks/trees_dock.py").read_text(encoding="utf-8")
-    guard = source.index("confirm_redraw_drift(self, target, selected_refs)")
-    tree_worker = source.index("run_curated_tree_redraw_worker, self._finish_redraw")
-    assert guard < tree_worker
-    forest_guard = source.index("confirm_redraw_drift(self, self._current_tree(), refs)")
-    forest_worker = source.index("run_curated_forest_redraw_worker, self._finish_redraw")
-    assert forest_guard < forest_worker
+               and getattr(node.func, "id", None) == "log_redraw_drift") == 1
+    assert sum(1 for node in ast.walk(_module_ast("gui/docks/trees_dock.py"))
+               if isinstance(node, ast.Call)
+               and getattr(node.func, "id", None) == "log_redraw_drift") == 2

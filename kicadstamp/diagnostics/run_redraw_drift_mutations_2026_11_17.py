@@ -6,9 +6,12 @@ The contract the rows attack: a Redraw that would shift parts by more than
 `DRIFT_MM` ASKS first, «Cancel» costs zero transactions, and ALL FOUR GUI doors ask
 through the ONE function.
 
-  M1 the threshold is a thousand times bigger (nothing ever asks)
-  M2 «Cancel» still lets the run go
-  M3 one door skips the guard (the node/module door)
+  M1 the distance threshold is a thousand times bigger (nothing is ever named)
+  M2 the journal stays silent (the measurement is thrown away)
+  M3 one door skips the journal (the node/module door)
+  M5 the walk is limited to the door's OWN tree (К2-Ф7 comes back)
+  M6 a `module` marker is not expanded (its content goes unnamed)
+  M7 a door branches on the journal again (К2-Ф9 comes back)
   M4 cosmetic control (a comment must change nothing)
 
 Safeguards as in every harness here (rule 38): a template matching more than once is
@@ -34,22 +37,44 @@ DOOR = "gui/docks/trees_accept.py"
 GUARDS = "tests/gui/docks/test_redraw_drift.py"
 
 MUTATIONS = [
-    ("M1 the threshold is a thousand times bigger", DRIFT,
+    ("M1 the distance threshold is a thousand times bigger", DRIFT,
      "DRIFT_MM = 0.1\n",
-     "DRIFT_MM = 100.0  # MUTATION: nothing ever asks\n",
-     ["test_n_a_three_millimetre_move_asks_and_cancel_writes_nothing"]),
+     "DRIFT_MM = 100.0  # MUTATION: nothing is ever named\n",
+     ["test_f7_the_module_door_names_the_content_it_activates"]),
 
-    ("M2 Cancel still lets the run go", DRIFT,
-     "    return answer == QMessageBox.StandardButton.Yes\n",
-     "    return True  # MUTATION: Cancel still writes\n",
-     ["test_n_a_three_millimetre_move_asks_and_cancel_writes_nothing"]),
+    ("M2 the journal stays silent", DRIFT,
+     "    if rows:\n"
+     "        logger.warning(_line(rows))\n",
+     "    if rows:\n"
+     "        pass  # MUTATION: the measurement is thrown away\n",
+     ["test_f7_the_module_door_names_the_content_it_activates"]),
 
-    ("M3 the node/module door skips the guard", DOOR,
-     "    refs = _guard_refs(dock, node)\n"
-     "    if not confirm_redraw_drift(dock, dock._tree_of_node(node), refs):\n"
-     "        return False\n",
-     "    refs = _guard_refs(dock, node)  # MUTATION: this door never asks\n",
-     ["test_r_every_redraw_door_calls_the_one_guard"]),
+    ("M3 the node/module door skips the journal", DOOR,
+     "    log_redraw_drift(dock, dock._tree_of_node(node), {node.ref})\n",
+     "",
+     ["test_f9_the_four_doors_are_still_the_four"]),
+
+    ("M5 the walk is limited to the door's own tree", DRIFT,
+     "    index = _index(forest)\n"
+     "    rows: list[DriftRow] = []\n",
+     "    index = {n.ref: n for n in tree.nodes}  # MUTATION: only this tree\n"
+     "    rows: list[DriftRow] = []\n",
+     ["test_f7_the_module_door_names_the_content_it_activates"]),
+
+    ("M6 a module marker is not expanded", DRIFT,
+     "    forest = _forest(cfg)\n"
+     "    wanted = expand_modules(refs, forest)\n"
+     "    try:\n",
+     "    forest = _forest(cfg)\n"
+     "    wanted = set(refs)  # MUTATION: markers not expanded\n"
+     "    try:\n",
+     ["test_f7_the_module_door_names_the_content_it_activates"]),
+
+    ("M7 a door branches on the journal again", "gui/docks/trees_dock.py",
+     "        log_redraw_drift(self, target, selected_refs)\n",
+     "        if not log_redraw_drift(self, target, selected_refs):\n"
+     "            return  # MUTATION: the door refuses again\n",
+     ["test_f9_every_door_calls_the_journal_and_never_branches_on_it"]),
 
     ("M4 cosmetic control (a comment must change nothing)", DRIFT,
      "DRIFT_MM = 0.1\n",

@@ -27,7 +27,6 @@ so both sides of every comparison see the same "live" answer, and the compositio
 from __future__ import annotations
 
 import pytest
-from PyQt6.QtWidgets import QMessageBox
 
 from kicadstamp.config.sexp_format import dict_to_sexp
 from kicadstamp.domain.geometry import Vector2
@@ -43,16 +42,6 @@ import gui.docks.trees_dock as td_mod
 from gui.docks.cascade import run_single_node_redraw_worker
 from gui.docks.live_position import LiveRecordPose
 from gui.docks.trees_dock import TreesDock
-
-
-@pytest.fixture(autouse=True)
-def _redraw_guard_says_yes(monkeypatch):
-    """The Redraw move guard (`gui/docks/redraw_drift.py`, commit 2 of
-    plan_2026_11_16_reread_forest_from_board) asks before a move bigger than 0.1 mm.
-    These cells test WHERE the node is placed, so the answer is «Redraw anyway» —
-    the dialog is a stand-in, and the guard's own cells cover the question."""
-    monkeypatch.setattr(QMessageBox, "question",
-                        lambda *a, **k: QMessageBox.StandardButton.Yes)
 
 from tests.fakes.explore_board import FakeExploreBoard
 from tests.fakes.write_later import write_later

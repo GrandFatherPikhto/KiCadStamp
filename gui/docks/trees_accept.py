@@ -49,7 +49,7 @@ from ._common import ERROR_STYLE, show_message
 from .cascade import (run_curated_forest_redraw_worker,
                       run_curated_tree_redraw_worker,
                       run_single_node_redraw_worker)
-from .redraw_drift import confirm_redraw_drift
+from .redraw_drift import log_redraw_drift
 from .trees_embedding import refuse_embedded_tree
 from .trees_selection import select_only
 
@@ -326,28 +326,6 @@ def redraw_form(dock, form) -> None:
 
 # ── the node's own Redraw ─────────────────────────────────────────────────
 
-def _guard_refs(dock, node: TreeNode) -> set:
-    """What the move guard measures for THIS door: the node itself, or — for a
-    `module` node — the content of the tree it activates (the module's own marker is
-    not placed by the layout, so it can never be compared with a live pose)."""
-    if node.kind != "module":
-        return {node.ref}
-    child = {t.name: t for t in (dock._trees or [])}.get(node.ref)
-    if child is None:
-        return {node.ref}
-    return {ref for ref in _tree_refs(child)}
-
-
-def _tree_refs(tree) -> list:
-    found = []
-    stack = list(tree.nodes or [])
-    while stack:
-        node = stack.pop()
-        found.append(node.ref)
-        stack.extend(node.children or [])
-    return found
-
-
 def redraw_node(dock, node: TreeNode) -> bool:
     """The node editor dialog's **Redraw** button (Phase B): place the REAL
     record on the live board at its (edited) CONFIG position — ONE
@@ -393,13 +371,11 @@ def redraw_node(dock, node: TreeNode) -> bool:
         return handled
     if node is None or not node.ref or dock._cfg is None or dock._ctx is None:
         return False
-    # The move guard of plan_2026_11_16_reread_forest_from_board (commit 2): a
-    # redraw that would shift parts by more than `DRIFT_MM` asks FIRST, and a
-    # refusal costs zero transactions. This is the node door; a module node is
-    # measured by the content it activates, not by its own (unplaced) marker.
-    refs = _guard_refs(dock, node)
-    if not confirm_redraw_drift(dock, dock._tree_of_node(node), refs):
-        return False
+    # The move journal of plan_2026_11_16_reread_forest_from_board (commit 2, К2-Ф9):
+    # ONE Log line about what this run will move or turn, then the run goes on — no
+    # dialog, nothing to branch on. A `module` marker is expanded to its content by
+    # `redraw_drift.expand_modules`, so the line names the parts that really move.
+    log_redraw_drift(dock, dock._tree_of_node(node), {node.ref})
     if node.kind == "module":
         payload = {
             "config_path": str(dock._root_path) if dock._root_path else "",
