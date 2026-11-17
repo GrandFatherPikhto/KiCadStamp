@@ -206,10 +206,14 @@ def test_with_no_trees_the_flow_says_so(monkeypatch):
 
 def test_the_worker_payload_carries_the_shared_adapter_and_a_copy_of_sheets(
         monkeypatch):
+    """Ф4 of the acceptance: the connection's cached snapshot rides along, so the
+    whole forest is read against ONE identity half (the same value a form's
+    `_live_snapshot` hands to the anchor read)."""
     mh = _tree_node("mh")
     tree = Tree(name="main", anchor=TreeAnchor(is_origin=True), nodes=[mh])
     dock, touched = _dock([tree])
     dock._ctx = SimpleNamespace(sheet_names={"sheet-uuid": "Sheet"})
+    dock._main_window = SimpleNamespace(connection=SimpleNamespace(snapshot="SNAP"))
     seen = {}
 
     def _start(connection, widgets, worker, finish, failed, payload, **kwargs):
@@ -225,6 +229,7 @@ def test_the_worker_payload_carries_the_shared_adapter_and_a_copy_of_sheets(
     assert seen["payload"]["adapter"] is dock._live_adapter()
     assert seen["payload"]["sheet_names"] == {"sheet-uuid": "Sheet"}
     assert seen["payload"]["sheet_names"] is not dock._ctx.sheet_names
+    assert seen["payload"]["snapshot"] == "SNAP"
     assert [t.name for t in seen["payload"]["trees"]] == ["main"]
     assert seen["worker"] is dialog_mod.read_forest
     assert dock._active_op == "op"

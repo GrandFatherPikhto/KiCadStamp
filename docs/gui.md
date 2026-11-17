@@ -1078,6 +1078,18 @@ The arithmetic is `kicadstamp/forest_reread.py` (Qt-free, celled without a board
 `gui/docks/trees_reread_board.py`, the table `gui/docks/trees_reread_dialog.py`, and the menu entry
 `gui/docks/trees_menu_actions.py` (built there because `gui/main_window.py` sits at its Rule-45 ceiling).
 
+**UPDATE 2026-11-17 (acceptance of `622e47bc`, Ф1–Ф5):** who ABSORBS a moved base follows the READER,
+not the nesting. A CHILD is measured from its live parent and a `mount` from its own live role, so
+neither absorbs the tree anchor's shift or a module's move — before this every child of a module's
+content received a false row of ≈ +3 mm (85 nodes in the live STM32 profile, i.e. exactly the routing
+the flow exists to protect). A MOUNT is now read through `_live_offset` with its own anchor at ANY
+level, never against a module's frame. A MODULE nested under a node or inside another module's content
+has its marker on a live parent, so its content is a SKIP with the reason («nested module …», the
+«moved together» rule is written for top modules only), and a tree placed by TWO module nodes is not
+walked twice — one skip, one module row. The whole forest is read against ONE connection snapshot
+(`_connection_snapshot`, the same identity half a form's `_live_snapshot` hands to the anchor read), so
+a role or parent resolve never walks the board a second time.
+
 **UPDATE 2026-09-16 (plan_2026_09_16_copper_pseudo_node):** every copper node (`kind "net_trace"`) of a
 tree is now drawn under ONE **"Copper (n)"** pseudo-row — the LAST row under the tree's anchor. It is a
 VIEW, not data: the row holds no `TreeNode`, it is not a node for any other part of the dock, its text is

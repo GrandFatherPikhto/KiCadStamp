@@ -120,6 +120,17 @@ def _raw_anchor_point(tree, base_pos, base_deg) -> tuple[float, float]:
     return ((base_pos.x - shift.x) / MM, (base_pos.y - shift.y) / MM)
 
 
+def _skip(out: dict, tree: str, ref: str, reason: str) -> None:
+    """ONE skip per (tree, ref) — never a second copy of the same fact.
+
+    Two markers naming one tree (Ф5) reach the same content twice; without this the
+    table would report the same skip once per marker."""
+    for existing in out["skips"]:
+        if (existing["tree"], existing["ref"]) == (tree, ref):
+            return
+    out["skips"].append({"tree": tree, "ref": ref, "reason": reason})
+
+
 def _stored(node) -> Optional[tuple[float, float]]:
     """The node's stored offset as a flat mm pair, or None when it stores none
     (`xy` or `polar` only — `plan_forest` reports the latter as a skip)."""
@@ -155,7 +166,11 @@ def read_forest_now(*, cfg, trees, sheet_names, adapter, snapshot=None) -> dict:
            "snapshot": snapshot, "forest": forest, "module_bases": {},
            # Where each embedded tree's module put it, from the ONE layout that
            # read it — the sync takes the marker from here, not from a rebuild.
-           "module_poses": {}}
+           "module_poses": {},
+           # Ф5: a tree placed by TWO module nodes would be walked once per marker —
+           # two rows for one (tree, ref). Its content is not read at all, exactly
+           # like its own anchor is not synced (one shift cannot land on both).
+           "doubled": {t.name for t in trees if len(_anchor_marker(trees, t)) > 1}}
 
     # 1. The OWN anchor of every tree, standalone or embedded: only its ANGLE is
     #    used for a standalone tree (the shift is stored in that frame), while an
@@ -166,9 +181,9 @@ def read_forest_now(*, cfg, trees, sheet_names, adapter, snapshot=None) -> dict:
             pos, deg = _anchor_pose(adapter, cfg, tree, ctx["sheet_names"],
                                     snapshot=snapshot)
         except Exception as exc:          # noqa: BLE001 — reported, never fatal
-            out["skips"].append({"tree": tree.name, "ref": "", "reason": _(
+            _skip(out, tree.name, "", _(
                 "tree {tree!r}: its own anchor could not be read — {error}"
-            ).format(tree=tree.name, error=exc)})
+            ).format(tree=tree.name, error=exc))
             continue
         out["bases"][tree.name] = pos
         out["angles"][tree.name] = float(deg or 0.0)
@@ -202,9 +217,9 @@ def _read_standalone(out: dict, ctx: dict, tree) -> None:
             sheet_names=ctx["sheet_names"], snapshot=ctx["snapshot"],
             module_bases=module_bases)
     except Exception as exc:              # noqa: BLE001 — one skip, not a crash
-        out["skips"].append({"tree": tree.name, "ref": "", "reason": _(
+        _skip(out, tree.name, "", _(
             "tree {tree!r}: its content could not be laid out — {error}"
-        ).format(tree=tree.name, error=exc)})
+        ).format(tree=tree.name, error=exc))
         return
 
     out["shifts"][tree.name] = _shift_of(tree)
@@ -214,7 +229,7 @@ def _read_standalone(out: dict, ctx: dict, tree) -> None:
     if refusal is not None:
         # No shift can be derived, but the tree's NODES are still worth reading —
         # the owner's other trees must not go unmeasured because of this one.
-        out["skips"].append({"tree": tree.name, "ref": "", "reason": refusal})
+        _skip(out, tree.name, "", refusal)
     else:
         for label, node in voters:
             _vote(out, ctx, tree, label, node, predicted)
@@ -229,9 +244,9 @@ def _vote(out: dict, ctx: dict, tree, label: str, node, predicted: dict) -> None
     is a SKIP with its reason, never a silent absence from the vote."""
     pose = predicted.get(node.ref)
     if pose is None:
-        out["skips"].append({"tree": tree.name, "ref": label, "reason": _(
+        _skip(out, tree.name, label, _(
             "node {ref!r} is not in the tree layout — its pose cannot be predicted, "
-            "so it cannot vote").format(ref=label)})
+            "so it cannot vote").format(ref=label))
         return
     try:
         live_pos, _live_deg, mirrored = child_live_pose(
@@ -239,12 +254,11 @@ def _vote(out: dict, ctx: dict, tree, label: str, node, predicted: dict) -> None
             component_address=node.anchor if node.kind == "component" else None,
             snapshot=ctx["snapshot"])
     except Exception as exc:              # noqa: BLE001 — reported, never fatal
-        out["skips"].append({"tree": tree.name, "ref": label,
-                             "reason": str(exc)})
+        _skip(out, tree.name, label, str(exc))
         return
     if mirrored:
-        out["skips"].append({"tree": tree.name, "ref": label, "reason": _(
-            "this node's instance is MIRRORED on the live board")})
+        _skip(out, tree.name, label, _(
+            "this node's instance is MIRRORED on the live board"))
         return
     live = _mm(live_pos)
     at = _mm(pose[0])
@@ -265,8 +279,10 @@ def _visit(out: dict, ctx: dict, owner, tree, nodes: list, base: tuple,
     `inside` names the module the level belongs to (the absorb rule of the plan)."""
     for node in nodes:
         if node.kind == "mount":
-            # A mount node's base is its OWN live anchor, never the parent frame —
-            # and it therefore never absorbs the tree anchor's move.
+            # A mount node's base is its OWN live anchor, never the parent frame and
+            # never a module's frame (Ф2): `_emit` reads it through `_live_offset`
+            # with its own `base_anchor` at ANY level, exactly as the layout places
+            # it (`mount_node_poses`), and it therefore absorbs nothing.
             _emit(out, ctx, owner, tree, node, base, inside)
             _visit(out, ctx, owner, tree, list(node.children or []),
                    ("node", node, float(base[-1])), inside, depth + 1)
@@ -275,8 +291,16 @@ def _visit(out: dict, ctx: dict, owner, tree, nodes: list, base: tuple,
             pose = ctx["module_bases"].get(node.ref)
             if pose is None:
                 continue                    # the layout placed no such module node
-            if inside is None and depth == 0:
-                _module_record(out, ctx, owner, node, pose)
+            if inside is not None or depth != 0:
+                # Ф3: a module under a node/mount or inside another module's content
+                # has its marker on a LIVE parent. The «moved together» rule is
+                # written for TOP modules only, so its content is a SKIP with the
+                # reason — never a row with the wrong absorb.
+                _skip(out, owner.name, node.ref, _(
+                    "nested module {ref!r} — its marker hangs off a live parent, so "
+                    "its content is not read in this pass").format(ref=node.ref))
+                continue
+            _module_record(out, ctx, owner, node, pose)
             marker = _mm(pose[1])
             eff = _mm(pose[3])
             # Stage 1 of the layout: the module node's OWN children hang from its
@@ -284,6 +308,11 @@ def _visit(out: dict, ctx: dict, owner, tree, nodes: list, base: tuple,
             _visit(out, ctx, owner, tree, list(node.children or []),
                    ("pose", marker, float(pose[2])), node.ref, depth + 1)
             child = ctx["forest"].get(node.ref)
+            if child is not None and child.name in ctx["doubled"]:
+                _skip(out, child.name, "", _(
+                    "tree {tree!r} is placed by more than one module node — its "
+                    "content is not read in this pass").format(tree=child.name))
+                child = None
             if child is None:
                 continue
             # Stage 2: the embedded tree's content is stored in the EFF frame.
@@ -301,16 +330,17 @@ def _emit(out: dict, ctx: dict, owner, tree, node, base: tuple,
     """Read ONE node's live offset and record it with the frame it was read in.
 
     `source` is what `build_plan` looks up to know which base's move the node can
-    absorb: only a node read STRAIGHT from the tree anchor rides the anchor's new
-    shift; a child rides its parent (which moves with it, so it absorbs nothing);
-    content of a module rides that module (and the owner's anchor). Deepest module
-    wins for nested content, which is the conservative answer — the nested module's
-    own `xy` is not resynchronised by this pass."""
+    absorb, and it follows the READER, not the nesting: `_live_offset` measures
+    against a LIVE base, whose move the node does not need to absorb at all. So a
+    node read against its PARENT (`base[0] == "node"`) and a MOUNT read against its
+    own live ROLE absorb NOTHING — whoever they hang under, and at any depth. Only a
+    frame the CALLER computed (a module's MARKER or EFF) or the tree's own anchor can
+    move without the node following it, and only those set `source`."""
     stored = _stored(node)
     rotation: Optional[float] = None
     offset: Optional[tuple[float, float]] = None
     error: Optional[str] = None
-    if base[0] == "pose":
+    if base[0] == "pose" and node.kind != "mount":
         _, base_mm, base_rot = base
         try:
             live_pos, live_deg, mirrored = child_live_pose(
@@ -339,12 +369,15 @@ def _emit(out: dict, ctx: dict, owner, tree, node, base: tuple,
                 snapshot=ctx["snapshot"], verdict=read_only_verdict())
         except Exception as exc:          # noqa: BLE001 — one skip, not a crash
             error = str(exc)
-    if inside is not None:
+    # Ф1: the ORDER matters. A child is measured from its LIVE parent and a mount
+    # from its OWN live role, so neither rides the anchor or a module — checking
+    # `inside` first gave every one of them a false row of ≈ +3 mm on a moved
+    # Origin (85 nodes in the live STM32 profile).
+    if base[0] == "node" or node.kind == "mount":
+        source = "none"
+    elif inside is not None:
         source = ["module", inside]
-    elif base[0] == "anchor" and node.kind != "mount":
-        # A MOUNT node is read from its own LIVE anchor (a role), so the tree
-        # anchor's new shift must not be absorbed into it — the layout of a mount
-        # does not follow the anchor either.
+    elif base[0] == "anchor":
         source = "anchor"
     else:
         source = "none"
@@ -367,6 +400,8 @@ def _module_record(out: dict, ctx: dict, owner, node, pose: tuple) -> None:
     stored = _stored(node)
     if child is None or stored is None:
         return
+    if any(item["ref"] == node.ref for item in out["modules"]):
+        return                              # two markers, ONE module row (Ф5)
     marker_rot = float(pose[2])
     out["modules"].append({
         "tree": owner.name, "ref": node.ref, "content": child.name,

@@ -3,7 +3,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version:  kicadstamp\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-11-16 23:40+0300\n"
+"POT-Creation-Date: 2026-11-17 00:31+0300\n"
 "PO-Revision-Date: 2026-07-27 12:00+0000\n"
 "Last-Translator: \n"
 "Language: en\n"
@@ -356,7 +356,7 @@ msgstr ""
 #: gui/docks/imprint.py:788 gui/docks/imprint_dialogs.py:356
 #: gui/docks/net_trace.py:339 gui/docks/trees_dock.py:2887
 #: gui/docks/trees_dock.py:3096 gui/docks/trees_dock.py:3145
-#: gui/docks/trees_reread_dialog.py:307 gui/extract_cluster_flow.py:196
+#: gui/docks/trees_reread_dialog.py:330 gui/extract_cluster_flow.py:196
 msgid "reading the board"
 msgstr "reading the board"
 
@@ -917,7 +917,7 @@ msgstr "Remove from include:"
 #: gui/docks/cell_layers.py:111 gui/docks/instances_dialog.py:473
 #: gui/docks/profile_import.py:176 gui/docks/settings_dialog.py:52
 #: gui/docks/trees_dock.py:5480 gui/docks/trees_dock.py:6873
-#: gui/docks/trees_reread_dialog.py:170 gui/include_recovery.py:122
+#: gui/docks/trees_reread_dialog.py:175 gui/include_recovery.py:122
 msgid "Cancel"
 msgstr "Cancel"
 
@@ -1029,15 +1029,15 @@ msgstr "&Import from profile..."
 msgid "Tools"
 msgstr "Tools"
 
-#: gui/main_window.py:275
+#: gui/main_window.py:274
 msgid "Extract tree..."
 msgstr "Extract tree..."
 
-#: gui/main_window.py:286
+#: gui/main_window.py:282
 msgid "Create tree..."
 msgstr "Create tree..."
 
-#: gui/docks/trees_dock.py:2443 gui/main_window.py:288
+#: gui/docks/trees_dock.py:2443 gui/main_window.py:286
 msgid "Rename tree..."
 msgstr "Rename tree..."
 
@@ -1558,7 +1558,7 @@ msgstr "No project loaded — open a root config first."
 #: gui/docks/trees_dock.py:2852 gui/docks/trees_dock.py:2948
 #: gui/docks/trees_dock.py:3072 gui/docks/trees_dock.py:3129
 #: gui/docks/trees_dock.py:4925 gui/docks/trees_mount_point.py:61
-#: gui/docks/trees_mount_point.py:127 gui/docks/trees_reread_dialog.py:288
+#: gui/docks/trees_mount_point.py:127 gui/docks/trees_reread_dialog.py:308
 #: gui/select_internode_copper.py:239
 msgid "No live board connection — connect KiCad first."
 msgstr "No live board connection — connect KiCad first."
@@ -1796,7 +1796,7 @@ msgstr "Cartesian"
 msgid "Polar"
 msgstr "Polar"
 
-#: gui/docks/_anchor_origin.py:201 gui/docks/trees_reread_dialog.py:152
+#: gui/docks/_anchor_origin.py:201 gui/docks/trees_reread_dialog.py:157
 msgid "Mode:"
 msgstr "Mode:"
 
@@ -6187,7 +6187,7 @@ msgid ""
 msgstr ""
 
 #: gui/docks/trees_anchor_read.py:187 gui/docks/trees_dock.py:548
-#: gui/docks/trees_reread_board.py:247 gui/docks/trees_reread_board.py:324
+#: gui/docks/trees_reread_board.py:261 gui/docks/trees_reread_board.py:354
 msgid "this node's instance is MIRRORED on the live board"
 msgstr ""
 
@@ -6919,7 +6919,7 @@ msgid ""
 "{layer!r} is not enabled on this board, or the board read failed."
 msgstr ""
 
-#: gui/docks/trees_menu_actions.py:42
+#: gui/docks/trees_menu_actions.py:37
 msgid "Reread positions from board..."
 msgstr ""
 
@@ -7253,123 +7253,141 @@ msgstr "nothing was planned — see the log"
 msgid "{count} warning(s) — see log"
 msgstr "{count} warning(s) — see log"
 
-#: gui/docks/trees_reread_board.py:170
+#: gui/docks/trees_reread_board.py:185
 #, python-brace-format
 msgid "tree {tree!r}: its own anchor could not be read — {error}"
 msgstr ""
 "record {ref!r}: its anchor could not be resolved live ({err}) — left "
 "untouched"
 
-#: gui/docks/trees_reread_board.py:206
+#: gui/docks/trees_reread_board.py:221
 #, python-brace-format
 msgid "tree {tree!r}: its content could not be laid out — {error}"
 msgstr ""
 
-#: gui/docks/trees_reread_board.py:233
+#: gui/docks/trees_reread_board.py:248
 #, python-brace-format
 msgid ""
 "node {ref!r} is not in the tree layout — its pose cannot be predicted, so"
 " it cannot vote"
 msgstr ""
 
-#: gui/docks/trees_reread_board.py:392
+#: gui/docks/trees_reread_board.py:300
+#, python-brace-format
+msgid ""
+"nested module {ref!r} — its marker hangs off a live parent, so its "
+"content is not read in this pass"
+msgstr ""
+"nested module {ref!r} — its marker hangs off a live parent, so its "
+"content is not read in this pass"
+
+#: gui/docks/trees_reread_board.py:313
+#, python-brace-format
+msgid ""
+"tree {tree!r} is placed by more than one module node — its content is not"
+" read in this pass"
+msgstr ""
+"tree {tree!r} is placed by more than one module node — its content is not"
+" read in this pass"
+
+#: gui/docks/trees_reread_board.py:427
 #, python-brace-format
 msgid "embedded anchor kept: no module node places tree {tree!r}"
 msgstr ""
 
-#: gui/docks/trees_reread_board.py:398
+#: gui/docks/trees_reread_board.py:433
 #, python-brace-format
 msgid ""
 "embedded anchor kept: tree {tree!r} is placed by more than one module "
 "node ({places}) — one shift cannot land on both"
 msgstr ""
 
-#: gui/docks/trees_reread_board.py:408
+#: gui/docks/trees_reread_board.py:443
 msgid ""
 "embedded anchor kept: only an Origin or a point anchor can absorb a shift"
 " — this tree's own anchor cannot"
 msgstr ""
 
-#: gui/docks/trees_reread_board.py:414
+#: gui/docks/trees_reread_board.py:449
 #, python-brace-format
 msgid "embedded anchor kept: the tree that places {tree!r} was not read"
 msgstr ""
 
-#: gui/docks/trees_reread_dialog.py:48
+#: gui/docks/trees_reread_dialog.py:49
 msgid "Origin moved — absorb in anchors"
 msgstr ""
 
-#: gui/docks/trees_reread_dialog.py:49
+#: gui/docks/trees_reread_dialog.py:50
 msgid "Blocks moved by hand — keep anchors"
 msgstr ""
 
-#: gui/docks/trees_reread_dialog.py:74
+#: gui/docks/trees_reread_dialog.py:75
 #, python-brace-format
 msgid " · angle Δ {deg}°"
 msgstr " · angle Δ {deg}°"
 
-#: gui/docks/trees_reread_dialog.py:128
+#: gui/docks/trees_reread_dialog.py:129
 #, python-brace-format
 msgid "Reread positions: {n} node(s) changed in {m} tree(s), {k} skipped"
 msgstr ""
 
-#: gui/docks/trees_reread_dialog.py:139
+#: gui/docks/trees_reread_dialog.py:140
 msgid "Reread positions from board"
 msgstr "Reread positions from board"
 
-#: gui/docks/trees_reread_dialog.py:161 kicadstamp/trees.py:148
+#: gui/docks/trees_reread_dialog.py:166 kicadstamp/trees.py:148
 msgid "Tree"
 msgstr "Tree"
 
-#: gui/docks/trees_reread_dialog.py:161
+#: gui/docks/trees_reread_dialog.py:166
 msgid "Node"
 msgstr "Node"
 
-#: gui/docks/trees_reread_dialog.py:161
+#: gui/docks/trees_reread_dialog.py:166
 msgid "Was → Now"
 msgstr ""
 
-#: gui/docks/trees_reread_dialog.py:161
+#: gui/docks/trees_reread_dialog.py:166
 msgid "Δ"
 msgstr ""
 
-#: gui/docks/trees_reread_dialog.py:161
+#: gui/docks/trees_reread_dialog.py:166
 msgid "Note"
 msgstr "Note"
 
-#: gui/docks/trees_reread_dialog.py:168
+#: gui/docks/trees_reread_dialog.py:173
 msgid "Apply to buffer"
 msgstr ""
 
-#: gui/docks/trees_reread_dialog.py:195
+#: gui/docks/trees_reread_dialog.py:204
 msgid ""
 "The whole forest was read once. Flipping the mode or a tree's box re-"
 "decides the same read — nothing is written until Apply, and the board "
 "itself is never touched."
 msgstr ""
 
-#: gui/docks/trees_reread_dialog.py:202
+#: gui/docks/trees_reread_dialog.py:211
 msgid "nothing moved — nothing to write"
 msgstr "nothing moved — nothing to write"
 
-#: gui/docks/trees_reread_dialog.py:204
+#: gui/docks/trees_reread_dialog.py:213
 msgid "anchor shift"
 msgstr "anchor shift"
 
-#: gui/docks/trees_reread_dialog.py:208
+#: gui/docks/trees_reread_dialog.py:217
 msgid "anchor follows"
 msgstr "anchor follows"
 
-#: gui/docks/trees_reread_dialog.py:215
+#: gui/docks/trees_reread_dialog.py:224
 msgid "embedded anchor synced to module"
 msgstr ""
 
-#: gui/docks/trees_reread_dialog.py:271
+#: gui/docks/trees_reread_dialog.py:291
 #, python-brace-format
 msgid "Reread positions failed: {error}"
 msgstr "Reread positions failed: {error}"
 
-#: gui/docks/trees_reread_dialog.py:284
+#: gui/docks/trees_reread_dialog.py:304
 msgid "There are no trees to reread yet."
 msgstr ""
 

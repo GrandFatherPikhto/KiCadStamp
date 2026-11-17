@@ -18,6 +18,15 @@ is a row with a reason; the written value keeps the node's own shape.
   M9  the absorbed translation is not subtracted from the node
   M10 cosmetic control (a comment must change nothing)
 
+Rows M13–M16 attack the WIRING (`gui/docks/trees_reread_board.py`) and run the
+wiring cells instead — the acceptance of 17.11 found that this file had no mutations
+at all, so nothing here could have caught the `source` ordering defect (Ф1):
+
+  M13 `source` is taken from `inside` BEFORE the kind of base (Ф1 comes back)
+  M14 the content of a module is read against its MARKER instead of its EFF
+  M15 the sync marker loses the module's own move
+  M16 the raw anchor point keeps the anchor's own shift (double count)
+
 Safeguards as in every harness here (rule 38): a template matching more than once
 is REFUSED; a row that reddens nothing is a MISS; the control must survive; every
 file is restored in `finally` and verified by text.
@@ -37,6 +46,10 @@ ROOT = Path(__file__).resolve().parents[2]
 DECIDE = "kicadstamp/forest_reread.py"
 
 GUARDS = "tests/trees/test_forest_reread.py"
+
+WIRING = "gui/docks/trees_reread_board.py"
+
+WIRING_GUARDS = "tests/gui/docks/test_trees_reread_board.py"
 
 MUTATIONS = [
     ("M1 no anchor choice at all", DECIDE,
@@ -116,6 +129,42 @@ MUTATIONS = [
      "    biggest = groups[0]\n",
      "    biggest = groups[0]  # MUTATION: cosmetic\n",
      "survive"),
+
+    # ── the WIRING (Ф1–Ф2 of the 17.11 acceptance) ──────────────────────────
+
+    ("M13 source is taken from `inside` before the kind of base", WIRING,
+     "    if base[0] == \"node\" or node.kind == \"mount\":\n"
+     "        source = \"none\"\n"
+     "    elif inside is not None:\n"
+     "        source = [\"module\", inside]\n"
+     "    elif base[0] == \"anchor\":\n"
+     "        source = \"anchor\"\n",
+     "    if inside is not None:  # MUTATION: inside first\n"
+     "        source = [\"module\", inside]\n"
+     "    elif base[0] == \"anchor\" and node.kind != \"mount\":\n"
+     "        source = \"anchor\"\n",
+     ["test_f1_a_child_of_module_content_absorbs_nothing"], WIRING_GUARDS),
+
+    ("M14 module content is read against the MARKER", WIRING,
+     "            _visit(out, ctx, owner, child, list(child.nodes),\n"
+     "                   (\"pose\", eff, float(pose[4])), node.ref, depth + 1)\n",
+     "            _visit(out, ctx, owner, child, list(child.nodes),\n"
+     "                   (\"pose\", marker, float(pose[2])), node.ref, depth + 1)\n",
+     ["test_module_content_is_read_against_the_EFF_base_not_the_marker"],
+     WIRING_GUARDS),
+
+    ("M15 the sync marker loses the module's own move", WIRING,
+     "        marker = (emb[\"marker_mm\"][0] + anchor[0] + moved[0],\n"
+     "                  emb[\"marker_mm\"][1] + anchor[1] + moved[1])\n",
+     "        marker = (emb[\"marker_mm\"][0] + anchor[0],\n"
+     "                  emb[\"marker_mm\"][1] + anchor[1])  # MUTATION\n",
+     ["test_the_marker_is_taken_AFTER_the_owner_shift_and_the_module_move"],
+     WIRING_GUARDS),
+
+    ("M16 the raw anchor point keeps the anchor's own shift", WIRING,
+     "    return ((base_pos.x - shift.x) / MM, (base_pos.y - shift.y) / MM)\n",
+     "    return (base_pos.x / MM, base_pos.y / MM)  # MUTATION: double count\n",
+     ["test_the_raw_anchor_point_drops_the_anchors_own_shift"], WIRING_GUARDS),
 ]
 
 
@@ -152,7 +201,12 @@ def main() -> int:
     print("baseline green")
 
     misses = 0
-    for name, rel, old, new, expect in MUTATIONS:
+    for row in MUTATIONS:
+        name, rel, old, new, expect = row[:5]
+        # A row may bring its OWN cells (the wiring rows do): the decision half and
+        # the wiring are guarded by different files, and a mutation must redden the
+        # cells that actually pin the line it breaks.
+        row_guards = row[5] if len(row) > 5 else guards
         path = ROOT / rel
         original = path.read_text(encoding="utf-8")
         if original.count(old) != 1:
@@ -162,7 +216,7 @@ def main() -> int:
             continue
         try:
             path.write_text(original.replace(old, new), encoding="utf-8")
-            code, out = _run(guards)
+            code, out = _run(row_guards)
             failed = _failed_ids(out)
             if expect == "survive":
                 if failed:

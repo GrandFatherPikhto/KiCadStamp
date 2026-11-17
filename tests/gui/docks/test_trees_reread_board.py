@@ -23,8 +23,6 @@ divergence is measured in `done_2026_11_16_tree_anchor_read_s1.md` and is a
 separate task. The top-node cell below therefore runs on a tree with neither, and
 says so.
 """
-from types import SimpleNamespace
-
 import gui.docks.trees_reread_board as reread_mod
 from gui.docks.trees_reread_board import build_plan, read_forest_now
 from kicadstamp.domain.geometry import Vector2
@@ -274,7 +272,7 @@ def _tree_node(ref, kind, *, xy=(0.0, 0.0), children=(), anchor=None):
 def _wire(monkeypatch, *, predicted, live, offsets, module_bases=None,
           anchor_poses=None):
     """The four seams of `read_forest_now`, with a call log for each."""
-    calls = {"child": [], "offset": [], "anchor": []}
+    calls = {"child": [], "offset": [], "anchor": [], "seen_snapshot": set()}
 
     def _anchor(adapter, cfg, tree, sheet_names, *, snapshot=None):
         calls["anchor"].append(tree.name)
@@ -290,12 +288,14 @@ def _wire(monkeypatch, *, predicted, live, offsets, module_bases=None,
 
     def _child(cfg, adapter, sheet_names, ref, kind, **kwargs):
         calls["child"].append(ref)
+        calls["seen_snapshot"].add(kwargs.get("snapshot"))
         x, y, deg = live[ref]
         return Vector2.from_xy_mm(x, y), deg, False
 
     def _live(cfg, adapter, sheet_names, tree, parent, ref, kind, **kwargs):
         calls["offset"].append((tree.name,
                                 parent.ref if parent is not None else None, ref))
+        calls["seen_snapshot"].add(kwargs.get("snapshot"))
         return offsets[ref]
 
     monkeypatch.setattr(reread_mod, "_anchor_pose", _anchor)
@@ -467,3 +467,170 @@ def test_the_raw_anchor_point_drops_the_anchors_own_shift():
                                module_marker_mm=(6.0, -64.0), module_rot_deg=0.0,
                                current_shift=(5.0, -60.0))
     assert row.now == (6.0, -64.0)
+
+
+# ── Ф1–Ф5 приёмки `622e47bc` (17.11) ───────────────────────────────────────
+#
+# Every cell here runs the REAL read (`read_forest_now`) and then the REAL plan
+# (`build_plan`); none of them feeds `build_plan` a hand-written dictionary. That is
+# the point of Ф1: the defect was in which `source` the READ assigns, so a cell on
+# the raw dictionary could never have caught it.
+
+def _module_tree(*, marker_xy=(10.0, 10.0), nodes, name="fpga"):
+    """The embedded tree and the owner that places it at `marker_xy`."""
+    return (Tree(name=name, anchor=TreeAnchor(is_origin=True), nodes=list(nodes)),
+            Tree(name="main", anchor=TreeAnchor(is_origin=True),
+                 nodes=[_tree_node(name, "module", xy=marker_xy)]))
+
+
+def _module_bases(*, marker_xy=(10.0, 10.0), name="fpga"):
+    return {name: (name, Vector2.from_xy_mm(*marker_xy), 0.0,
+                   Vector2.from_xy_mm(*marker_xy), 0.0)}
+
+
+def test_f1_a_child_of_module_content_absorbs_nothing(monkeypatch):
+    """Ф1 (blocking): ALL content of `fpga` moved (0, −3) together, and `C1` sits
+    correctly relative to its live parent `U1`. The table must show ONE row — the
+    module's `xy` — and no `C1` row at all.
+
+    Before the fix `source` was set from `inside` alone, so `C1` — measured from its
+    LIVE parent — had the module's delta subtracted anyway and produced the false
+    row `C1 (2, 0) → (2, 3)`: exactly the ≈ +3 mm that 85 nodes of the live STM32
+    profile would have received."""
+    c1 = _tree_node("C1", "placement", xy=(2.0, 0.0))
+    u1 = _tree_node("U1", "placement", xy=(0.0, 0.0), children=[c1])
+    u2 = _tree_node("U2", "placement", xy=(2.0, 0.0))
+    fpga, main = _module_tree(nodes=[u1, u2])
+    _wire(monkeypatch,
+          predicted={"U1": (10.0, 7.0, 0.0), "U2": (12.0, 7.0, 0.0)},
+          live={"U1": (10.0, 7.0, 0.0), "U2": (12.0, 7.0, 0.0)},
+          offsets={"C1": ((2.0, 0.0), 0.0)},
+          module_bases=_module_bases(),
+          anchor_poses={"fpga": (Vector2.from_xy(0, 0), 0.0)})
+
+    raw = read_forest_now(cfg=None, trees=[main, fpga], sheet_names={},
+                          adapter=object())
+    plan = build_plan(raw)
+
+    assert [(change.tree, change.ref) for change in plan.changes] == [
+        ("main", "fpga")]
+    assert plan.changes[0].was == (10.0, 10.0)
+    assert plan.changes[0].now == (10.0, 7.0)
+
+
+def test_f1_a_child_of_module_content_absorbs_nothing_when_content_moved_apart(
+        monkeypatch):
+    """Ф1, the second probe: the Origin moved (0, −3) — `mh` and `U1` followed, `U2`
+    was moved by hand another +1 mm — so the anchor absorbs (0, −3) and `U2` is
+    written. `C1` is NOT: it already sits right relative to `U1`."""
+    c1 = _tree_node("C1", "placement", xy=(2.0, 0.0))
+    u1 = _tree_node("U1", "placement", xy=(0.0, 0.0), children=[c1])
+    u2 = _tree_node("U2", "placement", xy=(2.0, 0.0))
+    mh = _tree_node("mh", "placement", xy=(0.0, 0.0))
+    fpga = Tree(name="fpga", anchor=TreeAnchor(is_origin=True), nodes=[u1, u2])
+    main = Tree(name="main", anchor=TreeAnchor(is_origin=True),
+                nodes=[mh, _tree_node("fpga", "module", xy=(10.0, 10.0))])
+    _wire(monkeypatch,
+          predicted={"mh": (0.0, 0.0, 0.0), "U1": (10.0, 10.0, 0.0),
+                     "U2": (12.0, 10.0, 0.0)},
+          live={"mh": (0.0, -3.0, 0.0), "U1": (10.0, 7.0, 0.0),
+                "U2": (13.0, 7.0, 0.0)},
+          offsets={"C1": ((2.0, 0.0), 0.0)},
+          module_bases=_module_bases(),
+          anchor_poses={"fpga": (Vector2.from_xy(0, 0), 0.0)})
+
+    raw = read_forest_now(cfg=None, trees=[main, fpga], sheet_names={},
+                          adapter=object())
+    plan = build_plan(raw)
+
+    assert plan.anchors_moved == 1
+    assert [(change.tree, change.ref) for change in plan.changes] == [("fpga", "U2")]
+
+
+def test_f2_a_mount_inside_module_content_is_read_through_its_own_anchor(
+        monkeypatch):
+    """Ф2: a mount node placed as content of an embedded tree has its base on its OWN
+    live role — the layout puts it there (`mount_node_poses`), never off the module's
+    frame. It must therefore go through `_live_offset(base_anchor=…)`, not through
+    `child_live_pose` against EFF, and it absorbs nothing."""
+    mount = _tree_node("mnt", "mount", anchor=TreeAnchor(role="FPGA"))
+    fpga, main = _module_tree(nodes=[mount])
+    calls = _wire(monkeypatch, predicted={}, live={},
+                  offsets={"mnt": ((0.0, 0.0), 0.0)},
+                  module_bases=_module_bases(),
+                  anchor_poses={"fpga": (Vector2.from_xy(0, 0), 0.0)})
+
+    raw = read_forest_now(cfg=None, trees=[main, fpga], sheet_names={},
+                          adapter=object())
+
+    assert "mnt" not in calls["child"]
+    assert [entry[2] for entry in calls["offset"]] == ["mnt"]
+    assert raw["nodes"][0]["source"] == "none"
+
+
+def test_f3_a_nested_module_is_a_skip_with_its_reason(monkeypatch):
+    """Ф3: a module under content has its marker on a LIVE parent, and the «moved
+    together» rule is written for TOP modules only. Its content is a SKIP with the
+    reason — never a row with the owner's anchor delta absorbed into it."""
+    r1 = _tree_node("R1", "placement")
+    sub = Tree(name="sub", anchor=TreeAnchor(is_origin=True), nodes=[r1])
+    nested = _tree_node("sub", "module", xy=(2.0, 0.0))
+    u1 = _tree_node("U1", "placement", xy=(0.0, 0.0), children=[nested])
+    fpga, main = _module_tree(nodes=[u1])
+    bases = _module_bases()
+    bases.update({"sub": ("sub", Vector2.from_xy_mm(12.0, 10.0), 0.0,
+                          Vector2.from_xy_mm(12.0, 10.0), 0.0)})
+    _wire(monkeypatch, predicted={"U1": (10.0, 10.0, 0.0)},
+          live={"U1": (10.0, 10.0, 0.0)}, offsets={}, module_bases=bases,
+          anchor_poses={"fpga": (Vector2.from_xy(0, 0), 0.0),
+                        "sub": (Vector2.from_xy(0, 0), 0.0)})
+
+    raw = read_forest_now(cfg=None, trees=[main, fpga, sub], sheet_names={},
+                          adapter=object())
+
+    reasons = [skip["reason"] for skip in raw["skips"] if skip["ref"] == "sub"]
+    assert len(reasons) == 1
+    assert "nested module" in reasons[0]
+    assert "R1" not in [node["ref"] for node in raw["nodes"]]
+
+
+def test_f4_the_snapshot_reaches_every_reader(monkeypatch):
+    """Ф4: one connection snapshot rides into the layout, every `_live_offset` and
+    every `child_live_pose` — otherwise each role or parent resolve walks the board
+    on its own."""
+    mh = _tree_node("mh", "placement", xy=(0.0, 0.0))
+    tree = Tree(name="main", anchor=TreeAnchor(is_origin=True), nodes=[mh])
+    calls = _wire(monkeypatch, predicted={"mh": (0.0, 0.0, 0.0)},
+                  live={"mh": (0.0, 0.0, 0.0)},
+                  offsets={"mh": ((0.0, 0.0), 0.0)})
+
+    read_forest_now(cfg=None, trees=[tree], sheet_names={}, adapter=object(),
+                    snapshot="SNAP")
+
+    assert calls["seen_snapshot"] == {"SNAP"}
+
+
+def test_f5_a_tree_placed_by_two_markers_is_read_once_and_skipped(monkeypatch):
+    """Ф5: two module nodes naming the same tree would walk its content twice — two
+    rows for one `(tree, ref)`. Its content is not read at all (one shift cannot land
+    on both markers), and the skip is said ONCE, not once per marker."""
+    j1 = _tree_node("J1", "placement")
+    power = Tree(name="power", anchor=TreeAnchor(is_origin=True), nodes=[j1])
+    main = Tree(name="main", anchor=TreeAnchor(is_origin=True),
+                nodes=[_tree_node("power", "module", xy=(1.0, 0.0)),
+                       _tree_node("power", "module", xy=(5.0, 0.0))])
+    _wire(monkeypatch, predicted={}, live={}, offsets={},
+          module_bases=_module_bases(name="power", marker_xy=(1.0, 0.0)),
+          anchor_poses={"power": (Vector2.from_xy(0, 0), 0.0)})
+
+    raw = read_forest_now(cfg=None, trees=[main, power], sheet_names={},
+                          adapter=object())
+
+    assert raw["nodes"] == []
+    power_skips = [skip for skip in raw["skips"] if skip["tree"] == "power"]
+    assert len(power_skips) == 1, raw["skips"]
+    assert "more than one module" in power_skips[0]["reason"]
+    # The votes refuse too (the same `J1` reached through two markers), and that is
+    # the OWNER's skip — a different fact from the content's.
+    assert any("may vote" in skip["reason"] for skip in raw["skips"])
+    assert len(raw["modules"]) == 1

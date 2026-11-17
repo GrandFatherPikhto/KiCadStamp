@@ -254,6 +254,17 @@ def _trees_dock_of(owner):
     return owner if hasattr(owner, "_trees") else None
 
 
+def _snapshot_of(dock):
+    """The connection's cached whole-board snapshot — the SAME identity half a form's
+    `_live_snapshot` hands to the anchor read. The DOCK has no `_live_snapshot` (that
+    door lives on the forms), so the module-level `_connection_snapshot` is used;
+    without it every role or parent resolve in the forest walks the board on its own
+    (Ф4 of the acceptance)."""
+    from .trees_dock import _connection_snapshot
+    window = getattr(dock, "_main_window", None)
+    return _connection_snapshot(getattr(window, "connection", None))
+
+
 def open_reread_table(dock, reads_raw: dict) -> bool:
     """Show the table; apply on Accepted, write NOTHING on Cancel.
 
@@ -308,6 +319,9 @@ def run_reread_positions(owner, *, trigger=None) -> Optional[bool]:
         "trees": trees,
         # A COPY: no live mapping crosses the thread boundary.
         "sheet_names": dict(getattr(context, "sheet_names", None) or {}),
+        # ONE snapshot for the whole forest: it reaches the layout, every
+        # `_live_offset` and every `child_live_pose` (Ф4).
+        "snapshot": _snapshot_of(dock),
     }
     dock._active_op = start_long_op(
         dock._main_window.connection, (trigger,) if trigger is not None else (),
