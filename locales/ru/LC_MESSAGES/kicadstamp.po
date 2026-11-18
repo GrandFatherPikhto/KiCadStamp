@@ -3,7 +3,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version:  kicadstamp\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-11-17 16:22+0300\n"
+"POT-Creation-Date: 2026-11-18 16:07+0300\n"
 "PO-Revision-Date: 2026-07-27 12:00+0000\n"
 "Last-Translator: \n"
 "Language: ru\n"
@@ -5824,37 +5824,35 @@ msgstr "Проект"
 msgid "Move check skipped: the tree could not be laid out ({error})"
 msgstr "Проверка перемещений пропущена: дерево не разложить ({error})"
 
-#: gui/docks/redraw_drift.py:181
-#, python-brace-format
-msgid "{ref} {deg:.0f}°"
-msgstr "{ref} {deg:.0f}°"
+#: gui/docks/redraw_drift.py:183
+#, fuzzy, python-brace-format
+msgid "{ref} {mm:.3f} mm {deg:.0f}°"
+msgstr "{ref} {mm:.3f} мм {deg:.0f}°"
 
-#: gui/docks/redraw_drift.py:182
+#: gui/docks/redraw_drift.py:185
 #, python-brace-format
 msgid "{ref} {mm:.3f} mm"
 msgstr "{ref} {mm:.3f} мм"
 
-#: gui/docks/redraw_drift.py:188
+#: gui/docks/redraw_drift.py:191
 #, python-brace-format
 msgid " and {n} more"
 msgstr " и ещё {n}"
 
-#: gui/docks/redraw_drift.py:189
+#: gui/docks/redraw_drift.py:192
 #, python-brace-format
 msgid "Redraw moves {count} part(s) by up to {max_mm:.3f} mm: {names}"
-msgstr ""
-"Redraw сдвинет деталей {count}, максимум на {max_mm:.3f} мм: {names}"
+msgstr "Redraw сдвинет деталей {count}, максимум на {max_mm:.3f} мм: {names}"
 
-#: gui/docks/redraw_drift.py:219
+#: gui/docks/redraw_drift.py:224
 #, python-brace-format
 msgid ""
 "{n} copper record(s) of this run will be deleted and re-created — hand "
 "routing on them is not kept"
 msgstr ""
 "Записей меди в этом прогоне будет удалено и создано заново: {n} — ручная "
-"разводка по ним не сохраняется"
-"Записей меди в этом прогоне будет удалено и создано заново: {n} — ручная "
-"разводка по ним не сохраняется."
+"разводка по ним не сохраняетсяЗаписей меди в этом прогоне будет удалено и"
+" создано заново: {n} — ручная разводка по ним не сохраняется."
 
 #: gui/docks/rename.py:301 gui/docks/rename.py:334
 #, python-brace-format
@@ -20105,4 +20103,7 @@ msgstr "футпринт {ref!r} не найден на плате"
 #~ "Redraw отменён: сдвинулось бы деталей "
 #~ "{count} на {max_mm:.3f} мм — ничего "
 #~ "не записано"
+
+#~ msgid "{ref} {deg:.0f}°"
+#~ msgstr "{ref} {deg:.0f}°"
 

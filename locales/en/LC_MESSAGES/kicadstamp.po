@@ -3,7 +3,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version:  kicadstamp\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-11-17 16:22+0300\n"
+"POT-Creation-Date: 2026-11-18 16:07+0300\n"
 "PO-Revision-Date: 2026-07-27 12:00+0000\n"
 "Last-Translator: \n"
 "Language: en\n"
@@ -5465,27 +5465,27 @@ msgstr "Project"
 msgid "Move check skipped: the tree could not be laid out ({error})"
 msgstr "Move check skipped: the tree could not be laid out ({error})"
 
-#: gui/docks/redraw_drift.py:181
-#, python-brace-format
-msgid "{ref} {deg:.0f}°"
-msgstr "{ref} {deg:.0f}°"
+#: gui/docks/redraw_drift.py:183
+#, fuzzy, python-brace-format
+msgid "{ref} {mm:.3f} mm {deg:.0f}°"
+msgstr "{ref} {mm:.3f} mm {deg:.0f}°"
 
-#: gui/docks/redraw_drift.py:182
+#: gui/docks/redraw_drift.py:185
 #, python-brace-format
 msgid "{ref} {mm:.3f} mm"
 msgstr "{ref} {mm:.3f} mm"
 
-#: gui/docks/redraw_drift.py:188
+#: gui/docks/redraw_drift.py:191
 #, python-brace-format
 msgid " and {n} more"
 msgstr " and {n} more"
 
-#: gui/docks/redraw_drift.py:189
+#: gui/docks/redraw_drift.py:192
 #, python-brace-format
 msgid "Redraw moves {count} part(s) by up to {max_mm:.3f} mm: {names}"
 msgstr "Redraw moves {count} part(s) by up to {max_mm:.3f} mm: {names}"
 
-#: gui/docks/redraw_drift.py:219
+#: gui/docks/redraw_drift.py:224
 #, python-brace-format
 msgid ""
 "{n} copper record(s) of this run will be deleted and re-created — hand "
@@ -19013,4 +19013,7 @@ msgstr "footprint {ref!r} not found on the board"
 #~ "Redraw cancelled: {count} part(s) would "
 #~ "have moved by up to {max_mm:.3f} "
 #~ "mm — nothing was written"
+
+#~ msgid "{ref} {deg:.0f}°"
+#~ msgstr "{ref} {deg:.0f}°"
 

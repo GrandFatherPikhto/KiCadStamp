@@ -177,8 +177,11 @@ def copper_records_in(cfg, refs) -> int:
 
 
 def _named(row: DriftRow) -> str:
+    """Both numbers when both are worth naming: a part that moved 3 mm AND turned
+    180° used to lose its distance (Н2 of the 17.11 acceptance)."""
     if row.turn_deg is not None and row.turn_deg > DRIFT_DEG:
-        return _("{ref} {deg:.0f}°").format(ref=row.ref, deg=row.turn_deg)
+        return _("{ref} {mm:.3f} mm {deg:.0f}°").format(
+            ref=row.ref, mm=row.delta_mm, deg=row.turn_deg)
     return _("{ref} {mm:.3f} mm").format(ref=row.ref, mm=row.delta_mm)
 
 
@@ -196,7 +199,8 @@ def log_redraw_drift(dock, tree: Optional[Tree], refs) -> None:
     Called by all four GUI Redraw doors (a node, a module, «Redraw selected», «Redraw
     whole tree») before `start_long_op`; nothing is returned, so no door can branch on
     it. None of the early exits writes anything: no tree, no refs, no adapter, a busy
-    socket or no drift at all means silence."""
+    socket or no drift at all means silence — including the copper line, which used to
+    appear for every run whose set held a `net_trace` even when nothing moved (Н1)."""
     if tree is None or not refs:
         return
     connection = getattr(getattr(dock, "_main_window", None), "connection", None)
@@ -211,8 +215,9 @@ def log_redraw_drift(dock, tree: Optional[Tree], refs) -> None:
     cfg = dock._cfg
     sheet_names = dict(getattr(getattr(dock, "_ctx", None), "sheet_names", None) or {})
     rows = measure_drift(adapter, cfg, tree, refs, sheet_names)
-    if rows:
-        logger.warning(_line(rows))
+    if not rows:
+        return                            # no drift, no lines at all (Н1)
+    logger.warning(_line(rows))
     copper = copper_records_in(cfg, refs)
     if copper:
         logger.warning(_(

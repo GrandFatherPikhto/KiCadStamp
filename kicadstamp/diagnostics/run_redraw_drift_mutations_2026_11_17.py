@@ -43,10 +43,8 @@ MUTATIONS = [
      ["test_f7_the_module_door_names_the_content_it_activates"]),
 
     ("M2 the journal stays silent", DRIFT,
-     "    if rows:\n"
-     "        logger.warning(_line(rows))\n",
-     "    if rows:\n"
-     "        pass  # MUTATION: the measurement is thrown away\n",
+     "    logger.warning(_line(rows))\n",
+     "    pass  # MUTATION: the measurement is thrown away\n",
      ["test_f7_the_module_door_names_the_content_it_activates"]),
 
     ("M3 the node/module door skips the journal", DOOR,

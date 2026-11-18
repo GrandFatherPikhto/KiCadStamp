@@ -153,7 +153,45 @@ def test_f8_a_half_turn_at_zero_distance_is_named_with_its_angle(monkeypatch,
         log_redraw_drift(_dock(tree), tree, {"C1"})
 
     line = _warnings(caplog)[0]
-    assert "C1 180°" in line
+    assert "C1 0.000 mm 180°" in line
+
+
+def test_the_turn_template_keeps_BOTH_placeholders():
+    """The catalogue nearly ate the angle: `update_i18n` copied the mm-only message
+    onto the new msgid, and `.format` silently drops a keyword the template does not
+    name — the line came out as «C1 0.000 mm». The template must carry `{deg}`."""
+    template = drift_mod._("{ref} {mm:.3f} mm {deg:.0f}°")
+    assert "{mm" in template and "{deg" in template
+
+
+def test_n2_a_part_that_both_moved_and_turned_is_named_with_both(monkeypatch,
+                                                                caplog):
+    """Н2: a part that moved 3 mm AND turned 180° used to lose its distance — the line
+    showed only «U1 180°». Both numbers belong in it."""
+    tree = _tree("main", [_node("C1")])
+    _wire(monkeypatch, predicted_mm={"C1": (0.0, 0.0)},
+          live_mm={"C1": (3.08, 0.0)},
+          predicted_deg={"C1": 0.0}, live_deg={"C1": 180.0})
+
+    with caplog.at_level("WARNING"):
+        log_redraw_drift(_dock(tree), tree, {"C1"})
+
+    line = _warnings(caplog)[0]
+    assert "3.080 mm" in line and "180°" in line
+
+
+def test_n1_a_still_run_with_copper_says_nothing(monkeypatch, caplog):
+    """Н1: the copper line used to appear for EVERY run whose set held a `net_trace`,
+    even when nothing moved — the docstring promises silence instead."""
+    tree = _tree("main", [_node("c1", "net_trace"), _node("u1")])
+    _wire(monkeypatch, predicted_mm={"c1": (0.0, 0.0), "u1": (0.0, 0.0)},
+          live_mm={"c1": (0.0, 0.0), "u1": (0.0, 0.0)})
+
+    with caplog.at_level("WARNING"):
+        log_redraw_drift(_dock(tree), tree, {"c1", "u1"})
+
+    assert copper_records_in(SimpleNamespace(trees=[tree]), {"c1"}) == 1
+    assert _warnings(caplog) == []
 
 
 def test_f8_a_tiny_turn_is_silent(monkeypatch, caplog):

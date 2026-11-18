@@ -1096,8 +1096,9 @@ node that was only MOVED is not rewritten as `180 → −180`, and the profile c
 **UPDATE 2026-11-17 (commit 2 of the same plan, after К2-Ф7/Ф8/Ф9):** every GUI **Redraw** — a node,
 «Redraw selected», «Redraw whole tree», a module — WRITES TO THE LOG what it is about to do: which
 parts move more than **0.1 mm** or turn more than **1°**, the biggest move first, the first five refs
-by name (a turn is shown as `C1 180°`, a move as `U1 3.080 mm`) and, when the run re-creates copper,
-a second line saying how many records. One line per run, `logger.warning`. **There is no window and no
+by name (`U1 3.080 mm`, `C1 0.000 mm 180°` — both numbers whenever both are worth naming) and, only when
+something really moves, a second line saying how many copper records the run re-creates. One line (plus
+that one) per run, `logger.warning`. **There is no window and no
 refusal**: Denis, 17.11 — «таких предупреждений нигде, кроме как в логе быть не должно. Они жутко
 тормозят работу!» — so a Redraw never stops because of a drift, and no door branches on the answer.
 
