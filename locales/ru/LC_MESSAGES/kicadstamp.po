@@ -3,7 +3,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version:  kicadstamp\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-11-18 16:07+0300\n"
+"POT-Creation-Date: 2026-11-19 13:46+0300\n"
 "PO-Revision-Date: 2026-07-27 12:00+0000\n"
 "Last-Translator: \n"
 "Language: ru\n"
@@ -5825,7 +5825,7 @@ msgid "Move check skipped: the tree could not be laid out ({error})"
 msgstr "Проверка перемещений пропущена: дерево не разложить ({error})"
 
 #: gui/docks/redraw_drift.py:183
-#, fuzzy, python-brace-format
+#, python-brace-format
 msgid "{ref} {mm:.3f} mm {deg:.0f}°"
 msgstr "{ref} {mm:.3f} мм {deg:.0f}°"
 
@@ -7359,16 +7359,16 @@ msgstr "Показ маркеров дерева не удался: {error}"
 msgid "Set anchor"
 msgstr "Назначить якорь"
 
-#: gui/docks/trees_embedding.py:82
+#: gui/docks/trees_embedding.py:181
 #, python-brace-format
 msgid "node {node!r}"
 msgstr "узла {node!r}"
 
-#: gui/docks/trees_embedding.py:83
+#: gui/docks/trees_embedding.py:182
 msgid "the whole tree"
 msgstr "всего дерева"
 
-#: gui/docks/trees_embedding.py:85
+#: gui/docks/trees_embedding.py:184
 #, python-brace-format
 msgid ""
 "Redraw of {subject}: tree {tree!r} is placed by module {marker!r} in tree"
@@ -7376,6 +7376,17 @@ msgid ""
 msgstr ""
 "Перерисовка {subject}: дерево {tree!r} ставит модуль {marker!r} в дереве "
 "{owner!r} — ставьте его через этот модуль, а не с этой вкладки."
+
+#: gui/docks/trees_embedding.py:196
+#, python-brace-format
+msgid ""
+"Tree {tree!r} is placed by more than one module ({where}) — which place "
+"to take is not clear, so nothing is redrawn from this tab. Remove the "
+"extra module markers and try again."
+msgstr ""
+"Дерево {tree!r} размещено более чем одним модулем ({where}) — какое место "
+"брать, неясно, поэтому с этой вкладки ничего не перерисовывается. Уберите "
+"лишние маркеры модулей и повторите."
 
 #: gui/docks/trees_instances_refresh.py:128
 #, python-brace-format

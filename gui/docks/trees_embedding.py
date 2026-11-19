@@ -1,11 +1,11 @@
 # gui/docks/trees_embedding.py
-"""Which tree places another one — and the ONE sentence that refuses a redraw of the placed one.
+"""WHICH tree places another one — one scan, one chain, one sentence about a refusal.
 
 Plan plan_2026_11_09_node_redraw_from_live_parent, §3 (Denis, 09.11): a tree embedded by a
 `module` node has no board base of its own. Its content is placed THROUGH that module, in the
 OWNING tree's frame, and the tab of the embedded tree knows nothing about the module — so every
-redraw started there lays the tree out from its own anchor, i.e. from the Grid Origin. Measured
-live (HP-Power-v099, `switch_a` embedded by `main`'s module at xy (32, −35)):
+redraw started there used to lay the tree out from its own anchor, i.e. from the Grid Origin.
+Measured live (HP-Power-v099, `switch_a` embedded by `main`'s module at xy (32, −35)):
 
 * the tree layout puts `driver_sw_a` at (72.4540, 139.9041) — the Grid Origin point — while the
   module puts it at (104.4540, 104.9041);
@@ -15,19 +15,24 @@ live (HP-Power-v099, `switch_a` embedded by `main`'s module at xy (32, −35)):
   selection re-projects onto the Grid Origin — measured (−32.000, +35.000) mm for
   `conn_out_sw_a` alone (see the report of that commit).
 
-Consequences, all of them REFUSALS with one wording: the top node of such a tree (a single-node
-Redraw), "Redraw whole tree" from its tab, and "Redraw selected" on that tab. Nothing is started
-and nothing is written — the answer is a log line naming the module and the owning tree.
+A REFUSAL IS NOT A FALLBACK, and since plan_2026_11_15_embedded_tree_redraw_through_module the
+tab does not fall back either: it works in the MODULE's coordinates (`placement_chain` names the
+markers to activate, `kicadstamp.tree_position.curated_forest_module_content` lays the content
+out from the owner's live anchor). What is left to refuse (Denis, 19.11, Р2/Р4):
 
-A REFUSAL IS NOT A FALLBACK: laying the content out from the embedded tree's own anchor is
-exactly what moved the shoulder into the corner of the board.
+* a tree placed by TWO OR MORE markers (same or different owners) — which place to take is not
+  knowable, so `several_markers_line` names every marker;
+* a host whose own base cannot be resolved at all — never "take the tree's own anchor instead",
+  that is the defect this module exists for.
 
-The module also owns the reverse scan itself (`module_nodes`, `embedding_marker`), because three
-callers ask it now — the tree render ("embedded in X"), the node redraw and the two tree-level
-redraws — and a second copy of "which tree embeds me" is how the tab and the refusal would drift.
+The module also owns the reverse scan itself (`module_nodes`, `placements`, `embedding_marker`,
+`placement_chain`), because the tree render ("embedded in X"), the two tree-level redraws, the
+node redraw, the anchor form and the position READ all ask it — a second copy of "which tree
+embeds me" is how the tab and the refusal would drift.
 """
 from __future__ import annotations
 
+import dataclasses
 import logging
 from typing import Optional
 
@@ -39,16 +44,26 @@ from ._common import ERROR_STYLE, show_message
 logger = logging.getLogger(__name__)
 
 __all__ = [
+    "Placement",
+    "chain_selection",
     "embedding_marker",
+    "flow_root",
     "module_nodes",
+    "placement_chain",
+    "placements",
     "refuse_embedded_tree",
     "refusal_line",
+    "several_markers_line",
 ]
 
 
 def module_nodes(tree: Tree) -> list[TreeNode]:
     """Every kind=="module" node of `tree` at ANY depth — the markers that EMBED other trees
-    (a module node's ref IS a tree name, plan 2026-09-02 P4)."""
+    (a module node's ref IS a tree name, plan 2026-09-02 P4).
+
+    Depth matters: a marker may hang under another node of the owner tree (its children are
+    ordinary stage-1 records of the OWNER, never content of the embedded tree), so the scan
+    walks the whole node tree instead of the top level."""
     found: list[TreeNode] = []
     stack = list(tree.nodes)
     while stack:
@@ -59,17 +74,101 @@ def module_nodes(tree: Tree) -> list[TreeNode]:
     return found
 
 
-def embedding_marker(trees, tree: Tree) -> Optional[tuple[str, str]]:
-    """(owner tree name, marker ref) of the module node that embeds `tree`, or None when nobody
-    embeds it. The owner is the FIRST tree in `trees` order that carries such a marker — the
-    same reverse scan `TreesDock._embedded_in` uses for its "embedded in X" rows."""
-    for owner in trees:
+@dataclasses.dataclass(frozen=True)
+class Placement:
+    """ONE `module` marker that places a tree: `marker` (its ref, i.e. a tree name) sits in
+    `owner` and points at `tree`."""
+
+    tree: str
+    owner: str
+    marker: str
+
+    def where(self) -> str:
+        """`'power' in 'main'` — the wording every line uses, so a reader never has to guess
+        which of the two names is the host."""
+        return "'{marker}' in '{owner}'".format(marker=self.marker, owner=self.owner)
+
+
+def placements(trees, tree: Tree) -> list[Placement]:
+    """EVERY marker of the forest that places `tree`, in `trees` order.
+
+    ALL of them, not the first: the plan's Р2/Р4 keep the refusal for "two or more markers"
+    (which place to take is not knowable), and that refusal has to name every one. Callers that
+    only need "is it placed at all" ask `embedding_marker`; callers that need to WORK in the
+    module's frame (a redraw, a read, the anchor form) take `placement_chain`."""
+    found: list[Placement] = []
+    for owner in trees or ():
         if owner.name == tree.name:
-            continue
+            continue                     # a self-marker is a config fatal, never a placement
         for marker in module_nodes(owner):
             if marker.ref == tree.name:
-                return (owner.name, marker.ref)
-    return None
+                found.append(Placement(tree=tree.name, owner=owner.name, marker=marker.ref))
+    return found
+
+
+def embedding_marker(trees, tree: Tree) -> Optional[tuple[str, str]]:
+    """(owner tree name, marker ref) of the module node that embeds `tree`, or None when nobody
+    embeds it. The owner is the FIRST tree in `trees` order — the same reverse scan
+    `TreesDock._embedded_in` uses for its "embedded in X" rows, and the truth the tab's
+    "embedded in" line and the read tooltip need (they name ONE place, not the whole chain)."""
+    found = placements(trees, tree)
+    if not found:
+        return None
+    return (found[0].owner, found[0].marker)
+
+
+def placement_chain(trees, tree: Tree) -> list[Placement]:
+    """The markers to activate so that `tree` is laid out where its host really puts it —
+    INNERMOST first, the free (nobody-placed) owner last.
+
+    One entry per level: the marker of `tree` in its owner, then the marker of that owner in
+    ITS owner, and so on until a tree nobody embeds (`flow_root`). Empty when nobody embeds
+    `tree` — its own anchor is the truth then.
+
+    `kicadstamp.tree_position.curated_forest_module_content` lays a flow root's whole reachable
+    content in ONE pass, but it only knows an owner is itself placed when THAT owner's marker is
+    in `selected_refs` too: activating one level alone would take the host's own anchor (the
+    Ч0 п.3 measurement on synthetic `outer → mid → inner`: `selected_refs={"inner"}` yields
+    `flow_roots=['mid']`, i.e. the wrong base). Activating the chain and applying only the names
+    of the tree in question is the plan's Р2.
+
+    A marker cycle can not exist in a loaded config (`link_trees` rejects it), but a dock BUFFER
+    mid-edit may hold one; the walk therefore stops on a revisit instead of looping, and the
+    caller gets a short chain — its flow root is then whatever the walk reached, which is the
+    honest "we cannot do better" answer rather than a hang."""
+    chain: list[Placement] = []
+    seen: set[str] = {tree.name}
+    current = tree
+    while True:
+        found = placements(trees, current)
+        if not found:
+            return chain
+        step = found[0]
+        if step.owner in seen:
+            return chain                 # buffer-only cycle: stop, do not loop
+        chain.append(step)
+        seen.add(step.owner)
+        owner = next((t for t in (trees or ()) if t.name == step.owner), None)
+        if owner is None:
+            return chain
+        current = owner
+
+
+def flow_root(trees, tree: Tree) -> Optional[str]:
+    """The tree whose LIVE anchor the content of `tree` has to be laid from: the last owner of
+    `placement_chain`, or None when `tree` is placed by nobody (it is its own root)."""
+    chain = placement_chain(trees, tree)
+    return chain[-1].owner if chain else None
+
+
+def chain_selection(trees, tree: Tree) -> set[str]:
+    """`selected_refs` that activates the whole chain — the marker names only.
+
+    Handed to `run_curated_forest_redraw`: the planner turns every marker into its content, so
+    the stage-2 layout sees the same frames the host's own Redraw would. What actually gets
+    APPLIED is narrowed separately (`only_names`), because the content of the host trees is
+    computed, not moved."""
+    return {step.marker for step in placement_chain(trees, tree)}
 
 
 def refusal_line(tree_name: str, marker_ref: str, owner_name: str, *,
@@ -87,16 +186,39 @@ def refusal_line(tree_name: str, marker_ref: str, owner_name: str, *,
         subject=subject, tree=tree_name, marker=marker_ref, owner=owner_name)
 
 
+def several_markers_line(tree_name: str, found: list[Placement]) -> str:
+    """The refusal for a tree placed by TWO OR MORE markers (plan п. 5, Р2): names every one.
+
+    Which place to take is genuinely unknown — the two owners may themselves sit in different
+    frames — so this is not a wording of "pick the first", it is the answer "remove the extra
+    markers": the config stays legal, only this tab's redraw stops."""
+    return _(
+        "Tree {tree!r} is placed by more than one module ({where}) — which place to take is not "
+        "clear, so nothing is redrawn from this tab. Remove the extra module markers and try "
+        "again.").format(
+        tree=tree_name,
+        where=", ".join(step.where() for step in found))
+
+
 def refuse_embedded_tree(trees, tree, *, node_ref: Optional[str] = None) -> bool:
     """True — and ONE Log line — when `tree` is placed by a module; the caller then stops.
 
     THE one place all three redraws make the refusal (a single node, the whole tree, a
     selection), so they cannot word it differently or forget it: `trees_dock` calls this and
-    returns. `node_ref` names a single node; None means the whole tree or the selection."""
-    marker = embedding_marker(trees, tree)
-    if marker is None:
+    returns. `node_ref` names a single node; None means the whole tree or the selection.
+
+    NOTE (19.11, plan_2026_11_15_embedded_tree_redraw_through_module): this answer is about to be
+    NARROWED to what the module rule cannot serve — two or more markers (п. 5 / Р2) — and a tree
+    placed by EXACTLY ONE marker will be redrawn through that marker instead. The narrowing
+    happens in Т3 together with the four doors, never before them: a tab left without a refusal
+    AND without the chain would lay the content out from its own anchor again, i.e. re-create the
+    very defect measured above."""
+    found = placements(trees, tree)
+    if not found:
         return False
-    owner, marker_ref = marker
-    show_message(refusal_line(tree.name, marker_ref, owner, node_ref=node_ref),
+    if len(found) > 1:
+        show_message(several_markers_line(tree.name, found), ERROR_STYLE, logger)
+        return True
+    show_message(refusal_line(tree.name, found[0].marker, found[0].owner, node_ref=node_ref),
                  ERROR_STYLE, logger)
     return True
