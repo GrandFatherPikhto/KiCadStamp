@@ -50,7 +50,8 @@ from .cascade import (run_curated_forest_redraw_worker,
                       run_curated_tree_redraw_worker,
                       run_single_node_redraw_worker)
 from .redraw_drift import log_redraw_drift
-from .trees_embedding import refuse_embedded_tree
+from .trees_module_redraw import (redraw_embedded, refuse_embedded_redraw,
+                                  start_embedded_redraw)
 from .trees_selection import select_only
 
 logger = logging.getLogger(__name__)
@@ -404,10 +405,13 @@ def redraw_node(dock, node: TreeNode) -> bool:
         return False
     parent_node = dock._find_parent(tree, node)
     if parent_node is None:
-        # A MODULE-placed tree's top node is the module's business: from this tab the base
-        # could only be the tree's own anchor, and that is what moved IC1 into the corner.
-        if refuse_embedded_tree(dock._trees, tree, node_ref=node.ref):
-            return False
+        # A MODULE-placed tree's top node is placed THROUGH its module (plan_2026_11_15_
+        # embedded_tree_redraw_through_module, п. 2 / cell «б»): the chain of markers is the
+        # selection and this ONE name is applied. None = nobody places the tree — the ordinary
+        # live-parent path below then keeps today's behaviour (its own anchor, as for `solo`).
+        started = redraw_embedded(dock, tree, only_names={node.ref}, node_ref=node.ref)
+        if started is not None:
+            return started
     # The dock's OWN live adapter, borrowed the way the node-reread worker
     # borrows it (start_long_op holds the shared socket for the whole call): the
     # base READ still happens on the worker (Э1) — this half only hands it over.
@@ -502,14 +506,20 @@ def redraw_subtree(dock, node: Optional[TreeNode]) -> Optional[bool]:
     tree = _owning_tree(dock, node)
     if tree is None:
         return False
-    # The REFUSAL comes before the emptiness check: a node of an embedded tree is
-    # refused whether or not its subtree happens to name records, and the caller
-    # must hear the reason rather than "nothing to redraw".
-    if refuse_embedded_tree(dock._trees, tree, node_ref=node.ref):
+    # The REFUSAL comes before the emptiness check: a node of a two-marker tree is refused
+    # whether or not its subtree happens to name records, and the caller must hear the reason
+    # rather than "nothing to redraw".
+    if refuse_embedded_redraw(dock._trees, tree, node_ref=node.ref):
         return False                     # handled here: refused, nothing started
     refs = subtree_refs(node)
     if not refs:
         return False
+    # A subtree of an EMBEDDED tree is placed through its module like any other node there
+    # (п. 3): the marker chain is the selection, the subtree's own records are what is applied.
+    # None = nobody places the tree — the tree-scoped curated path below is unchanged.
+    started = start_embedded_redraw(dock, tree, only_names=refs)
+    if started is not None:
+        return started
     payload = {
         "config_path": str(dock._root_path) if dock._root_path else "",
         "cfg": dock._cfg,

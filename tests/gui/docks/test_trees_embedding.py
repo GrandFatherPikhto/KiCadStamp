@@ -2,6 +2,10 @@
 """The rule "which tree places which" — ONE scan, ONE chain (plan_2026_11_15_embedded_tree_redraw_
 through_module, Т1 / Р2).
 
+The rule module is Qt-free and answers only "who places this tree, through what chain, and what
+is the sentence when it is placed twice"; the door that ACTS on the answer lives in
+`gui.docks.trees_module_redraw` (its own cells).
+
 Every cell here is pure structure: three synthetic trees, no board, no dock, no Qt widget. The
 point of the module is that the tab, the render, the anchor form and the position READ all ask the
 SAME question — so the question is pinned once, here, instead of three times in three cells.
@@ -118,42 +122,6 @@ def test_two_markers_are_both_named():
     assert "'switch_a' in 'main'" in line
     assert "'switch_a' in 'aux'" in line
     assert "more than one module" in line
-
-
-def test_two_markers_refuse_and_say_so_once(monkeypatch):
-    """Cell д: the ONLY refusal left once the doors work in the module's frame."""
-    said = []
-    monkeypatch.setattr(emb, "show_message", lambda text, style, log: said.append(text))
-    trees = _two_markers()
-    assert emb.refuse_embedded_tree(trees, by_name(trees, "switch_a")) is True
-    assert len(said) == 1
-    assert "'main'" in said[0] and "'aux'" in said[0]
-
-
-def test_one_marker_is_refused_by_THIS_helper_until_the_doors_use_the_chain(monkeypatch):
-    """The pre-Т3 answer, pinned on purpose: the sentence still sends the reader to the module.
-
-    Т3 switches the four doors to `chain_selection` and narrows this function to the 2+ case in
-    the SAME commit; this cell is then replaced by "one marker is served, not refused". Keeping
-    it now is what stops the helper from flipping early and leaving a tab that neither refuses
-    nor knows the module.
-    """
-    said = []
-    monkeypatch.setattr(emb, "show_message", lambda text, style, log: said.append(text))
-    trees = _three_levels()
-    inner = by_name(trees, "inner")
-    assert emb.refuse_embedded_tree(trees, inner, node_ref="I1") is True
-    assert len(said) == 1
-    assert "placed by module 'inner' in tree 'mid'" in said[0]
-    assert "node 'I1'" in said[0]
-
-
-def test_nobody_placing_the_tree_is_never_a_refusal(monkeypatch):
-    said = []
-    monkeypatch.setattr(emb, "show_message", lambda text, style, log: said.append(text))
-    trees = _three_levels()
-    assert emb.refuse_embedded_tree(trees, by_name(trees, "outer")) is False
-    assert said == []
 
 
 # ── a buffer cycle must not hang ───────────────────────────────────────────

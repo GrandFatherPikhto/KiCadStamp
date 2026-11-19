@@ -25,6 +25,11 @@ out from the owner's live anchor). What is left to refuse (Denis, 19.11, Р2/Р4
 * a host whose own base cannot be resolved at all — never "take the tree's own anchor instead",
   that is the defect this module exists for.
 
+This module is the RULE and its WORDING, and nothing else: it stays Qt-free (the AST cell pins
+that) so that the answer "who places this tree, through what chain" can be asked from a worker,
+a test or a probe without a widget. Performing a refusal — the ONE `show_message` — and starting
+the redraw belong to `gui.docks.trees_module_redraw`.
+
 The module also owns the reverse scan itself (`module_nodes`, `placements`, `embedding_marker`,
 `placement_chain`), because the tree render ("embedded in X"), the two tree-level redraws, the
 node redraw, the anchor form and the position READ all ask it — a second copy of "which tree
@@ -33,15 +38,10 @@ embeds me" is how the tab and the refusal would drift.
 from __future__ import annotations
 
 import dataclasses
-import logging
 from typing import Optional
 
 from kicadstamp.i18n import _
 from kicadstamp.trees import Tree, TreeNode
-
-from ._common import ERROR_STYLE, show_message
-
-logger = logging.getLogger(__name__)
 
 __all__ = [
     "Placement",
@@ -51,8 +51,6 @@ __all__ = [
     "module_nodes",
     "placement_chain",
     "placements",
-    "refuse_embedded_tree",
-    "refusal_line",
     "several_markers_line",
 ]
 
@@ -171,21 +169,6 @@ def chain_selection(trees, tree: Tree) -> set[str]:
     return {step.marker for step in placement_chain(trees, tree)}
 
 
-def refusal_line(tree_name: str, marker_ref: str, owner_name: str, *,
-                 node_ref: Optional[str] = None) -> str:
-    """THE sentence that refuses a redraw of a module-placed tree.
-
-    `node_ref` is given for a single-node Redraw ("node 'x'"); None means the whole tree (the
-    tree-level redraws). One wording, one place — the tab, the menu, the form and the worker all
-    say the same thing, and the reader is sent to the module that actually places the tree."""
-    subject = (_("node {node!r}").format(node=node_ref) if node_ref is not None
-               else _("the whole tree"))
-    return _(
-        "Redraw of {subject}: tree {tree!r} is placed by module {marker!r} in tree {owner!r} — "
-        "place it through that module, not from this tab.").format(
-        subject=subject, tree=tree_name, marker=marker_ref, owner=owner_name)
-
-
 def several_markers_line(tree_name: str, found: list[Placement]) -> str:
     """The refusal for a tree placed by TWO OR MORE markers (plan п. 5, Р2): names every one.
 
@@ -200,25 +183,3 @@ def several_markers_line(tree_name: str, found: list[Placement]) -> str:
         where=", ".join(step.where() for step in found))
 
 
-def refuse_embedded_tree(trees, tree, *, node_ref: Optional[str] = None) -> bool:
-    """True — and ONE Log line — when `tree` is placed by a module; the caller then stops.
-
-    THE one place all three redraws make the refusal (a single node, the whole tree, a
-    selection), so they cannot word it differently or forget it: `trees_dock` calls this and
-    returns. `node_ref` names a single node; None means the whole tree or the selection.
-
-    NOTE (19.11, plan_2026_11_15_embedded_tree_redraw_through_module): this answer is about to be
-    NARROWED to what the module rule cannot serve — two or more markers (п. 5 / Р2) — and a tree
-    placed by EXACTLY ONE marker will be redrawn through that marker instead. The narrowing
-    happens in Т3 together with the four doors, never before them: a tab left without a refusal
-    AND without the chain would lay the content out from its own anchor again, i.e. re-create the
-    very defect measured above."""
-    found = placements(trees, tree)
-    if not found:
-        return False
-    if len(found) > 1:
-        show_message(several_markers_line(tree.name, found), ERROR_STYLE, logger)
-        return True
-    show_message(refusal_line(tree.name, found[0].marker, found[0].owner, node_ref=node_ref),
-                 ERROR_STYLE, logger)
-    return True

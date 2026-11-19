@@ -96,7 +96,8 @@ from .trees_base_pose import _resolve_probe_ref
 from .trees_base_pose import child_live_pose
 from .trees_base_pose import resolve_node_base_pose as _resolve_node_base_pose
 from .redraw_drift import log_redraw_drift
-from .trees_embedding import module_nodes, refuse_embedded_tree
+from .trees_embedding import module_nodes
+from .trees_module_redraw import redraw_embedded
 from kicadstamp.tree_position import tree_layout_base  # noqa: F401 — re-export for tests
 from .trees_markers import (  # noqa: F401 — re-export for callers and tests
     _MOUNT_POINT_NS,
@@ -1252,12 +1253,6 @@ class TreesDock(QWidget):
         for kind=="module" nodes whose ref == tree.name; nothing is cached."""
         return [t.name for t in self._trees
                 if t.name != tree.name and tree.name in TreesDock._module_targets(t)]
-
-    def _embedded_tree_refused(self, tree: Tree, *, node_ref: Optional[str] = None) -> bool:
-        """True (with the Log line already said) when a `module` node PLACES `tree` — the one
-        refusal all three redraws ask for (single node, whole tree, selection), delegated to
-        `trees_embedding.py` so the three cannot word it differently (§3)."""
-        return refuse_embedded_tree(self._trees, tree, node_ref=node_ref)
 
     def _render_tree(self, tree_widget: QTreeWidget, tree: Tree,
                      saved_entry: Optional[dict] = None) -> None:
@@ -3841,14 +3836,16 @@ class TreesDock(QWidget):
         tree_name = tree.name if tree is not None else self._current_tree_name()
         if tree_name is None:
             return
-        target = tree if tree is not None else self._current_tree()
-        # §3, measured: a `placement` PARENT's base comes from the TREE, so even a
-        # CHILD-ONLY selection on a MODULE-placed tree re-projects onto the Grid Origin.
-        if target is not None and self._embedded_tree_refused(target):
-            return
         if not selected_refs:
             self._show_status(_("Nothing selected — check some nodes first."))
             return
+        target = tree if tree is not None else self._current_tree()
+        # An EMBEDDED tree works in its module's frame: the marker chain is the selection and the
+        # TICKED refs are what gets applied (plan_2026_11_15_..., п. 2 / Р2).
+        if target is not None:
+            started = redraw_embedded(self, target, only_names=selected_refs)
+            if started is not None:
+                return
         if not self._confirm_first_run_redraw():
             return
         log_redraw_drift(self, target, selected_refs)
@@ -3908,11 +3905,14 @@ class TreesDock(QWidget):
         tree = tree or self._current_tree()
         if tree is None:
             return False
-        # §3: on the tab of a MODULE-placed tree the whole tree would be laid out from its own
-        # anchor (the Grid Origin) — measured (−32.000, +35.000) mm off. This is the one place
-        # BOTH doors (Tools and the root menu) and the anchor form's Apply pass through.
-        if self._embedded_tree_refused(tree):
-            return False
+        # An EMBEDDED tree is redrawn THROUGH its module: the marker chain goes to the forest
+        # planner and every planned name is applied — exactly what the module's own Redraw in
+        # the owner does (п. 1 of plan_2026_11_15_embedded_tree_redraw_through_module). Refused
+        # (two or more markers) → False; nobody places it → None and the ordinary path below.
+        started = redraw_embedded(self, tree, drift_refs=set(collect_tree_refs(tree)),
+                                  trigger=trigger)
+        if started is not None:
+            return started
         self._run_forest_redraw_with_refs(set(collect_tree_refs(tree)), trigger)
         return True
 

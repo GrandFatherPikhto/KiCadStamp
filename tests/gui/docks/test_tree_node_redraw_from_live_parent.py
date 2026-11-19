@@ -39,6 +39,7 @@ import gui.docks.cascade as cascade_mod
 import gui.docks.trees_accept as td_ac
 import gui.docks.trees_base_pose as base_pose_mod
 import gui.docks.trees_dock as td_mod
+import gui.docks.trees_module_redraw as tmr_mod
 from gui.docks.cascade import run_single_node_redraw_worker
 from gui.docks.live_position import LiveRecordPose
 from gui.docks.trees_dock import TreesDock
@@ -185,7 +186,22 @@ def _capture_starts(monkeypatch):
 
     monkeypatch.setattr(td_mod, "start_long_op", fake_start)
     monkeypatch.setattr(td_ac, "start_long_op", fake_start)
+    monkeypatch.setattr(tmr_mod, "start_long_op", fake_start)   # the module redraw doors
     return starts
+
+
+def _assert_module_start(start, *, chain, only_names):
+    """A start that goes THROUGH the module (plan_2026_11_15_embedded_tree_redraw_through_module):
+    the FOREST worker, the marker CHAIN as the selection, and `only_names` exactly as asked
+    (None = the whole planned content of the chain)."""
+    assert start["worker"] is cascade_mod.run_curated_forest_redraw_worker, (
+        "an embedded tree's redraw must go through the forest planner, not the tree one")
+    assert set(start["payload"]["selected_refs"]) == set(chain)
+    got = start["payload"].get("only_names")
+    if only_names is None:
+        assert got is None, "a whole-tree run applies everything its chain plans"
+    else:
+        assert set(got) == set(only_names)
 
 
 def _redraw(dock, node, monkeypatch):
@@ -390,27 +406,25 @@ def test_e_a_mirrored_parent_is_refused(main_window, tmp_path, monkeypatch, pipe
     assert PARENT in results[0][2]
 
 
-# ── ж: the top of an EMBEDDED tree is placed through its module ────────────
+# ── ж: the top of an EMBEDDED tree is placed THROUGH its module ────────────
 
-def test_zh_the_top_of_an_embedded_tree_is_refused_with_the_marker(
+def test_zh_the_top_of_an_embedded_tree_is_redrawn_through_its_module(
         main_window, tmp_path, monkeypatch, caplog):
-    """Cell ж: `switch_a`'s root belongs to module `switch_a` in tree `main`; redrawing it
-    from its own tab could only anchor it at the tree's base (the Grid Origin) — the sentence
-    names BOTH the module and the owning tree, and no worker starts."""
+    """Cell ж (plan_2026_11_15_embedded_tree_redraw_through_module, п. 2 / cell «б»): `switch_a`'s
+    root belongs to module `switch_a` in tree `main`, so its Redraw hands the MARKER to the forest
+    planner and applies exactly this one name. The place then comes from `main`, never from the
+    tree's own anchor — which is the Grid Origin and would have moved the node."""
     dock, _root = _dock(main_window, tmp_path)
     _patch_live(monkeypatch)
     root = _child(dock)[0]
 
-    with caplog.at_level("ERROR"):
+    with caplog.at_level("INFO"):
         captured = _redraw(dock, root, monkeypatch)
 
-    assert captured["starts"] == [], "no worker may start for a refused node"
+    assert len(captured["starts"]) == 1, "an embedded top node is redrawn, not refused"
+    _assert_module_start(captured, chain={"switch_a"}, only_names={"driver_sw_a"})
     text = "\n".join(record.getMessage() for record in caplog.records)
-    assert "switch_a" in text and "main" in text
-    assert "module" in text and "not from this tab" in text
-    # §4.3: the sentence names the NODE too — «Redraw of node 'driver_sw_a'» — so a reader
-    # with several refusal types in the Log knows which one is theirs.
-    assert "node \'driver_sw_a\'" in text
+    assert "goes through module 'switch_a' in 'main'" in text
 
 
 # ── з: the top of a PLAIN tree still comes from its anchor ─────────────────
@@ -573,28 +587,42 @@ def _two_embedded_trees():
     return data
 
 
-def test_a_whole_tree_redraw_of_an_embedded_tree_is_refused_from_both_doors(
+def test_a_whole_tree_redraw_of_an_embedded_tree_goes_through_the_module_from_both_doors(
         main_window, tmp_path, monkeypatch, caplog):
-    """Cell а: «Redraw whole tree» on the tab of a MODULE-placed tree starts NOTHING and says
-    which module to use — from Tools (no tree passed) and from the root menu (the tree passed).
-    Cell б rides in the same cell: the refusal follows the MARKER, so a second embedded tree is
-    refused the same way."""
+    """Cell а (п. 1): «Redraw whole tree» on the tab of a MODULE-placed tree starts the FOREST
+    worker with the MARKER as the selection — exactly what the module's own Redraw in the owner
+    does — from Tools (no tree passed) and from the root menu (the tree passed). Cell б rides in
+    the same cell: a second embedded tree is served the same way. `only_names` is None throughout:
+    a whole-tree run applies everything its chain plans."""
     dock, _root = _dock(main_window, tmp_path, _two_embedded_trees())
     _patch_live(monkeypatch)
     embedded = _tree(dock, "switch_a")
     second = _tree(dock, "switch_b")
     dock._switch_to_tree("switch_a")      # the Tools menu acts on the ACTIVE tab
 
-    with caplog.at_level("ERROR"):
+    with caplog.at_level("INFO"):
         from_tools = _redraw_whole_tree(dock, None, monkeypatch)
         from_menu = _redraw_whole_tree(dock, embedded, monkeypatch)
         other = _redraw_whole_tree(dock, second, monkeypatch)
 
-    assert from_tools == from_menu == other == [], "no worker may start for a refused tree"
+    assert len(from_tools) == len(from_menu) == len(other) == 1
+    _assert_module_start(from_tools[0], chain={"switch_a"}, only_names=None)
+    _assert_module_start(from_menu[0], chain={"switch_a"}, only_names=None)
+    _assert_module_start(other[0], chain={"switch_b"}, only_names=None)
     text = "\n".join(record.getMessage() for record in caplog.records)
-    for name in ("switch_a", "switch_b", "main"):
-        assert name in text
-    assert "module" in text and "not from this tab" in text
+    assert "'switch_a' in 'main'" in text and "'switch_b' in 'main'" in text
+
+
+def _two_marker_cfg():
+    """TREES plus a SECOND module marker naming `switch_a` (from a tree `aux`).
+
+    This is the ONLY refusal the plan keeps (п. 5 / Р2): which of the two places to take is not
+    knowable, so the tab says so and starts nothing."""
+    data = {**TREES, "trees": [dict(t) for t in TREES["trees"]]}
+    data["trees"].append(
+        {"name": "aux", "anchor": {"origin": True},
+         "nodes": [{"ref": "switch_a", "kind": "module", "xy": [-5.0, 5.0]}]})
+    return data
 
 
 def test_a_whole_tree_redraw_of_a_plain_tree_still_starts(main_window, tmp_path,
@@ -610,28 +638,30 @@ def test_a_whole_tree_redraw_of_a_plain_tree_still_starts(main_window, tmp_path,
     assert starts[0]["worker"] is cascade_mod.run_curated_forest_redraw_worker
 
 
-def test_redraw_selected_on_an_embedded_tree_is_refused(main_window, tmp_path, monkeypatch,
-                                                        caplog):
-    """Cells г and д — and the measurement that made д a refusal too.
+def test_redraw_selected_on_an_embedded_tree_goes_through_the_module(
+        main_window, tmp_path, monkeypatch, caplog):
+    """Cells в/г (п. 2), and the measurement that used to make both of them a refusal.
 
-    г: the TOP node of a module-placed tree is re-projected onto the tree's anchor (the Grid
-    Origin): on the live board `driver_sw_a` → (72.4540, 139.9041) while it stands at
-    (104.4600, 104.3900), i.e. (−32.006, +35.514) mm.
-
-    д: a `placement` PARENT's base comes from the TREE, so even a CHILD-ONLY selection drifts by
-    the same (−32.000, +35.000) mm (`conn_out_sw_a` alone). The plan expected children to be
-    safe; the numbers say otherwise, and the refusal covers the whole run."""
+    The TOP node of a module-placed tree was re-projected onto the tree's anchor (the Grid
+    Origin): `driver_sw_a` → (72.4540, 139.9041) while it stands at (104.4600, 104.3900), i.e.
+    (−32.006, +35.514) mm. A CHILD-only selection drifted by the same amount, because a
+    `placement` parent's base comes from the TREE. Both now hand the marker chain to the forest
+    planner and carry ONLY the ticked names to apply."""
     dock, _root = _dock(main_window, tmp_path)
     _patch_live(monkeypatch)
     dock._switch_to_tree("switch_a")
 
-    with caplog.at_level("ERROR"):
+    with caplog.at_level("INFO"):
         top = _redraw_selected(dock, {"driver_sw_a"}, monkeypatch)
         child = _redraw_selected(dock, {"conn_out_sw_a"}, monkeypatch)
 
-    assert top == child == [], "neither selection may start a worker"
-    text = "\n".join(record.getMessage() for record in caplog.records)
-    assert text.count("switch_a") >= 2 and "main" in text
+    assert len(top) == len(child) == 1
+    # Ticking a PARENT row also ticks its subtree (Qt's own check cascade), so the top-node
+    # selection carries both records — that is the product's rule, not the plan's, and the
+    # chain still keeps the host's content out.
+    _assert_module_start(top[0], chain={"switch_a"},
+                         only_names={"driver_sw_a", "conn_out_sw_a"})
+    _assert_module_start(child[0], chain={"switch_a"}, only_names={"conn_out_sw_a"})
 
 
 # ── §4.1: the FOURTH door — a subtree inside an embedded tree ───────────────
@@ -652,30 +682,29 @@ def _mount_subtree_cfg():
     return data
 
 
-def test_a_mount_subtree_on_an_embedded_tree_is_refused(main_window, tmp_path,
-                                                        monkeypatch, caplog):
-    """§4.1 — the fourth door Denis found live (8 such nodes in `switch_a`).
+def test_a_mount_subtree_on_an_embedded_tree_goes_through_the_module(
+        main_window, tmp_path, monkeypatch, caplog):
+    """§4.1 — the fourth door Denis found live (8 such nodes in `switch_a`), now п. 3.
 
-    A `mount` node's Redraw is the curated redraw of its OWN subtree, and that path reached
-    the worker from an embedded tree's tab as well: every child was laid out from the tree's
-    anchor, i.e. the Grid Origin, and drifted by the module's (−32.000, +35.000) mm. Now the
-    dock REFUSES it (handled = False), starts nothing and names the node.
+    A `mount` node's Redraw is the curated redraw of its OWN subtree, and that path reached the
+    worker from an embedded tree's tab as well: every child was laid out from the tree's anchor,
+    i.e. the Grid Origin, and drifted by the module's (−32.000, +35.000) mm. Now the marker chain
+    goes to the forest planner and only the subtree's own records are applied.
 
-    The control rides in the same cell: the very same shape on the PLAIN tree `solo` still
-    starts the curated worker — the refusal is about the module marker, not about `mount`.
+    The control rides in the same cell: the very same shape on the PLAIN tree `solo` still takes
+    the tree-scoped curated path — the module rule is about the marker, not about `mount`.
     """
     _patch_live(monkeypatch, {PARENT: (104.46, 104.39, 0.0), CHILD: (105.46, 106.39, 0.0)})
     dock, _root = _dock(main_window, tmp_path, _mount_subtree_cfg())
     mount = _tree(dock, "switch_a").nodes[0].children[0]
 
-    with caplog.at_level("ERROR"):
+    with caplog.at_level("INFO"):
         starts = _capture_starts(monkeypatch)
         handled = td_ac.redraw_node(dock, mount)
 
-    assert handled is False, "the refusal is HANDLED here — True would mean a worker started"
-    assert starts == [], "the fourth door may not start the curated worker on an embedded tree"
-    text = "\n".join(record.getMessage() for record in caplog.records)
-    assert "mnt_a" in text and "switch_a" in text and "main" in text
+    assert handled is True, "handled here AND started — the module redraw of the subtree"
+    assert len(starts) == 1
+    _assert_module_start(starts[0], chain={"switch_a"}, only_names={CHILD})
 
     plain = TreeNode(ref="mnt_s", kind="mount", xy=None, polar=None, rotation=0.0,
                      name=None, group=None, anchor=TreeAnchor(role="SW_ROLE"),
@@ -686,6 +715,7 @@ def test_a_mount_subtree_on_an_embedded_tree_is_refused(main_window, tmp_path,
     starts = _capture_starts(monkeypatch)
     assert td_ac.redraw_node(dock, plain) is True
     assert len(starts) == 1, "a `mount` subtree on a plain tree must still be redrawn"
+    assert starts[0]["worker"] is cascade_mod.run_curated_tree_redraw_worker
 
 
 # ── §4.3: the reverse scan itself ───────────────────────────────────────────
@@ -714,12 +744,11 @@ def test_a_module_nested_under_another_node_still_places_its_tree(
 
     assert dock._embedded_in(embedded) == ["main"]
 
-    with caplog.at_level("ERROR"):
+    with caplog.at_level("INFO"):
         starts = _redraw_whole_tree(dock, embedded, monkeypatch)
 
-    assert starts == [], "a marker under another node still places the tree"
-    text = "\n".join(record.getMessage() for record in caplog.records)
-    assert "main" in text and "module" in text
+    assert len(starts) == 1, "a marker under another node still places the tree"
+    _assert_module_start(starts[0], chain={"switch_a"}, only_names=None)
 
 
 def test_the_owner_tree_need_not_be_first_in_the_list(main_window, tmp_path,
@@ -735,23 +764,22 @@ def test_the_owner_tree_need_not_be_first_in_the_list(main_window, tmp_path,
 
     assert [t.name for t in dock._trees] == ["switch_a", "solo", "main"]
 
-    with caplog.at_level("ERROR"):
+    with caplog.at_level("INFO"):
         starts = _redraw_whole_tree(dock, _tree(dock, "switch_a"), monkeypatch)
 
-    assert starts == []
-    text = "\n".join(record.getMessage() for record in caplog.records)
-    assert "main" in text and "module" in text
+    assert len(starts) == 1, "the OWNER is found wherever it stands in the list"
+    _assert_module_start(starts[0], chain={"switch_a"}, only_names=None)
 
 
 # ── §4.3: the two FORMS must say what the dock did ─────────────────────────
 
 def test_the_anchor_form_says_refused_and_started(main_window, tmp_path, monkeypatch,
                                                   caplog):
-    """§4.3 — the THIRD door of §3, and the one cell that was missing: the anchor form's
-    Apply. It goes through `trees_accept.redraw_form`, which asks `_on_redraw_whole_tree`
-    about the ACTIVE tab — on `switch_a` the answer is a REFUSAL and the form must say so,
-    on `main` a worker starts and the form says THAT."""
-    dock, _root = _dock(main_window, tmp_path)
+    """§4.3 — the THIRD door, and the one cell that was missing: the anchor form's Apply goes
+    through `trees_accept.redraw_form`, which asks `_on_redraw_whole_tree` about the ACTIVE tab.
+    On `switch_a` placed by TWO markers the answer is a REFUSAL (п. 5) and the form must say so;
+    on `main`, placed by nobody, a worker starts and the form says THAT."""
+    dock, _root = _dock(main_window, tmp_path, _two_marker_cfg())
     _patch_live(monkeypatch)
 
     dock._switch_to_tree("switch_a")
@@ -759,7 +787,7 @@ def test_the_anchor_form_says_refused_and_started(main_window, tmp_path, monkeyp
     with caplog.at_level("ERROR"):
         starts = _capture_starts(monkeypatch)
         td_ac.redraw_form(dock, refused)
-    assert starts == [], "the embedded tree's anchor form may not start a worker"
+    assert starts == [], "two markers — nothing may be redrawn from the tab"
     assert "refused" in refused.apply_status_label.text()
 
     dock._switch_to_tree("main")
@@ -770,21 +798,35 @@ def test_the_anchor_form_says_refused_and_started(main_window, tmp_path, monkeyp
     assert "started" in started.apply_status_label.text()
 
 
-def test_the_node_form_says_refused_and_started(main_window, tmp_path, monkeypatch,
+def test_the_node_form_says_started_and_refused(main_window, tmp_path, monkeypatch,
                                                 caplog):
     """§4.2 — the NODE form used to write «Redraw started» no matter what the dock answered.
-    A `mount` with a child on an embedded tree is refused (the reason is in the Log, so the
-    form must not claim a start); the same shape on `solo` really does start."""
+    A `mount` with a child on an embedded tree now really DOES start (through the module, п. 3);
+    the very same node, once a SECOND marker names its tree, is refused (п. 5) and the form says
+    so; the same shape on `solo` starts the tree-scoped run."""
     _patch_live(monkeypatch, {PARENT: (104.46, 104.39, 0.0), CHILD: (105.46, 106.39, 0.0)})
     dock, _root = _dock(main_window, tmp_path, _mount_subtree_cfg())
     tree = _tree(dock, "switch_a")
     form = dock._build_node_form(tree, tree.nodes[0].children[0])
 
-    with caplog.at_level("ERROR"):
+    with caplog.at_level("INFO"):
         starts = _capture_starts(monkeypatch)
         td_ac.redraw_form(dock, form)
-    assert starts == []
-    assert "refused" in form.apply_status_label.text()
+    assert len(starts) == 1
+    assert "started" in form.apply_status_label.text()
+    _assert_module_start(starts[0], chain={"switch_a"}, only_names={CHILD})
+
+    aux = Tree(name="aux", anchor=TreeAnchor(is_origin=True),
+               nodes=[TreeNode(ref="switch_a", kind="module", xy=(-5.0, 5.0), polar=None,
+                               rotation=0.0, name=None, group=None, children=[])])
+    dock._trees.append(aux)                   # a buffer edit, no Save
+    second_form = dock._build_node_form(tree, tree.nodes[0].children[0])
+    with caplog.at_level("ERROR"):
+        starts = _capture_starts(monkeypatch)
+        td_ac.redraw_form(dock, second_form)
+    assert starts == [], "two markers — the tab refuses instead of guessing"
+    assert "refused" in second_form.apply_status_label.text()
+    dock._trees.remove(aux)
 
     plain = TreeNode(ref="mnt_s2", kind="mount", xy=None, polar=None, rotation=0.0,
                      name=None, group=None, anchor=TreeAnchor(role="SW_ROLE"),
@@ -804,24 +846,27 @@ def test_the_node_form_says_refused_and_started(main_window, tmp_path, monkeypat
 
 def test_redraw_selected_uses_the_tree_it_is_given_not_the_active_tab(
         main_window, tmp_path, monkeypatch, caplog):
-    """§4.3, both directions. The tree ROOT's context menu passes its OWN tree while another
-    tab is in front: the REFUSAL must follow the given tree (`switch_a`'s menu, `main`
-    active) and the RUN must follow it too (`main`'s menu, `switch_a` active). A dock that
-    read `_current_tree()` instead would get both cases exactly backwards."""
+    """§4.3, both directions, with the SAME active tab and the SAME ticks — so the only thing
+    that differs is the tree the door was GIVEN.
+
+    The tree ROOT's context menu passes its OWN tree, and a dock that read `_current_tree()`
+    instead would take the wrong path in both cases: given `main` the run is the TREE-scoped one
+    (`tree_name == 'main'`), given the embedded `switch_a` it is the MODULE one."""
     dock, _root = _dock(main_window, tmp_path)
     _patch_live(monkeypatch)
     embedded = _tree(dock, "switch_a")
     main = _tree(dock, "main")
 
-    dock._switch_to_tree("main")
-    with caplog.at_level("ERROR"):
-        refused = _redraw_selected(dock, {"switch_a"}, monkeypatch, tree=embedded)
-    assert refused == [], "the GIVEN tree is embedded — the run must be refused"
-
     dock._switch_to_tree("switch_a")
     started = _redraw_selected(dock, {PARENT}, monkeypatch, tree=main)
     assert len(started) == 1, "the GIVEN tree is `main` — the run must start"
     assert started[0]["payload"]["tree_name"] == "main"
+
+    with caplog.at_level("INFO"):
+        through_module = _redraw_selected(dock, {PARENT}, monkeypatch, tree=embedded)
+    assert len(through_module) == 1, "the GIVEN tree is embedded — through its module"
+    _assert_module_start(through_module[0], chain={"switch_a"},
+                         only_names={PARENT, CHILD})
 
 
 # ── §3.1: the «started» direction, and «nothing to redraw» ──────────────────
