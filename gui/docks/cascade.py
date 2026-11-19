@@ -529,7 +529,10 @@ def _node_position_override(payload: dict, ref: str):
             node=ref))
     position, rotation_deg = redraw_target(
         cfg, adapter, payload.get("sheet_names") or {}, tree, node,
-        payload.get("parent_node"), base_anchor=payload.get("base_anchor"))
+        payload.get("parent_node"), base_anchor=payload.get("base_anchor"),
+        # Ф2: the dock's buffer, so a mount inside an EMBEDDED tree measures against its
+        # module (the live HP-Channel defect: 68.007 mm, exactly the marker).
+        trees=payload.get("trees"))
     return PositionOverride(position=position, rotation_deg=rotation_deg)
 
 

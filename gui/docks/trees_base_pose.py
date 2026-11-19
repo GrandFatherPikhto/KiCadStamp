@@ -53,8 +53,7 @@ from kicadstamp.tree_position import (MountFrames, _anchor_base_live_position,
                                       local_rotation_to_board_deg,
                                       mount_node_poses,
                                       resolve_base_live_position,
-                                      resolve_base_rotation_deg,
-                                      tree_layout_base)
+                                      resolve_base_rotation_deg)
 from kicadstamp.trees import Tree, TreeAnchor, TreeNode
 from kicadstamp.utils.units import MM
 
@@ -161,7 +160,8 @@ def child_live_pose(cfg, adapter, sheet_names, ref: str, kind: str | None, *,
 
 
 def _mount_anchor_pose(cfg, adapter, sheet_names, tree: Tree,
-                       mount_node: TreeNode, *, snapshot=None) -> MountFrames:
+                       mount_node: TreeNode, *, snapshot=None,
+                       trees=None) -> MountFrames:
     """BOTH frames of ONE mount node, from ONE board read — the seam over
     tree_position.mount_node_poses (plan_2026_10_14_tree_group_move_and_mount_rebase).
 
@@ -172,10 +172,20 @@ def _mount_anchor_pose(cfg, adapter, sheet_names, tree: Tree,
     pure composition of the first — asking twice would mean two resolves and a second copy
     of the composition rule, which is how the dock and the redraw drifted apart on
     2026-10-14. A mount node's ref is a LOCAL NAME and is never resolved against the config
-    (rule Б1), so this is its only path."""
-    forest = {t.name: t for t in (getattr(cfg, "trees", None) or [])}
-    tree_base_pos, tree_base_rot = tree_layout_base(
-        adapter, cfg, tree, sheet_names, forest, snapshot=snapshot)
+    (rule Б1), so this is its only path.
+
+    `trees` (Ф2 of plan_2026_11_15_embedded_tree_redraw_through_module): the dock's BUFFER, which is
+    the forest the door works on — `cfg.trees` is the last SAVED set and does not see an unsaved
+    marker edit. The tree's layout base comes from `trees_chain.placed_content_base`, i.e. from the
+    MODULE when the tree is embedded: a mount's role is placed by the tree ITSELF, so its base is
+    the tree's content base, and taking the tree's own anchor there moved `spoke_p15v_switcha` by
+    68.007 mm — exactly the marker's offset (the live HP-Channel defect of 19.11)."""
+    from .trees_chain import placed_content_base
+
+    forest = {t.name: t for t in (trees if trees is not None
+                                  else (getattr(cfg, "trees", None) or []))}
+    tree_base_pos, tree_base_rot = placed_content_base(
+        [t for t in forest.values()], cfg, adapter, sheet_names, tree, snapshot=snapshot)
     return mount_node_poses(mount_node, tree, tree_base_pos, tree_base_rot,
                             adapter, cfg, sheet_names, forest,
                             snapshot=snapshot)
@@ -183,7 +193,8 @@ def _mount_anchor_pose(cfg, adapter, sheet_names, tree: Tree,
 
 def resolve_node_base_pose(cfg, adapter, sheet_names, tree: Tree,
                            parent_node: Optional[TreeNode],
-                           base_anchor: Optional[TreeAnchor], *, snapshot=None
+                           base_anchor: Optional[TreeAnchor], *, snapshot=None,
+                           trees=None
                            ) -> tuple[Vector2, Optional[float], bool]:
     """(position_nm, rotation_deg | None, mirror) of the frame a node's stored xy/rotation
     are expressed against — THE ONE resolver, shared by the live read
@@ -225,7 +236,7 @@ def resolve_node_base_pose(cfg, adapter, sheet_names, tree: Tree,
         return parent_pos, parent_deg, False
     if parent_node.kind == "mount":
         frames = _mount_anchor_pose(cfg, adapter, sheet_names, tree,
-                                    parent_node, snapshot=snapshot)
+                                    parent_node, snapshot=snapshot, trees=trees)
         return frames.point_pos, frames.point_rot, False
     parent_record, _is_external = _resolve_probe_ref(
         cfg, parent_node.ref, parent_node.kind)
@@ -254,7 +265,7 @@ def _base_label(parent_node: Optional[TreeNode],
 def redraw_target(cfg, adapter, sheet_names, tree: Tree, node: TreeNode,
                   parent_node: Optional[TreeNode], *,
                   base_anchor: Optional[TreeAnchor] = None,
-                  snapshot=None) -> tuple[Vector2, float]:
+                  snapshot=None, trees=None) -> tuple[Vector2, float]:
     """(absolute position_nm, absolute rotation_deg) the redraw must PLACE this node at.
 
     The inverse of the Read: the base is resolved LIVE (the SAME `resolve_node_base_pose`
@@ -279,7 +290,7 @@ def redraw_target(cfg, adapter, sheet_names, tree: Tree, node: TreeNode,
     try:
         base_pos, base_deg, mirrored = resolve_node_base_pose(
             cfg, adapter, sheet_names, tree, parent_node, base_anchor,
-            snapshot=snapshot)
+            snapshot=snapshot, trees=trees)
     except NonRigidClusterError:
         # Already names the CELL/CLUSTER that is not a rigid copy — that identity IS
         # the reason, so a prefix naming the parent would only bury it.

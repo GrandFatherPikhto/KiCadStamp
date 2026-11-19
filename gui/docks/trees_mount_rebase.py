@@ -295,7 +295,7 @@ def _reread_children(dock, tree: Tree, node: TreeNode, point_rot, sheet_names,
                     child.ref, child.kind,
                     component_address=(child.anchor
                                        if child.kind == "component" else None),
-                    snapshot=snapshot)
+                    snapshot=snapshot, trees=dock._trees)
         except Exception as exc:    # noqa: BLE001 — a refusal is a result here
             failures.append((child, str(exc)))
             continue

@@ -14,6 +14,7 @@ the place into the tree's own anchor, and the READ of a top node measures agains
   M5 the write path no longer refuses a locked anchor (the tree's own anchor is overwritten)
   M6 the kept place loses the owner's turn (a rotated owner lands the content askew)
   M7 the read of a top node falls back to the tree's own anchor (the (−1, +4) mm defect)
+  M10 a mount's base takes the embedded tree's own anchor (the 68.007 mm defect)
   M8 cosmetic control (a comment must change nothing)
 
 Safeguards as in every harness here (rule 38): a template matching more than once is REFUSED; a
@@ -40,7 +41,8 @@ CASCADE = "gui/docks/cascade.py"
 
 GUARDS = "tests/gui/docks/test_trees_embedding.py tests/gui/docks/test_trees_module_redraw.py " \
          "tests/gui/docks/test_trees_owner_place.py tests/gui/docks/test_trees_keep_place.py " \
-         "tests/gui/docks/test_cascade.py tests/gui/docks/test_trees_chain.py"
+         "tests/gui/docks/test_cascade.py tests/gui/docks/test_trees_chain.py " \
+         "tests/gui/docks/test_trees_mount_in_embedded.py"
 
 MUTATIONS = [
     ("M1 the chain stops at the first level", EMBED,
@@ -91,13 +93,10 @@ MUTATIONS = [
      ["test_m2_the_kept_place_follows_the_whole_chain"]),
 
     ("M7 the read falls back to the tree's own anchor", OWNER_PLACE,
-     "    chain = placement_chain(trees, tree)\n"
-     "    if not chain:\n"
-     "        return None\n"
-     "    by_name = {t.name: t for t in trees}\n",
-     "    chain = placement_chain(trees, tree)\n"
-     "    return None  # MUTATION: read against the tree's own anchor\n"
-     "    by_name = {t.name: t for t in trees}\n",
+     "    if not placements(trees, tree):\n"
+     "        return None\n",
+     "    if True:  # MUTATION: read against the tree's own anchor\n"
+     "        return None\n",
      ["test_u_the_top_node_of_an_embedded_tree_measures_against_the_MODULE"]),
 
     ("M9 the place-keeper takes the owner's OWN anchor", KEEP_PLACE,
@@ -108,6 +107,18 @@ MUTATIONS = [
      "             float(getattr(owner, \"rotation\", 0.0) or 0.0))  # MUTATION: Ф1 comes back\n",
      ["test_m2_the_kept_place_follows_the_whole_chain"]),
 
+    ("M10 a mount's base takes the tree's OWN anchor", CHAIN,
+     "    chain = placement_chain(trees, tree)\n"
+     "    if not chain:\n"
+     "        return tree_layout_base(adapter, cfg, tree, sheet_names, forest, snapshot=snapshot)\n",
+     "    chain = placement_chain(trees, tree)\n"
+     "    if True:  # MUTATION: Ф2 comes back — the embedded tree's own anchor\n"
+     "        return tree_layout_base(adapter, cfg, tree, sheet_names, forest, snapshot=snapshot)\n",
+     ["test_x_a_node_under_a_nested_mount_is_placed_through_the_module"],
+     # Its own guard set: the SAME mutation also reddens the read cell «у» of `trees_owner_place`,
+     # and `-x` would stop there, never reaching «х» (which is what this row is about).
+     "tests/gui/docks/test_trees_mount_in_embedded.py"),
+
     ("M8 cosmetic control", EMBED,
      "def module_nodes(tree: Tree) -> list[TreeNode]:\n",
      "# a comment changes nothing\n"
@@ -116,11 +127,11 @@ MUTATIONS = [
 ]
 
 
-def _run() -> tuple[int, str]:
+def _run(guards: str = GUARDS) -> tuple[int, str]:
     env = dict(os.environ, PYTHONDONTWRITEBYTECODE="1",
                KICAD_API_SOCKET="ipc:///tmp/claude-nonexistent.sock")
     proc = subprocess.run(
-        [sys.executable, "-m", "pytest", *GUARDS.split(), "-x", "-q", "--no-header"],
+        [sys.executable, "-m", "pytest", *guards.split(), "-x", "-q", "--no-header"],
         cwd=str(ROOT), env=env, capture_output=True, text=True)
     return proc.returncode, proc.stdout + proc.stderr
 
@@ -129,7 +140,8 @@ def main() -> int:
     red = 0
     misses = []
     for row in MUTATIONS:
-        name, rel, old, new, expected = row
+        name, rel, old, new, expected = row[:5]
+        guards = row[5] if len(row) > 5 else GUARDS
         path = ROOT / rel
         text = path.read_text(encoding="utf-8")
         hits = text.count(old)
@@ -139,7 +151,7 @@ def main() -> int:
             continue
         path.write_text(text.replace(old, new, 1), encoding="utf-8")
         try:
-            code, out = _run()
+            code, out = _run(guards)
         finally:
             path.write_text(text, encoding="utf-8")
             restored = path.read_text(encoding="utf-8") == text

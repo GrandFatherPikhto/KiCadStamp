@@ -326,6 +326,7 @@ def run_node_reread_worker(payload: dict) -> dict:
             payload["cfg"], payload["adapter"], payload["sheet_names"],
             payload["tree"], payload["parent_node"], payload["ref"],
             payload["kind"], base_anchor=payload["base_anchor"],
+            trees=payload.get("trees"),          # Ф2: the dock's BUFFER, not cfg.trees
             # A COMPONENT node's address travels in the payload the same way a
             # mount node's base_anchor does. `.get`, not [], so every existing
             # payload (and every existing test's payload) is untouched.
@@ -403,7 +404,7 @@ def _pivot_ref_mount_parent(tree: Tree, node: TreeNode,
 
 def _reparented_offset(cfg, adapter, sheet_names, tree: Tree, node: TreeNode,
                        old_parent: Optional[TreeNode],
-                       new_parent: Optional[TreeNode], *, snapshot=None
+                       new_parent: Optional[TreeNode], *, snapshot=None, trees=None
                        ) -> Optional[tuple[Optional[tuple[float, float]],
                                            Optional[tuple[float, float]],
                                            float]]:
@@ -449,9 +450,9 @@ def _reparented_offset(cfg, adapter, sheet_names, tree: Tree, node: TreeNode,
         return None
 
     old_pos, old_deg, _old_mirror = _resolve_node_base_pose(
-        cfg, adapter, sheet_names, tree, old_parent, None, snapshot=snapshot)
+        cfg, adapter, sheet_names, tree, old_parent, None, snapshot=snapshot, trees=trees)
     new_pos, new_deg, _new_mirror = _resolve_node_base_pose(
-        cfg, adapter, sheet_names, tree, new_parent, None, snapshot=snapshot)
+        cfg, adapter, sheet_names, tree, new_parent, None, snapshot=snapshot, trees=trees)
     return reexpress_offset(node.xy, node.polar, node.rotation,
                             (old_pos, old_deg), (new_pos, new_deg))
 
@@ -460,7 +461,7 @@ def _resolve_live_offset(cfg, adapter, sheet_names, tree: Tree,
                          parent_node: Optional[TreeNode], ref: str, kind: str | None,
                          base_anchor: Optional[TreeAnchor] = None,
                          component_address: Optional[TreeAnchor] = None, *,
-                         snapshot=None, verdict: str | None = None
+                         snapshot=None, verdict: str | None = None, trees=None
                          ) -> tuple[tuple[float, float], Optional[float]]:
     """((local_offset_x_mm, local_offset_y_mm), relative_rotation_deg | None) for
     the "would-be" child `ref`/`kind` relative to its base (parent_node None =
@@ -529,7 +530,7 @@ def _resolve_live_offset(cfg, adapter, sheet_names, tree: Tree,
     # (_on_read_position / _reread_node_flow), which turn them into a warning.
     base_pos, base_deg, base_mirror = _resolve_node_base_pose(
         cfg, adapter, sheet_names, tree, parent_node, base_anchor,
-        snapshot=snapshot)
+        snapshot=snapshot, trees=trees)
     if base_mirror:
         raise ValidationError(format_fatal_error(
             _("the base of this node is MIRRORED on the live board"),
@@ -2860,6 +2861,7 @@ class TreesDock(QWidget):
             "adapter": adapter,
             "cfg": self._cfg,
             "tree": tree,
+            "trees": self._trees,               # Ф2: the BUFFER, not the saved `cfg.trees`
             "parent_node": self._find_parent(tree, node),
             "ref": node.ref,
             "kind": node.kind,
@@ -3391,17 +3393,17 @@ class TreesDock(QWidget):
                 adapter = self._live_adapter()
                 return _reparented_offset(
                     self._cfg, adapter, sheet_names, tree, node,
-                    old_parents[id(node)], new_parent, snapshot=snapshot)
+                    old_parents[id(node)], new_parent, snapshot=snapshot, trees=self._trees)
 
         def _read_live(node):
             with ui_thread_board_read(reason=_READ_LIVE_SIGN):
                 adapter = self._live_adapter()
                 _pos, base_deg, _mirror = _resolve_node_base_pose(
                     self._cfg, adapter, sheet_names, tree, new_parent, None,
-                    snapshot=snapshot)
+                    snapshot=snapshot, trees=self._trees)
                 offset, rotation = _resolve_live_offset(
                     self._cfg, adapter, sheet_names, tree, new_parent,
-                    node.ref, node.kind,
+                    node.ref, node.kind, trees=self._trees,
                     component_address=(node.anchor
                                        if node.kind == "component" else None),
                     snapshot=snapshot)
@@ -4483,14 +4485,11 @@ class NodeFormWidget(QWidget):
         """(position_nm, rotation_deg) of the frame the displayed offset/rotation are expressed
         against, live-resolved LAZILY and cached until the user changes the anchor.
 
-        None means "no live base": no connection, the tree/config is missing,
-        the anchor is incomplete ("Relative to component" with no Role yet —
-        never a silent fall back to the parent, see build_node's own guard), or
-        the base itself cannot be resolved (a role anchor the board does not
-        carry, an Entity no tree places, a point anchor with no live chain, a
-        mount anchor whose role is not on the board). The form then shows the
-        RAW stored values and, in Edit mode, disables the fields (plan §3.4) —
-        never a silent conversion against an assumed 0°.
+        None means "no live base": no connection, the tree/config is missing, the anchor is
+        incomplete ("Relative to component" with no Role yet — never a silent fall back to the
+        parent), or the base itself cannot be resolved (a role anchor the board does not carry, a
+        point anchor with no live chain, a mount anchor whose role is not on the board). The form
+        then shows the RAW values and, in Edit mode, disables the fields (plan §3.4).
 
         Л.2.2: a failed resolve KEEPS its cause — `_base_error` carries the
         exception text into the Log (here) and into the reason under the fields
@@ -4520,7 +4519,7 @@ class NodeFormWidget(QWidget):
                     if parent is None else None)
             _pos, rot, _mirror = (base + (False,)) if base else _resolve_node_base_pose(
                 self._cfg, adapter, self._sheet_names, self._tree, parent, base_anchor,
-                snapshot=self._live_snapshot())
+                snapshot=self._live_snapshot(), trees=self._all_trees)
             self._base_pose_value = (_pos, rot if rot is not None else 0.0)
         except Exception as e:  # noqa: BLE001 — "no base" is a UI state, not a crash
             # The exception is a UI STATE, never a crash — but it is also never
@@ -4955,7 +4954,7 @@ class NodeFormWidget(QWidget):
                 self._cfg, adapter, self._sheet_names,
                 self._tree, self._selected_parent_node(), ref, kind,
                 base_anchor=base_anchor, component_address=component_address,
-                snapshot=self._live_snapshot(),
+                snapshot=self._live_snapshot(), trees=self._all_trees,
                 # Ч2: "Read current position" only READS — its mirrored refusal
                 # must not claim the placement stopped or the config is to blame.
                 verdict=read_only_verdict())

@@ -52,36 +52,21 @@ def embedded_base_pose(form, adapter, *, snapshot=None):
     owner lays the tree out (measured live: (−1.000, +4.000) mm, the very difference of the two
     bases). A child keeps its live parent — only the `parent_node is None` case is answered here.
 
-    None when the tree is placed by nobody (the ordinary resolver is then right) or when the
-    chain cannot be laid out at all — the caller then lets the ordinary path raise its own,
-    named refusal rather than inventing a base."""
-    from kicadstamp.tree_position import layout_tree_from_base, tree_layout_base
-
-    from .trees_embedding import placement_chain
+    None when the tree is placed by nobody (the ordinary resolver is then right) — and the
+    composition itself is `trees_chain.placed_content_base`, the SAME walk the Redraw and the
+    mount base use (Ф2 of the same acceptance), so the three cannot drift."""
+    from .trees_chain import placed_content_base
+    from .trees_embedding import placements
 
     trees = list(getattr(form, "_all_trees", None) or ())
     tree = getattr(form, "_tree", None)
     if tree is None or not trees or adapter is None:
         return None
-    chain = placement_chain(trees, tree)
-    if not chain:
+    if not placements(trees, tree):
         return None
-    by_name = {t.name: t for t in trees}
-    root = by_name.get(chain[-1].owner)
-    if root is None:
-        return None
-    cfg = form._cfg
-    sheet_names = getattr(form, "_sheet_names", {}) or {}
-    base_pos, base_rot = tree_layout_base(adapter, cfg, root, sheet_names, by_name,
-                                          snapshot=snapshot)
-    bases: dict = {}
-    layout_tree_from_base(root, base_pos, base_rot, by_name, adapter=adapter, cfg=cfg,
-                          sheet_names=sheet_names, snapshot=snapshot, module_bases=bases)
-    entry = bases.get(chain[0].marker)
-    if entry is None:
-        return None
-    _name, _marker_pos, _marker_rot, eff_pos, eff_rot = entry
-    return eff_pos, eff_rot
+    return placed_content_base(trees, form._cfg, adapter,
+                               getattr(form, "_sheet_names", {}) or {}, tree,
+                               snapshot=snapshot)
 
 
 @dataclasses.dataclass(frozen=True)

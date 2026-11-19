@@ -67,7 +67,7 @@ CEILINGS = {
     # 6907 → 6902 (commit 2 of plan_2026_11_16_reread_forest_from_board, after К2-Ф9):
     # the two Redraw doors call `redraw_drift.log_redraw_drift` (one Log line, no
     # branching), which REPLACED the two-line `if not confirm_redraw_drift(...)` pair.
-    "gui/docks/trees_dock.py": 6898,
+    "gui/docks/trees_dock.py": 6897,
     "gui/fieldstool_window.py": 1158,
     "gui/main_window.py": 1052,
     # 1147: Claude's §2.2 of plan_2026_11_09_tree_instances_follow_template ASKED for "свойство

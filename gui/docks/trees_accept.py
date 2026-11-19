@@ -434,6 +434,9 @@ def redraw_node(dock, node: TreeNode) -> bool:
         # The frame the worker resolves LIVE: the parent node (None = this tree's
         # own anchor), the tree it belongs to, and the node's stored numbers.
         "tree": tree,
+        # Ф2: the dock's BUFFER travels too — a mount inside an embedded tree must measure
+        # against its module, and `cfg.trees` is the last SAVED forest.
+        "trees": dock._trees,
         "node": node,
         "parent_node": parent_node,
         # A MOUNT node's xy/polar are defined relative to its OWN anchor, not the

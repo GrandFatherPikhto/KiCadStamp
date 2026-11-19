@@ -1558,11 +1558,19 @@ where the module's own Redraw in the owner would:
   anchor (in the dock's buffer — File → Save persists it) and says so in ONE Log line with the old
   and the new numbers. No question is asked. When the two anchors cannot be reduced to one point
   without the board, the anchor is left alone and one yellow line says the tree now stands from its
-  own anchor.
+  own anchor. The place follows the WHOLE chain: when the host is itself embedded, the frame comes
+  from the outermost free tree, not from the host's own anchor (measured up to (−60.000, +35.000) mm
+  when the outer tree is turned 90°), and a host with two markers is refused by name instead of
+  guessing.
 * **Reading a top node** measures against the module too: «Read current position» and the offsets the
   node form shows are expressed in the frame the owner gives the tree, so a Read followed by a Save
   no longer moves the part by the difference of the two bases (measured (−1.000, +4.000) mm on the
   16.11 STM32 snapshot).
+* **A node under a `mount` inside an embedded tree is placed AND read against the module**: a mount's
+  role is placed by the tree ITSELF, so the base of everything below it is the tree's CONTENT base —
+  and that base is the module's, not the tree's own anchor. With the own anchor, `spoke_p15v_switcha`
+  on HP-Channel-v099 moved by 68.007 mm, exactly the marker's (40, −55). The same rule covers a mount
+  nested in a mount, and two markers on the way are refused with their names.
 
 ## Add mounts… (2026-11-04, plan_2026_11_03_add_mounts_table)
 
