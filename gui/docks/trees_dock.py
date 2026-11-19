@@ -3758,8 +3758,7 @@ class TreesDock(QWidget):
             QMessageBox.StandardButton.No)
         if ret != QMessageBox.StandardButton.Yes:
             return
-        # Phase E cascade (2026-09-01): net_traces only this tree references become orphaned —
-        # offer to remove them too (No is the safe default).
+        # Phase E cascade (2026-09-01): net traces only this tree references — offer removal (No).
         deleted_nets = _tree_net_trace_nets(tree)
         remaining_nets: set[str] = set()
         for other in self._trees:
@@ -3776,9 +3775,10 @@ class TreesDock(QWidget):
                 QMessageBox.StandardButton.No)
             if ret == QMessageBox.StandardButton.Yes:
                 self._orphan_net_nets |= orphaned
+        from .trees_keep_place import apply_lost_places, lost_places, module_markers_in
+        lost = lost_places(self, [(m, tree) for m in module_markers_in(tree.nodes)])
         self._trees.remove(tree)
-        from .trees_keep_place import keep_places_after_removal, module_markers_in
-        keep_places_after_removal(self, [(m, tree) for m in module_markers_in(tree.nodes)])
+        apply_lost_places(self, lost)
         self._mark_dirty()
         self._rebuild_tabs()
 

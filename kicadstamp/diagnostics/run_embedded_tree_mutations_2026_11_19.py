@@ -31,6 +31,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 
+CHAIN = "gui/docks/trees_chain.py"
 EMBED = "gui/docks/trees_embedding.py"
 MODULE_REDRAW = "gui/docks/trees_module_redraw.py"
 OWNER_PLACE = "gui/docks/trees_owner_place.py"
@@ -39,7 +40,7 @@ CASCADE = "gui/docks/cascade.py"
 
 GUARDS = "tests/gui/docks/test_trees_embedding.py tests/gui/docks/test_trees_module_redraw.py " \
          "tests/gui/docks/test_trees_owner_place.py tests/gui/docks/test_trees_keep_place.py " \
-         "tests/gui/docks/test_cascade.py"
+         "tests/gui/docks/test_cascade.py tests/gui/docks/test_trees_chain.py"
 
 MUTATIONS = [
     ("M1 the chain stops at the first level", EMBED,
@@ -84,10 +85,10 @@ MUTATIONS = [
      "        return None\n",
      ["test_k1_the_locked_form_writes_NOTHING_and_the_anchor_survives"]),
 
-    ("M6 the kept place loses the owner's turn", KEEP_PLACE,
-     "    turned = rotate_local_offset(xy[0], xy[1], owner.rotation)\n",
-     "    turned = rotate_local_offset(xy[0], xy[1], 0.0)  # MUTATION: the owner's turn is lost\n",
-     ["test_the_shift_is_the_owners_shift_plus_the_marker_turned_by_the_owner"]),
+    ("M6 the chain stops composing the offsets", CHAIN,
+     "        pos = (landed.x / MM, landed.y / MM)\n",
+     "        pos = pos  # MUTATION: the marker's offset is not composed\n",
+     ["test_m2_the_kept_place_follows_the_whole_chain"]),
 
     ("M7 the read falls back to the tree's own anchor", OWNER_PLACE,
      "    chain = placement_chain(trees, tree)\n"
@@ -98,6 +99,14 @@ MUTATIONS = [
      "    return None  # MUTATION: read against the tree's own anchor\n"
      "    by_name = {t.name: t for t in trees}\n",
      ["test_u_the_top_node_of_an_embedded_tree_measures_against_the_MODULE"]),
+
+    ("M9 the place-keeper takes the owner's OWN anchor", KEEP_PLACE,
+     "    frame = chain_frame(trees, owner)\n"
+     "    if frame is None:\n"
+     "        return None\n",
+     "    frame = (tuple(getattr(root.anchor, \"shift_xy\", None) or (0.0, 0.0)),\n"
+     "             float(getattr(owner, \"rotation\", 0.0) or 0.0))  # MUTATION: Ф1 comes back\n",
+     ["test_m2_the_kept_place_follows_the_whole_chain"]),
 
     ("M8 cosmetic control", EMBED,
      "def module_nodes(tree: Tree) -> list[TreeNode]:\n",

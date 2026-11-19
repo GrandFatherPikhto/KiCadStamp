@@ -3,7 +3,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version:  kicadstamp\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-11-19 14:54+0300\n"
+"POT-Creation-Date: 2026-11-19 16:44+0300\n"
 "PO-Revision-Date: 2026-07-27 12:00+0000\n"
 "Last-Translator: \n"
 "Language: ru\n"
@@ -159,7 +159,7 @@ msgid "cell {cell!r} has roles: {roles}"
 msgstr "у ячейки {cell!r} есть роли: {roles}"
 
 #: gui/cell_identification.py:250 gui/docks/cascade.py:200
-#: gui/docks/trees_keep_place.py:122
+#: gui/docks/trees_keep_place.py:151
 msgid "none"
 msgstr "(нет)"
 
@@ -5532,7 +5532,7 @@ msgstr "{action} трассировку сети {net!r} в {path}"
 
 #: gui/docks/net_trace.py:583 gui/docks/thermal_via.py:431
 #: gui/docks/trees_accept.py:401 gui/docks/trees_accept.py:452
-#: gui/docks/trees_accept.py:544 gui/docks/trees_dock.py:3864
+#: gui/docks/trees_accept.py:547 gui/docks/trees_dock.py:3864
 #: gui/docks/trees_dock.py:3939 gui/docks/trees_module_redraw.py:132
 msgid "placing"
 msgstr "расстановка"
@@ -6693,6 +6693,24 @@ msgstr ""
 "узел дерева {node!r}: его база ({base}) ЗЕРКАЛЬНА на плате — узел дерева "
 "не хранит зеркало, поэтому ничего не ставится"
 
+#: gui/docks/trees_chain.py:149
+#, python-brace-format
+msgid ""
+"tree {tree!r}: its module chain starts at {name!r}, which is not in this "
+"working set — nothing is measured against the tree's own anchor"
+msgstr ""
+"дерево {tree!r}: его цепочка модулей начинается с {name!r}, которого нет в "
+"этом рабочем наборе — ничего не меряется от собственного якоря дерева"
+
+#: gui/docks/trees_chain.py:165
+#, python-brace-format
+msgid ""
+"tree {tree!r}: the layout of {root!r} did not reach the marker {marker!r}"
+" — nothing is measured against the tree's own anchor"
+msgstr ""
+"дерево {tree!r}: раскладка {root!r} не дошла до маркера {marker!r} — "
+"ничего не меряется от собственного якоря дерева"
+
 #: gui/docks/trees_delete.py:112
 msgid "Delete node"
 msgstr "Удалить узел"
@@ -6712,17 +6730,17 @@ msgstr ""
 msgid "Nothing to delete: the selected row is not a tree node."
 msgstr "Удалять нечего: выделенная строка — не узел дерева."
 
-#: gui/docks/trees_delete.py:220
+#: gui/docks/trees_delete.py:222
 #, python-brace-format
 msgid "Deleted {n} nodes: {refs}; net_traces records removed: {records}"
 msgstr "Удалено узлов: {n} ({refs}); удалено записей net_traces: {records}"
 
-#: gui/docks/trees_delete.py:225
+#: gui/docks/trees_delete.py:227
 #, python-brace-format
 msgid "net_traces records kept (still referenced by another node): {records}"
 msgstr "записи net_traces оставлены (на них ещё ссылается другой узел): {records}"
 
-#: gui/docks/trees_delete.py:228
+#: gui/docks/trees_delete.py:230
 #, python-brace-format
 msgid ""
 "net_traces records not found in the config files (left in place): "
@@ -7011,7 +7029,7 @@ msgstr "Создать дерево"
 msgid "Rename tree"
 msgstr "Переименовать"
 
-#: gui/docks/trees_dock.py:3754 gui/docks/trees_dock.py:3772
+#: gui/docks/trees_dock.py:3754 gui/docks/trees_dock.py:3771
 msgid "Delete tree"
 msgstr "Удалить дерево"
 
@@ -7022,7 +7040,7 @@ msgstr ""
 "Удалить дерево {name!r}? Это действие нельзя отменить (пока не нажмёте "
 "Save)."
 
-#: gui/docks/trees_dock.py:3773
+#: gui/docks/trees_dock.py:3772
 #, python-brace-format
 msgid "Also delete the net traces now only referenced by this tree: {nets}?"
 msgstr ""
@@ -7391,27 +7409,29 @@ msgstr "Вкладки экземпляров не обновлены: {error}"
 msgid "Trees: root config failed to reload: {error}"
 msgstr "Деревья: не удалось перезагрузить корневой конфиг: {error}"
 
-#: gui/docks/trees_keep_place.py:114
+#: gui/docks/trees_keep_place.py:143
 #, python-brace-format
 msgid ""
 "Tree {tree!r} is no longer placed by module {marker!r} in {owner!r} — its"
-" own anchor and the owner's do not share a point, so the place was NOT "
-"moved; the tree now stands from its own anchor"
+" anchor chain does not reduce to one point (or a level has two markers), "
+"so the place was NOT moved; the tree now stands from its own anchor"
 msgstr ""
-"Дерево {tree!r} больше не размещается модулем {marker!r} в дереве {owner!r} "
-"— собственный якорь дерева и якорь хозяина не сводятся к одной точке, "
-"поэтому место НЕ перенесено; дерево теперь стоит от своего якоря"
+"Дерево {tree!r} больше не размещается модулем {marker!r} в дереве "
+"{owner!r} — цепочка якорей не сводится к одной точке (или на каком-то "
+"уровне два маркера), поэтому место НЕ перенесено; дерево теперь стоит от "
+"своего якоря"
 
-#: gui/docks/trees_keep_place.py:129
+#: gui/docks/trees_keep_place.py:158
 #, python-brace-format
 msgid ""
 "Tree {tree!r} is no longer placed by module {marker!r} in {owner!r}: its "
 "anchor now keeps that place ({kind} + shift ({x:.3f}, {y:.3f}), rotation "
 "{rot:.1f}°; was shift ({was}), rotation {old_rot:.1f}°)"
 msgstr ""
-"Дерево {tree!r} больше не размещается модулем {marker!r} в дереве {owner!r}: "
-"его якорь теперь хранит это место ({kind} + сдвиг ({x:.3f}, {y:.3f}), "
-"поворот {rot:.1f}°; было: сдвиг ({was}), поворот {old_rot:.1f}°)"
+"Дерево {tree!r} больше не размещается модулем {marker!r} в дереве "
+"{owner!r}: его якорь теперь хранит это место ({kind} + сдвиг ({x:.3f}, "
+"{y:.3f}), поворот {rot:.1f}°; было: сдвиг ({was}), поворот "
+"{old_rot:.1f}°)"
 
 #: gui/docks/trees_markers.py:121
 #, python-brace-format
@@ -7765,12 +7785,12 @@ msgstr "{old!r} → {new!r}: за узлом следует точка подв�
 msgid "{old!r} → {new!r}: the tree's self anchor follows."
 msgstr "{old!r} → {new!r}: за узлом следует якорь дерева (self)."
 
-#: gui/docks/trees_owner_place.py:98
+#: gui/docks/trees_owner_place.py:140
 #, python-brace-format
 msgid "placed by module {marker!r} in {owner!r} — edit that marker there"
 msgstr "размещено модулем {marker!r} в дереве {owner!r} — правьте этот маркер там"
 
-#: gui/docks/trees_owner_place.py:102
+#: gui/docks/trees_owner_place.py:144
 #, python-brace-format
 msgid ""
 "placed by module {marker!r} in {owner!r}: xy ({x:.3f}, {y:.3f}), rotation"
@@ -7779,7 +7799,7 @@ msgstr ""
 "размещено модулем {marker!r} в дереве {owner!r}: xy ({x:.3f}, {y:.3f}), "
 "поворот {rot:.1f}° — правьте этот маркер там"
 
-#: gui/docks/trees_owner_place.py:177
+#: gui/docks/trees_owner_place.py:219
 #, python-brace-format
 msgid ""
 "Tree {tree!r} is placed by module {marker!r} in {owner!r} — its own "

@@ -8,19 +8,25 @@ Log line says what changed. Denis, 17.11: «таких предупрежден�
 the STM32 profile: `power` would move from main's (6, −64) back to `Origin` + (5, −60), i.e.
 (−1, +4) mm).
 
-Why the anchor CAN express it: the anchor's kind never changes (point / ref / role stay), only its
-shift and the tree's own rotation. Both sides are reduced to the SAME stage — the marker's pose
-BEFORE the embedded tree's inner point is inverted — so the tree's pivot cancels and the shift is
-one vector: the owner's own shift plus the marker's xy turned by the owner's angle.
+WHY THE OWNER IS NOT ENOUGH (Ф1 of the 19.11 acceptance). The first version composed the place from
+the OWNER's own anchor — `owner.anchor.shift_xy` and `owner.rotation`. That is right only while the
+owner is a free tree: an owner that is itself placed stands where ITS marker puts it, and the shift
+missed that entirely (measured on a turned host: (−60.000, +35.000) mm). The frame is therefore taken
+from `trees_chain.chain_frame`, which composes the shifts and rotations down the whole chain of
+markers, outermost first — the same composition the multi-level Redraw activates. It answers None
+when the chain cannot be expressed purely (a second marker on some level, an anchor that is not a
+plain point, two anchors that do not share their point): then the anchor is left alone and ONE yellow
+line says so. Never a guess, never the silent jump.
 
-Pure arithmetic when both anchors share one point (on the STM32 profile both are `Origin`). When
-they do not (a ref anchor against a role anchor, …) the place needs the LIVE board to be read, and
-this path does not read it: the anchor is left untouched and ONE yellow line says so, exactly as
-the plan requires — no board, no guess, and never the silent jump.
+TWO PHASES, because the chain has to be read BEFORE anything is detached: `lost_places()` computes
+(the caller collects the markers before it detaches them, as the delete doors already did) and
+`apply_lost_places()` writes afterwards — that is also where «пока остаётся другой маркер — ничего не
+писать» can be answered honestly, because by then the buffer shows the truth.
 
-Nesting (п. 8 last bullet): the owner may itself be embedded. The marker's place is then expressed
-in the frame it had BEFORE the deletion, which is what `placement_chain` gives while the marker is
-still in the buffer — the callers collect the lost markers BEFORE they detach anything.
+Why the anchor CAN express the place: the anchor's kind never changes (point / ref / role stay), only
+its shift and the tree's own rotation. Both sides are reduced to the SAME stage — the marker's pose
+BEFORE the embedded tree's inner point is inverted — so the tree's pivot cancels and the shift is one
+vector.
 """
 from __future__ import annotations
 
@@ -28,17 +34,21 @@ import dataclasses
 import logging
 from typing import Optional
 
-from kicadstamp.geometry.spoke_layout import rotate_local_offset
+from kicadstamp.domain.geometry import Vector2
 from kicadstamp.i18n import _
+from kicadstamp.tree_position import node_position
 from kicadstamp.utils.units import MM
 
+from .trees_chain import chain_frame, chain_root, _same_point
 from .trees_embedding import placements
 
 logger = logging.getLogger(__name__)
 
 __all__ = [
+    "apply_lost_places",
     "keep_places_after_ref_change",
     "keep_places_after_removal",
+    "lost_places",
     "marker_place",
     "module_markers_in",
 ]
@@ -56,35 +66,30 @@ def module_markers_in(nodes) -> list:
     return found
 
 
-def _same_place_point(own, host) -> bool:
-    """True when the tree's own anchor and the owner's resolve to the SAME point, so the point
-    itself cancels and the place can be computed without the board."""
-    if own is None or host is None:
-        return False
-    if own.is_self or host.is_self or own.role or host.role or own.ref or host.ref:
-        return False                     # three live kinds — the board is the only answer
-    if own.is_origin and host.is_origin:
-        return True
-    return bool(own.point) and own.point == host.point
-
-
-def marker_place(tree, marker, owner) -> Optional[tuple[tuple[float, float], float]]:
+def marker_place(trees, tree, marker, owner) -> Optional[tuple[tuple[float, float], float]]:
     """`((shift_x_mm, shift_y_mm), rotation)` that makes `tree`'s OWN anchor land exactly where
-    `marker` in `owner` put it — or None when the two anchors do not share a point.
+    `marker` in `owner` put it — or None when that cannot be said without the board.
+
+    The owner's frame comes from the CHAIN (`trees_chain.chain_frame`), so an owner that is itself
+    embedded is placed by its own marker and not by its own anchor (Ф1). The tree's own anchor must
+    share the chain's root point, otherwise the point itself would have to be read.
 
     The shift is stored the way a point/origin anchor reads it: BOARD-axis mm (its own angle is
     None, so `anchor_shift_offset_nm` leaves it in board axes). The rotation is the tree's own,
-    i.e. `owner.rotation + marker.rotation + tree.rotation` — the frame the marker gave, with the
-    tree's inner angle kept on top."""
-    own, host = getattr(tree, "anchor", None), getattr(owner, "anchor", None)
-    if not _same_place_point(own, host):
+    i.e. the chain's angle + the marker's + the tree's, with the tree's inner angle kept on top."""
+    own = getattr(tree, "anchor", None)
+    root = chain_root(trees, owner)
+    if root is None or not _same_point(own, getattr(root, "anchor", None)):
         return None
-    owner_shift = getattr(host, "shift_xy", None) or (0.0, 0.0)
-    xy = getattr(marker, "xy", None) or (0.0, 0.0)
-    turned = rotate_local_offset(xy[0], xy[1], owner.rotation)
-    dx, dy = turned.x / MM, turned.y / MM
-    shift = (round(owner_shift[0] + dx, 6) + 0.0, round(owner_shift[1] + dy, 6) + 0.0)
-    rotation = round(owner.rotation + marker.rotation + tree.rotation, 6) + 0.0
+    frame = chain_frame(trees, owner)
+    if frame is None:
+        return None
+    pos, rot = frame
+    base = Vector2.from_xy(int(round(pos[0] * MM)), int(round(pos[1] * MM)))
+    landed = node_position(marker, base, rot)
+    shift = (round(landed.x / MM, 6) + 0.0, round(landed.y / MM, 6) + 0.0)
+    rotation = round(rot + float(getattr(marker, "rotation", 0.0) or 0.0)
+                     + float(getattr(tree, "rotation", 0.0) or 0.0), 6) + 0.0
     return shift, rotation
 
 
@@ -103,21 +108,45 @@ def _anchor_kind(anchor) -> str:
     return "ref '{ref}'".format(ref=getattr(anchor, "ref", None))
 
 
-def keep_place(dock, tree, marker, owner) -> bool:
-    """Write the marker's place into `tree`'s own anchor (BUFFER only) and say it in ONE line.
+@dataclasses.dataclass(frozen=True)
+class _LostPlace:
+    """ONE marker that went away: the tree it used to place, that marker, and the place (or None
+    when the chain cannot be expressed purely)."""
 
-    False (and one yellow line) when the place cannot be computed without the board: the anchor is
-    then NOT touched, and the line says the tree will stand from its own anchor."""
-    values = marker_place(tree, marker, owner)
-    if values is None:
+    tree: object
+    marker: object
+    owner: object
+    values: Optional[tuple]
+
+
+def lost_places(dock, lost) -> list:
+    """Compute the place for every (marker node, owner tree) of `lost`, BEFORE anything is detached.
+
+    Nothing is written and nothing is logged here: a tree that some other marker still places is
+    skipped by `apply_lost_places`, and a yellow line about it would be a lie. A marker whose tree
+    no longer exists is dropped the same way."""
+    plans = []
+    for marker, owner in lost:
+        target = next((t for t in dock._trees if t.name == getattr(marker, "ref", None)), None)
+        if target is None:
+            continue
+        plans.append(_LostPlace(tree=target, marker=marker, owner=owner,
+                                values=marker_place(dock._trees, target, marker, owner)))
+    return plans
+
+
+def _write_place(dock, plan: _LostPlace) -> bool:
+    """The write half of ONE plan: the buffer, one Log line, nothing else."""
+    tree, marker, owner = plan.tree, plan.marker, plan.owner
+    if plan.values is None:
         logger.warning(_(
-            "Tree {tree!r} is no longer placed by module {marker!r} in {owner!r} — its own anchor "
-            "and the owner's do not share a point, so the place was NOT moved; the tree now "
-            "stands from its own anchor").format(
+            "Tree {tree!r} is no longer placed by module {marker!r} in {owner!r} — its anchor "
+            "chain does not reduce to one point (or a level has two markers), so the place was "
+            "NOT moved; the tree now stands from its own anchor").format(
                 tree=getattr(tree, "name", tree), marker=getattr(marker, "ref", marker),
                 owner=getattr(owner, "name", owner)))
         return False
-    shift, rotation = values
+    shift, rotation = plan.values
     old = getattr(getattr(tree, "anchor", None), "shift_xy", None)
     old_shift = "{:.3f}, {:.3f}".format(old[0], old[1]) if old else _("none")
     old_rotation = tree.rotation
@@ -134,34 +163,38 @@ def keep_place(dock, tree, marker, owner) -> bool:
     return True
 
 
-def keep_places_after_removal(dock, lost) -> int:
-    """`lost` = [(marker node, owner tree)] collected BEFORE the detach; writes the place for
-    every tree whose LAST marker went away and returns how many anchors were written.
-
-    «Пока остаётся другой маркер — ничего не предлагать» (п. 8): a tree that some other marker
-    still places is skipped, and so is a marker whose tree no longer exists."""
+def apply_lost_places(dock, plans) -> int:
+    """Write every plan whose tree lost its LAST marker — called AFTER the detach, so the buffer
+    already says whether another marker still places it (п. 8: then nothing is written)."""
     written = 0
-    for marker, owner in lost:
-        target = next((t for t in dock._trees if t.name == marker.ref), None)
-        if target is None:
-            continue
-        if placements(dock._trees, target):
+    for plan in plans:
+        if placements(dock._trees, plan.tree):
             continue                     # still placed somewhere else — nothing to keep
-        written += 1 if keep_place(dock, target, marker, owner) else 0
+        written += 1 if _write_place(dock, plan) else 0
     return written
+
+
+def keep_places_after_removal(dock, lost) -> int:
+    """One-shot form for a caller whose removal has ALREADY happened (no chain to read before it):
+    it still computes against the current buffer and then applies. The delete doors use the
+    two-phase form instead, because there the chain must be read before the detach."""
+    return apply_lost_places(dock, lost_places(dock, lost))
 
 
 def keep_places_after_ref_change(dock, node, before, owner) -> int:
     """A marker whose Ref was edited onto ANOTHER name stops placing its old tree (п. 8: «правка
     Ref маркера на другое имя — дерево перестаёт быть встроенным»).
 
-    `before` is the node's `(kind, ref)` read BEFORE the form applied; `owner` is the tree the
-    node lives in (the form's owner, which the node itself does not name)."""
+    `before` is the node's `(kind, ref)` read BEFORE the form applied; `owner` is the tree the node
+    lives in. No two-phase here: the form has already rewritten the ref, so the buffer IS the state
+    after the removal."""
     if before is None or before[0] != "module" or owner is None:
-        return 0                         # nothing to compute the place in
+        return 0
     if node.kind == "module" and node.ref == before[1]:
         return 0                         # the ref did not change
     target = next((t for t in dock._trees if t.name == before[1]), None)
     if target is None or placements(dock._trees, target):
         return 0
-    return 1 if keep_place(dock, target, node, owner) else 0
+    plan = _LostPlace(tree=target, marker=node, owner=owner,
+                      values=marker_place(dock._trees, target, node, owner))
+    return 1 if _write_place(dock, plan) else 0

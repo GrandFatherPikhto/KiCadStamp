@@ -64,7 +64,7 @@ def test_the_shift_is_the_owners_shift_plus_the_marker_turned_by_the_owner():
     main = tree("main", [], shift=(0.5, 0.25), rotation=90.0)
     marker = node("power", kind="module", xy=(10.0, 0.0), rotation=0.0)
 
-    shift, rotation = kp.marker_place(power, marker, main)
+    shift, rotation = kp.marker_place([main, power], power, marker, main)
 
     # Y-down +90° maps (x, y) -> (y, -x), so the marker's (10, 0) becomes (0, -10).
     assert shift == (0.5, -9.75)
@@ -76,7 +76,7 @@ def test_the_tree_rotation_rides_on_top_of_the_markers_frame():
     main = tree("main", [], rotation=90.0)
     marker = node("power", kind="module", xy=(0.0, 0.0), rotation=30.0)
 
-    _shift, rotation = kp.marker_place(power, marker, main)
+    _shift, rotation = kp.marker_place([main, power], power, marker, main)
 
     assert rotation == pytest.approx(135.0)
 
@@ -85,7 +85,7 @@ def test_two_different_points_are_not_computable_without_the_board():
     power = tree("power", [], origin=False)          # point "Origin"
     role_owner = Tree(name="main", anchor=TreeAnchor(role="SW_ROLE"), nodes=[])
     marker = node("power", kind="module")
-    assert kp.marker_place(power, marker, role_owner) is None
+    assert kp.marker_place([role_owner, power], power, marker, role_owner) is None
 
 
 # ── the place, as a LAYOUT (cell «м») ─────────────────────────────────────
@@ -263,3 +263,81 @@ def test_the_tree_rotation_is_what_makes_a_turned_owner_work():
     assert power.rotation == 90.0
     after = tree_layout_base(None, _cfg(), power, {}, {"power": power})
     assert after[1] != before[1], "the angle must follow the owner"
+
+
+# ── м2 (Ф1 приёмки 19.11): место следует ВСЕЙ цепочке, а не якорю хозяина ───
+
+def _chain_of_three(shift=(10.0, 5.0), rotation=90.0):
+    """`top` ⊃ маркер `main` (20, 0) ⊃ маркер `power` (6, −64); у `main` свой сдвиг (1, 1)."""
+    power = tree("power", [node("R1", xy=(3.0, 4.0))], shift=(5.0, -60.0))
+    main = tree("main", [node("power", kind="module", xy=(6.0, -64.0))], shift=(1.0, 1.0))
+    top = tree("top", [node("main", kind="module", xy=(20.0, 0.0))],
+               shift=shift, rotation=rotation)
+    return [top, main, power]
+
+
+@pytest.mark.parametrize("shift,rotation", [((0.0, 0.0), 0.0),
+                                            ((10.0, 5.0), 0.0),
+                                            ((10.0, 5.0), 90.0)])
+def test_m2_the_kept_place_follows_the_whole_chain(shift, rotation):
+    """The probe of the 19.11 acceptance, as a LAYOUT: with `top` shifted and turned 90° the old
+    composition (owner's own anchor) wrote (−60.000, +35.000) mm of error. After the write the tree
+    laid out from its own anchor must land exactly where the chain put it — 0.000 mm."""
+    trees = _chain_of_three(shift, rotation)
+    top, main, power = trees
+    by_name = {t.name: t for t in trees}
+    cfg = _cfg()
+    base = tree_layout_base(None, cfg, top, {}, by_name)
+    through = layout_tree_from_base(top, base[0], base[1], by_name)
+
+    marker = main.nodes[0]
+    dock = _Dock(trees)
+    plans = kp.lost_places(dock, [(marker, main)])     # computed BEFORE the detach (Ф1)
+    main.nodes = []
+    assert kp.apply_lost_places(dock, plans) == 1
+
+    own = layout_tree_from_anchor(power, {"power": power}, cfg=cfg, sheet_names={})
+    a, _a_rot = through["R1"]
+    b, _b_rot = own["R1"]
+    assert (a.x, a.y) == (b.x, b.y), "the kept place must equal the chain's"
+
+
+def test_m2_deleting_the_whole_host_keeps_the_place_too():
+    """The same for `_on_delete_tree`: the owner goes away with its markers, and the frame it had
+    (through `top`) is what the embedded tree's own anchor must keep."""
+    trees = _chain_of_three((10.0, 5.0), 90.0)
+    top, main, power = trees
+    by_name = {t.name: t for t in trees}
+    cfg = _cfg()
+    base = tree_layout_base(None, cfg, top, {}, by_name)
+    through = layout_tree_from_base(top, base[0], base[1], by_name)
+
+    dock = _Dock(trees)
+    plans = kp.lost_places(dock, [(m, main) for m in kp.module_markers_in(main.nodes)])
+    dock._trees.remove(main)
+    assert kp.apply_lost_places(dock, plans) == 1
+
+    own = layout_tree_from_anchor(power, {"power": power}, cfg=cfg, sheet_names={})
+    a, _ = through["R1"]
+    b, _ = own["R1"]
+    assert (a.x, a.y) == (b.x, b.y)
+
+
+def test_m2_a_host_placed_by_TWO_markers_is_a_yellow_line_not_a_guess(caplog):
+    """Ф1 п.2: неоднозначная вложенность (у хозяина два маркера) — якорь не тронут, одна жёлтая
+    строка. Молчаливая догадка здесь была бы ровно тем прыжком, от которого Р4 защищает."""
+    trees = _chain_of_three()
+    top, main, power = trees
+    trees.append(tree("aux", [node("main", kind="module", xy=(-5.0, 5.0))]))
+    marker = main.nodes[0]
+    dock = _Dock(trees)
+    plans = kp.lost_places(dock, [(marker, main)])
+    main.nodes = []
+
+    caplog.clear()
+    with caplog.at_level(logging.WARNING):
+        assert kp.apply_lost_places(dock, plans) == 0
+
+    assert power.anchor.shift_xy == (5.0, -60.0)
+    assert dock.dirty == 0
+    assert any("does not reduce to one point" in r.getMessage() for r in caplog.records)

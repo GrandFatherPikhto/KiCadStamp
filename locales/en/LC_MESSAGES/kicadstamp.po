@@ -3,7 +3,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version:  kicadstamp\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-11-19 14:54+0300\n"
+"POT-Creation-Date: 2026-11-19 16:44+0300\n"
 "PO-Revision-Date: 2026-07-27 12:00+0000\n"
 "Last-Translator: \n"
 "Language: en\n"
@@ -130,7 +130,7 @@ msgid "cell {cell!r} has roles: {roles}"
 msgstr ""
 
 #: gui/cell_identification.py:250 gui/docks/cascade.py:200
-#: gui/docks/trees_keep_place.py:122
+#: gui/docks/trees_keep_place.py:151
 msgid "none"
 msgstr "none"
 
@@ -5192,7 +5192,7 @@ msgstr "{action} net trace {net!r} in {path}"
 
 #: gui/docks/net_trace.py:583 gui/docks/thermal_via.py:431
 #: gui/docks/trees_accept.py:401 gui/docks/trees_accept.py:452
-#: gui/docks/trees_accept.py:544 gui/docks/trees_dock.py:3864
+#: gui/docks/trees_accept.py:547 gui/docks/trees_dock.py:3864
 #: gui/docks/trees_dock.py:3939 gui/docks/trees_module_redraw.py:132
 msgid "placing"
 msgstr "placing"
@@ -6294,6 +6294,20 @@ msgid ""
 "node stores no mirror, so nothing is placed"
 msgstr ""
 
+#: gui/docks/trees_chain.py:149
+#, python-brace-format
+msgid ""
+"tree {tree!r}: its module chain starts at {name!r}, which is not in this "
+"working set — nothing is measured against the tree's own anchor"
+msgstr ""
+
+#: gui/docks/trees_chain.py:165
+#, python-brace-format
+msgid ""
+"tree {tree!r}: the layout of {root!r} did not reach the marker {marker!r}"
+" — nothing is measured against the tree's own anchor"
+msgstr ""
+
 #: gui/docks/trees_delete.py:112
 msgid "Delete node"
 msgstr "Delete node"
@@ -6311,17 +6325,17 @@ msgstr "A generated instance tree is read-only — nothing was deleted."
 msgid "Nothing to delete: the selected row is not a tree node."
 msgstr "Nothing to delete: the selected row is not a tree node."
 
-#: gui/docks/trees_delete.py:220
+#: gui/docks/trees_delete.py:222
 #, python-brace-format
 msgid "Deleted {n} nodes: {refs}; net_traces records removed: {records}"
 msgstr "Deleted {n} nodes: {refs}; net_traces records removed: {records}"
 
-#: gui/docks/trees_delete.py:225
+#: gui/docks/trees_delete.py:227
 #, python-brace-format
 msgid "net_traces records kept (still referenced by another node): {records}"
 msgstr "net_traces records kept (still referenced by another node): {records}"
 
-#: gui/docks/trees_delete.py:228
+#: gui/docks/trees_delete.py:230
 #, python-brace-format
 msgid ""
 "net_traces records not found in the config files (left in place): "
@@ -6591,7 +6605,7 @@ msgstr "Create tree"
 msgid "Rename tree"
 msgstr "Rename tree"
 
-#: gui/docks/trees_dock.py:3754 gui/docks/trees_dock.py:3772
+#: gui/docks/trees_dock.py:3754 gui/docks/trees_dock.py:3771
 msgid "Delete tree"
 msgstr "Delete tree"
 
@@ -6600,7 +6614,7 @@ msgstr "Delete tree"
 msgid "Delete tree {name!r}? This cannot be undone (until you Save)."
 msgstr "Delete tree {name!r}? This cannot be undone (until you Save)."
 
-#: gui/docks/trees_dock.py:3773
+#: gui/docks/trees_dock.py:3772
 #, python-brace-format
 msgid "Also delete the net traces now only referenced by this tree: {nets}?"
 msgstr "Also delete the net traces now only referenced by this tree: {nets}?"
@@ -6935,15 +6949,15 @@ msgstr ""
 msgid "Trees: root config failed to reload: {error}"
 msgstr "Trees: root config failed to reload: {error}"
 
-#: gui/docks/trees_keep_place.py:114
+#: gui/docks/trees_keep_place.py:143
 #, python-brace-format
 msgid ""
 "Tree {tree!r} is no longer placed by module {marker!r} in {owner!r} — its"
-" own anchor and the owner's do not share a point, so the place was NOT "
-"moved; the tree now stands from its own anchor"
+" anchor chain does not reduce to one point (or a level has two markers), "
+"so the place was NOT moved; the tree now stands from its own anchor"
 msgstr ""
 
-#: gui/docks/trees_keep_place.py:129
+#: gui/docks/trees_keep_place.py:158
 #, python-brace-format
 msgid ""
 "Tree {tree!r} is no longer placed by module {marker!r} in {owner!r}: its "
@@ -7282,19 +7296,19 @@ msgstr ""
 msgid "{old!r} → {new!r}: the tree's self anchor follows."
 msgstr ""
 
-#: gui/docks/trees_owner_place.py:98
+#: gui/docks/trees_owner_place.py:140
 #, python-brace-format
 msgid "placed by module {marker!r} in {owner!r} — edit that marker there"
 msgstr ""
 
-#: gui/docks/trees_owner_place.py:102
+#: gui/docks/trees_owner_place.py:144
 #, python-brace-format
 msgid ""
 "placed by module {marker!r} in {owner!r}: xy ({x:.3f}, {y:.3f}), rotation"
 " {rot:.1f}° — edit that marker there"
 msgstr ""
 
-#: gui/docks/trees_owner_place.py:177
+#: gui/docks/trees_owner_place.py:219
 #, python-brace-format
 msgid ""
 "Tree {tree!r} is placed by module {marker!r} in {owner!r} — its own "
@@ -19070,5 +19084,14 @@ msgstr "footprint {ref!r} not found on the board"
 #~ " placed by module {marker!r} in tree"
 #~ " {owner!r} — place it through that"
 #~ " module, not from this tab."
+#~ msgstr ""
+
+#~ msgid ""
+#~ "Tree {tree!r} is no longer placed "
+#~ "by module {marker!r} in {owner!r} — "
+#~ "its own anchor and the owner's do"
+#~ " not share a point, so the "
+#~ "place was NOT moved; the tree now"
+#~ " stands from its own anchor"
 #~ msgstr ""
 
