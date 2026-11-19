@@ -50,6 +50,7 @@ from .cascade import (run_curated_forest_redraw_worker,
                       run_curated_tree_redraw_worker,
                       run_single_node_redraw_worker)
 from .redraw_drift import log_redraw_drift
+from .trees_keep_place import keep_places_after_ref_change
 from .trees_module_redraw import (redraw_embedded, refuse_embedded_redraw,
                                   start_embedded_redraw)
 from .trees_selection import select_only
@@ -138,7 +139,14 @@ def accept_form(dock, form, *, policy: str = PROCEED) -> bool:
         return True
     if not is_touched(form):
         return True
+    # A `module` marker whose Ref is edited onto ANOTHER name stops placing its old tree (п. 8 /
+    # Р4): the node's `(kind, ref)` is read BEFORE the form rewrites it, and the place the marker
+    # gave is written into that tree's own anchor afterwards — no question, one Log line.
+    existing = getattr(form, "_existing", None)
+    before = (existing.kind, existing.ref) if existing is not None else None
     if form.apply():
+        if existing is not None:
+            keep_places_after_ref_change(dock, existing, before, _owning_tree(dock, existing))
         return True
     line = refusal_line(form)
     logger.error(line)
@@ -478,7 +486,10 @@ def _owning_tree(dock, node: TreeNode):
     containment itself is the dock's own `_tree_of_node` (one rule, not two)."""
     owner = getattr(dock, "_tree_of_node", None)
     tree = owner(node) if owner is not None else None
-    return tree if tree is not None else dock._current_tree()
+    if tree is not None:
+        return tree
+    current = getattr(dock, "_current_tree", None)
+    return current() if callable(current) else None
 
 
 def redraw_subtree(dock, node: Optional[TreeNode]) -> Optional[bool]:

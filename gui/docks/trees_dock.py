@@ -3748,9 +3748,7 @@ class TreesDock(QWidget):
         works for an UNSAVED tree too (Denis, §7 п.2: the deletion is staged,
         exactly like a Save-time one); None = the dock's active tab."""
         tree = tree or self._current_tree()
-        if tree is None:
-            return
-        if self._warn_read_only_instance(tree):
+        if tree is None or self._warn_read_only_instance(tree):
             return
         ret = QMessageBox.question(
             self, _("Delete tree"),
@@ -3760,9 +3758,8 @@ class TreesDock(QWidget):
             QMessageBox.StandardButton.No)
         if ret != QMessageBox.StandardButton.Yes:
             return
-        # Phase E cascade (2026-09-01): net_traces captured by this tree's
-        # net_trace nodes and NOT referenced by any other remaining tree become
-        # orphaned — offer to remove them too (No is the safe default).
+        # Phase E cascade (2026-09-01): net_traces only this tree references become orphaned —
+        # offer to remove them too (No is the safe default).
         deleted_nets = _tree_net_trace_nets(tree)
         remaining_nets: set[str] = set()
         for other in self._trees:
@@ -3780,6 +3777,8 @@ class TreesDock(QWidget):
             if ret == QMessageBox.StandardButton.Yes:
                 self._orphan_net_nets |= orphaned
         self._trees.remove(tree)
+        from .trees_keep_place import keep_places_after_removal, module_markers_in
+        keep_places_after_removal(self, [(m, tree) for m in module_markers_in(tree.nodes)])
         self._mark_dirty()
         self._rebuild_tabs()
 

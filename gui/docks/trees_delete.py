@@ -43,6 +43,8 @@ from __future__ import annotations
 import logging
 from typing import Optional, Sequence
 
+from .trees_keep_place import keep_places_after_removal, module_markers_in
+
 from PyQt6.QtCore import QEvent, QObject, Qt
 
 from kicadstamp.i18n import _
@@ -187,6 +189,10 @@ def run_delete_nodes(dock, tree: Tree, clicked: Optional[TreeNode] = None) -> in
         return 0
 
     identities = net_trace_identities(roots)
+    # A `module` marker that goes away may be the LAST one placing its tree (plan_2026_11_15_
+    # embedded_tree_redraw_through_module, п. 8 / Р4): collected BEFORE the detach, because the
+    # node's own xy/rotation is what the tree's anchor has to keep.
+    lost = [(marker, tree) for root in roots for marker in module_markers_in([root])]
     for node in roots:
         # THE one removal point of every structural edit (identity-based) — the
         # deletion used to call list.remove() itself, i.e. a second routine for
@@ -195,6 +201,7 @@ def run_delete_nodes(dock, tree: Tree, clicked: Optional[TreeNode] = None) -> in
     # Stage the tree BEFORE the records: a record with no node is a legal
     # config at every intermediate step, a node with no record is a fatal.
     dock._mark_dirty()
+    keep_places_after_removal(dock, lost)
 
     remaining = referenced_identities(getattr(dock, "_trees", ()))
     orphaned = [identity for identity in identities if identity not in remaining]
