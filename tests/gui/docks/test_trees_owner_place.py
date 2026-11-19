@@ -15,6 +15,7 @@ import pytest
 
 from kicadstamp.config.sexp_format import dict_to_sexp
 from kicadstamp.trees import Tree, TreeAnchor, TreeNode
+from kicadstamp.utils.units import MM
 
 import gui.docks.trees_owner_place as op
 from gui.docks.trees_dock import AnchorFormWidget, TreesDock
@@ -227,3 +228,50 @@ def test_the_module_holds_no_dialog_and_no_file_write():
     attrs = {n.attr for n in ast.walk(parsed) if isinstance(n, ast.Attribute)}
     assert "QMessageBox" not in names | attrs
     assert "write" not in attrs, "display only — this path writes neither the file nor the tree"
+
+
+# ── у / у2: the READ of a top node measures against the module (Дополнение 16.11) ──
+
+def _top_form(dock, name):
+    tree = next(t for t in dock._trees if t.name == name)
+    return dock._build_node_form(tree, tree.nodes[0])
+
+
+def test_u_the_top_node_of_an_embedded_tree_measures_against_the_MODULE(
+        main_window, tmp_path):
+    """Cell у: `power`'s own anchor is `Origin`+(5, −60), the marker is (6, −64) in `main`. A Read
+    in the `power` tab that measured against the tree's own anchor would write a value that moves
+    the node by (−1, +4) mm the moment `main` lays the tree out. `_base_pose()` must answer the
+    module's frame — (6, −64)."""
+    dock, _root = _dock(main_window, tmp_path)
+    pos, rot = _top_form(dock, "power")._base_pose()
+
+    assert (pos.x / MM, pos.y / MM) == (6.0, -64.0)
+    assert (pos.x / MM, pos.y / MM) != (5.0, -60.0), "the tree's own anchor is the defect"
+    # The marker of `TREES` is turned 30°, so the frame the node is stored in is turned too —
+    # the tree's own anchor has no orientation at all, which is the second half of the defect.
+    assert rot == 30.0
+
+
+def test_u2_a_turned_marker_turns_the_frame(main_window, tmp_path):
+    """Cell у2: the same with the marker turned 90° — the base ROTATION comes from the owner, not
+    from the tree's own anchor (which has no orientation at all)."""
+    data = {k: (list(v) if isinstance(v, list) else v) for k, v in TREES.items()}
+    data["trees"] = [dict(t) for t in TREES["trees"]]
+    for tree in data["trees"]:
+        if tree["name"] == "main":
+            tree["nodes"] = [{"ref": "power", "kind": "module", "xy": [6.0, -64.0],
+                              "rotation": 90.0}]
+    dock, _root = _dock(main_window, tmp_path, data)
+    _pos, rot = _top_form(dock, "power")._base_pose()
+
+    assert rot == 90.0
+
+
+def test_a_standalone_trees_top_node_keeps_its_own_anchor(main_window, tmp_path):
+    """The control: `solo` is placed by nobody, so its top node still measures against its own
+    anchor — the module rule must not leak into ordinary trees."""
+    dock, _root = _dock(main_window, tmp_path)
+    pos, rot = _top_form(dock, "solo")._base_pose()
+    assert (pos.x / MM, pos.y / MM) == (0.0, 0.0)
+    assert rot == 0.0

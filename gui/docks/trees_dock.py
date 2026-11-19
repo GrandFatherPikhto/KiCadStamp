@@ -98,7 +98,7 @@ from .trees_base_pose import resolve_node_base_pose as _resolve_node_base_pose
 from .redraw_drift import log_redraw_drift
 from .trees_embedding import module_nodes
 from .trees_module_redraw import redraw_embedded
-from .trees_owner_place import lock_anchor_form, owner_place_refusal
+from .trees_owner_place import embedded_base_pose, lock_anchor_form, owner_place_refusal
 from kicadstamp.tree_position import tree_layout_base  # noqa: F401 — re-export for tests
 from .trees_markers import (  # noqa: F401 — re-export for callers and tests
     _MOUNT_POINT_NS,
@@ -4480,9 +4480,8 @@ class NodeFormWidget(QWidget):
     # ── Board frame <-> config frame (plan_2026_09_11 §3) ─────────────────
 
     def _base_pose(self) -> Optional[tuple]:
-        """(position_nm, rotation_deg) of the frame the displayed offset/
-        rotation are expressed against, live-resolved LAZILY and cached until
-        the user changes the anchor.
+        """(position_nm, rotation_deg) of the frame the displayed offset/rotation are expressed
+        against, live-resolved LAZILY and cached until the user changes the anchor.
 
         None means "no live base": no connection, the tree/config is missing,
         the anchor is incomplete ("Relative to component" with no Role yet —
@@ -4502,10 +4501,7 @@ class NodeFormWidget(QWidget):
         self._base_resolved = True
         self._base_pose_value = None
         self._base_error = None
-        with ui_thread_board_read(
-                reason="resolve the node's base for the form — identity from the "
-                       "connection's snapshot, geometry live; the leaves this does "
-                       "NOT cover are named in the leaf table on _live_adapter"):
+        with ui_thread_board_read(reason="resolve the node's base for the form"):
             adapter = self._live_adapter()
         self._base_had_adapter = adapter is not None
         if adapter is None or self._cfg is None or self._tree is None:
@@ -4517,9 +4513,13 @@ class NodeFormWidget(QWidget):
                     return None
             else:
                 base_anchor = None
-            _pos, rot, _mirror = _resolve_node_base_pose(
-                self._cfg, adapter, self._sheet_names, self._tree,
-                self._selected_parent_node(), base_anchor,
+            parent = self._selected_parent_node()
+            # A TOP node of an EMBEDDED tree is stored in its module's frame (Дополнение 16.11):
+            # measuring it against the tree's own anchor is what moved `power` by (−1, +4) mm.
+            base = (embedded_base_pose(self, adapter, snapshot=self._live_snapshot())
+                    if parent is None else None)
+            _pos, rot, _mirror = (base + (False,)) if base else _resolve_node_base_pose(
+                self._cfg, adapter, self._sheet_names, self._tree, parent, base_anchor,
                 snapshot=self._live_snapshot())
             self._base_pose_value = (_pos, rot if rot is not None else 0.0)
         except Exception as e:  # noqa: BLE001 — "no base" is a UI state, not a crash
