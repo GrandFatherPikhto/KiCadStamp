@@ -302,7 +302,8 @@ def run_curated_tree_redraw_worker(payload: dict) -> tuple:
 
 def run_curated_forest_redraw(config_path: str, cfg, ctx, trees: list[Tree],
                               selected_refs: set[str],
-                              timeout_ms: int = DEFAULT_TIMEOUT_MS
+                              timeout_ms: int = DEFAULT_TIMEOUT_MS,
+                              only_names: "set[str] | None" = None,
                               ) -> tuple[List[Tuple[str, bool, Optional[str]]], List[str]]:
     """Multi-tree curated redraw (plan 4.2 / design §6 + plan 2026-09-02 P3
     module embedding, design P3 D5): plans the run in the global FOREST order
@@ -319,6 +320,16 @@ def run_curated_forest_redraw(config_path: str, cfg, ctx, trees: list[Tree],
         covers a root's whole reachable content (nested modules included) in one
         pass. Module content has no live "parent" to re-project against — it is
         a computed marker chain, so the pure layout value IS the override.
+
+    `only_names` (plan_2026_11_15_embedded_tree_redraw_through_module, п. 2 / Р2)
+    narrows what is APPLIED, never what is PLANNED. A redraw started on the tab
+    of an EMBEDDED tree activates the whole chain of module markers
+    (`gui.docks.trees_embedding.placement_chain`) — the markers of the hosts, so
+    the stage-2 layout takes the frame the owner really puts the tree in — and
+    then applies only the names the user asked for. Without the narrowing the
+    host trees' own content would move with it; without the chain the content
+    would be laid out from the host's own anchor (measured −1.000/+4.000 mm on
+    the 16.11 STM32 snapshot). None = the pre-plan behaviour exactly.
 
     With no module active both content_refs and flow_roots are empty and the
     function behaves exactly as the pre-module forest redraw. Returns
@@ -353,6 +364,20 @@ def run_curated_forest_redraw(config_path: str, cfg, ctx, trees: list[Tree],
         logger.error(reason)
     results: List[Tuple[str, bool, Optional[str]]] = _skipped_results(skips, names)
     names = [n for n in names if n not in skips]
+
+    # `only_names` — the ONE narrowing seam of the embedded-tree doors. Applied
+    # AFTER the skip pass (a skipped name is not asked for) and BEFORE the drift
+    # lines, so the journal only talks about parts this run really touches.
+    # A name the planner does not emit is said out loud: that is a selection the
+    # module chain cannot place (a local ref of a mount, or a record of another
+    # tree), and a silent drop would read as "redrawn" to the user.
+    if only_names is not None:
+        planned = set(names)
+        dropped = sorted(set(only_names) - planned)
+        if dropped:
+            logger.warning(_("Forest redraw: {names} — not placed by this tree's module "
+                             "chain, nothing to apply").format(names=", ".join(dropped)))
+        names = [n for n in names if n in only_names]
 
     # Э3 (plan_2026_09_13_timeout_sweep) — same payload-carried timeout as the
     # curated tree redraw above.
@@ -468,10 +493,15 @@ def run_curated_forest_redraw(config_path: str, cfg, ctx, trees: list[Tree],
 
 def run_curated_forest_redraw_worker(payload: dict) -> tuple:
     """start_long_op worker entry point for a multi-tree redraw — thin adapter
-    over run_curated_forest_redraw (plain data in, plain data out)."""
+    over run_curated_forest_redraw (plain data in, plain data out).
+
+    `only_names` (optional key) is the embedded-tab narrowing: the payload may
+    carry a set of names to APPLY while `selected_refs` stays the whole module
+    chain. Absent = None = the pre-plan behaviour."""
     return run_curated_forest_redraw(
         payload["config_path"], payload["cfg"], payload["ctx"], payload["trees"],
-        payload["selected_refs"], worker_timeout_ms(payload))
+        payload["selected_refs"], worker_timeout_ms(payload),
+        only_names=payload.get("only_names"))
 
 
 def _node_position_override(payload: dict, ref: str):

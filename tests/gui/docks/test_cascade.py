@@ -737,3 +737,156 @@ def test_the_forest_redraw_hands_cfg_to_the_planner_for_a_mount_parent(
     assert lines, f"a mount parent outside the run must warn, got {warnings}"
     assert "place in the tree" in lines[0]
     assert "current position" not in lines[0]
+
+
+# ── only_names: plan over the whole chain, apply only what was asked ────────
+# plan_2026_11_15_embedded_tree_redraw_through_module, п. 2 / Р2. The redraw started
+# on the tab of an EMBEDDED tree activates the markers of the whole chain (so the
+# stage-2 layout takes the frame the owner really puts the tree in) and applies only
+# the names the user asked for — never the host trees' own content.
+
+def _narrowing_pipeline(calls):
+    class _FakePipeline(_PipelineStubLifetime):
+        def __init__(self, config_path, preloaded_cfg=None, preloaded_ctx=None,
+                     timeout_ms=None,
+                     only=None, dry_run=False, position_overrides=None):
+            calls.append((list(only or []), position_overrides))
+
+        def run(self):
+            pass
+
+    return _FakePipeline
+
+
+def _mm(position):
+    return (round(position.x / 1_000_000, 3), round(position.y / 1_000_000, 3))
+
+
+def _module_and_content(tmp_path):
+    trees = _load_tree(tmp_path,
+        '(tree (name "ch0") (anchor (origin))\n'
+        '      (node (ref "CL_A") (xy 1 2))\n'
+        '      (node (ref "CL_B") (xy 3 4)))\n'
+        '(tree (name "p") (anchor (origin))\n'
+        '      (node (ref "ch0") (kind module) (xy 10 5)))')
+    return _curated_cfg(), trees
+
+
+def test_only_names_applies_just_the_asked_part_AT_THE_MODULE_PLACE(monkeypatch, tmp_path):
+    """The plan still sees the whole module (both content refs + the marker), and the value
+    applied to the asked one is STILL the stage-2 layout of the owner's frame — not a rigid
+    capture and not the tree's own anchor. Marker (10,5) + CL_B (3,4) = (13,9) mm."""
+    cfg, trees = _module_and_content(tmp_path)
+    calls = []
+    monkeypatch.setattr(cascade_mod, "ApplyPipeline", _narrowing_pipeline(calls))
+    monkeypatch.setattr(cascade_mod, "create_board_adapter", lambda **k: MagicMock())
+
+    results, warnings = run_curated_forest_redraw(
+        "/root.sexp", cfg, None, trees, {"ch0"}, only_names={"CL_B"})
+
+    assert [c[0] for c in calls] == [["CL_B"]]
+    assert _mm(calls[0][1]["CL_B"].position) == (13.0, 9.0)
+    assert results == [("CL_B", True, None)]
+    assert warnings == []
+
+
+def test_without_only_names_the_whole_module_is_applied(monkeypatch, tmp_path):
+    """None = the pre-plan behaviour exactly: every content ref of the active module."""
+    cfg, trees = _module_and_content(tmp_path)
+    calls = []
+    monkeypatch.setattr(cascade_mod, "ApplyPipeline", _narrowing_pipeline(calls))
+    monkeypatch.setattr(cascade_mod, "create_board_adapter", lambda **k: MagicMock())
+
+    results, _warnings = run_curated_forest_redraw(
+        "/root.sexp", cfg, None, trees, {"ch0"})
+
+    assert [c[0] for c in calls] == [["CL_A"], ["CL_B"]]
+    assert results == [("CL_A", True, None), ("CL_B", True, None)]
+
+
+def test_a_name_the_chain_cannot_place_is_said_out_loud(monkeypatch, tmp_path, caplog):
+    """A marker name emits no record of its own, so asking to apply one is a selection the
+    module chain cannot place. It must not vanish silently: ONE warning names it, nothing is
+    applied, and the run does not lie about success."""
+    cfg, trees = _module_and_content(tmp_path)
+    calls = []
+    monkeypatch.setattr(cascade_mod, "ApplyPipeline", _narrowing_pipeline(calls))
+    monkeypatch.setattr(cascade_mod, "create_board_adapter", lambda **k: MagicMock())
+
+    caplog.clear()
+    with caplog.at_level(logging.WARNING):
+        results, warnings = run_curated_forest_redraw(
+            "/root.sexp", cfg, None, trees, {"ch0"}, only_names={"ch0"})
+
+    assert calls == []
+    assert results == []
+    assert warnings == []
+    messages = [r.getMessage() for r in caplog.records]
+    assert any("ch0" in m and "nothing to apply" in m for m in messages), messages
+
+
+def _three_levels(tmp_path):
+    """outer --mid--> mid --inner--> inner; inner's content is CL_B, mid's own is CL_A."""
+    trees = _load_tree(tmp_path,
+        '(tree (name "inner") (anchor (origin))\n'
+        '      (node (ref "CL_B") (xy 1 1)))\n'
+        '(tree (name "mid") (anchor (origin))\n'
+        '      (node (ref "CL_A") (xy 0 0))\n'
+        '      (node (ref "inner") (kind module) (xy 30 30)))\n'
+        '(tree (name "outer") (anchor (origin))\n'
+        '      (node (ref "mid") (kind module) (xy 40 40)))')
+    return _curated_cfg(), trees
+
+
+def test_the_whole_chain_is_activated_but_only_the_innermost_content_moves(monkeypatch,
+                                                                          tmp_path):
+    """Cell «е» at the worker level: `selected_refs` is the CHAIN (both markers), so the
+    stage-2 layout walks outer -> mid -> inner, and `only_names` keeps the host's own content
+    (CL_A) out of the run. (40,40) + (30,30) + CL_B (1,1) = (71,71) mm."""
+    cfg, trees = _three_levels(tmp_path)
+    calls = []
+    monkeypatch.setattr(cascade_mod, "ApplyPipeline", _narrowing_pipeline(calls))
+    monkeypatch.setattr(cascade_mod, "create_board_adapter", lambda **k: MagicMock())
+
+    results, _warnings = run_curated_forest_redraw(
+        "/root.sexp", cfg, None, trees, {"inner", "mid"}, only_names={"CL_B"})
+
+    assert [c[0] for c in calls] == [["CL_B"]]
+    assert _mm(calls[0][1]["CL_B"].position) == (71.0, 71.0)
+    assert results == [("CL_B", True, None)]
+
+
+def test_one_level_only_takes_the_hosts_OWN_anchor(monkeypatch, tmp_path):
+    """The mutation the chain exists to prevent, pinned as a FACT rather than a wish: with the
+    INNER marker alone, `mid` looks like a free root and its own `(origin)` anchor is used —
+    CL_B lands at (31,31) instead of (71,71). Т3 therefore hands over the whole chain; if a
+    later change drops a level, this cell still says what that costs."""
+    cfg, trees = _three_levels(tmp_path)
+    calls = []
+    monkeypatch.setattr(cascade_mod, "ApplyPipeline", _narrowing_pipeline(calls))
+    monkeypatch.setattr(cascade_mod, "create_board_adapter", lambda **k: MagicMock())
+
+    run_curated_forest_redraw("/root.sexp", cfg, None, trees, {"inner"},
+                              only_names={"CL_B"})
+
+    assert [c[0] for c in calls] == [["CL_B"]]
+    assert _mm(calls[0][1]["CL_B"].position) == (31.0, 31.0)
+
+
+def test_the_worker_passes_only_names_through(monkeypatch):
+    """The payload key is optional: absent means None (the pre-plan behaviour), present means
+    the set the doors hand over."""
+    seen = []
+
+    def _fake(config_path, cfg, ctx, trees, selected_refs, timeout_ms=None, only_names=None):
+        seen.append(only_names)
+        return [], []
+
+    monkeypatch.setattr(cascade_mod, "run_curated_forest_redraw", _fake)
+    base = {"config_path": "/r.sexp", "cfg": None, "ctx": None, "trees": [],
+            "selected_refs": {"m"}, "timeout_ms": 1000}
+
+    cascade_mod.run_curated_forest_redraw_worker(dict(base))
+    cascade_mod.run_curated_forest_redraw_worker(dict(base, only_names={"CL_B"}))
+
+    assert seen == [None, {"CL_B"}]

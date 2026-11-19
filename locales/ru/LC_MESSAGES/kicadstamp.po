@@ -3,7 +3,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version:  kicadstamp\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-11-19 13:46+0300\n"
+"POT-Creation-Date: 2026-11-19 13:55+0300\n"
 "PO-Revision-Date: 2026-07-27 12:00+0000\n"
 "Last-Translator: \n"
 "Language: ru\n"
@@ -2246,12 +2246,12 @@ msgid "Tree redraw: {name!r} — ok"
 msgstr "Перерисовка дерева: {name!r} — ok"
 
 #: gui/docks/cascade.py:272 gui/docks/cascade.py:278 gui/docks/cascade.py:283
-#: gui/docks/cascade.py:550 gui/docks/cascade.py:556
+#: gui/docks/cascade.py:580 gui/docks/cascade.py:586
 #, python-brace-format
 msgid "Tree redraw: {name!r} — FAILED: {error}"
 msgstr "Перерисовка дерева: {name!r} — ОШИБКА: {error}"
 
-#: gui/docks/cascade.py:339
+#: gui/docks/cascade.py:350
 #, python-brace-format
 msgid ""
 "Forest redraw: copper order edges unavailable ({error}); copper stays "
@@ -2261,7 +2261,16 @@ msgstr ""
 "по-прежнему применяется последней, но без учёта её собственных "
 "компонентов"
 
-#: gui/docks/cascade.py:403
+#: gui/docks/cascade.py:378
+#, python-brace-format
+msgid ""
+"Forest redraw: {names} — not placed by this tree's module chain, nothing "
+"to apply"
+msgstr ""
+"Перерисовка леса: {names} — не размещается цепочкой модулей этого дерева, "
+"применять нечего"
+
+#: gui/docks/cascade.py:428
 #, python-brace-format
 msgid ""
 "Forest redraw: root tree {name!r} — stage-2 base unavailable ({error}); "
@@ -2270,12 +2279,12 @@ msgstr ""
 "Полная перерисовка: у корневого дерева {name!r} база этапа 2 недоступна "
 "({error}) — встроенный module-контент остаётся на месте"
 
-#: gui/docks/cascade.py:416
+#: gui/docks/cascade.py:441
 #, python-brace-format
 msgid "Forest redraw: applying {name!r}"
 msgstr "Перерисовка леса: применяю {name!r}"
 
-#: gui/docks/cascade.py:424
+#: gui/docks/cascade.py:449
 #, python-brace-format
 msgid ""
 "Forest redraw: module content {name!r} has no stage-2 layout value — "
@@ -2284,7 +2293,7 @@ msgstr ""
 "Полная перерисовка: у module-контента {name!r} нет значения раскладки "
 "этапа 2 — применяется его собственная позиция записи"
 
-#: gui/docks/cascade.py:435
+#: gui/docks/cascade.py:460
 #, python-brace-format
 msgid ""
 "Forest redraw: {name!r} — rigid override failed ({error}); falling back "
@@ -2293,17 +2302,17 @@ msgstr ""
 "Перерисовка леса: {name!r} — жёсткий override не удался ({error}); "
 "позиция берётся из собственных полей записи"
 
-#: gui/docks/cascade.py:446
+#: gui/docks/cascade.py:471
 #, python-brace-format
 msgid "Forest redraw: {name!r} — ok"
 msgstr "Перерисовка леса: {name!r} — ok"
 
-#: gui/docks/cascade.py:452 gui/docks/cascade.py:457 gui/docks/cascade.py:462
+#: gui/docks/cascade.py:477 gui/docks/cascade.py:482 gui/docks/cascade.py:487
 #, python-brace-format
 msgid "Forest redraw: {name!r} — FAILED: {error}"
 msgstr "Перерисовка леса: {name!r} — ОШИБКА: {error}"
 
-#: gui/docks/cascade.py:497
+#: gui/docks/cascade.py:527
 #, python-brace-format
 msgid ""
 "node redraw: {node!r} came without its tree, config or live adapter — "
@@ -7384,9 +7393,9 @@ msgid ""
 "to take is not clear, so nothing is redrawn from this tab. Remove the "
 "extra module markers and try again."
 msgstr ""
-"Дерево {tree!r} размещено более чем одним модулем ({where}) — какое место "
-"брать, неясно, поэтому с этой вкладки ничего не перерисовывается. Уберите "
-"лишние маркеры модулей и повторите."
+"Дерево {tree!r} размещено более чем одним модулем ({where}) — какое место"
+" брать, неясно, поэтому с этой вкладки ничего не перерисовывается. "
+"Уберите лишние маркеры модулей и повторите."
 
 #: gui/docks/trees_instances_refresh.py:128
 #, python-brace-format

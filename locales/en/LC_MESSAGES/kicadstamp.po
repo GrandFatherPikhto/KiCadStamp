@@ -3,7 +3,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version:  kicadstamp\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-11-19 13:46+0300\n"
+"POT-Creation-Date: 2026-11-19 13:55+0300\n"
 "PO-Revision-Date: 2026-07-27 12:00+0000\n"
 "Last-Translator: \n"
 "Language: en\n"
@@ -2103,12 +2103,12 @@ msgid "Tree redraw: {name!r} — ok"
 msgstr "Tree redraw: {name!r} — ok"
 
 #: gui/docks/cascade.py:272 gui/docks/cascade.py:278 gui/docks/cascade.py:283
-#: gui/docks/cascade.py:550 gui/docks/cascade.py:556
+#: gui/docks/cascade.py:580 gui/docks/cascade.py:586
 #, python-brace-format
 msgid "Tree redraw: {name!r} — FAILED: {error}"
 msgstr "Tree redraw: {name!r} — FAILED: {error}"
 
-#: gui/docks/cascade.py:339
+#: gui/docks/cascade.py:350
 #, python-brace-format
 msgid ""
 "Forest redraw: copper order edges unavailable ({error}); copper stays "
@@ -2117,7 +2117,14 @@ msgstr ""
 "Forest redraw: copper order edges unavailable ({error}); copper stays "
 "last, but not ordered against its own components"
 
-#: gui/docks/cascade.py:403
+#: gui/docks/cascade.py:378
+#, python-brace-format
+msgid ""
+"Forest redraw: {names} — not placed by this tree's module chain, nothing "
+"to apply"
+msgstr ""
+
+#: gui/docks/cascade.py:428
 #, python-brace-format
 msgid ""
 "Forest redraw: root tree {name!r} — stage-2 base unavailable ({error}); "
@@ -2126,12 +2133,12 @@ msgstr ""
 "Forest redraw: root tree {name!r} — stage-2 base unavailable ({error}); "
 "its embedded module content is left in place"
 
-#: gui/docks/cascade.py:416
+#: gui/docks/cascade.py:441
 #, python-brace-format
 msgid "Forest redraw: applying {name!r}"
 msgstr "Forest redraw: applying {name!r}"
 
-#: gui/docks/cascade.py:424
+#: gui/docks/cascade.py:449
 #, python-brace-format
 msgid ""
 "Forest redraw: module content {name!r} has no stage-2 layout value — "
@@ -2140,7 +2147,7 @@ msgstr ""
 "Forest redraw: module content {name!r} has no stage-2 layout value — "
 "applied from its own record"
 
-#: gui/docks/cascade.py:435
+#: gui/docks/cascade.py:460
 #, python-brace-format
 msgid ""
 "Forest redraw: {name!r} — rigid override failed ({error}); falling back "
@@ -2149,17 +2156,17 @@ msgstr ""
 "Forest redraw: {name!r} — rigid override failed ({error}); falling back "
 "to the record's own position"
 
-#: gui/docks/cascade.py:446
+#: gui/docks/cascade.py:471
 #, python-brace-format
 msgid "Forest redraw: {name!r} — ok"
 msgstr "Forest redraw: {name!r} — ok"
 
-#: gui/docks/cascade.py:452 gui/docks/cascade.py:457 gui/docks/cascade.py:462
+#: gui/docks/cascade.py:477 gui/docks/cascade.py:482 gui/docks/cascade.py:487
 #, python-brace-format
 msgid "Forest redraw: {name!r} — FAILED: {error}"
 msgstr "Forest redraw: {name!r} — FAILED: {error}"
 
-#: gui/docks/cascade.py:497
+#: gui/docks/cascade.py:527
 #, python-brace-format
 msgid ""
 "node redraw: {node!r} came without its tree, config or live adapter — "
