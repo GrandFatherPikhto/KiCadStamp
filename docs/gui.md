@@ -1533,6 +1533,37 @@ each other: «Edit node…» selects the row that was asked about, a ticked moun
 its SUBTREE (its own name is not a record — «Redraw whole tree» likewise lists records only), and a
 Ref edit moves nothing but the node.
 
+**UPDATE 2026-11-19 (plan_2026_11_15_embedded_tree_redraw_through_module): an embedded tree's tab
+works in its MODULE's frame.** A tree that a `module` node places no longer refuses to be redrawn
+from its own tab — it is redrawn THROUGH that module, so every door of the tab puts the nodes exactly
+where the module's own Redraw in the owner would:
+
+* **Redraw whole tree** (Tools, the tree's root menu and the anchor form's Apply) sends the whole
+  CHAIN of markers to the forest planner and applies everything the chain plans — what the module's
+  Redraw does. With a nested host (`inner` in `mid`, `mid` in `outer`) every level is activated, so
+  the frame is the outermost owner's, not the host's own anchor.
+* **Redraw selected** and the node form's **Redraw** of the TOP node apply only the names that were
+  asked for; a `mount`/`copper`/`point`/`external` node applies its own subtree. The positions come
+  from the same 2026-11-09 live-parent rule as before — a CHILD was already correct.
+* The Log says once, at the start, through what the run goes: «Redraw of tree 'power' goes through
+  module 'power' in 'main'».
+* **The anchor form of such a tree is read-only and shows the module's place**: every anchor field,
+  the shift, the tree settings, «Read current position» and «Show tree markers» are disabled, and one
+  line reads «placed by module 'power' in 'main': xy (6.000, -64.000), rotation 30.0° — edit that
+  marker there». Nothing is written: the tree's own anchor stays in the file as it is, and when the
+  system is edited the line follows the BUFFER without a Save. A tree placed by TWO OR MORE markers
+  keeps its fields locked and the line names every marker.
+* **A tree that loses its LAST marker keeps that marker's place**: deleting the marker, deleting the
+  whole owner tree or editing a marker's Ref onto another name writes the place into the tree's own
+  anchor (in the dock's buffer — File → Save persists it) and says so in ONE Log line with the old
+  and the new numbers. No question is asked. When the two anchors cannot be reduced to one point
+  without the board, the anchor is left alone and one yellow line says the tree now stands from its
+  own anchor.
+* **Reading a top node** measures against the module too: «Read current position» and the offsets the
+  node form shows are expressed in the frame the owner gives the tree, so a Read followed by a Save
+  no longer moves the part by the difference of the two bases (measured (−1.000, +4.000) mm on the
+  16.11 STM32 snapshot).
+
 ## Add mounts… (2026-11-04, plan_2026_11_03_add_mounts_table)
 
 **Where.** In a tree tab, right-click a **node** → **Add mounts…** and the mounts it creates become that
