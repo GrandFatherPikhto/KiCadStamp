@@ -98,6 +98,7 @@ from .trees_base_pose import resolve_node_base_pose as _resolve_node_base_pose
 from .redraw_drift import log_redraw_drift
 from .trees_embedding import module_nodes
 from .trees_module_redraw import redraw_embedded
+from .trees_owner_place import lock_anchor_form, owner_place_refusal
 from kicadstamp.tree_position import tree_layout_base  # noqa: F401 — re-export for tests
 from .trees_markers import (  # noqa: F401 — re-export for callers and tests
     _MOUNT_POINT_NS,
@@ -1711,21 +1712,19 @@ class TreesDock(QWidget):
         return page
 
     def _build_anchor_form(self, tree: Tree) -> "AnchorFormWidget":
-        """An AnchorFormWidget for `tree` — parent is the DOCK (not the page
-        widget) so _dock resolves to the dock that owns _mark_dirty; addWidget
-        below reparents visually without touching _dock."""
+        """An AnchorFormWidget for `tree` — parent is the DOCK (not the page widget) so `_dock`
+        resolves to the dock that owns _mark_dirty; addWidget below reparents visually without
+        touching _dock. No `adapter=`: the form takes the LIVE one at each of its own read points,
+        under its own sign (Т2-8) — handing one over here would open the door for reads nobody has
+        named (plan §1)."""
         return AnchorFormWidget(
             self, self._all_ref_candidates(), cfg=self._cfg,
-            # The form asks the DOCK at use time, never a snapshot (2026-10-20):
-            # a cell saved while this panel is open must reach its live reads.
+            # The form asks the DOCK at use time, never a snapshot (2026-10-20).
             cfg_supplier=lambda: self._cfg,
             sheet_names=self._ctx.sheet_names if self._ctx is not None else {},
             role_candidates=self._live_roles(),
             cluster_candidates=self._live_clusters(),
             existing=tree.anchor, tree=tree,
-            # No `adapter=`: the form takes the LIVE one at each of its own read
-            # points, under its own sign (Т2-8) — handing one over here would open
-            # the door for reads nobody has named (plan §1).
             all_trees=self._trees)
 
     def _build_node_form(self, tree: Tree, node: TreeNode) -> "NodeFormWidget":
@@ -3883,32 +3882,25 @@ class TreesDock(QWidget):
         started, False when the run was refused (the anchor form's Apply says which
         happened) or there was nothing to redraw.
 
-        A tree a `module` node PLACES is refused (§3): from its own tab it could only be
-        laid out from its own anchor — the Grid Origin. The refs come DIRECTLY
-        from the Tree structure (collect_tree_refs), not from checkbox state, so
-        no manual check-marking is needed even on a multi-branch/large tree
-        (plan_2026_08_29_fork1_rigid_redraw_override.md §5).
+        An EMBEDDED tree goes THROUGH its module (`redraw_embedded`). The refs come DIRECTLY from
+        the Tree structure (collect_tree_refs), not from checkbox state — no check-marking needed
+        even on a multi-branch tree (plan_2026_08_29_fork1_rigid_redraw_override.md §5).
 
-        It goes through the FOREST machinery scoped to the CURRENT tree's refs
-        (run_curated_forest_redraw_worker via _run_forest_redraw_with_refs):
-        from the user's side of the screen a module marker IS a tree node, so
-        "redraw the whole tree" must mean "together with what it embedded".
-        Measured on the live fpga profile, exactly this call yields
-        flow_roots=['fpga'] (foreign trees never become roots) and pulls every
-        embedded ch*_dac_buf's own content into the plan (18 content refs,
-        22 names total — where a tree-scoped run applied 4). The FULL trees list
-        still rides in the payload because the forest planner resolves module
-        markers by tree name. The menu wording and its translations are
-        deliberately untouched (deferred by Denis)."""
+        It goes through the FOREST machinery scoped to the CURRENT tree's refs (via
+        _run_forest_redraw_with_refs): from the user's side of the screen a module marker IS a
+        tree node, so "redraw the whole tree" must mean "together with what it embedded". Measured
+        on the live fpga profile, exactly this call yields flow_roots=['fpga'] and pulls every
+        embedded ch*_dac_buf's own content into the plan (18 content refs, 22 names — where a
+        tree-scoped run applied 4). The menu wording and its translations are deliberately
+        untouched (deferred by Denis)."""
         # `tree` (Ч2): the tree ROOT's context menu passes its OWN tree, Tools
         # passes nothing (the dock's active tab) — the SAME path either way.
         tree = tree or self._current_tree()
         if tree is None:
             return False
-        # An EMBEDDED tree is redrawn THROUGH its module: the marker chain goes to the forest
-        # planner and every planned name is applied — exactly what the module's own Redraw in
-        # the owner does (п. 1 of plan_2026_11_15_embedded_tree_redraw_through_module). Refused
-        # (two or more markers) → False; nobody places it → None and the ordinary path below.
+        # The marker chain goes to the planner and every planned name is applied — exactly what
+        # the module's own Redraw in the owner does (п. 1). Two or more markers → False; nobody
+        # places it → None, and the ordinary path below runs.
         started = redraw_embedded(self, tree, drift_refs=set(collect_tree_refs(tree)),
                                   trigger=trigger)
         if started is not None:
@@ -6475,6 +6467,8 @@ class AnchorFormWidget(QWidget):
         finally:
             self._loading_settings -= 1
         self._reload_settings_display()
+        # An EMBEDDED tree's anchor form is locked and shows its module's place (п. 7).
+        lock_anchor_form(self, self._all_trees)
 
     def build_settings(self) -> tuple[Optional[dict], Optional[str]]:
         """(dict, error) — the tree's inner point + own angle in CONFIG-frame
@@ -6627,6 +6621,9 @@ class AnchorFormWidget(QWidget):
         QMessageBox, no self.accept(); the caller (Apply in the Anchor tab, or
         _AnchorDialog's OK) decides how to surface an error (apply_status_label
         vs a modal warning)."""
+        refusal = owner_place_refusal(self)
+        if refusal:
+            return (None, refusal)
         anchor, err = self._anchor_identity()
         if err:
             return (None, err)
