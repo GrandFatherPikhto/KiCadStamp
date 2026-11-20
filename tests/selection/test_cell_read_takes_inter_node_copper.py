@@ -160,7 +160,11 @@ def _write_registries(tmp_path, via_entries=None, track_entries=None):
         encoding="utf-8")
 
 
-def _narrow(tmp_path, adapter, cfg, *, vias, tracks, transfer=True):
+_THIS_INSTANCE = {"cell": "spoke_lv", "cluster": "SPOKE_P5V", "sheet": "SwitchA"}
+
+
+def _narrow(tmp_path, adapter, cfg, *, vias, tracks, transfer=True,
+            journal=None):
     from gui.mixed_selection import narrow_mixed_selection
 
     return narrow_mixed_selection(
@@ -170,8 +174,8 @@ def _narrow(tmp_path, adapter, cfg, *, vias, tracks, transfer=True):
         cell_name="spoke_lv", cell_roles={"DA", "DB"},
         remembered_cluster="SPOKE_P5V", remembered_sheet="SwitchA",
         explode_transfer=transfer,
-        explode_journal=({"cell": "spoke_lv", "cluster": "SPOKE_P5V",
-                          "sheet": "SwitchA"} if transfer else None))
+        explode_journal=(journal if journal is not None
+                         else (_THIS_INSTANCE if transfer else None)))
 
 
 @pytest.fixture
@@ -458,3 +462,59 @@ def test_t4b_a_pieces_far_end_on_this_instance_makes_the_record_touch_it(
     assert _uuids(prelude.tracks) == ["sel-t"], "the piece STAYS in the read"
     assert [(t.kind, t.index) for t in prelude.transfers] == [("track", 0)]
     assert prelude.subtracted_net_traces == ()
+
+
+def test_t4v_a_geometry_piece_between_other_nodes_is_subtracted(gate, board):
+    """Р2 on the GEOMETRY path too (Т3): the piece sits exactly where the record
+    plans it (so the walk finds it without any registry key), but the record's own
+    address names ANOTHER instance — it is copper between other nodes, so it is
+    subtracted and one line names the record.
+
+    RED before Т3: the geometry half of the map was transferred whole, and Р2 only
+    reached the keyed pieces."""
+    nt = _record(tracks=1)
+    nt.anchor_role = "DRV"
+    nt.anchor_cluster = "OTHER_CL"
+    nt.anchor_sheet = None
+    cfg = _cfg([nt])
+    sel_track = _track("sel-t", x_mm=50.0, y_mm=50.0)   # where the record plans it
+    _write_registries(board.tmp_path)                   # NOT in the registry
+    far = _fp("U7", "DRV", "OTHER_CL", 50.0, 50.0)
+    adapter = _Adapter({**board.fields, "U7": ("DRV", "OTHER_CL")},
+                       footprints=[*board.footprints, far], tracks=[sel_track])
+
+    prelude = _narrow(board.tmp_path, adapter, cfg, vias=[], tracks=[sel_track])
+
+    assert prelude is not None and prelude.refusal is None
+    assert prelude.tracks == [], "the piece may not be read into the cell"
+    assert prelude.transfers == ()
+    texts = _texts(prelude)
+    assert any("does not touch this instance" in t for t in texts), texts
+
+
+# ── т8: Р5 — the door's journal no longer decides anything ──────────────────
+
+def test_t8_a_foreign_journal_no_longer_decides_the_transfer(gate, board):
+    """Р5: the Explode tab asks for a re-read with the journal of ANOTHER instance;
+    the read resolves this one. Until Т3 that turned the transfer off and said «the
+    instance being read is not the exploded one». Now the boundary is Р2 (the
+    record touches this instance), so the piece is transferred and the old line is
+    gone."""
+    nt = _record()
+    cfg = _cfg([nt])
+    sel_via = _via("sel-v")
+    _write_registries(
+        board.tmp_path,
+        via_entries={net_trace_registry_key(nt, 0): _via_entry("sel-v")})
+    adapter = _Adapter(board.fields, footprints=board.footprints,
+                       vias=[sel_via])
+
+    prelude = _narrow(board.tmp_path, adapter, cfg, vias=[sel_via], tracks=[],
+                      journal={"cell": "spoke_lv", "cluster": "SOME_OTHER",
+                               "sheet": "X"})
+
+    assert prelude is not None and prelude.refusal is None
+    assert _uuids(prelude.vias) == ["sel-v"]
+    assert [(t.kind, t.index) for t in prelude.transfers] == [("via", 0)]
+    texts = _texts(prelude)
+    assert not any("not the exploded one" in t for t in texts), texts

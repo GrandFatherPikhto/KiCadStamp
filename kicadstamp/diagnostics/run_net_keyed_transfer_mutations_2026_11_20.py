@@ -13,6 +13,7 @@ The contract the rows attack, piece by piece:
   M5 the keyed transfer needs the explode door (Р1 says EVERY read)
   M6 the boundary Р2 is not asked (a record between other nodes hands copper over)
   M7 only the ADDRESS half of the boundary counts (the refs half is dropped)
+  M8 Р2 is not applied to the GEOMETRY half of the ownership map
   K  cosmetic control (a comment must change nothing)
 
 Safeguards as in every harness here (rule 38): a template matching more than once
@@ -44,6 +45,7 @@ T3V = "test_t3v_a_via_and_a_track_of_one_record_both_go_to_their_own_section"
 T3G = "test_t3g_a_kind_mismatch_subtracts_with_a_line"
 T4 = "test_t4_a_record_between_other_nodes_is_subtracted_and_named"
 T4B = "test_t4b_a_pieces_far_end_on_this_instance_makes_the_record_touch_it"
+T4V = "test_t4v_a_geometry_piece_between_other_nodes_is_subtracted"
 
 MUTATIONS = [
     ("M1 the `net:` key means subtract again", MIXED,
@@ -73,12 +75,14 @@ MUTATIONS = [
      [T3B]),
 
     ("M5 the keyed transfer needs the explode door", MIXED,
-     "    keyed_transfers, keyed_kept, keyed_removed, keyed_lines = _keyed_decisions(\n"
-     "        net_keyed, net_traces, adapter, sheet_names, touches=touches)\n",
-     "    keyed_transfers, keyed_kept, keyed_removed, keyed_lines = (\n"
+     "    (keyed_transfers, keyed_kept, keyed_removed, keyed_boundary,\n"
+     "     keyed_lines) = _keyed_decisions(net_keyed, net_traces, adapter, sheet_names,\n"
+     "                                     touches=touches)\n",
+     "    (keyed_transfers, keyed_kept, keyed_removed, keyed_boundary,\n"
+     "     keyed_lines) = (\n"
      "        _keyed_decisions(net_keyed, net_traces, adapter, sheet_names,\n"
      "                         touches=touches)\n"
-     "        if transfer_ok else ((), [], {}, []))  # MUTATION: only under explode\n",
+     "        if explode_transfer else ((), [], {}, {}, []))  # MUTATION: door decides\n",
      [T1B]),
 
     ("M6 the boundary is not asked (Р2 off)", MIXED,
@@ -92,6 +96,12 @@ MUTATIONS = [
      "    refs = net_trace_refs(adapter, nt, sheet_names)\n"
      "    return False  # MUTATION: only the address counts\n",
      [T4B]),
+
+    ("M8 Р2 is not applied to the geometry half of the map", MIXED,
+     "    owned_other = {uuid: tr for uuid, tr in (owned or {}).items()\n"
+     "                   if not touches(tr.identity)}\n",
+     "    owned_other = {}  # MUTATION: everything the walk owns is handed over\n",
+     [T4V]),
 
     ("K cosmetic control", MIXED,
      "def _keyed_decisions(net_keyed, net_traces, adapter, sheet_names,\n"

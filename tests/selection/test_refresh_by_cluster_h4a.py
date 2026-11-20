@@ -286,10 +286,14 @@ def _net_trace_cfg():
         name=None, uuid=det_uuid("net_traces:NT"), net="NT", retired=False)])
 
 
-def test_h4a_unregistered_net_trace_track_is_subtracted(gate, tmp_path,
-                                                        monkeypatch):
-    """N18: a selected track that a live `net_traces:` record plans is subtracted
-    even though the registry does not know it."""
+def test_h4a_unregistered_net_trace_track_goes_to_the_cell(gate, tmp_path,
+                                                           monkeypatch):
+    """N18 + Р1 (plan_2026_11_20_cell_read_takes_inter_node_copper): a selected
+    track a live `net_traces:` record plans — with NO registry key at all — is
+    handed to the cell: it STAYS in the read (it becomes the cell's copper) AND is
+    named for the ownership transfer, so it is never read as if nobody owned it
+    (N18's point) — and since Т3 that is the answer on EVERY read, not only under
+    the explode door."""
     from gui.mixed_selection import narrow_mixed_selection
 
     fp_c1 = _fp("C1", "DA", "DAC_BUF", 10.0, 10.0, ("ch0",))
@@ -304,11 +308,12 @@ def test_h4a_unregistered_net_trace_track_is_subtracted(gate, tmp_path,
         sheet_names={"ch0": "Channel_0"}, cell_name="dac_buf",
         cell_roles={"DA", "DB"})
     assert prelude is not None and prelude.refusal is None
-    assert {t.uuid for t in prelude.tracks} == set()
+    assert {t.uuid for t in prelude.tracks} == {"t-nt"}, "the piece stays in the read"
+    assert [tr.identity for tr in prelude.transfers] == ["NT"]
 
 
-def test_h4a_unregistered_net_trace_via_is_subtracted(gate, tmp_path,
-                                                      monkeypatch):
+def test_h4a_unregistered_net_trace_via_goes_to_the_cell(gate, tmp_path,
+                                                         monkeypatch):
     """N19: the same for a via."""
     from gui.mixed_selection import narrow_mixed_selection
 
@@ -324,7 +329,8 @@ def test_h4a_unregistered_net_trace_via_is_subtracted(gate, tmp_path,
         sheet_names={"ch0": "Channel_0"}, cell_name="dac_buf",
         cell_roles={"DA", "DB"})
     assert prelude is not None and prelude.refusal is None
-    assert {v.uuid for v in prelude.vias} == set()
+    assert {v.uuid for v in prelude.vias} == {"v-nt"}, "the piece stays in the read"
+    assert [tr.identity for tr in prelude.transfers] == ["NT"]
 
 
 def test_h4a_only_the_records_copper_is_subtracted_not_the_whole_net(
@@ -454,29 +460,18 @@ def test_r3a3_the_transfer_runs_for_the_journals_instance(gate, tmp_path,
                for text, _level in prelude.log_lines)
 
 
-def test_r3a3_a_different_instance_is_subtracted_with_a_line(
-        gate, tmp_path, monkeypatch):
-    """Р3а-3: the read resolved to ANOTHER instance of the same cell while the tab
-    asked for the transfer — the inter-cluster copper is SUBTRACTED as usual (Н4)
-    and the Log says so; nothing is transferred."""
+def test_r3a3_the_journal_no_longer_decides_a_read(gate, tmp_path, monkeypatch):
+    """Р1/Р5 (plan_2026_11_20_cell_read_takes_inter_node_copper, Denis 20.11): the
+    journal of ANOTHER instance, and no transfer request at all — the read still
+    hands the record's copper to the cell. The boundary is Р2 (the record touches
+    this instance), not the door, so the two Р3а-3 refusals of this file are gone
+    together with the gate they guarded."""
     other = {"cell": "dac_buf", "cluster": "PIF_AVDD", "sheet": "Channel_0"}
-    prelude = _one_track_read(tmp_path, monkeypatch, journal=other)
-    assert prelude is not None and prelude.refusal is None
-    assert {t.uuid for t in prelude.tracks} == set()         # subtracted
-    assert prelude.transfers == ()                           # nothing handed over
-    texts = [text for text, _level in prelude.log_lines]
-    assert any("not the exploded one" in t for t in texts)
-    assert not any("transferred from net_traces" in t for t in texts)
-
-
-def test_r3a3_no_transfer_request_is_a_plain_subtraction(gate, tmp_path,
-                                                         monkeypatch):
-    """Р3а-3: without the request (the cell window's own button) the journal is
-    irrelevant — the copper is subtracted and nothing is said about instances."""
-    prelude = _one_track_read(tmp_path, monkeypatch, journal=_JOURNAL,
+    prelude = _one_track_read(tmp_path, monkeypatch, journal=other,
                               explode_transfer=False)
-    assert {t.uuid for t in prelude.tracks} == set()
-    assert prelude.transfers == ()
+    assert prelude is not None and prelude.refusal is None
+    assert {t.uuid for t in prelude.tracks} == {"t-nt"}, "the piece stays in the read"
+    assert [tr.identity for tr in prelude.transfers] == ["NT"]
     texts = [text for text, _level in prelude.log_lines]
     assert not any("not the exploded one" in t for t in texts)
 

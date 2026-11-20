@@ -3,7 +3,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version:  kicadstamp\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-11-20 18:50+0300\n"
+"POT-Creation-Date: 2026-11-20 19:05+0300\n"
 "PO-Revision-Date: 2026-07-27 12:00+0000\n"
 "Last-Translator: \n"
 "Language: en\n"
@@ -1207,7 +1207,7 @@ msgid ""
 "state stay skipped"
 msgstr ""
 
-#: gui/mixed_selection.py:137
+#: gui/mixed_selection.py:136
 #, python-brace-format
 msgid ""
 "read instance {cluster} on {sheet}; skipped {count} component(s) of other"
@@ -1216,94 +1216,88 @@ msgstr ""
 
 #: gui/docks/add_entities.py:161 gui/docks/instance_candidates.py:136
 #: gui/docks/instance_candidates.py:451 gui/entity/address.py:142
-#: gui/entity/address.py:146 gui/mixed_selection.py:139
-#: gui/mixed_selection.py:347 gui/mixed_selection.py:462 gui/select_cell.py:147
+#: gui/entity/address.py:146 gui/mixed_selection.py:138
+#: gui/mixed_selection.py:366 gui/mixed_selection.py:482 gui/select_cell.py:147
 #: gui/select_cell.py:243 gui/select_enclosed_copper.py:87
 #: gui/subtract_copper.py:67
 msgid "(no sheet)"
 msgstr ""
 
-#: gui/mixed_selection.py:152
+#: gui/mixed_selection.py:151
 #, python-brace-format
 msgid ""
 "transferred from net_traces {name} into the cell: {tracks} track(s), "
 "{vias} via(s)"
 msgstr ""
 
-#: gui/mixed_selection.py:258
+#: gui/mixed_selection.py:208
+#, python-brace-format
+msgid ""
+"net_traces {name}: the record does not touch this instance — its copper "
+"was subtracted, not transferred"
+msgstr ""
+
+#: gui/mixed_selection.py:280
 #, python-brace-format
 msgid ""
 "net_traces {name}: the registry says it is a {file_kind} while the live "
 "item is a {live_kind} — the piece was subtracted, not transferred"
 msgstr ""
 
-#: gui/mixed_selection.py:261
+#: gui/mixed_selection.py:283
 msgid "(unknown kind)"
 msgstr "(unknown kind)"
 
-#: gui/mixed_selection.py:268
+#: gui/mixed_selection.py:290
 #, python-brace-format
 msgid ""
 "net_traces {name}: the record no longer has that piece — the piece was "
 "subtracted, not transferred"
 msgstr ""
 
-#: gui/mixed_selection.py:274
-#, python-brace-format
-msgid ""
-"net_traces {name}: the record does not touch this instance — its piece "
-"was subtracted, not transferred"
-msgstr ""
-
-#: gui/mixed_selection.py:283
+#: gui/mixed_selection.py:302
 #, python-brace-format
 msgid ""
 "net_traces {name}: its piece #{index} stands on net {live!r} while the "
 "record says {own!r} — the piece was subtracted, not transferred"
 msgstr ""
 
-#: gui/mixed_selection.py:321
+#: gui/mixed_selection.py:340
 #, python-brace-format
 msgid ""
 "read {count} item(s) held by key(s) of a record that is no longer in the "
 "config — {anchors}"
 msgstr ""
 
-#: gui/mixed_selection.py:336
+#: gui/mixed_selection.py:355
 #, python-brace-format
 msgid "subtracted from selection: {count} item(s) — {records}"
 msgstr ""
 
-#: gui/mixed_selection.py:345
+#: gui/mixed_selection.py:364
 #, python-brace-format
 msgid "{cluster} on {sheet} ({refs})"
 msgstr ""
 
-#: gui/mixed_selection.py:348
+#: gui/mixed_selection.py:367
 #, python-brace-format
 msgid ""
 "the selection mixes {count} instances of cell {cell!r}: {candidates} — "
 "select ONE instance and read again"
 msgstr ""
 
-#: gui/mixed_selection.py:436
+#: gui/mixed_selection.py:456
 #, python-brace-format
 msgid ""
 "no component of cluster {cluster!r} is in the selection — select the "
 "instance of cell {cell!r}, or remember one from the cell-anchor page"
 msgstr ""
 
-#: gui/mixed_selection.py:459
+#: gui/mixed_selection.py:479
 #, python-brace-format
 msgid ""
 "cluster {cluster!r} on {sheet} is not on the current board — select the "
 "instance by hand"
-msgstr ""
-
-#: gui/mixed_selection.py:601
-msgid ""
-"the instance being read is not the exploded one — the inter-cluster "
-"copper was subtracted"
 msgstr ""
 
 # ── Overlay markers owner (plan_2026_09_11_overlay_markers_owner) ──
@@ -19159,5 +19153,17 @@ msgstr "footprint {ref!r} not found on the board"
 #~ " not share a point, so the "
 #~ "place was NOT moved; the tree now"
 #~ " stands from its own anchor"
+#~ msgstr ""
+
+#~ msgid ""
+#~ "net_traces {name}: the record does not"
+#~ " touch this instance — its piece "
+#~ "was subtracted, not transferred"
+#~ msgstr ""
+
+#~ msgid ""
+#~ "the instance being read is not the"
+#~ " exploded one — the inter-cluster "
+#~ "copper was subtracted"
 #~ msgstr ""
 

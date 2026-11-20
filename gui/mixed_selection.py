@@ -67,7 +67,6 @@ from kicadstamp.selection_narrowing import (
     cell_record_addresses,
     choose_instance,
     group_selection,
-    journal_is_the_read_instance,
     net_trace_transfers,
     read_net_trace_owned,
     record_address_matches,
@@ -194,6 +193,23 @@ def _split_net_keyed(items, kind: str, owner: dict, kinds: dict, orphans) -> tup
     return plain, keyed
 
 
+def _without(items, drop) -> list:
+    """Every item whose uuid ``drop`` does not name — the ONE way a list loses the
+    pieces Р2 refuses to hand over."""
+    return [item for item in items or ()
+            if getattr(item, "uuid", None) not in drop]
+
+
+def _boundary_lines(boundary: dict) -> list:
+    """ONE yellow line per record Р2 refused: it sits between other nodes.
+
+    Not an error and not a subtraction line of its own — the copper is not this
+    instance's, so the read leaves it alone and the Log says whose it was."""
+    return [_("net_traces {name}: the record does not touch this instance — its "
+              "copper was subtracted, not transferred").format(name=name)
+            for name in sorted(boundary)]
+
+
 def _record_touches(adapter, nt, chosen_address, chosen_refs, sheet_names) -> bool:
     """Р2: does this record TOUCH the instance being read?
 
@@ -235,7 +251,8 @@ def _touch_table(net_traces, adapter, chosen_address, chosen_refs, sheet_names):
 
 def _keyed_decisions(net_keyed, net_traces, adapter, sheet_names,
                      touches=None) -> tuple:
-    """(transfers, kept, removed_report, lines) for the registry-keyed pieces.
+    """(transfers, kept, refused_report, boundary, lines) — the registry-keyed
+    pieces of ONE read.
 
     Р1/Р4: a piece the registry already knows as a `net:` key is TRANSFERRED to
     the cell instead of subtracted — the registry claim is the strongest evidence
@@ -246,10 +263,15 @@ def _keyed_decisions(net_keyed, net_traces, adapter, sheet_names,
     item's type (т3г), the record no longer has that piece — it was shortened
     after the keys were issued (т3б), or the piece stands on another net than the
     record's own piece (т3б). Without them a stale key would hand the cell copper
-    that is not the record's any more."""
+    that is not the record's any more.
+
+    ``boundary`` is SEPARATE: a piece of a record that does not touch this
+    instance is the ordinary Р2 case, one line per record (not per piece), and the
+    caller counts it next to the geometry path's own refusals."""
     transfers: list = []
     kept: list = []
     removed: dict[str, int] = {}
+    boundary: dict[str, int] = {}
     lines: list = []
     for item, run_kind, registry_kind, key in net_keyed:
         label = key.split("|")[0] or key
@@ -270,11 +292,8 @@ def _keyed_decisions(net_keyed, net_traces, adapter, sheet_names,
                 name=label))
             continue
         if touches is not None and not touches(net_trace_effective_name(nt)):
-            removed[label] = removed.get(label, 0) + 1
-            lines.append(_("net_traces {name}: the record does not touch this "
-                           "instance — its piece was subtracted, not "
-                           "transferred").format(
-                name=net_trace_effective_name(nt)))
+            name = net_trace_effective_name(nt)
+            boundary[name] = boundary.get(name, 0) + 1
             continue
         piece_net = net_trace_piece_net(adapter, nt, run_kind, index, sheet_names)
         live_net = str(getattr(item, "net_name", "") or "")
@@ -289,7 +308,7 @@ def _keyed_decisions(net_keyed, net_traces, adapter, sheet_names,
         transfers.append(NetTraceTransfer(net_trace_effective_name(nt), run_kind,
                                           index))
         kept.append((item, run_kind))
-    return tuple(transfers), kept, removed, lines
+    return tuple(transfers), kept, removed, boundary, lines
 
 
 def _merged_report(parts) -> dict:
@@ -366,15 +385,16 @@ def narrow_mixed_selection(*, config_path: str, adapter: Any, footprints: list,
     """Narrow ANY selection (clean or mixed) to ONE cell instance, or return
     None when the cell's cluster is UNKNOWN (the caller keeps today's path).
 
-    ``explode_transfer`` (Р3): while the clusters are exploded, the selected
-    copper a LIVE ``net_traces:`` record owns is TRANSFERRED to the cell (kept in
-    the read) instead of subtracted; every other rule stays the same.
-
-    ``explode_journal`` (Р3а-3): the exploded instance's (cell, cluster, sheet)
-    from ``ExplodeGuard``. The transfer runs ONLY for THAT instance — the READ's
-    own resolved address (``chosen_address``) must name it. Reading any other
-    instance subtracts the inter-cluster copper as usual (Н4) and appends a
-    yellow line saying so (never a silent skip).
+    ``explode_transfer``/``explode_journal`` — NO LONGER A GATE (Р1/Р5 of
+    plan_2026_11_20_cell_read_takes_inter_node_copper, Denis 20.11). Until Т3 they
+    were what let the transfer run at all, and Р3а-3 narrowed it to the journal's
+    instance. Now EVERY read hands over the copper of a ``net_traces:`` record that
+    TOUCHES this instance (Р2), and the door's journal decides nothing: the same
+    selection reads the same way from the cell window, from «Import vias/tracks»
+    and from the Explode tab. The two arguments stay in the signature because the
+    four door payloads still carry them (``gui/docks/cell_editor`` builds them) and
+    the Explode tab is still where a re-read is ASKED for — a cleanup of that dead
+    wiring is its own plan, named in the report of this one.
 
     ``expected_address`` (part 2, п.5): the instance EXPLICITLY chosen on the cell
     page's "Entity" dropdown (gui/cell_entity_choice.InstanceAddress), read from
@@ -475,14 +495,10 @@ def narrow_mixed_selection(*, config_path: str, adapter: Any, footprints: list,
     # from the ONE builder `reconcile` is protected by.
     orphans = orphan_keys(via_entries, track_entries, config_anchor_ids(cfg))
     chosen_address = (chosen_cluster, chosen_sheet)
-    # Р3а-3: the transfer is allowed ONLY when the read's OWN resolved address is
-    # the instance the journal was made for. The UI gate (ExplodeGuard) can only
-    # see the page's NOMINAL address; the selection may name another instance, so
-    # the authoritative check is HERE, on the resolved address.
-    transfer_ok = bool(
-        explode_transfer
-        and journal_is_the_read_instance(explode_journal, cell_name,
-                                         chosen_cluster, chosen_sheet))
+    # Р5: `explode_transfer`/`explode_journal` are NO LONGER A GATE (see the
+    # docstring) — the transfer runs on every read and the boundary is the record
+    # touching this instance (Р2). The old check «is this the journal's instance?»
+    # is gone with the gate it served.
 
     # Р4 (plan_2026_11_20_cell_read_takes_inter_node_copper, Denis 20.11): a piece
     # the REGISTRY already knows as a net_traces piece (`net:` key) is NOT
@@ -506,7 +522,6 @@ def narrow_mixed_selection(*, config_path: str, adapter: Any, footprints: list,
     # instance itself, asked once per record (`_touch_table`).
     touches = _touch_table(net_traces, adapter, chosen_address, chosen_refs,
                            sheet_names)
-    net_v = net_t = None
     # А1 (plan_2026_10_08_narrowing_net_traces_cost): the board's copper is read
     # ONCE for the whole narrowing and the ownership map is computed ONCE, then
     # handed to BOTH lists. It used to be read (and the whole net_traces list
@@ -531,48 +546,52 @@ def narrow_mixed_selection(*, config_path: str, adapter: Any, footprints: list,
         # (and the board read) is skipped entirely instead of planning every
         # record of the project.
         owned, net_notes = {}, ()
-    if transfer_ok:
-        # Р3: the copper a LIVE net_traces record owns STAYS in the read (it
-        # becomes the cell's new copper) and is named for the ownership transfer
-        # (kicadstamp/explode_transfer.py) at apply time. Everything else — other
-        # cells, chains, thermal arrays — is subtracted exactly as usual.
-        # NOTE: never name the discarded notes `_` here — the i18n helper IS `_`
-        # in this module, and a local binding of that name shadows it for the
-        # WHOLE function (measured: UnboundLocalError three lines below). The
-        # notes travel in `net_notes`, computed once above.
-        kept_v, tr_v, notes_v = net_trace_transfers(
-            list(sub_v.kept), net_traces, adapter, via_entries=via_entries,
-            track_entries=track_entries, sheet_names=sheet_names,
-            owned=owned, notes=net_notes)
-        kept_t, tr_t, notes_t = net_trace_transfers(
-            list(sub_t.kept), net_traces, adapter, via_entries=via_entries,
-            track_entries=track_entries, sheet_names=sheet_names,
-            owned=owned, notes=net_notes)
-        transfers = tuple(tr_v) + tuple(tr_t)
-    else:
-        # Н4 п.5а: inter-cluster copper recorded in `net_traces:` but NOT yet in
-        # the registry is subtracted too (the hole: extract writes the record, the
-        # registry learns the uuids only at redraw).
-        net_v = subtract_net_trace_copper(
-            list(sub_v.kept), net_traces, adapter, via_entries=via_entries,
-            track_entries=track_entries, sheet_names=sheet_names,
-            owned=owned, notes=net_notes)
-        net_t = subtract_net_trace_copper(
-            list(sub_t.kept), net_traces, adapter, via_entries=via_entries,
-            track_entries=track_entries, sheet_names=sheet_names,
-            owned=owned, notes=net_notes)
-        kept_v, kept_t = list(net_v.kept), list(net_t.kept)
-        transfers = ()
+    # Р1 (plan_2026_11_20_cell_read_takes_inter_node_copper, Denis 20.11): EVERY
+    # read transfers the copper of a record that TOUCHES this instance — the
+    # explode door's journal no longer decides it. Р2 draws the line: the pieces of
+    # a record between two OTHER nodes are subtracted exactly as Н4 п.5а always
+    # did (that IS the «inter-cluster copper» the subtraction was for). ONE walk,
+    # ONE board read (А1): the ownership map is SPLIT, never recomputed.
+    owned_touch = {uuid: tr for uuid, tr in (owned or {}).items()
+                   if touches(tr.identity)}
+    owned_other = {uuid: tr for uuid, tr in (owned or {}).items()
+                   if not touches(tr.identity)}
+    # NOTE: never name the discarded notes `_` here — the i18n helper IS `_` in
+    # this module, and a local binding of that name shadows it for the WHOLE
+    # function (measured: UnboundLocalError three lines below). The notes travel
+    # in `net_notes`, computed once above.
+    kept_v, tr_v, notes_v = net_trace_transfers(
+        _without(sub_v.kept, owned_other), net_traces, adapter,
+        via_entries=via_entries, track_entries=track_entries,
+        sheet_names=sheet_names, owned=owned_touch, notes=net_notes)
+    kept_t, tr_t, notes_t = net_trace_transfers(
+        _without(sub_t.kept, owned_other), net_traces, adapter,
+        via_entries=via_entries, track_entries=track_entries,
+        sheet_names=sheet_names, owned=owned_touch, notes=net_notes)
+    net_v = subtract_net_trace_copper(
+        _without(sub_v.kept, owned_touch), net_traces, adapter,
+        via_entries=via_entries, track_entries=track_entries,
+        sheet_names=sheet_names, owned=owned_other, notes=net_notes)
+    net_t = subtract_net_trace_copper(
+        _without(sub_t.kept, owned_touch), net_traces, adapter,
+        via_entries=via_entries, track_entries=track_entries,
+        sheet_names=sheet_names, owned=owned_other, notes=net_notes)
+    transfers = tuple(tr_v) + tuple(tr_t)
+    boundary: dict[str, int] = {}
+    for tr in owned_other.values():
+        boundary[tr.identity] = boundary.get(tr.identity, 0) + 1
 
-    # Р1/Р4: the KEYED pieces are decided by the KEY on EVERY read — a piece the
-    # registry already names is the strongest evidence there is, and the explode
-    # door's journal is not needed to trust it. Denis's guards subtract, with a
-    # yellow line, whatever key cannot be trusted (`_keyed_decisions`).
-    keyed_transfers, keyed_kept, keyed_removed, keyed_lines = _keyed_decisions(
-        net_keyed, net_traces, adapter, sheet_names, touches=touches)
+    # Р1/Р4: the KEYED pieces are decided by the KEY, by the same rule and with the
+    # same boundary. Denis's guards subtract, with a yellow line, whatever key
+    # cannot be trusted (`_keyed_decisions`).
+    (keyed_transfers, keyed_kept, keyed_removed, keyed_boundary,
+     keyed_lines) = _keyed_decisions(net_keyed, net_traces, adapter, sheet_names,
+                                     touches=touches)
     transfers = tuple(transfers) + keyed_transfers
     for item, run_kind in keyed_kept:
         (kept_v if run_kind == "via" else kept_t).append(item)
+    for name, count in keyed_boundary.items():
+        boundary[name] = boundary.get(name, 0) + count
 
     # С-1 (plan_2026_10_06_prune_absent_cell_copper, Denis 2026-10-06): the read
     # is STRICTLY the selection, decided by ``build_refresh_plan(remove_missing=
@@ -594,20 +613,22 @@ def narrow_mixed_selection(*, config_path: str, adapter: Any, footprints: list,
     # Р3: one yellow line per record whose copper moves into the cell.
     for line in _transfer_lines(transfers):
         lines.append((line, WARN))
-    if explode_transfer and not transfer_ok:
-        # Р3а-3: the "Re-read" door asked for the transfer, but this read resolved
-        # to ANOTHER instance — the inter-cluster copper is SUBTRACTED as usual
-        # (Н4), never handed over. Say it, never skip it silently.
-        lines.append((_("the instance being read is not the exploded one — "
-                        "the inter-cluster copper was subtracted"), WARN))
+    # Р2: one yellow line per record whose copper this read left alone because it
+    # does not touch the instance (it lies between other nodes).
+    for line in _boundary_lines(boundary):
+        lines.append((line, WARN))
     # Г: the subtracted copper, split by WHY (the read-outcome line counts each
     # kind separately). A transferred piece is NOT subtracted, so the net_traces
     # report is empty on that path.
     registry_report = _merged_report([sub_v, sub_t])
-    net_report = _merged_report([] if transfer_ok else [net_v, net_t])
+    net_report = _merged_report([net_v, net_t])
     # Т1: a keyed piece a guard refused WAS subtracted — it belongs in the итог
-    # (and in the read-outcome reasons), never in a silent void.
+    # (and in the read-outcome reasons), never in a silent void. The boundary
+    # refusals of the keyed path are counted here as well (the geometry path's own
+    # are already in `net_v`/`net_t`'s reports).
     for label, count in keyed_removed.items():
+        net_report[label] = net_report.get(label, 0) + count
+    for label, count in keyed_boundary.items():
         net_report[label] = net_report.get(label, 0) + count
     subtraction = _subtraction_line(registry_report, net_report)
     if subtraction:
