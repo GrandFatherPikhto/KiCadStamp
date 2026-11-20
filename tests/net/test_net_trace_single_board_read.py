@@ -285,8 +285,14 @@ def test_the_transfer_path_reads_the_board_once(gate, tmp_path):
 
     The piece is found by GEOMETRY (the anchor resolves: FPGA stands at (10,10)
     and the record's via sits at the anchor), which is the tl;dr of the transfer
-    itself — a registry-OWNED piece is subtracted earlier, on the "foreign keys"
-    step, and never reaches this path."""
+    itself.
+
+    Since Т1 of plan_2026_11_20_cell_read_takes_inter_node_copper a registry-
+    OWNED piece is no longer subtracted on the "foreign keys" step — it leaves the
+    subtraction and is transferred by its KEY on every read (see
+    `tests/selection/test_cell_read_takes_inter_node_copper.py`, т1). This cell
+    keeps pinning the OTHER half: the GEOMETRY-only piece still needs the explode
+    door, and the walk still reads the board once."""
     _write_registries(tmp_path)
     nt = _record("NT1")
     cfg = _cfg([nt])

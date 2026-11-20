@@ -21,7 +21,11 @@ cell cluster keeps today's whole-selection path.
 The copper is the SELECTED copper minus everything the registries recorded for
 OTHER records (``subtract_foreign_copper``) minus every live ``net_traces:``
 record's planned copper even when unregistered (``subtract_net_trace_copper``,
-Н4 п.5а). The record with no live pair is no longer decided here at all: С-1
+Н4 п.5а). ONE exception, and it comes first (Р4 of plan_2026_11_20_cell_read_
+takes_inter_node_copper, Denis 20.11): a piece the registry already knows as a
+``net_traces`` piece (a ``net:`` key) is NOT subtracted — it goes to the cell by
+``_keyed_decisions``, which is also where the key's guards live. The record with
+no live pair is no longer decided here at all: С-1
 (plan_2026_10_06_prune_absent_cell_copper, Denis 2026-10-06) made the read
 STRICTLY the selection, so the worker itself passes ``remove_missing=True`` and
 this prelude only narrows and subtracts. The chosen instance's ``(cluster,
@@ -41,14 +45,22 @@ from typing import Any, Optional
 
 from kicadstamp.anchor_ids import config_anchor_ids, orphan_keys
 from kicadstamp.cell_instance import resolve_context_footprints
+from kicadstamp.config import net_trace_effective_name
 from kicadstamp.constants import CLUSTER_FIELD_NAME, ROLE_FIELD_NAME
 from kicadstamp.i18n import _
+from kicadstamp.net_trace_planner import (
+    NET_TRACE_KEY_PREFIX,
+    net_trace_piece_index,
+    net_trace_piece_net,
+    net_trace_record_for_key,
+)
 from kicadstamp.registry import (
     load_registry_entries,
     record_key_part,
 )
 from kicadstamp.selection_narrowing import (
     FootprintInfo,
+    NetTraceTransfer,
     cell_clusters,
     cell_entity_naming_address,
     cell_record_addresses,
@@ -100,8 +112,10 @@ class MixedPrelude:
     chosen_address: Optional[tuple] = None
     log_lines: list = field(default_factory=list)
     refusal: Optional[str] = None
-    # Р3: the pieces handed from a net_traces record to the cell (empty unless the
-    # read ran in explode-transfer mode) — plain data for the apply step.
+    # Р3/Р1: the pieces handed from a net_traces record to the cell — plain data
+    # for the apply step. Since Т1 of plan_2026_11_20_cell_read_takes_inter_node_
+    # copper a piece the REGISTRY already knows (`net:` key) is transferred on
+    # EVERY read; a piece found by GEOMETRY only still needs the explode door.
     transfers: tuple = ()
     # Г (plan_2026_10_08_narrowing_net_traces_cost): WHAT this read subtracted and
     # WHY, split by kind — ((record identity, count), ...). The read-outcome line
@@ -137,6 +151,96 @@ def _transfer_lines(transfers) -> list:
                      "{tracks} track(s), {vias} via(s)").format(
             name=identity, tracks=tracks, vias=vias))
     return out
+
+
+def _registry_kinds(via_entries, track_entries) -> dict:
+    """{copper uuid -> "via"/"track"} over both registry files.
+
+    WHICH FILE holds a uuid is the only place a piece's kind is written down: the
+    registry key does not carry it (via #0 and track #0 of one record share the
+    key byte for byte), so the kind can be read from the file — and nothing else."""
+    kinds: dict[str, str] = {}
+    for kind, entries in (("via", via_entries), ("track", track_entries)):
+        for entry in (entries or {}).values():
+            uuid = getattr(entry, "uuid", None)
+            if uuid:
+                kinds[uuid] = kind
+    return kinds
+
+
+def _split_net_keyed(items, kind: str, owner: dict, kinds: dict, orphans) -> tuple:
+    """(plain, keyed) — the selected copper split by WHAT ITS KEY SAYS.
+
+    Р4 of plan_2026_11_20_cell_read_takes_inter_node_copper (Denis, 20.11): a
+    `net:` key no longer means "subtract". Such a piece is taken OUT of the
+    subtraction and decided by :func:`_keyed_decisions`. The extraction lives
+    HERE, not inside `subtract_foreign_copper`: `is_own_key` is the ONE ownership
+    rule of five callers (explode, «Select cell», `absent_copper_prune`,
+    `change_cell_flow` and this read), and its meaning must not change for them.
+
+    An ORPHAN key stays in `plain`: its record is GONE from the config, so there
+    is nobody to hand the piece to and the existing read-as-orphan path keeps its
+    behaviour byte for byte."""
+    plain: list = []
+    keyed: list = []
+    for item in items or ():
+        key = owner.get(getattr(item, "uuid", None))
+        if key and key.startswith(NET_TRACE_KEY_PREFIX) and key not in orphans:
+            keyed.append((item, kind, kinds.get(getattr(item, "uuid", None)), key))
+            continue
+        plain.append(item)
+    return plain, keyed
+
+
+def _keyed_decisions(net_keyed, net_traces, adapter, sheet_names) -> tuple:
+    """(transfers, kept, removed_report, lines) for the registry-keyed pieces.
+
+    Р1/Р4: a piece the registry already knows as a `net:` key is TRANSFERRED to
+    the cell instead of subtracted — the registry claim is the strongest evidence
+    there is, and it survives a geometry the user moved by hand.
+
+    Denis's guards (20.11) subtract instead, with a yellow line, whenever the key
+    cannot be trusted: the kind the registry FILE states disagrees with the live
+    item's type (т3г), the record no longer has that piece — it was shortened
+    after the keys were issued (т3б), or the piece stands on another net than the
+    record's own piece (т3б). Without them a stale key would hand the cell copper
+    that is not the record's any more."""
+    transfers: list = []
+    kept: list = []
+    removed: dict[str, int] = {}
+    lines: list = []
+    for item, run_kind, registry_kind, key in net_keyed:
+        label = key.split("|")[0] or key
+        if registry_kind != run_kind:
+            removed[label] = removed.get(label, 0) + 1
+            lines.append(_("net_traces {name}: the registry says it is a {file_kind} "
+                           "while the live item is a {live_kind} — the piece was "
+                           "subtracted, not transferred").format(
+                name=label, file_kind=registry_kind or _("(unknown kind)"),
+                live_kind=run_kind))
+            continue
+        index = net_trace_piece_index(key)
+        nt = net_trace_record_for_key(net_traces, run_kind, key)
+        if nt is None or index is None:
+            removed[label] = removed.get(label, 0) + 1
+            lines.append(_("net_traces {name}: the record no longer has that piece "
+                           "— the piece was subtracted, not transferred").format(
+                name=label))
+            continue
+        piece_net = net_trace_piece_net(adapter, nt, run_kind, index, sheet_names)
+        live_net = str(getattr(item, "net_name", "") or "")
+        if piece_net and live_net and piece_net != live_net:
+            removed[label] = removed.get(label, 0) + 1
+            lines.append(_("net_traces {name}: its piece #{index} stands on net "
+                           "{live!r} while the record says {own!r} — the piece was "
+                           "subtracted, not transferred").format(
+                name=net_trace_effective_name(nt), index=index, live=live_net,
+                own=piece_net))
+            continue
+        transfers.append(NetTraceTransfer(net_trace_effective_name(nt), run_kind,
+                                          index))
+        kept.append((item, run_kind))
+    return tuple(transfers), kept, removed, lines
 
 
 def _merged_report(parts) -> dict:
@@ -331,11 +435,22 @@ def narrow_mixed_selection(*, config_path: str, adapter: Any, footprints: list,
         and journal_is_the_read_instance(explode_journal, cell_name,
                                          chosen_cluster, chosen_sheet))
 
-    sub_v = subtract_foreign_copper(vias, owner, cell_identity, own_addresses,
-                                    chosen_address, chosen_refs,
+    # Р4 (plan_2026_11_20_cell_read_takes_inter_node_copper, Denis 20.11): a piece
+    # the REGISTRY already knows as a net_traces piece (`net:` key) is NOT
+    # subtracted — it leaves the subtraction here and is decided by the rule
+    # below. The live case: «subtracted from selection: … net:b166cc84-…: 4» —
+    # the four pieces of one record were thrown away before the transfer could
+    # ever see them.
+    kinds = _registry_kinds(via_entries, track_entries)
+    plain_vias, keyed_v = _split_net_keyed(vias, "via", owner, kinds, orphans)
+    plain_tracks, keyed_t = _split_net_keyed(tracks, "track", owner, kinds, orphans)
+    net_keyed = keyed_v + keyed_t
+
+    sub_v = subtract_foreign_copper(plain_vias, owner, cell_identity,
+                                    own_addresses, chosen_address, chosen_refs,
                                     orphan_keys=orphans)
-    sub_t = subtract_foreign_copper(tracks, owner, cell_identity, own_addresses,
-                                    chosen_address, chosen_refs,
+    sub_t = subtract_foreign_copper(plain_tracks, owner, cell_identity,
+                                    own_addresses, chosen_address, chosen_refs,
                                     orphan_keys=orphans)
     net_traces = getattr(cfg, "net_traces", None)
     net_v = net_t = None
@@ -348,7 +463,11 @@ def narrow_mixed_selection(*, config_path: str, adapter: Any, footprints: list,
     # files), so one map serves both.
     from kicadstamp.net_trace_planner import read_live_copper
 
-    kept_all = list(sub_v.kept) + list(sub_t.kept)
+    # The KEYED pieces join the walk as well: it is the SAME board read and the
+    # SAME ownership map the transfer and the subtraction share, so no piece is
+    # ever matched twice.
+    kept_all = (list(sub_v.kept) + list(sub_t.kept)
+                + [item for item, _kind, _reg_kind, _key in net_keyed])
     if net_traces and kept_all:
         owned, net_notes = read_net_trace_owned(
             kept_all, net_traces, adapter, via_entries=via_entries,
@@ -392,6 +511,16 @@ def narrow_mixed_selection(*, config_path: str, adapter: Any, footprints: list,
         kept_v, kept_t = list(net_v.kept), list(net_t.kept)
         transfers = ()
 
+    # Р1/Р4: the KEYED pieces are decided by the KEY on EVERY read — a piece the
+    # registry already names is the strongest evidence there is, and the explode
+    # door's journal is not needed to trust it. Denis's guards subtract, with a
+    # yellow line, whatever key cannot be trusted (`_keyed_decisions`).
+    keyed_transfers, keyed_kept, keyed_removed, keyed_lines = _keyed_decisions(
+        net_keyed, net_traces, adapter, sheet_names)
+    transfers = tuple(transfers) + keyed_transfers
+    for item, run_kind in keyed_kept:
+        (kept_v if run_kind == "via" else kept_t).append(item)
+
     # С-1 (plan_2026_10_06_prune_absent_cell_copper, Denis 2026-10-06): the read
     # is STRICTLY the selection, decided by ``build_refresh_plan(remove_missing=
     # True)`` in the worker. The soft Н4 п.5 verdict (registry uuid / geometry
@@ -406,6 +535,9 @@ def narrow_mixed_selection(*, config_path: str, adapter: Any, footprints: list,
     # Ф3: a net_traces record whose anchor could not be resolved says so.
     for note in net_notes:
         lines.append((note, WARN))
+    # Т1: every keyed piece that was NOT transferred says WHY it was subtracted.
+    for line in keyed_lines:
+        lines.append((line, WARN))
     # Р3: one yellow line per record whose copper moves into the cell.
     for line in _transfer_lines(transfers):
         lines.append((line, WARN))
@@ -420,6 +552,10 @@ def narrow_mixed_selection(*, config_path: str, adapter: Any, footprints: list,
     # report is empty on that path.
     registry_report = _merged_report([sub_v, sub_t])
     net_report = _merged_report([] if transfer_ok else [net_v, net_t])
+    # Т1: a keyed piece a guard refused WAS subtracted — it belongs in the итог
+    # (and in the read-outcome reasons), never in a silent void.
+    for label, count in keyed_removed.items():
+        net_report[label] = net_report.get(label, 0) + count
     subtraction = _subtraction_line(registry_report, net_report)
     if subtraction:
         lines.append((subtraction, SUCCESS))

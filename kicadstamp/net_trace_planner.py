@@ -60,6 +60,11 @@ def _net_trace_key_part(nt: NetTrace) -> str:
     return record_key_part(net_trace_effective_name(nt), getattr(nt, "uuid", None))
 
 
+#: The registry ANCHOR prefix of every net-trace key (design §11). ONE place:
+#: the key builder and the key READER below must never disagree about it.
+NET_TRACE_KEY_PREFIX = "net:"
+
+
 def net_trace_anchor_id(nt: NetTrace) -> str:
     """Registry anchor_id for one net trace — `net:<identity>`, where the
     identity is net_trace_effective_name(nt): the record's own name:, or its
@@ -75,7 +80,7 @@ def net_trace_anchor_id(nt: NetTrace) -> str:
     legacy record the whole key is byte-identical to before. In format 3 the
     VALUE becomes the record's uuid (Р-У5.1/Р-У5.2) — the prefix and the
     template_name rule are untouched."""
-    return f"net:{_net_trace_key_part(nt)}"
+    return f"{NET_TRACE_KEY_PREFIX}{_net_trace_key_part(nt)}"
 
 
 def net_trace_registry_key(nt: NetTrace, index: int) -> str:
@@ -89,7 +94,55 @@ def net_trace_registry_key(nt: NetTrace, index: int) -> str:
     unresolvable anchor made `find_live_copper` find NOTHING. One builder, so
     the plan and the search cannot diverge."""
     part = _net_trace_key_part(nt)
-    return make_registry_key(f"net:{part}", part, None, index)
+    return make_registry_key(f"{NET_TRACE_KEY_PREFIX}{part}", part, None, index)
+
+
+def net_trace_piece_index(key: str | None) -> int | None:
+    """The 0-based piece number a net-trace registry key carries, or None.
+
+    Plan_2026_11_20_cell_read_takes_inter_node_copper, Т1 (Ч0 п.2). The FOURTH
+    field of ``make_registry_key`` IS the piece's position in the record's own
+    ``vias``/``tracks`` list, and NOBODY parsed it before this function: a piece
+    whose live geometry no longer matches its record (the user moved it by hand)
+    gets no number from ``find_live_copper``, and the key is the only place the
+    number survives.
+
+    The KIND is NOT in the key and cannot be: via #0 and track #0 of one record
+    produce the SAME key byte for byte (the role field is empty for both). The
+    caller reads the kind from the registry FILE the uuid came from and checks it
+    against the live item — that check is Denis's, 20.11."""
+    parts = str(key or "").split("|")
+    if len(parts) != 4 or not parts[0].startswith(NET_TRACE_KEY_PREFIX):
+        return None
+    try:
+        index = int(parts[3])
+    except (TypeError, ValueError):
+        return None
+    return index if index >= 0 else None
+
+
+def net_trace_record_for_key(net_traces, kind: str, key: str):
+    """The live record a net-trace registry key belongs to, or None.
+
+    The INVERSE of :func:`net_trace_registry_key` is built from the FORWARD
+    builder itself — the project's "one builder, never a second parser" rule —
+    so a name-keyed (format 2) and a uuid-keyed (format 3) registry are read the
+    same way.
+
+    Two guards ride along, both Denis's (20.11): the record must still HAVE that
+    piece in the `kind` section (a record shortened after its keys were issued
+    matches nothing — the index would name somebody else's copper), and the kind
+    decides WHICH section is asked (via #0 and track #0 share one key)."""
+    index = net_trace_piece_index(key)
+    if index is None:
+        return None
+    section = "vias" if "via" in str(kind).lower() else "tracks"
+    for nt in net_traces or ():
+        if index >= len(getattr(nt, section, ()) or ()):
+            continue
+        if net_trace_registry_key(nt, index) == key:
+            return nt
+    return None
 
 
 def _layer_to_board(layer: str | None) -> BoardLayer:
@@ -216,6 +269,29 @@ def record_nets(adapter, nt: NetTrace,
         if name:
             nets.add(str(name))
     return nets, resolvable
+
+
+def net_trace_piece_net(adapter, nt: NetTrace, kind: str, index: int,
+                        sheet_names: dict | None = None) -> str | None:
+    """The net of ONE piece of a record, resolved LIVE by the planner's OWN
+    resolver (``_item_net_name``); None when it cannot be resolved.
+
+    The guard of plan_2026_11_20_cell_read_takes_inter_node_copper, Т1 (Denis,
+    20.11): «кусок другой цепи → не переносить». A piece whose live net differs
+    from the record's own net for that piece is NOT that record's copper any more,
+    so the transfer must refuse it — this is the ONE reader that answers WHICH net
+    the record says its piece is on."""
+    section = "vias" if "via" in str(kind).lower() else "tracks"
+    items = list(getattr(nt, section, None) or ())
+    if not 0 <= index < len(items):
+        return None
+    label = _("net_traces entry (net {net!r})").format(net=nt.net)
+    try:
+        name = _item_net_name(adapter, nt, items[index], sheet_names or {}, label,
+                              quiet=True)
+    except Exception:  # noqa: BLE001 — an unresolvable chain is a normal answer
+        return None
+    return str(name) if name else None
 
 
 def plan_net_traces(adapter, net_traces: list[NetTrace],
@@ -587,7 +663,11 @@ __all__ = [
     "adopt_net_trace_copper",
     "find_live_copper",
     "match_net_trace_pieces",
+    "NET_TRACE_KEY_PREFIX",
     "net_trace_anchor_id",
+    "net_trace_piece_index",
+    "net_trace_piece_net",
+    "net_trace_record_for_key",
     "net_trace_registry_key",
     "plan_net_traces",
     "read_live_copper",

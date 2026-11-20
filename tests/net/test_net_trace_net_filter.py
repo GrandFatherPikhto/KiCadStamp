@@ -114,9 +114,16 @@ def test_a_piece_without_a_net_switches_the_filter_off(gate, tmp_path,
 def test_a_record_with_an_unresolvable_net_is_not_dropped(gate, tmp_path):
     """The record names a ``net_from_role`` this board has no role for, so its net
     cannot be resolved — and its registry tier still knows its copper by uuid.
-    The selected via must therefore be SUBTRACTED, not quietly left in the read.
+    The record must therefore still be WALKED: «unresolvable» is not «different
+    net» (А2), or a piece the registry knows would be read as unregistered copper.
 
-    Mutation: treat "unresolvable" as "different net" and the via stays."""
+    The OBSERVABLE changed with Т1 of plan_2026_11_20_cell_read_takes_inter_node_
+    copper (Денис 20.11): a registry-owned piece is now TRANSFERRED to the cell
+    (Р1) instead of subtracted. What this cell pins is unchanged — the record was
+    not dropped, and its piece is NAMED instead of being read as nobody's.
+
+    Mutation: treat "unresolvable" as "different net" and the transfer is empty
+    (the piece survives as if no record owned it)."""
     _write_registries(tmp_path)
     nt = _record("NT1", net="NET1")
     nt.vias[0].net_from_role = "GONE_ROLE"
@@ -129,9 +136,9 @@ def test_a_record_with_an_unresolvable_net_is_not_dropped(gate, tmp_path):
                        "drill_mm": 0.3, "diameter_mm": 0.6}})
 
     prelude = _narrow(tmp_path, adapter, cfg, vias=[selected_via], tracks=[])
-    adapter_vias = [i.uuid for i in prelude.vias]
 
-    assert adapter_vias == [], "the registry-owned piece must still be subtracted"
+    assert [tr.identity for tr in prelude.transfers] == ["NT1"], prelude.transfers
+    assert prelude.subtracted_net_traces == ()
 
 
 def _via_key(nt):
