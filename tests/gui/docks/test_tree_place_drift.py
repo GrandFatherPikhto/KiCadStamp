@@ -453,3 +453,56 @@ def test_a_mount_the_classifier_refuses_is_one_honest_line(seams):
     assert "could not check" in lines[0] and "'m1'" in lines[0]
     assert "places twice" in lines[0]
     assert "mm from its place" not in lines[0]
+
+
+# ── 2026-11-20 (plan_2026_11_19_forest_index_keys_and_instances, Ф3): the walk
+#    follows the node's IDENTITY, not a name two clones share ────────────────
+#
+# A `tree_instances` clone keeps every mount name un-suffixed, so `driver_mnt`
+# exists in BOTH clones. The old `ref -> node` maps kept the LAST one and the
+# walk climbed into the other tree — the live HP-Channel line of 19.11
+# («ancestor 'driver_switcha__Switch_B' is NOT being redrawn … 46.6 mm»).
+
+def _clone_forest():
+    """Two clones of one template: the SAME mount name, cloned record names.
+    "driver_a" sits 3 mm off its place; "driver_b" sits exactly on it."""
+    def clone(tree_name, suffix):
+        spoke = _node(f"spoke_{suffix}")
+        mount = _node("driver_mnt", kind="mount", children=[spoke])
+        driver = _node(f"driver_{suffix}", children=[mount])
+        return _tree(tree_name, [driver])
+
+    return clone("Switch_A", "a"), clone("Switch_B", "b")
+
+
+def _forest_lines(seams, linked, names):
+    return tpd.place_drift_lines(object(), None, list(linked), names, {})
+
+
+def test_a_clone_pair_does_not_borrow_the_other_trees_ancestor(seams):
+    """Cell «с1б»: the selected node of the FIRST clone names ITS OWN driver.
+    Before the fix the shared `driver_mnt` answered with `Switch_B`'s mount, so the
+    line named `driver_b` — a node the run never touched."""
+    seams["live_by_ref"] = {"driver_a": _live(100 * MM, 97 * MM)}
+    lines = _forest_lines(seams, _clone_forest(), {"spoke_a"})
+
+    assert len(lines) == 1
+    assert "'driver_a'" in lines[0]
+    assert "driver_b" not in lines[0]
+    assert "spoke_a" in lines[0]
+
+
+def test_a_clone_pair_gives_one_line_per_tree(seams):
+    """Both clones selected: TWO lines, each naming the driver of ITS OWN tree —
+    the old map merged them into one line about the last clone's driver."""
+    seams["live_by_ref"] = {"driver_a": _live(100 * MM, 97 * MM),
+                            "driver_b": _live(100 * MM, 97 * MM)}
+    lines = _forest_lines(seams, _clone_forest(), {"spoke_a", "spoke_b"})
+
+    assert len(lines) == 2
+    named = sorted(line.split("'")[1] for line in lines)
+    assert named == ["driver_a", "driver_b"]
+    a_line = next(line for line in lines if "'driver_a'" in line)
+    b_line = next(line for line in lines if "'driver_b'" in line)
+    assert "spoke_a" in a_line and "spoke_b" not in a_line
+    assert "spoke_b" in b_line and "spoke_a" not in b_line

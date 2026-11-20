@@ -8,7 +8,8 @@ ref, a component vertex's name) stays a string in `by_ref`. A `tree_instances` c
 `mount`/`copper`/`component` names un-suffixed, so a ref-keyed map silently keeps the LAST
 clone's node — the live HP-Channel line of 19.11 (46.6 mm).
 
-  M1 the index is keyed by the bare `ref` again (the last clone wins)
+  M1 the PLANNER's index is keyed by the bare `ref` again (the last clone wins)
+  M2 the same mutation, seen from the DRIFT warning (it walks the same index)
   K  cosmetic control (a comment must change nothing)
 
 Safeguards as in every harness here (rule 38): a template matching more than once is REFUSED; a
@@ -29,12 +30,23 @@ ROOT = Path(__file__).resolve().parents[2]
 LINK = "kicadstamp/link_trees.py"
 
 GUARDS = "tests/trees/test_tree_position.py -k clone_pair"
+DRIFT_GUARDS = "tests/gui/docks/test_tree_place_drift.py -k clone_pair"
 
 MUTATIONS = [
     ("M1 the index is keyed by the bare ref", LINK,
      "            key = id(ln)\n",
      "            key = ln.node.ref  # MUTATION: the bare ref — the last clone wins\n",
      ["test_clone_pair_keeps_each_mounts_own_parent_and_tree"]),
+
+    # The SAME one-line mutation, seen from the drift warning: it walks the very
+    # same `ForestIndex`, and its own old `ref -> node` map was the module that
+    # produced the live HP-Channel line. Two rows because `-x` stops at the first
+    # red cell and the two cells live in different files.
+    ("M2 the DRIFT walk depends on the same key", LINK,
+     "            key = id(ln)\n",
+     "            key = ln.node.ref  # MUTATION: the bare ref — the last clone wins\n",
+     ["test_a_clone_pair_does_not_borrow_the_other_trees_ancestor"],
+     DRIFT_GUARDS),
 
     ("K cosmetic control", LINK,
      "def forest_index(linked_trees) -> ForestIndex:\n",

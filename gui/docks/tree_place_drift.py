@@ -62,6 +62,7 @@ from kicadstamp.exceptions import (
     fatal_error_reason,
 )
 from kicadstamp.i18n import _
+from kicadstamp.link_trees import ForestIndex, forest_index
 from kicadstamp.tree_plan_warnings import plan_pose_subject
 from kicadstamp.tree_position import (
     resolve_base_live_position,
@@ -93,26 +94,18 @@ class AncestorOutsidePlan:
     reason: str | None = None
 
 
-def _forest_index(linked_trees) -> tuple[dict, dict, dict]:
-    """(ref -> LinkedNode, ref -> parent ref | None, ref -> owning LinkedTree)
-    over EVERY linked tree — a redraw's `names` may span several trees (module
-    content), and a parent chain must never stop at a tree border."""
-    nodes: dict = {}
-    parent: dict = {}
-    owner: dict = {}
+def _forest_index(linked_trees) -> ForestIndex:
+    """The forest index of `link_trees.forest_index` — over EVERY linked tree (a
+    redraw's `names` may span several trees, and a parent chain must never stop at
+    a tree border), and keyed by the node's IDENTITY.
 
-    def walk(linked_node, parent_ref, linked_tree):
-        ref = linked_node.node.ref
-        nodes[ref] = linked_node
-        parent[ref] = parent_ref
-        owner[ref] = linked_tree
-        for child in linked_node.children:
-            walk(child, ref, linked_tree)
-
-    for linked_tree in linked_trees:
-        for linked_node in linked_tree.nodes:
-            walk(linked_node, None, linked_tree)
-    return nodes, parent, owner
+    This module used to build its own `ref -> node` maps. `mount`/`copper`/
+    `component` names are LOCAL and a `tree_instances` clone keeps them
+    un-suffixed, so `parent["p15v_5"]` answered with the LAST clone's mount and the
+    walk climbed into the OTHER tree — the live HP-Channel line of 19.11
+    («ancestor 'driver_switcha__Switch_B' is NOT being redrawn … 46.6 mm»,
+    plan_2026_11_19_forest_index_keys_and_instances)."""
+    return forest_index(linked_trees)
 
 
 def _host_subject(cfg, linked_node, tree_name):
@@ -153,7 +146,7 @@ def ancestors_outside_plan(cfg, linked_trees, names) -> list:
     continues past a redrawn ancestor, and nothing selected below an ancestor
     means it is never reached — that silence is the point (cell 11)."""
     wanted = set(names or ())
-    index, parent, owner = _forest_index(linked_trees)
+    index = _forest_index(linked_trees)
     found: dict = {}
 
     def entry(ref, record, reason=None):
@@ -164,29 +157,30 @@ def ancestors_outside_plan(cfg, linked_trees, names) -> list:
         return made
 
     for name in wanted:
-        if name not in index:
+        node = index.by_ref.get(name)
+        if node is None:
             continue
-        parent_ref = parent.get(name)
-        while parent_ref is not None:
-            node = index[parent_ref]
-            subject, reason = _host_subject(cfg, node, owner[parent_ref].name)
+        parent = index.parent.get(id(node))       # the parent NODE, this tree's
+        while parent is not None:
+            subject, reason = _host_subject(cfg, parent, index.owner[id(parent)])
             if reason is not None:
                 # A mount we could not classify: its children ARE laid from the
                 # tree, so say so instead of falling silent.
-                entry(parent_ref, None, reason)
+                entry(parent.node.ref, None, reason)
             elif subject is not None:
                 ref, record = subject
                 if record is None:                 # a mount's placing node
-                    placing = index.get(ref)
+                    placing = index.by_ref.get(ref)
                     record = None if placing is None else placing.record
                 if ref not in wanted:
                     if getattr(record, "kind", None) != "placement":
-                        entry(ref, record, _unreadable_plan(record, index.get(ref)))
+                        entry(ref, record,
+                              _unreadable_plan(record, index.by_ref.get(ref)))
                     else:
                         made = entry(ref, record)
                         if name not in made.children:
                             made.children.append(name)
-            parent_ref = parent.get(parent_ref)
+            parent = index.parent.get(id(parent))
     return list(found.values())
 
 
