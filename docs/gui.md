@@ -940,6 +940,17 @@ the layer rule — so Redraw → Read current position gives the node's own rota
 footprint, or the board side is unknown) the frame keeps 0° and the Log SAYS so. Two or more parts keep
 the fit unchanged.
 
+**UPDATE 2026-11-20 (plan `plan_2026_11_19_mirrored_reread_copper_layer`): the copper LAYER follows the
+geometry into the cell's frame.** A re-read of a MIRRORED instance un-mirrors the offsets and the angles
+into the cell's own frame (`CellFrame.point_to_cell` / `angle_to_cell`) but compared the live copper
+layer with the record's AS THEY ARE — so on HP-Channel-v099 the three F.Cu records of `spoke_pwr` looked
+"missing" (and were deleted) while the live B.Cu tracks looked "new" (and were imported with
+`layer B.Cu`). The side now travels the same way the geometry does — `CellFrame.layer_to_cell` (one
+rule, `utils.layers.mirror_layer`, an inner layer unchanged) — and all three readers use it: the copper
+matcher's grouping key, the imported track record and the new component record. A mirrored instance is
+therefore read exactly like an unmirrored one: the same records pair, nothing is deleted, nothing is
+imported, and a track on the cell's own side carries no `layer` at all.
+
 **UPDATE 2026-10-08 (plan `plan_2026_10_08_tree_node_ref_apply.md`, «Решение по п.3»):** a node's
 **Apply** checks, BEFORE touching anything, everything the next config LOAD (and the writer stamp)
 would refuse, and refuses with the LOADER's own text in the Log plus a red line under the form —

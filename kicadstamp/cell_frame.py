@@ -351,6 +351,23 @@ class CellFrame:
         return clone_rotation_from_component(
             world_angle_deg, self.rotation_deg, self.mirror)
 
+    def layer_to_cell(self, world_layer: str) -> str:
+        """A LIVE copper layer -> the layer the cell's own record carries (2026-11-20).
+
+        The re-read un-mirrors the instance's geometry into the cell's frame
+        (`point_to_cell`, `angle_to_cell`), so the LAYER has to travel the same way: a
+        mirrored instance of an F.Cu cell keeps its copper on B.Cu on the BOARD, and in
+        the cell's frame that copper is F.Cu again. Inner layers come back unchanged —
+        `utils.layers.mirror_layer` owns that rule (design Р16 of
+        plan_2026_09_12_mirror_keeps_inner_layers), never a second copy here.
+
+        Before this, the copper matcher compared the live layer with the record's layer
+        as they are, so on a mirrored instance every F.Cu record looked "missing" (and
+        was deleted) while every live track looked "new" (and was imported with a B.Cu
+        layer) — the live HP-Channel defect of 19.11 (plan
+        plan_2026_11_19_mirrored_reread_copper_layer)."""
+        return mirror_layer(world_layer) if self.mirror else world_layer
+
 
 def frame_for_live_selection(matched, footprints, role_to_ref, surrogate, mount,
                              cell_layer=None) -> CellFrame:

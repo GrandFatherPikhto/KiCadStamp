@@ -285,34 +285,24 @@ def _match_copper(records: list[dict], live_items: list[Any], frame: CellFrame,
     raises here; the caller raises once with ALL problems collected. Does not
     mutate `records` or `live_items`.
 
-    leftover_is_fatal — the tier-4 treatment of whatever live items the named
-    tiers 1-3 left unclaimed:
-      - True (Refresh): leftover is "extra copper not described by the cell"
-        — every leftover item becomes a collected problem, `leftover` is [].
-      - False (Import vias/tracks): leftover is RETURNED as the third element
-        — the caller (build_import_plan) turns each into a NEW record instead
-        of a fatal. The count-mismatch fatals of tiers 1-3 are NOT softened
-        in this mode: only tier 4 changes, never a named-net check.
+    leftover_is_fatal — tier 4's treatment of whatever live items tiers 1-3 left
+    unclaimed: True (Refresh) makes each one a collected problem and returns [];
+    False (Import) RETURNS them as the third element, and the caller turns each into
+    a NEW record. The count-mismatch fatals of tiers 1-3 are NOT softened in that
+    mode: only tier 4 changes, never a named-net check.
 
-    missing_is_fatal (H.2.1) — a RECORD with no live counterpart:
-      - True (default, strict): today's count-mismatch fatal, message text
-        unchanged.
-      - False (the symmetric Refresh, remove_missing=True): no count fatal —
-        the group is paired up to min(n, m) and the unpaired RECORDS come back
-        as the fourth element (`removed`) — the SAME dict objects the caller
-        passed in, so it drops them from its lists by identity. Live items left
-        without a record stay in the pool for the later tiers, exactly like the
-        named tiers' unclaimed items do today.
+    missing_is_fatal (H.2.1) — a RECORD with no live counterpart: True (default,
+    strict) keeps today's count-mismatch fatal, text unchanged; False (the symmetric
+    Refresh, remove_missing=True) pairs the group up to min(n, m) and returns the
+    unpaired RECORDS as the fourth element (`removed`) — the SAME dict objects, so the
+    caller drops them by identity. Live items left without a record stay in the pool
+    for the later tiers, exactly like the named tiers' unclaimed items do today.
 
-    cell_layer (H.1.1) — the cell's own copper layer ('F.Cu'/'B.Cu'). When it is
-    given, TRACKS are grouped by (net/template, effective layer): a record's
-    effective layer is `rec.get("layer") or cell_layer`, a live track's is its
-    own `layer` name. Without this an F.Cu record paired with a B.Cu live track
-    of the same net (they share an endpoint, so distance 0) and had its geometry
-    rewritten to the B.Cu path while keeping `layer: F.Cu` — and now that an
-    unpaired record is DELETED, that would be silent corruption of the cell.
-    Vias are layer-less (through-hole) and are never split. `cell_layer is None`
-    keeps the historical net-only grouping, so existing callers are unaffected.
+    cell_layer (H.1.1) — the cell's own copper layer. With it, TRACKS are grouped by
+    (net/template, effective layer): a record's is `rec.get("layer") or cell_layer`, a
+    live track's is `frame.layer_to_cell(...)` — the CELL's side. Without it an F.Cu
+    record could pair with a B.Cu track of one net and be rewritten, and an unpaired
+    record is DELETED. Vias are layer-less. `None` keeps the old net-only grouping.
     """
     updates: list[tuple[dict, dict]] = []
     problems: list[str] = []
@@ -345,7 +335,10 @@ def _match_copper(records: list[dict], live_items: list[Any], frame: CellFrame,
     def _live_layer(item: Any) -> str | None:
         if kind != "track" or cell_layer is None:
             return None
-        return layer_to_str(item.layer)
+        # The live layer IN THE CELL'S FRAME (`CellFrame.layer_to_cell`): a mirrored
+        # instance's copper sits on the other side of the board, but the record it pairs
+        # with is the cell's own. Raw-vs-raw made every record "missing" (HP-Channel 19.11).
+        return frame.layer_to_cell(layer_to_str(item.layer))
 
     # Split the cell's records into the three net families.
     parametrized: list[tuple[str, dict]] = []   # (template, record)
@@ -1028,12 +1021,12 @@ def build_refresh_plan(components: list[dict], vias: list[dict], tracks: list[di
                 continue
             record: dict = {"role": role}
             record.update(_component_new_geo(fp, frame))
-            # `layer` only when the side differs from the cell's own — the
-            # extractor's rule (extract_template_from_selection). Ф4: checked —
-            # CellDock always sends a value (its combo defaults to "F.Cu"), so
-            # this path never sees None and needs no fallback.
-            if cell_layer is not None and layer_to_str(fp.layer) != cell_layer:
-                record["layer"] = layer_to_str(fp.layer)
+            # `layer` only when the side differs from the cell's own (the extractor's
+            # rule; Ф4: CellDock always sends a value). The side is the CELL's frame
+            # (`CellFrame.layer_to_cell`) — a mirrored instance's own layer is its side.
+            live_layer = frame.layer_to_cell(layer_to_str(fp.layer))
+            if cell_layer is not None and live_layer != cell_layer:
+                record["layer"] = live_layer
             new_component_records.append(record)
         missing_roles = {r for r in cell_roles if r and r not in role_to_ref}
         if missing_roles:
@@ -1200,7 +1193,9 @@ def _import_track_record(live: Track, frame: CellFrame,
         "width_mm": round(live.width_mm, 4),
     }
     if cell_layer is not None:
-        live_layer = layer_to_str(live.layer)
+        # The layer the RECORD must carry: the live one in the cell's frame
+        # (`CellFrame.layer_to_cell`) — a mirrored instance's other side is `layer: B.Cu`.
+        live_layer = frame.layer_to_cell(layer_to_str(live.layer))
         if live_layer != cell_layer:
             record["layer"] = live_layer
     return record

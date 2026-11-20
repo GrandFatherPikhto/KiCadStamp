@@ -1088,9 +1088,14 @@ def _track_on(net, x1, y1, x2, y2, layer=BoardLayer.BL_B_Cu, width=0.65):
 
 
 def _refresh_tracks(records, live_tracks, cell_layer="B.Cu", **kw):
+    """A NON-mirrored instance of a `cell_layer` cell: its live footprint stands on the
+    cell's own side (2026-11-20 — with the footprint on the OTHER side the frame was
+    mirrored, and then a live B.Cu track IS the cell's side; these cells are about a
+    genuinely different layer, so the side must not be mirrored)."""
     components = [{"role": "ORIG", "offset_along_mm": 0.0,
                    "offset_across_mm": 0.0}]
-    footprints = [_fp("R-ORIG", "ORIG", 0.0, 0.0)]
+    side = BoardLayer.BL_B_Cu if cell_layer == "B.Cu" else BoardLayer.BL_F_Cu
+    footprints = [_fp_on("R-ORIG", "ORIG", 0.0, 0.0, layer=side)]
     adapter = _FakeAdapter(roles={"R-ORIG": "ORIG"})
     return build_refresh_plan(components, [], records, footprints, [],
                               live_tracks, adapter, cell_layer=cell_layer, **kw)
@@ -1198,7 +1203,9 @@ def test_new_track_record_omits_the_cell_layer():
 def test_refresh_add_new_copper_also_keeps_the_other_layer():
     components = [{"role": "ORIG", "offset_along_mm": 0.0,
                    "offset_across_mm": 0.0}]
-    footprints = [_fp("R-ORIG", "ORIG", 0.0, 0.0)]
+    # The footprint stands on the CELL's own side (B.Cu) — a non-mirrored read, so the
+    # live F.Cu track is genuinely the other side of the cell (2026-11-20).
+    footprints = [_fp_on("R-ORIG", "ORIG", 0.0, 0.0, layer=BoardLayer.BL_B_Cu)]
     adapter = _FakeAdapter(roles={"R-ORIG": "ORIG"})
     live = [_track_on("/N", 1.0, 1.0, 2.0, 1.0, layer=BoardLayer.BL_F_Cu)]
     plan = build_refresh_plan(components, [], [], footprints, [], live, adapter,
@@ -1207,12 +1214,135 @@ def test_refresh_add_new_copper_also_keeps_the_other_layer():
 
 
 def _import_case(live_tracks, cell_layer):
+    """Same rule as `_refresh_tracks`: the live footprint stands on the CELL's side, so
+    the read is not mirrored and `layer` in the record really means "the other side"."""
+    components = [{"role": "ORIG", "offset_along_mm": 0.0,
+                   "offset_across_mm": 0.0}]
+    side = BoardLayer.BL_B_Cu if cell_layer == "B.Cu" else BoardLayer.BL_F_Cu
+    footprints = [_fp_on("R-ORIG", "ORIG", 0.0, 0.0, layer=side)]
+    adapter = _FakeAdapter(roles={"R-ORIG": "ORIG"})
+    return build_import_plan(components, [], [], footprints, [],
+                             live_tracks, adapter, cell_layer=cell_layer)
+
+
+# ── 2026-11-20 (plan_2026_11_19_mirrored_reread_copper_layer): the LAYER is read
+#    in the CELL's frame too ─────────────────────────────────────────────────
+#
+# Denis, 19.11, live HP-Channel-v099: he flipped `spoke_p5v_switcha` (cell
+# `spoke_pwr`, layer F.Cu) onto B.Cu and re-read the cell from THAT instance. The
+# GEOMETRY was un-mirrored into the cell's frame while the LAYERS were not, so the
+# three F.Cu records looked "missing" (deleted) and the live B.Cu tracks looked
+# "new" (imported with `layer B.Cu`). `CellFrame.layer_to_cell` is the one rule the
+# read follows now: the side travels the SAME way the geometry does, and inner
+# layers stay where they are (utils.layers.mirror_layer, design Р16).
+
+_MIRRORED_SPEC = [("ORIG", 0.0, 0.0, 0.0), ("CAP", 3.0, 0.0, 0.0)]
+_MIRRORED_EXTRA = ("EXTRA", 1.0, 2.0, 0.0)
+_MIRRORED_SIDE = BoardLayer.BL_B_Cu
+
+
+def _mirrored_track_record(net="/N", layer="F.Cu", start=1.0, end=2.0):
+    """One cell track record: `start_along_mm`/`end_along_mm` at across 0."""
+    return {"net": net, "layer": layer, "width_mm": 0.254,
+            "start_along_mm": start, "start_across_mm": 0.0,
+            "end_along_mm": end, "end_across_mm": 0.0}
+
+
+def _mirrored_refresh(records=(), live_tracks=(), *, extra_side=None, **kw):
+    """A MIRRORED instance of an F.Cu cell: its live footprints stand on B.Cu, so the
+    frame's mirror is True and BOTH the geometry and the layer have to be un-mirrored
+    into the cell's own frame. `extra_side` adds one more live role with no record (a
+    NEW component) standing on that side."""
+    spec = list(_MIRRORED_SPEC) + ([_MIRRORED_EXTRA] if extra_side is not None else [])
+    fps = _live_cluster(spec, 0.0, mirror=True)
+    for fp in fps:
+        fp.layer = _MIRRORED_SIDE
+    if extra_side is not None:
+        next(fp for fp in fps if fp.ref == f"R-{_MIRRORED_EXTRA[0]}").layer = extra_side
+    adapter = _FakeAdapter(roles={f"R-{role}": role for role, *_rest in spec})
+    return build_refresh_plan(_spec_components(_MIRRORED_SPEC), [], list(records),
+                              fps, [], list(live_tracks), adapter,
+                              cell_layer="F.Cu", **kw)
+
+
+def test_a_a_mirrored_instance_pairs_its_own_tracks():
+    """Cell «а»: an F.Cu record of an F.Cu cell, read from a B.Cu (mirrored) instance,
+    is the SAME SIDE — in the cell's frame that copper is F.Cu again. Nothing is
+    deleted, nothing is imported, and the geometry comes back to its stored offsets."""
+    record = _mirrored_track_record()
+    # The forward mapping of the stored (1,0)..(2,0) about the cluster's origin
+    # (_MEASURED_ORIGIN_MM): rotate 0°, then flip X -> (118,60)..(119,60).
+    live = [_track_on("/N", 118.0, 60.0, 119.0, 60.0, layer=_MIRRORED_SIDE)]
+    plan = _mirrored_refresh([record], live)
+    assert plan.removed_track_records == []
+    assert plan.new_track_records == []
+    assert len(plan.track_updates) == 1
+    _rec, geo = plan.track_updates[0]
+    assert sorted([geo["start_along_mm"], geo["end_along_mm"]]) == \
+        pytest.approx([1.0, 2.0], abs=1e-4)
+    assert geo["start_across_mm"] == pytest.approx(0.0, abs=1e-4)
+
+
+def test_b_an_inner_layer_stays_inner_on_a_mirrored_instance():
+    """Cell «б»: In1.Cu in the cell and In1.Cu live — a mirror moves a construction to
+    the other SIDE of the same board, it does not move a plane, so the pair stands.
+    The control against an over-eager "swap F and B" fix."""
+    record = _mirrored_track_record(layer="In1.Cu")
+    live = [_track_on("/N", 118.0, 60.0, 119.0, 60.0,
+                      layer=BoardLayer.BL_In1_Cu)]
+    plan = _mirrored_refresh([record], live)
+    assert plan.removed_track_records == []
+    assert plan.new_track_records == []
+    assert len(plan.track_updates) == 1
+
+
+def test_v_new_tracks_of_a_mirrored_instance_take_the_cells_frame():
+    """Cell «в»: on a MIRRORED instance the live B.Cu IS the cell's own side (F.Cu
+    once un-mirrored) -> the new record carries no `layer`; a live F.Cu track is the
+    OTHER side of the cell -> `layer: B.Cu`."""
+    own_side = _track_on("/OWN", 118.0, 60.0, 119.0, 60.0, layer=_MIRRORED_SIDE)
+    other_side = _track_on("/OTHER", 124.0, 60.0, 125.0, 60.0,
+                           layer=BoardLayer.BL_F_Cu)
+    plan = _mirrored_refresh(live_tracks=[own_side, other_side],
+                             add_new_copper=True)
+    by_net = {rec.get("net"): rec for rec in plan.new_track_records}
+    assert "layer" not in by_net["/OWN"]
+    assert by_net["/OTHER"]["layer"] == "B.Cu"
+
+
+def test_g_a_new_component_of_a_mirrored_instance_takes_the_cells_frame():
+    """Cell «г»: a live footprint of a mirrored instance stands on B.Cu, which IS the
+    cell's side -> its new record carries no `layer`; the same footprint on F.Cu is
+    the other side -> `layer: B.Cu`."""
+    own = _mirrored_refresh(reconcile_components=True, extra_side=_MIRRORED_SIDE)
+    assert len(own.new_component_records) == 1
+    assert own.new_component_records[0]["role"] == _MIRRORED_EXTRA[0]
+    assert "layer" not in own.new_component_records[0]
+    other = _mirrored_refresh(reconcile_components=True,
+                              extra_side=BoardLayer.BL_F_Cu)
+    assert other.new_component_records[0]["layer"] == "B.Cu"
+
+
+def test_d_a_non_mirrored_instance_keeps_the_old_answer():
+    """Cell «д» (control): on an instance standing on the cell's OWN side the rule is
+    the historical one byte for byte — an F.Cu record pairs with an F.Cu track, and a
+    B.Cu track is still "extra copper" (the layer comparison itself is untouched)."""
     components = [{"role": "ORIG", "offset_along_mm": 0.0,
                    "offset_across_mm": 0.0}]
     footprints = [_fp("R-ORIG", "ORIG", 0.0, 0.0)]
     adapter = _FakeAdapter(roles={"R-ORIG": "ORIG"})
-    return build_import_plan(components, [], [], footprints, [],
-                             live_tracks, adapter, cell_layer=cell_layer)
+    record = _mirrored_track_record()
+    same = build_refresh_plan(
+        components, [], [record], footprints, [],
+        [_track_on("/N", 1.0, 0.0, 2.0, 0.0, layer=BoardLayer.BL_F_Cu)],
+        adapter, cell_layer="F.Cu")
+    assert same.removed_track_records == [] and same.new_track_records == []
+    assert len(same.track_updates) == 1
+    with pytest.raises(ValidationError):
+        build_refresh_plan(
+            components, [], [record], footprints, [],
+            [_track_on("/N", 1.0, 0.0, 2.0, 0.0, layer=_MIRRORED_SIDE)],
+            adapter, cell_layer="F.Cu")
 
 
 # ── J.1 (2026-09-10, plan marker_frame_and_sheets): the refresh expresses the

@@ -75,7 +75,9 @@ CEILINGS = {
     # None` — the docks keep the controller after the run). Property + `_done` + `long_op_running`.
     "gui/worker.py": 1147,
     "kicadstamp/apply_pipeline.py": 1149,
-    "kicadstamp/cell_geometry_refresh.py": 1461,
+    # 1461 → 1456 (plan_2026_11_19_mirrored_reread_copper_layer): the layer rule moved
+    # into `CellFrame.layer_to_cell` and the three old explanations shrank to match.
+    "kicadstamp/cell_geometry_refresh.py": 1456,
     "kicadstamp/channel_copy.py": 947,
     "kicadstamp/config/entries.py": 1573,
     "kicadstamp/config/models.py": 1149,
