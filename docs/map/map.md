@@ -366,6 +366,12 @@
 |---|---|---|---|---|
 | в каком слое читается ЖИВОЙ слой при перечитывании ячейки | `kicadstamp/cell_frame.CellFrame.layer_to_cell` — `mirror_layer(name)` при `self.mirror`, иначе имя как есть (внутренний слой остаётся своим, `utils.layers.mirror_layer`) | 3: `cell_geometry_refresh._match_copper._live_layer` (ключ группировки медь/слой), `_import_track_record` (запись новой дорожки), запись нового компонента (`reconcile_components`) | — | **20.11, живой дефект HP-Channel-v099:** геометрию перечитывание раззеркаливает, а слой сравнивало КАК ЕСТЬ, поэтому у зеркального экземпляра все F.Cu-записи `spoke_pwr` выглядели «пропавшими» (удалены), а живые B.Cu-дорожки — «новыми» (вписаны с `layer B.Cu`). Правило уже было верно в `cell_copper_place` (проход по месту) — теперь оно одно. Клетки «а»–«д» в `tests/trees/test_cell_geometry_refresh.py`, мутации M1–M4 — `kicadstamp/diagnostics/run_mirrored_reread_mutations_2026_11_20.py` |
 
+## 2.25. Дополнение захода 2026-11-20 (план `plan_2026_11_19_forest_index_keys_and_instances`, Ф3)
+
+правило | хозяин (`файл:строка`) | вызывающих | копии | замечание |
+|---|---|---|---|---|
+| каким ключом адресуется узел ЛЕСА (имя или личность) | `kicadstamp/link_trees.forest_index` → `ForestIndex`: `by_ref` — ТОЛЬКО выпускающие имя (записи + компонентные узлы), `parent_ref` / `parent` / `owner` / `top_level` — по `id(node)`; там же `emits_a_name` (переехал из `tree_position._emits_a_name`, который стал швом) | 2: `kicadstamp/tree_position._forest_index` (порядок леса + предупреждение «родитель не в выборке», `plan_pose_subject` получает УЗЕЛ и имя СВОЕГО дерева) и `gui/docks/tree_place_drift._forest_index` (строка «ancestor … is NOT being redrawn») | — | **20.11, Ф3:** local-имена (`mount`/`copper`/`component`/`external`/`module`/`point`) в клоне НЕ суффиксируются, и карта «ref → узел» на весь лес молча оставляла последний клон — живой след HP-Channel 19.11: `driver_switcha__Switch_B` как предок узлов `Switch_A` (46.6 мм). Порядок при этом НЕ ломался: mount не вершина, ребро через него и раньше не проводилось (клетка-контроль). Компонентный узел — ВЕРШИНА, а имя у него локальное: два клона дают одну вершину, это ОТКРЫТЫЙ вопрос (в заход не входил). Клетки — `test_clone_pair_*` в `tests/trees/test_tree_position.py` и `test_a_clone_pair_*` в `tests/gui/docks/test_tree_place_drift.py`; стенд `run_forest_index_keys_mutations_2026_11_20.py` |
+
 ## Чего не успел / открытые вопросы
 
 - Точная строка `show_message` в `gui/docks/_common.py` и наличие прямых `QCoreApplication.translate`.
