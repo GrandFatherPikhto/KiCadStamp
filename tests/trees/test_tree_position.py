@@ -1428,6 +1428,27 @@ def test_clone_pair_order_is_the_same_as_its_own_single_tree_order():
     assert pair_names == solo_names == ["driver_a", "spoke_a"]
 
 
+def test_clone_pair_hands_the_planner_the_mount_of_ITS_own_tree(monkeypatch):
+    """Cell «с1в»: the planner's warning asks the host about the mount by (NODE,
+    TREE) — and the tree must be the one that HOLDS that mount. The old ref-keyed
+    map handed over `Switch_B` for `Switch_A`'s mount, so the host classified the
+    WRONG tree's role (`plan_pose_subject` → `resolve_internal_mount_match`) and the
+    wording promised the board or the tree accordingly."""
+    seen: list[tuple[str, str | None]] = []
+
+    def fake_subject(cfg, linked_node, tree_name):
+        seen.append((linked_node.node.ref, tree_name))
+        return None                      # "read from the board" — wording only
+
+    monkeypatch.setattr("kicadstamp.tree_position.plan_pose_subject", fake_subject)
+    trees, _mounts, _spokes = _clone_pair()
+
+    curated_redraw_plan_forest(trees, {"spoke_a"})
+
+    assert seen, "the planner must ask about the parent"
+    assert [(ref, tree) for ref, tree in seen] == [("driver_mnt", "Switch_A")]
+
+
 def test_one_clone_index_keeps_the_plain_refs_and_pairs():
     """Control: with ONE tree the index says exactly what the old one did — a
     record's ref in `by_ref`, the parent's ref in `parent_ref`, the tree name in
