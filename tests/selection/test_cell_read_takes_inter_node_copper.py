@@ -399,3 +399,62 @@ def test_t3g_a_kind_mismatch_subtracts_with_a_line(gate, board):
     texts = _texts(prelude)
     assert any("while the live item is a" in t for t in texts), texts
     assert sum(count for _label, count in prelude.subtracted_net_traces) == 1
+
+
+# ── т4: Р2 — the boundary is the instance, not the selection frame ──────────
+
+def test_t4_a_record_between_other_nodes_is_subtracted_and_named(gate, board):
+    """Р2: the record's OWN address names another instance and none of its ends
+    stands on a component of this one — its piece is copper BETWEEN two other
+    nodes, so it is subtracted as before, and ONE yellow line names the record.
+
+    RED before Т2: the keyed piece was transferred wherever the record sat."""
+    nt = _record(tracks=1)
+    nt.anchor_role = "DRV"
+    nt.anchor_cluster = "OTHER_CL"
+    nt.anchor_sheet = "OtherSheet"
+    cfg = _cfg([nt])
+    sel_track = _track("sel-t")
+    _write_registries(
+        board.tmp_path,
+        track_entries={net_trace_registry_key(nt, 0): _track_entry("sel-t")})
+    far = _fp("U7", "DRV", "OTHER_CL", 50.0, 50.0)
+    adapter = _Adapter({**board.fields, "U7": ("DRV", "OTHER_CL")},
+                       footprints=[*board.footprints, far], tracks=[sel_track])
+
+    prelude = _narrow(board.tmp_path, adapter, cfg, vias=[], tracks=[sel_track])
+
+    assert prelude is not None and prelude.refusal is None
+    assert prelude.tracks == [], "the piece may not be read into the cell"
+    assert prelude.transfers == ()
+    texts = _texts(prelude)
+    assert any("does not touch this instance" in t for t in texts), texts
+    assert sum(count for _label, count in prelude.subtracted_net_traces) == 1
+
+
+def test_t4b_a_pieces_far_end_on_this_instance_makes_the_record_touch_it(
+        gate, board):
+    """Р2's OTHER half (Ч0 п.4: «клетка должна проверять именно это, а не только
+    адрес»): the record's own address names ANOTHER instance, but the far end of
+    its piece (`net_from_role`) stands on a component of THIS one — the piece is
+    copper of this instance's node, so it IS transferred."""
+    nt = _record(tracks=1)
+    nt.anchor_role = "DRV"
+    nt.anchor_cluster = "OTHER_CL"
+    nt.anchor_sheet = "OtherSheet"
+    nt.tracks[0].net_from_role = "DA"      # the far end: C1, a component HERE
+    cfg = _cfg([nt])
+    sel_track = _track("sel-t")
+    _write_registries(
+        board.tmp_path,
+        track_entries={net_trace_registry_key(nt, 0): _track_entry("sel-t")})
+    far = _fp("U7", "DRV", "OTHER_CL", 50.0, 50.0)
+    adapter = _Adapter({**board.fields, "U7": ("DRV", "OTHER_CL")},
+                       footprints=[*board.footprints, far], tracks=[sel_track])
+
+    prelude = _narrow(board.tmp_path, adapter, cfg, vias=[], tracks=[sel_track])
+
+    assert prelude is not None and prelude.refusal is None
+    assert _uuids(prelude.tracks) == ["sel-t"], "the piece STAYS in the read"
+    assert [(t.kind, t.index) for t in prelude.transfers] == [("track", 0)]
+    assert prelude.subtracted_net_traces == ()

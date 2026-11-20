@@ -53,6 +53,7 @@ from kicadstamp.net_trace_planner import (
     net_trace_piece_index,
     net_trace_piece_net,
     net_trace_record_for_key,
+    net_trace_refs,
 )
 from kicadstamp.registry import (
     load_registry_entries,
@@ -69,6 +70,7 @@ from kicadstamp.selection_narrowing import (
     journal_is_the_read_instance,
     net_trace_transfers,
     read_net_trace_owned,
+    record_address_matches,
     subtract_foreign_copper,
     subtract_net_trace_copper,
 )
@@ -192,7 +194,47 @@ def _split_net_keyed(items, kind: str, owner: dict, kinds: dict, orphans) -> tup
     return plain, keyed
 
 
-def _keyed_decisions(net_keyed, net_traces, adapter, sheet_names) -> tuple:
+def _record_touches(adapter, nt, chosen_address, chosen_refs, sheet_names) -> bool:
+    """Р2: does this record TOUCH the instance being read?
+
+    The ADDRESS half first — (cluster, sheet) naming the instance needs no board
+    read — then the REFS half: the record's anchor role and its pieces' far ends,
+    resolved LIVE by ``net_trace_refs`` (the ONE "role → footprint" step
+    ``record_nets`` also stands on). A record between two OTHER nodes answers
+    False, and its copper is subtracted exactly as before."""
+    if record_address_matches((getattr(nt, "anchor_cluster", None),
+                               getattr(nt, "anchor_sheet", None)),
+                              chosen_address):
+        return True
+    refs = net_trace_refs(adapter, nt, sheet_names)
+    return bool(refs & frozenset(chosen_refs or ()))
+
+
+def _touch_table(net_traces, adapter, chosen_address, chosen_refs, sheet_names):
+    """``touches(identity) -> bool`` — answered ONCE per record per read.
+
+    The boundary is asked only about the records that actually own selected
+    copper, and the role search behind it is the same per-record question the walk
+    already asks, so caching keeps the read's cost where it was."""
+    by_name = {net_trace_effective_name(nt): nt for nt in net_traces or ()}
+    cache: dict[str, bool] = {}
+
+    def touches(identity: str) -> bool:
+        if identity not in cache:
+            nt = by_name.get(identity)
+            # An identity the walk reported but the config list does not hold
+            # cannot be checked: stay permissive instead of subtracting on a
+            # lookup failure.
+            cache[identity] = (True if nt is None else
+                               _record_touches(adapter, nt, chosen_address,
+                                               chosen_refs, sheet_names))
+        return cache[identity]
+
+    return touches
+
+
+def _keyed_decisions(net_keyed, net_traces, adapter, sheet_names,
+                     touches=None) -> tuple:
     """(transfers, kept, removed_report, lines) for the registry-keyed pieces.
 
     Р1/Р4: a piece the registry already knows as a `net:` key is TRANSFERRED to
@@ -226,6 +268,13 @@ def _keyed_decisions(net_keyed, net_traces, adapter, sheet_names) -> tuple:
             lines.append(_("net_traces {name}: the record no longer has that piece "
                            "— the piece was subtracted, not transferred").format(
                 name=label))
+            continue
+        if touches is not None and not touches(net_trace_effective_name(nt)):
+            removed[label] = removed.get(label, 0) + 1
+            lines.append(_("net_traces {name}: the record does not touch this "
+                           "instance — its piece was subtracted, not "
+                           "transferred").format(
+                name=net_trace_effective_name(nt)))
             continue
         piece_net = net_trace_piece_net(adapter, nt, run_kind, index, sheet_names)
         live_net = str(getattr(item, "net_name", "") or "")
@@ -453,6 +502,10 @@ def narrow_mixed_selection(*, config_path: str, adapter: Any, footprints: list,
                                     own_addresses, chosen_address, chosen_refs,
                                     orphan_keys=orphans)
     net_traces = getattr(cfg, "net_traces", None)
+    # Р2: WHICH records may hand their copper to this read — the boundary is the
+    # instance itself, asked once per record (`_touch_table`).
+    touches = _touch_table(net_traces, adapter, chosen_address, chosen_refs,
+                           sheet_names)
     net_v = net_t = None
     # А1 (plan_2026_10_08_narrowing_net_traces_cost): the board's copper is read
     # ONCE for the whole narrowing and the ownership map is computed ONCE, then
@@ -516,7 +569,7 @@ def narrow_mixed_selection(*, config_path: str, adapter: Any, footprints: list,
     # door's journal is not needed to trust it. Denis's guards subtract, with a
     # yellow line, whatever key cannot be trusted (`_keyed_decisions`).
     keyed_transfers, keyed_kept, keyed_removed, keyed_lines = _keyed_decisions(
-        net_keyed, net_traces, adapter, sheet_names)
+        net_keyed, net_traces, adapter, sheet_names, touches=touches)
     transfers = tuple(transfers) + keyed_transfers
     for item, run_kind in keyed_kept:
         (kept_v if run_kind == "via" else kept_t).append(item)

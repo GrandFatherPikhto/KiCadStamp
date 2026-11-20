@@ -3,7 +3,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version:  kicadstamp\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-11-20 18:34+0300\n"
+"POT-Creation-Date: 2026-11-20 18:50+0300\n"
 "PO-Revision-Date: 2026-07-27 12:00+0000\n"
 "Last-Translator: \n"
 "Language: ru\n"
@@ -1269,7 +1269,7 @@ msgstr ""
 "({refs}) — снимок перестраивается по кнопке Refresh; до этого их "
 "подсветка и pending-состояние пропускаются"
 
-#: gui/mixed_selection.py:135
+#: gui/mixed_selection.py:137
 #, python-brace-format
 msgid ""
 "read instance {cluster} on {sheet}; skipped {count} component(s) of other"
@@ -1280,14 +1280,14 @@ msgstr ""
 
 #: gui/docks/add_entities.py:161 gui/docks/instance_candidates.py:136
 #: gui/docks/instance_candidates.py:451 gui/entity/address.py:142
-#: gui/entity/address.py:146 gui/mixed_selection.py:137
-#: gui/mixed_selection.py:298 gui/mixed_selection.py:413 gui/select_cell.py:147
+#: gui/entity/address.py:146 gui/mixed_selection.py:139
+#: gui/mixed_selection.py:347 gui/mixed_selection.py:462 gui/select_cell.py:147
 #: gui/select_cell.py:243 gui/select_enclosed_copper.py:87
 #: gui/subtract_copper.py:67
 msgid "(no sheet)"
 msgstr "(без листа)"
 
-#: gui/mixed_selection.py:150
+#: gui/mixed_selection.py:152
 #, python-brace-format
 msgid ""
 "transferred from net_traces {name} into the cell: {tracks} track(s), "
@@ -1296,7 +1296,7 @@ msgstr ""
 "перейдёт из net_traces {name} в ячейку: {tracks} дорожек, {vias} "
 "переходных"
 
-#: gui/mixed_selection.py:216
+#: gui/mixed_selection.py:258
 #, python-brace-format
 msgid ""
 "net_traces {name}: the registry says it is a {file_kind} while the live "
@@ -1305,11 +1305,11 @@ msgstr ""
 "net_traces {name}: в реестре это {file_kind}, а живой предмет — "
 "{live_kind} — кусок вычтен, а не перенесён"
 
-#: gui/mixed_selection.py:219
+#: gui/mixed_selection.py:261
 msgid "(unknown kind)"
 msgstr "(вид неизвестен)"
 
-#: gui/mixed_selection.py:226
+#: gui/mixed_selection.py:268
 #, python-brace-format
 msgid ""
 "net_traces {name}: the record no longer has that piece — the piece was "
@@ -1318,7 +1318,16 @@ msgstr ""
 "net_traces {name}: у записи больше нет этого куска — кусок вычтен, а не "
 "перенесён"
 
-#: gui/mixed_selection.py:234
+#: gui/mixed_selection.py:274
+#, python-brace-format
+msgid ""
+"net_traces {name}: the record does not touch this instance — its piece "
+"was subtracted, not transferred"
+msgstr ""
+"net_traces {name}: запись не касается этого экземпляра — её кусок вычтен, "
+"а не перенесён"
+
+#: gui/mixed_selection.py:283
 #, python-brace-format
 msgid ""
 "net_traces {name}: its piece #{index} stands on net {live!r} while the "
@@ -1327,7 +1336,7 @@ msgstr ""
 "net_traces {name}: её кусок №{index} стоит на цепи {live!r}, а запись "
 "говорит {own!r} — кусок вычтен, а не перенесён"
 
-#: gui/mixed_selection.py:272
+#: gui/mixed_selection.py:321
 #, python-brace-format
 msgid ""
 "read {count} item(s) held by key(s) of a record that is no longer in the "
@@ -1336,17 +1345,17 @@ msgstr ""
 "прочитано {count} предмет(ов), которые держат ключи записи, которой "
 "больше нет в конфиге — {anchors}"
 
-#: gui/mixed_selection.py:287
+#: gui/mixed_selection.py:336
 #, python-brace-format
 msgid "subtracted from selection: {count} item(s) — {records}"
 msgstr "вычтено из выделения: {count} элемент(ов) — {records}"
 
-#: gui/mixed_selection.py:296
+#: gui/mixed_selection.py:345
 #, python-brace-format
 msgid "{cluster} on {sheet} ({refs})"
 msgstr "{cluster} на {sheet} ({refs})"
 
-#: gui/mixed_selection.py:299
+#: gui/mixed_selection.py:348
 #, python-brace-format
 msgid ""
 "the selection mixes {count} instances of cell {cell!r}: {candidates} — "
@@ -1355,7 +1364,7 @@ msgstr ""
 "выделение смешивает {count} экземпляр(ов) ячейки {cell!r}: {candidates} —"
 " выдели ОДИН экземпляр и прочитай снова"
 
-#: gui/mixed_selection.py:387
+#: gui/mixed_selection.py:436
 #, python-brace-format
 msgid ""
 "no component of cluster {cluster!r} is in the selection — select the "
@@ -1364,7 +1373,7 @@ msgstr ""
 "в выделении нет ни одного компонента кластера {cluster!r} — выделите "
 "экземпляр ячейки {cell!r} или запомните его на странице якоря ячейки"
 
-#: gui/mixed_selection.py:410
+#: gui/mixed_selection.py:459
 #, python-brace-format
 msgid ""
 "cluster {cluster!r} on {sheet} is not on the current board — select the "
@@ -1373,7 +1382,7 @@ msgstr ""
 "кластер {cluster!r} на {sheet} отсутствует на текущей плате — выделите "
 "экземпляр вручную"
 
-#: gui/mixed_selection.py:548
+#: gui/mixed_selection.py:601
 msgid ""
 "the instance being read is not the exploded one — the inter-cluster "
 "copper was subtracted"
@@ -12210,8 +12219,9 @@ msgstr ""
 "'In1.Cu'..'In30.Cu' или 'B.Cu') — extract-net всегда его пишет; ячейки, "
 "от которой можно унаследовать слой, здесь нет"
 
-#: kicadstamp/net_trace_planner.py:171 kicadstamp/net_trace_planner.py:257
-#: kicadstamp/net_trace_planner.py:288 kicadstamp/net_trace_planner.py:339
+#: kicadstamp/net_trace_planner.py:171 kicadstamp/net_trace_planner.py:272
+#: kicadstamp/net_trace_planner.py:304 kicadstamp/net_trace_planner.py:340
+#: kicadstamp/net_trace_planner.py:391
 #, python-brace-format
 msgid "net_traces entry (net {net!r})"
 msgstr "запись net_traces (сеть {net!r})"
@@ -12224,19 +12234,19 @@ msgstr ""
 "anchor_pad должен называть существующий номер пада якорного футпринта; "
 "удалите его, чтобы якориться на центр футпринта"
 
-#: kicadstamp/net_trace_planner.py:321
+#: kicadstamp/net_trace_planner.py:373
 #, python-brace-format
 msgid "net_traces entry (net {net!r}): retired/skip, not planned"
 msgstr "запись net_traces (сеть {net!r}): retired/skip, не планируется"
 
-#: kicadstamp/net_trace_planner.py:363
+#: kicadstamp/net_trace_planner.py:415
 #, python-brace-format
 msgid "net_traces entry (net {net!r}): {tracks} tracks, {vias} vias planned"
 msgstr ""
 "запись net_traces (сеть {net!r}): спланировано дорожек {tracks}, "
 "переходных отверстий {vias}"
 
-#: kicadstamp/net_trace_planner.py:563
+#: kicadstamp/net_trace_planner.py:615
 msgid ""
 "the record is retired/skip — apply does not place it, so only the "
 "registry was consulted"
@@ -12244,7 +12254,7 @@ msgstr ""
 "запись retired/skip — apply её не размещает, поэтому прочитан только "
 "реестр"
 
-#: kicadstamp/net_trace_planner.py:573
+#: kicadstamp/net_trace_planner.py:625
 #, python-brace-format
 msgid ""
 "the anchor could not be resolved live ({error}) — the geometry cannot be "
@@ -12253,7 +12263,7 @@ msgstr ""
 "якорь не разрешился на живой плате ({error}) — геометрию не с чем "
 "сопоставить"
 
-#: kicadstamp/net_trace_planner.py:635
+#: kicadstamp/net_trace_planner.py:687
 #, python-brace-format
 msgid ""
 "net_trace: adopted existing via ({x:.3f}, {y:.3f}) mm into the placement "
@@ -12262,7 +12272,7 @@ msgstr ""
 "net_trace: существующее переходное отверстие ({x:.3f}, {y:.3f}) мм "
 "принято в реестр размещения"
 
-#: kicadstamp/net_trace_planner.py:639
+#: kicadstamp/net_trace_planner.py:691
 #, python-brace-format
 msgid ""
 "net_trace: adopted existing track ({sx:.3f}, {sy:.3f}) -> ({ex:.3f}, "

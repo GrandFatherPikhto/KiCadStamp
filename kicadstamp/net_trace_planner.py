@@ -186,6 +186,28 @@ def _resolve_anchor(adapter, nt: NetTrace, sheet_names: dict[str, str]):
     return anchor_fp, anchor_fp.position
 
 
+def _role_footprint(adapter, nt: NetTrace, role: str,
+                    sheet_names: dict[str, str], *, label: str,
+                    quiet: bool = False):
+    """THE "role → live footprint" step of a net trace — ONE function.
+
+    Denis, 20.11 («шаг "роль → футпринт" вынести в ОДНУ внутреннюю функцию, на
+    которой стоят и record_nets, и net_trace_refs»): both callers resolve with the
+    SAME arguments, so the net a record says its piece carries and the components
+    its ends stand on can never disagree.
+
+    ``cluster_is_hint=True`` — because ``nt.anchor_cluster`` is the cluster of the
+    record's ANCHOR, NOT of the role searched here: the two ends of one piece of
+    copper may stand in different clusters (the FPGA side of a channel bridge), so
+    the cluster may only NARROW the choice, never refuse a unique role. Since Ч1
+    of plan_2026_10_21_role_lookup_steals_across_clusters the resolver confines by
+    the cluster at ANY count by default (the anchor case), and this is the ONE
+    caller that says «hint» instead — «Ответ Claude на находку Ч1» of that plan."""
+    return resolve_footprint_by_role(
+        adapter, role, nt.anchor_sheet, nt.anchor_cluster, sheet_names,
+        label=label, quiet=quiet, cluster_is_hint=True)
+
+
 def _item_net_name(adapter, nt: NetTrace, item, sheet_names: dict[str, str],
                    label: str, *, quiet: bool = False) -> str:
     """The net of one track/via of a net trace, resolved LIVE.
@@ -212,20 +234,13 @@ def _item_net_name(adapter, nt: NetTrace, item, sheet_names: dict[str, str],
     ``quiet`` — the role search of a DRY, per-record question (``record_nets``)
     then logs its narrowing steps at DEBUG instead of INFO (part 2 of
     plan_2026_10_08_narrowing_net_traces_cost); planning a record passes nothing.
-
-    ``cluster_is_hint=True`` — because ``nt.anchor_cluster`` is the cluster of the
-    record's ANCHOR, NOT of the role searched here: the two ends of one piece of
-    copper may stand in different clusters (the FPGA side of a channel bridge), so
-    the cluster may only NARROW the choice, never refuse a unique role. Since Ч1
-    of plan_2026_10_21_role_lookup_steals_across_clusters the resolver confines by
-    the cluster at ANY count by default (the anchor case), and this is the ONE
-    caller that says «hint» instead — «Ответ Claude на находку Ч1» of that plan."""
+    The search itself is ``_role_footprint`` — the ONE "role → footprint" step this
+    function shares with ``net_trace_refs`` (Denis, 20.11)."""
     role = getattr(item, "net_from_role", None)
     if role is None:
         return item.net or nt.net
-    fp = resolve_footprint_by_role(
-        adapter, role, nt.anchor_sheet, nt.anchor_cluster, sheet_names,
-        label=label, quiet=quiet, cluster_is_hint=True)
+    fp = _role_footprint(adapter, nt, role, sheet_names, label=label,
+                         quiet=quiet)
     return resolve_net_from_role(role, getattr(item, "net_from_role_pad", None),
                                  {role: fp.ref}, adapter)
 
@@ -269,6 +284,43 @@ def record_nets(adapter, nt: NetTrace,
         if name:
             nets.add(str(name))
     return nets, resolvable
+
+
+def net_trace_refs(adapter, nt: NetTrace,
+                   sheet_names: dict[str, str] | None = None) -> set[str]:
+    """The board REFS a record's ends stand on — its anchor role and the role of
+    every piece's far end (``net_from_role``), each resolved by the ONE
+    ``_role_footprint`` step ``record_nets`` stands on.
+
+    Р2 of plan_2026_11_20_cell_read_takes_inter_node_copper (Denis, 20.11): a
+    record TOUCHES the instance being read when one of these refs is a component of
+    it (or when its own (cluster, sheet) address names the instance — the cheaper
+    half, asked first). A record between two OTHER nodes contributes nothing here,
+    and its copper is subtracted as before.
+
+    Refuses nothing and raises nothing: an unresolvable or ambiguous role simply
+    contributes no ref (the address half is then the only proof), because this is a
+    READ-ONLY boundary question and never a reason to stop a read."""
+    label = _("net_traces entry (net {net!r})").format(net=nt.net)
+    roles: list[str] = [str(getattr(nt, "anchor_role", "") or "")]
+    for section in ("vias", "tracks"):
+        for item in getattr(nt, section, None) or ():
+            role = getattr(item, "net_from_role", None)
+            if role:
+                roles.append(str(role))
+    refs: set[str] = set()
+    for role in roles:
+        if not role:
+            continue
+        try:
+            fp = _role_footprint(adapter, nt, role, sheet_names or {},
+                                 label=label, quiet=True)
+        except Exception:  # noqa: BLE001 — a boundary question, never a read error
+            continue
+        ref = getattr(fp, "ref", None)
+        if ref:
+            refs.add(str(ref))
+    return refs
 
 
 def net_trace_piece_net(adapter, nt: NetTrace, kind: str, index: int,
@@ -668,6 +720,7 @@ __all__ = [
     "net_trace_piece_index",
     "net_trace_piece_net",
     "net_trace_record_for_key",
+    "net_trace_refs",
     "net_trace_registry_key",
     "plan_net_traces",
     "read_live_copper",

@@ -11,6 +11,8 @@ The contract the rows attack, piece by piece:
   M3 the key's index is not checked against the record's own list (т3б, first half)
   M4 the piece's net is not compared with the record's piece net (т3б, second half)
   M5 the keyed transfer needs the explode door (Р1 says EVERY read)
+  M6 the boundary Р2 is not asked (a record between other nodes hands copper over)
+  M7 only the ADDRESS half of the boundary counts (the refs half is dropped)
   K  cosmetic control (a comment must change nothing)
 
 Safeguards as in every harness here (rule 38): a template matching more than once
@@ -40,6 +42,8 @@ T3 = "test_t3_the_index_comes_from_the_key_when_the_walk_finds_nothing"
 T3B = "test_t3b_a_shortened_record_or_another_net_subtracts_with_a_line"
 T3V = "test_t3v_a_via_and_a_track_of_one_record_both_go_to_their_own_section"
 T3G = "test_t3g_a_kind_mismatch_subtracts_with_a_line"
+T4 = "test_t4_a_record_between_other_nodes_is_subtracted_and_named"
+T4B = "test_t4b_a_pieces_far_end_on_this_instance_makes_the_record_touch_it"
 
 MUTATIONS = [
     ("M1 the `net:` key means subtract again", MIXED,
@@ -70,16 +74,31 @@ MUTATIONS = [
 
     ("M5 the keyed transfer needs the explode door", MIXED,
      "    keyed_transfers, keyed_kept, keyed_removed, keyed_lines = _keyed_decisions(\n"
-     "        net_keyed, net_traces, adapter, sheet_names)\n",
+     "        net_keyed, net_traces, adapter, sheet_names, touches=touches)\n",
      "    keyed_transfers, keyed_kept, keyed_removed, keyed_lines = (\n"
-     "        _keyed_decisions(net_keyed, net_traces, adapter, sheet_names)\n"
+     "        _keyed_decisions(net_keyed, net_traces, adapter, sheet_names,\n"
+     "                         touches=touches)\n"
      "        if transfer_ok else ((), [], {}, []))  # MUTATION: only under explode\n",
      [T1B]),
 
+    ("M6 the boundary is not asked (Р2 off)", MIXED,
+     "        if touches is not None and not touches(net_trace_effective_name(nt)):\n",
+     "        if False:  # MUTATION: any record may hand its copper over\n",
+     [T4]),
+
+    ("M7 the refs half of the boundary is not asked", MIXED,
+     "    refs = net_trace_refs(adapter, nt, sheet_names)\n"
+     "    return bool(refs & frozenset(chosen_refs or ()))\n",
+     "    refs = net_trace_refs(adapter, nt, sheet_names)\n"
+     "    return False  # MUTATION: only the address counts\n",
+     [T4B]),
+
     ("K cosmetic control", MIXED,
-     "def _keyed_decisions(net_keyed, net_traces, adapter, sheet_names) -> tuple:\n",
+     "def _keyed_decisions(net_keyed, net_traces, adapter, sheet_names,\n"
+     "                     touches=None) -> tuple:\n",
      "# a comment changes nothing\n"
-     "def _keyed_decisions(net_keyed, net_traces, adapter, sheet_names) -> tuple:\n",
+     "def _keyed_decisions(net_keyed, net_traces, adapter, sheet_names,\n"
+     "                     touches=None) -> tuple:\n",
      []),
 ]
 
