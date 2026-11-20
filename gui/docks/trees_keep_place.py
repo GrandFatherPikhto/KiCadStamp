@@ -27,6 +27,14 @@ Why the anchor CAN express the place: the anchor's kind never changes (point / r
 its shift and the tree's own rotation. Both sides are reduced to the SAME stage — the marker's pose
 BEFORE the embedded tree's inner point is inverted — so the tree's pivot cancels and the shift is one
 vector.
+
+A GENERATED `tree_instances` copy keeps NOTHING (Ф4 of plan_2026_11_19_forest_index_keys_and_instances,
+decision of 19.11 «вариант в»): its place lives in the DECLARATION, the dock never writes that
+section (`_do_save` drops every generated tree), and a silent write into the copy would be lost by
+the next expansion while the Log claimed success. So for an instance nothing is written and
+`_mark_dirty` is not called: ONE yellow line carries the numbers to type into
+Tools → Trees → Instances… instead. The sentence «its anchor now keeps that place» is never printed
+for an instance.
 """
 from __future__ import annotations
 
@@ -37,6 +45,7 @@ from typing import Optional
 from kicadstamp.domain.geometry import Vector2
 from kicadstamp.i18n import _
 from kicadstamp.tree_position import node_position
+from kicadstamp.trees import anchor_from_dict
 from kicadstamp.utils.units import MM
 
 from .trees_chain import chain_frame, chain_root, _same_point
@@ -46,6 +55,9 @@ logger = logging.getLogger(__name__)
 
 __all__ = [
     "apply_lost_places",
+    "instance_line",
+    "instance_of",
+    "is_generated",
     "keep_places_after_ref_change",
     "keep_places_after_removal",
     "lost_places",
@@ -93,6 +105,88 @@ def marker_place(trees, tree, marker, owner) -> Optional[tuple[tuple[float, floa
     return shift, rotation
 
 
+def instance_of(dock, tree):
+    """The `TreeInstance` DECLARATION behind `tree`, or None.
+
+    The dock's own rule when there is a dock (`TreesDock._instance_of`, the read-only index
+    built from `cfg.tree_instances`), else that very index (`_instances`). A tree that came
+    out of no expansion answers None and takes the ordinary write path."""
+    seam = getattr(dock, "_instance_of", None)
+    if callable(seam):
+        try:
+            return seam(tree)
+        except Exception:      # noqa: BLE001 — a line never breaks a deletion
+            return None
+    return (getattr(dock, "_instances", None) or {}).get(getattr(tree, "name", None))
+
+
+def is_generated(dock, tree) -> bool:
+    """True for a buffer tree an expansion produced — `_generated` is STICKY, so it also
+    answers for a copy whose declaration has already been deleted."""
+    return getattr(tree, "name", None) in (getattr(dock, "_generated", None) or set())
+
+
+def _declaration_place(inst) -> tuple[str, str, float]:
+    """What the DECLARATION says now: (kind, «x, y» or the word «none», rotation).
+
+    `TreeInstance.anchor` is the config's own anchor grammar, so it is parsed by the ONE
+    parser (`trees.anchor_from_dict`) and named by the same words the anchor form uses. A
+    declaration without an `anchor:` has no numbers at all — and the line says exactly
+    that instead of inventing zeros."""
+    raw = getattr(inst, "anchor", None)
+    anchor = None
+    if raw:
+        try:
+            anchor = anchor_from_dict(raw, getattr(inst, "name", "") or "")
+        except Exception:      # noqa: BLE001 — a line never breaks a deletion
+            anchor = None
+    rotation = float(getattr(inst, "rotation", None) or 0.0)
+    if anchor is None:
+        return _("the template's own anchor"), _("none"), rotation
+    shift = getattr(anchor, "shift_xy", None)
+    shown = "{:.3f}, {:.3f}".format(shift[0], shift[1]) if shift else _("none")
+    return _anchor_kind(anchor), shown, rotation
+
+
+def instance_line(plan: "_LostPlace", inst) -> str:
+    """The ONE yellow line an INSTANCE gets instead of a write (Р4, Ф4).
+
+    It carries the place the marker gave the copy — the numbers a human types into
+    Tools → Trees → Instances… — and what the declaration says today, so the sentence is
+    actionable without a second look at the dialog. When the chain cannot be reduced
+    without the board there are no numbers to carry, and the line says that instead."""
+    tree, marker, owner = plan.tree, plan.marker, plan.owner
+    where = dict(tree=tree.name, template=getattr(inst, "template", "?"),
+                 marker=marker.ref, owner=owner.name)
+    if plan.values is None:
+        return _(
+            "Tree {tree!r} is an instance of {template!r} and is no longer placed by module "
+            "{marker!r} in {owner!r}: its place was NOT moved (the anchor chain does not reduce "
+            "to one point) — and an instance keeps nothing by itself, so set its anchor in "
+            "Tools → Trees → Instances… if the place matters").format(**where)
+    shift, rotation = plan.values
+    kind = _anchor_kind(tree.anchor)
+    now_kind, now_shift, now_rotation = _declaration_place(inst)
+    return _(
+        "Tree {tree!r} is an instance of {template!r} and is no longer placed by module "
+        "{marker!r} in {owner!r}: its place is NOT kept — to keep it, set the instance's anchor "
+        "in Tools → Trees → Instances… to {kind} + shift ({x:.3f}, {y:.3f}), rotation "
+        "{rotation:.1f}° (now: {now_kind} shift ({now_shift}), rotation {now_rotation:.1f}°)"
+    ).format(**where, kind=kind, x=shift[0], y=shift[1], rotation=rotation,
+             now_kind=now_kind, now_shift=now_shift, now_rotation=now_rotation)
+
+
+def _generated_gone_line(plan: "_LostPlace") -> str:
+    """The same situation for a copy whose declaration is ALREADY gone: there is nothing
+    left to write a place into, and the sticky `_generated` mark is why it is not treated
+    as an ordinary tree."""
+    return _(
+        "Tree {tree!r} came out of a `tree_instances` declaration that is gone and is no longer "
+        "placed by module {marker!r} in {owner!r} — nothing is kept: a copy has no place of its "
+        "own, and there is no declaration left to write one into").format(
+            tree=plan.tree.name, marker=plan.marker.ref, owner=plan.owner.name)
+
+
 def _anchor_kind(anchor) -> str:
     """How the line names the anchor's kind — the SAME words the anchor form's modes use."""
     if anchor is None:
@@ -136,8 +230,19 @@ def lost_places(dock, lost) -> list:
 
 
 def _write_place(dock, plan: _LostPlace) -> bool:
-    """The write half of ONE plan: the buffer, one Log line, nothing else."""
+    """The write half of ONE plan: the buffer, one Log line, nothing else.
+
+    A GENERATED copy is the exception (Ф4): nothing is written, `_mark_dirty` is not called
+    and the numbers go into the yellow line for `Tools → Trees → Instances…` — a copy has no
+    place of its own, and `_do_save` would drop the write anyway."""
     tree, marker, owner = plan.tree, plan.marker, plan.owner
+    inst = instance_of(dock, tree)
+    if inst is not None:
+        logger.warning(instance_line(plan, inst))
+        return False
+    if is_generated(dock, tree):
+        logger.warning(_generated_gone_line(plan))
+        return False
     if plan.values is None:
         logger.warning(_(
             "Tree {tree!r} is no longer placed by module {marker!r} in {owner!r} — its anchor "

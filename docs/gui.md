@@ -1572,7 +1572,10 @@ where the module's own Redraw in the owner would:
   own anchor. The place follows the WHOLE chain: when the host is itself embedded, the frame comes
   from the outermost free tree, not from the host's own anchor (measured up to (−60.000, +35.000) mm
   when the outer tree is turned 90°), and a host with two markers is refused by name instead of
-  guessing.
+  guessing. A GENERATED `tree_instances` copy is the exception: nothing is written (its place lives
+  in the declaration, and Save never persists a generated tree), the buffer is not dirtied, and the
+  one line is YELLOW and carries the numbers to type into Tools → Trees → Instances… — followed by
+  what the declaration says today.
 * **Reading a top node** measures against the module too: «Read current position» and the offsets the
   node form shows are expressed in the frame the owner gives the tree, so a Read followed by a Save
   no longer moves the part by the difference of the two bases (measured (−1.000, +4.000) mm on the

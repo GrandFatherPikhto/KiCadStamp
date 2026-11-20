@@ -3,7 +3,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version:  kicadstamp\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-11-19 16:44+0300\n"
+"POT-Creation-Date: 2026-11-20 16:11+0300\n"
 "PO-Revision-Date: 2026-07-27 12:00+0000\n"
 "Last-Translator: \n"
 "Language: en\n"
@@ -130,7 +130,8 @@ msgid "cell {cell!r} has roles: {roles}"
 msgstr ""
 
 #: gui/cell_identification.py:250 gui/docks/cascade.py:200
-#: gui/docks/trees_keep_place.py:151
+#: gui/docks/trees_keep_place.py:145 gui/docks/trees_keep_place.py:147
+#: gui/docks/trees_keep_place.py:256
 msgid "none"
 msgstr "none"
 
@@ -355,8 +356,8 @@ msgstr ""
 #: gui/dock_hub.py:756 gui/dock_hub.py:1606 gui/dock_hub.py:1680
 #: gui/dock_hub.py:1794 gui/dock_hub.py:2019 gui/docks/dedupe.py:382
 #: gui/docks/imprint.py:788 gui/docks/imprint_dialogs.py:356
-#: gui/docks/net_trace.py:339 gui/docks/trees_dock.py:2882
-#: gui/docks/trees_dock.py:3091 gui/docks/trees_dock.py:3140
+#: gui/docks/net_trace.py:339 gui/docks/trees_dock.py:2884
+#: gui/docks/trees_dock.py:3093 gui/docks/trees_dock.py:3142
 #: gui/docks/trees_reread_dialog.py:367 gui/extract_cluster_flow.py:196
 msgid "reading the board"
 msgstr "reading the board"
@@ -450,7 +451,7 @@ msgstr "Extract tree"
 #: gui/dock_hub.py:2082 gui/dock_hub.py:2090 gui/docks/points.py:438
 #: gui/docks/points.py:543 gui/docks/points.py:720 gui/docks/points.py:771
 #: gui/docks/role_cluster_tree.py:905 gui/docks/role_cluster_tree.py:917
-#: gui/docks/trees_dock.py:6750 gui/docks/trees_dock.py:6814
+#: gui/docks/trees_dock.py:6749 gui/docks/trees_dock.py:6813
 #: gui/extract_cluster_flow.py:119
 msgid "Not connected."
 msgstr "Not connected."
@@ -917,7 +918,7 @@ msgstr "Remove from include:"
 #: gui/docks/cell_editor_dialogs.py:50 gui/docks/cell_editor_dialogs.py:78
 #: gui/docks/cell_layers.py:111 gui/docks/instances_dialog.py:473
 #: gui/docks/profile_import.py:176 gui/docks/settings_dialog.py:52
-#: gui/docks/trees_dock.py:5466 gui/docks/trees_dock.py:6864
+#: gui/docks/trees_dock.py:5465 gui/docks/trees_dock.py:6863
 #: gui/docks/trees_reread_dialog.py:212 gui/include_recovery.py:122
 msgid "Cancel"
 msgstr "Cancel"
@@ -944,7 +945,7 @@ msgstr "Refresh"
 msgid "Force-close selected"
 msgstr "Force-close selected"
 
-#: gui/docks/profile_import.py:107 gui/docks/trees_dock.py:5452
+#: gui/docks/profile_import.py:107 gui/docks/trees_dock.py:5451
 #: gui/kicad_processes_dialog.py:61 gui/main_window.py:222
 msgid "Close"
 msgstr "Close"
@@ -1038,11 +1039,11 @@ msgstr "Extract tree..."
 msgid "Create tree..."
 msgstr "Create tree..."
 
-#: gui/docks/trees_dock.py:2438 gui/main_window.py:286
+#: gui/docks/trees_dock.py:2439 gui/main_window.py:286
 msgid "Rename tree..."
 msgstr "Rename tree..."
 
-#: gui/docks/trees_dock.py:2440 gui/main_window.py:290
+#: gui/docks/trees_dock.py:2441 gui/main_window.py:290
 msgid "Delete tree..."
 msgstr "Delete tree..."
 
@@ -1050,7 +1051,7 @@ msgstr "Delete tree..."
 msgid "Copper"
 msgstr ""
 
-#: gui/docks/trees_dock.py:2425 gui/main_window.py:306
+#: gui/docks/trees_dock.py:2426 gui/main_window.py:306
 msgid "Reread inter-node copper"
 msgstr "Reread inter-node copper"
 
@@ -1066,15 +1067,15 @@ msgstr ""
 msgid "Whose copper is this?"
 msgstr "Whose copper is this?"
 
-#: gui/docks/trees_dock.py:2419 gui/main_window.py:340
+#: gui/docks/trees_dock.py:2420 gui/main_window.py:340
 msgid "Redraw selected"
 msgstr "Redraw selected"
 
-#: gui/docks/trees_dock.py:2422 gui/main_window.py:344
+#: gui/docks/trees_dock.py:2423 gui/main_window.py:344
 msgid "Redraw whole tree"
 msgstr "Redraw whole tree"
 
-#: gui/docks/trees_dock.py:2436 gui/main_window.py:353
+#: gui/docks/trees_dock.py:2437 gui/main_window.py:353
 msgid "Instances..."
 msgstr ""
 
@@ -1146,7 +1147,7 @@ msgstr "No project open — nothing to save"
 msgid "Nothing to save"
 msgstr "Nothing to save"
 
-#: gui/docks/trees_dock.py:2014 gui/main_window.py:794
+#: gui/docks/trees_dock.py:2015 gui/main_window.py:794
 msgid "Save"
 msgstr "Save"
 
@@ -1551,14 +1552,14 @@ msgstr ""
 msgid "  {count} record(s) of tree {tree!r} have no copper on the board: {names}"
 msgstr ""
 
-#: gui/docks/trees_dock.py:2939 gui/docks/trees_dock.py:3063
-#: gui/docks/trees_dock.py:3120 gui/select_internode_copper.py:236
+#: gui/docks/trees_dock.py:2941 gui/docks/trees_dock.py:3065
+#: gui/docks/trees_dock.py:3122 gui/select_internode_copper.py:236
 msgid "No project loaded — open a root config first."
 msgstr "No project loaded — open a root config first."
 
-#: gui/docks/trees_dock.py:2847 gui/docks/trees_dock.py:2943
-#: gui/docks/trees_dock.py:3067 gui/docks/trees_dock.py:3124
-#: gui/docks/trees_dock.py:4911 gui/docks/trees_mount_point.py:61
+#: gui/docks/trees_dock.py:2848 gui/docks/trees_dock.py:2945
+#: gui/docks/trees_dock.py:3069 gui/docks/trees_dock.py:3126
+#: gui/docks/trees_dock.py:4910 gui/docks/trees_mount_point.py:61
 #: gui/docks/trees_mount_point.py:127 gui/docks/trees_reread_dialog.py:345
 #: gui/select_internode_copper.py:239
 msgid "No live board connection — connect KiCad first."
@@ -1716,7 +1717,7 @@ msgstr "Absolute XY"
 msgid "Anchor (ref/role)"
 msgstr "Anchor (ref/role)"
 
-#: gui/docks/_anchor_origin.py:57 gui/docks/trees_dock.py:5591
+#: gui/docks/_anchor_origin.py:57 gui/docks/trees_dock.py:5590
 #: kicadstamp/trees.py:151
 msgid "Point"
 msgstr "Point"
@@ -1737,8 +1738,8 @@ msgstr "Grid (visual only — Place > Set Grid Origin)"
 msgid "e.g. U3 (refdes — mostly avoided in this project)"
 msgstr "e.g. U3 (refdes — mostly avoided in this project)"
 
-#: gui/docks/_anchor_origin.py:87 gui/docks/trees_dock.py:4077
-#: gui/docks/trees_dock.py:5703 gui/docks/trees_mounts_dialog.py:131
+#: gui/docks/_anchor_origin.py:87 gui/docks/trees_dock.py:4079
+#: gui/docks/trees_dock.py:5702 gui/docks/trees_mounts_dialog.py:131
 msgid "Ref:"
 msgstr "Ref:"
 
@@ -1754,14 +1755,14 @@ msgstr "Sheet:"
 
 #: gui/docks/_anchor_origin.py:107 gui/docks/cell_editor.py:362
 #: gui/docks/cell_editor.py:435 gui/docks/tree_from_selection_dialog.py:219
-#: gui/docks/trees_dock.py:5757
+#: gui/docks/trees_dock.py:5756
 msgid "pad (optional)"
 msgstr "pad (optional)"
 
 #: gui/docks/_anchor_origin.py:108 gui/docks/cell_editor.py:363
 #: gui/docks/cell_editor.py:506 gui/docks/cell_editor.py:582
 #: gui/docks/thermal_via.py:131 gui/docks/tree_from_selection_dialog.py:221
-#: gui/docks/trees_dock.py:5758 gui/entity/anchor_tab.py:129
+#: gui/docks/trees_dock.py:5757 gui/entity/anchor_tab.py:129
 msgid "Pad:"
 msgstr "Pad:"
 
@@ -1817,28 +1818,28 @@ msgstr "Angle:"
 msgid "angle deg"
 msgstr "angle deg"
 
-#: gui/docks/_anchor_origin.py:252 gui/docks/trees_dock.py:5741
+#: gui/docks/_anchor_origin.py:252 gui/docks/trees_dock.py:5740
 msgid "Point:"
 msgstr "Point:"
 
-#: gui/docks/_anchor_origin.py:263 gui/docks/trees_dock.py:4067
-#: gui/docks/trees_dock.py:5699
+#: gui/docks/_anchor_origin.py:263 gui/docks/trees_dock.py:4069
+#: gui/docks/trees_dock.py:5698
 msgid "Kind:"
 msgstr "Kind:"
 
-#: gui/docks/_anchor_origin.py:271 gui/docks/trees_dock.py:5769
+#: gui/docks/_anchor_origin.py:271 gui/docks/trees_dock.py:5768
 msgid "shift X mm (0)"
 msgstr "shift X mm (0)"
 
-#: gui/docks/_anchor_origin.py:273 gui/docks/trees_dock.py:5773
+#: gui/docks/_anchor_origin.py:273 gui/docks/trees_dock.py:5772
 msgid "shift Y mm (0)"
 msgstr "shift Y mm (0)"
 
-#: gui/docks/_anchor_origin.py:274 gui/docks/trees_dock.py:5767
+#: gui/docks/_anchor_origin.py:274 gui/docks/trees_dock.py:5766
 msgid "Shift X:"
 msgstr "Shift X:"
 
-#: gui/docks/_anchor_origin.py:276 gui/docks/trees_dock.py:5771
+#: gui/docks/_anchor_origin.py:276 gui/docks/trees_dock.py:5770
 msgid "Shift Y:"
 msgstr "Shift Y:"
 
@@ -1870,7 +1871,7 @@ msgstr "X"
 msgid "Y"
 msgstr "Y"
 
-#: gui/docks/_anchor_origin.py:491 gui/docks/trees_dock.py:4708
+#: gui/docks/_anchor_origin.py:491 gui/docks/trees_dock.py:4707
 msgid "Anchor: Role is required."
 msgstr "Anchor: Role is required."
 
@@ -2104,7 +2105,7 @@ msgid "Tree redraw: {name!r} — ok"
 msgstr "Tree redraw: {name!r} — ok"
 
 #: gui/docks/cascade.py:272 gui/docks/cascade.py:278 gui/docks/cascade.py:283
-#: gui/docks/cascade.py:580 gui/docks/cascade.py:586
+#: gui/docks/cascade.py:583 gui/docks/cascade.py:589
 #, python-brace-format
 msgid "Tree redraw: {name!r} — FAILED: {error}"
 msgstr "Tree redraw: {name!r} — FAILED: {error}"
@@ -2216,11 +2217,11 @@ msgstr "(none)"
 #: gui/docks/cell_editor.py:333 gui/docks/cell_editor.py:622
 #: gui/docks/cell_refs_tab.py:379 gui/docks/imprint_refs_tab.py:133
 #: gui/docks/role_cluster_tree.py:240 gui/docks/tools.py:74
-#: gui/docks/tools.py:86 gui/docks/trees_dock.py:5590
+#: gui/docks/tools.py:86 gui/docks/trees_dock.py:5589
 msgid "Role"
 msgstr "Role"
 
-#: gui/docks/cell_editor.py:335 gui/docks/trees_dock.py:5684
+#: gui/docks/cell_editor.py:335 gui/docks/trees_dock.py:5683
 msgid "Anchor:"
 msgstr "Anchor:"
 
@@ -2361,7 +2362,7 @@ msgid "Cell:"
 msgstr "Cell:"
 
 #: gui/docks/cell_editor.py:657 gui/docks/imprint_place.py:253
-#: gui/docks/trees_dock.py:4138
+#: gui/docks/trees_dock.py:4140
 msgid "Rotation (deg):"
 msgstr "Rotation (deg):"
 
@@ -2385,7 +2386,7 @@ msgstr ""
 msgid "yes"
 msgstr "yes"
 
-#: gui/docks/cell_editor.py:928 gui/docks/trees_dock.py:6596
+#: gui/docks/cell_editor.py:928 gui/docks/trees_dock.py:6595
 msgid "Role is required."
 msgstr "Role is required."
 
@@ -2643,7 +2644,7 @@ msgid "Kind"
 msgstr "Kind"
 
 #: gui/docks/cell_editor_dialogs.py:38 gui/docks/dedupe.py:223
-#: gui/docks/trees_dock.py:4226 gui/docks/trees_dock.py:5201
+#: gui/docks/trees_dock.py:4228 gui/docks/trees_dock.py:5200
 msgid "Position"
 msgstr "Position"
 
@@ -2655,8 +2656,8 @@ msgid "Net"
 msgstr "Net"
 
 #: gui/docks/cell_editor_dialogs.py:49 gui/docks/imprint.py:489
-#: gui/docks/settings_dialog.py:51 gui/docks/trees_dock.py:1706
-#: gui/docks/trees_dock.py:5450
+#: gui/docks/settings_dialog.py:51 gui/docks/trees_dock.py:1707
+#: gui/docks/trees_dock.py:5449
 msgid "Apply"
 msgstr "Apply"
 
@@ -2720,7 +2721,7 @@ msgstr ""
 msgid "net_from_role {role}"
 msgstr ""
 
-#: gui/docks/cell_read_report.py:59 kicadstamp/cell_geometry_refresh.py:489
+#: gui/docks/cell_read_report.py:59 kicadstamp/cell_geometry_refresh.py:482
 msgid "(no net)"
 msgstr "(no net)"
 
@@ -3410,7 +3411,7 @@ msgstr ""
 "Remove {name!r} from {parent!r}'s include:? The file itself is not "
 "deleted — this can be undone later by adding it again."
 
-#: gui/docks/configurator.py:190 gui/docks/trees_dock.py:4225
+#: gui/docks/configurator.py:190 gui/docks/trees_dock.py:4227
 msgid "General"
 msgstr "General"
 
@@ -4767,7 +4768,7 @@ msgstr ""
 msgid "Entity name is required."
 msgstr "Entity name is required."
 
-#: gui/docks/imprint_place.py:726 gui/docks/trees_dock.py:5361
+#: gui/docks/imprint_place.py:726 gui/docks/trees_dock.py:5360
 msgid "Rotation must be a number."
 msgstr "Rotation must be a number."
 
@@ -4931,7 +4932,7 @@ msgstr ""
 msgid "{count} other instances lack roles"
 msgstr ""
 
-#: gui/docks/instances_dialog.py:97 gui/docks/trees_dock.py:6551
+#: gui/docks/instances_dialog.py:97 gui/docks/trees_dock.py:6550
 msgid "Shift: X and Y must be numbers."
 msgstr ""
 
@@ -4997,7 +4998,7 @@ msgid ""
 msgstr ""
 
 #: gui/docks/instances_dialog.py:471 gui/docks/settings_dialog.py:49
-#: gui/docks/trees_dock.py:5464 gui/docks/trees_dock.py:6862
+#: gui/docks/trees_dock.py:5463 gui/docks/trees_dock.py:6861
 msgid "OK"
 msgstr "OK"
 
@@ -5139,7 +5140,7 @@ msgid "Extract"
 msgstr "Extract"
 
 #: gui/docks/net_trace.py:143 gui/docks/thermal_via.py:172
-#: gui/docks/trees_dock.py:2346
+#: gui/docks/trees_dock.py:2347
 msgid "Redraw"
 msgstr "Redraw"
 
@@ -5191,9 +5192,9 @@ msgid "{action} net trace {net!r} in {path}"
 msgstr "{action} net trace {net!r} in {path}"
 
 #: gui/docks/net_trace.py:583 gui/docks/thermal_via.py:431
-#: gui/docks/trees_accept.py:401 gui/docks/trees_accept.py:452
-#: gui/docks/trees_accept.py:547 gui/docks/trees_dock.py:3864
-#: gui/docks/trees_dock.py:3939 gui/docks/trees_module_redraw.py:132
+#: gui/docks/trees_accept.py:401 gui/docks/trees_accept.py:455
+#: gui/docks/trees_accept.py:550 gui/docks/trees_dock.py:3866
+#: gui/docks/trees_dock.py:3941 gui/docks/trees_module_redraw.py:135
 msgid "placing"
 msgstr "placing"
 
@@ -5318,7 +5319,7 @@ msgstr "name (referenced by anchor_point elsewhere)"
 msgid "Resolve"
 msgstr "Resolve"
 
-#: gui/docks/points.py:269 gui/docks/trees_dock.py:4207
+#: gui/docks/points.py:269 gui/docks/trees_dock.py:4209
 msgid "Read from board"
 msgstr ""
 
@@ -5808,7 +5809,7 @@ msgstr ""
 "Role/Cluster source is now the REGISTRY: the stored values take effect "
 "again."
 
-#: gui/docks/root_metadata.py:884 gui/docks/trees_dock.py:829
+#: gui/docks/root_metadata.py:884 gui/docks/trees_dock.py:830
 msgid "Unsaved changes"
 msgstr "Unsaved changes"
 
@@ -5979,8 +5980,8 @@ msgstr "cluster {cluster!r} live position"
 msgid "Tree name must not be empty."
 msgstr "Tree name must not be empty."
 
-#: gui/docks/tree_from_selection.py:464 gui/docks/trees_dock.py:3690
-#: gui/docks/trees_dock.py:3729
+#: gui/docks/tree_from_selection.py:464 gui/docks/trees_dock.py:3692
+#: gui/docks/trees_dock.py:3731
 #, python-brace-format
 msgid "A tree named {name!r} already exists."
 msgstr "A tree named {name!r} already exists."
@@ -6006,8 +6007,8 @@ msgstr ""
 msgid "tree anchor (from selection)"
 msgstr "tree anchor (from selection)"
 
-#: gui/docks/tree_from_selection_dialog.py:114 gui/docks/trees_dock.py:3684
-#: gui/docks/trees_dock.py:3722
+#: gui/docks/tree_from_selection_dialog.py:114 gui/docks/trees_dock.py:3686
+#: gui/docks/trees_dock.py:3724
 msgid "Tree name:"
 msgstr "Tree name:"
 
@@ -6089,7 +6090,7 @@ msgstr ""
 "Some selected clusters have no Entity or cell:\n"
 "{list}"
 
-#: gui/docks/tree_place_drift.py:139
+#: gui/docks/tree_place_drift.py:132
 #, python-brace-format
 msgid ""
 "its plan pose comes from the tree, but the node that places it is a "
@@ -6098,12 +6099,12 @@ msgstr ""
 "its plan pose comes from the tree, but the node that places it is a "
 "{kind} record — that pose cannot be read"
 
-#: gui/docks/tree_place_drift.py:210
+#: gui/docks/tree_place_drift.py:204
 #, python-brace-format
 msgid "Tree redraw: could not check {ref!r}: {reason}"
 msgstr "Tree redraw: could not check {ref!r}: {reason}"
 
-#: gui/docks/tree_place_drift.py:235
+#: gui/docks/tree_place_drift.py:229
 #, python-brace-format
 msgid ""
 "Tree redraw: could not check {ref!r}: the cluster on the board is not a "
@@ -6116,7 +6117,7 @@ msgstr ""
 "onto the cell's places or re-read the cell; until then the nodes below it"
 " are placed from the tree pose"
 
-#: gui/docks/tree_place_drift.py:249
+#: gui/docks/tree_place_drift.py:243
 #, python-brace-format
 msgid ""
 "Tree redraw: ancestor {ref!r} is NOT being redrawn and stands {mm:.4f} mm"
@@ -6228,7 +6229,7 @@ msgid ""
 "predicted, so no shift can be derived"
 msgstr ""
 
-#: gui/docks/trees_anchor_read.py:187 gui/docks/trees_dock.py:551
+#: gui/docks/trees_anchor_read.py:187 gui/docks/trees_dock.py:552
 #: gui/docks/trees_reread_board.py:261 gui/docks/trees_reread_board.py:354
 msgid "this node's instance is MIRRORED on the live board"
 msgstr ""
@@ -6276,18 +6277,18 @@ msgstr ""
 msgid "Read current position failed: {error}"
 msgstr "Read current position failed: {error}"
 
-#: gui/docks/trees_base_pose.py:251
+#: gui/docks/trees_base_pose.py:262
 msgid "this tree's own anchor"
 msgstr ""
 
-#: gui/docks/trees_base_pose.py:289
+#: gui/docks/trees_base_pose.py:300
 #, python-brace-format
 msgid ""
 "tree node {node!r}: its base ({base}) could not be read from the board — "
 "nothing is placed, and the tree layout is NOT used instead. {error}"
 msgstr ""
 
-#: gui/docks/trees_base_pose.py:294
+#: gui/docks/trees_base_pose.py:305
 #, python-brace-format
 msgid ""
 "tree node {node!r}: its base ({base}) is MIRRORED on the board — a tree "
@@ -6380,83 +6381,83 @@ msgstr ""
 "The last re-read of the inter-node copper found no copper for this record"
 " on the board. The record is KEPT — remove it by hand if you meant to."
 
-#: gui/docks/trees_dock.py:535
+#: gui/docks/trees_dock.py:536
 msgid "the base of this node is MIRRORED on the live board"
 msgstr ""
 
-#: gui/docks/trees_dock.py:536
+#: gui/docks/trees_dock.py:537
 msgid ""
 "a tree node cannot store a mirror — unmirror the component in KiCad (or "
 "pick another base), then read the position again"
 msgstr ""
 
-#: gui/docks/trees_dock.py:552
+#: gui/docks/trees_dock.py:553
 msgid ""
 "a tree node cannot store a mirror — unmirror the component in KiCad, then"
 " read the position again"
 msgstr ""
 
-#: gui/docks/trees_dock.py:730 gui/docks/trees_dock.py:771
+#: gui/docks/trees_dock.py:731 gui/docks/trees_dock.py:772
 #, python-brace-format
 msgid "Trees: root config failed to load: {error}"
 msgstr "Trees: root config failed to load: {error}"
 
-#: gui/docks/trees_dock.py:830
+#: gui/docks/trees_dock.py:831
 #, python-brace-format
 msgid "Save changes to {path}?"
 msgstr "Save changes to {path}?"
 
-#: gui/docks/trees_dock.py:897
+#: gui/docks/trees_dock.py:898
 msgid "(no trees)"
 msgstr "(no trees)"
 
-#: gui/docks/trees_dock.py:1282
+#: gui/docks/trees_dock.py:1283
 #, python-brace-format
 msgid "⇐ instance of {template} (sheet={sheet})"
 msgstr ""
 
-#: gui/docks/trees_dock.py:1324
+#: gui/docks/trees_dock.py:1325
 #, python-brace-format
 msgid "⇐ embedded in {parent}"
 msgstr "⇐ embedded in {parent}"
 
-#: gui/docks/trees_dock.py:1331
+#: gui/docks/trees_dock.py:1332
 #, python-brace-format
 msgid "→ instance: {name}"
 msgstr ""
 
-#: gui/docks/trees_dock.py:1541
+#: gui/docks/trees_dock.py:1542
 #, python-brace-format
 msgid "Copper ({count})"
 msgstr ""
 
-#: gui/docks/trees_dock.py:1735
+#: gui/docks/trees_dock.py:1736
 msgid "Edit node"
 msgstr "Edit node"
 
-#: gui/docks/trees_dock.py:1817 gui/docks/trees_dock.py:2304
+#: gui/docks/trees_dock.py:1818 gui/docks/trees_dock.py:2305
 #, python-brace-format
 msgid ""
 "Instance of {template} — read-only: edit the template tree to change the "
 "geometry"
 msgstr ""
 
-#: gui/docks/trees_dock.py:1991
+#: gui/docks/trees_dock.py:1992
 msgid "●"
 msgstr "●"
 
-#: gui/docks/trees_dock.py:2054
+#: gui/docks/trees_dock.py:2055
 #, python-brace-format
 msgid ""
 "Anchor for tree {name!r}: a ref anchor pointing at its own root Entity "
 "{ref!r} never resolves (self-reference) — switched to Self."
 msgstr ""
 
-#: gui/docks/trees_dock.py:2148
+#: gui/docks/trees_dock.py:2149
 msgid "Read-only instance"
 msgstr ""
 
-#: gui/docks/trees_dock.py:2149
+#: gui/docks/trees_dock.py:2150
 #, python-brace-format
 msgid ""
 "This tree is an instance of template {template!r} (read-only) — its "
@@ -6464,83 +6465,83 @@ msgid ""
 " manage the instance in Tools → Trees → Instances."
 msgstr ""
 
-#: gui/docks/trees_dock.py:2338
+#: gui/docks/trees_dock.py:2339
 msgid "Select copper on board"
 msgstr "Select copper on board"
 
-#: gui/docks/trees_dock.py:2355 gui/docks/trees_dock.py:2751
+#: gui/docks/trees_dock.py:2356 gui/docks/trees_dock.py:2752
 msgid "Add child"
 msgstr "Add child"
 
-#: gui/docks/trees_dock.py:2357 gui/docks/trees_dock.py:2764
+#: gui/docks/trees_dock.py:2358 gui/docks/trees_dock.py:2765
 msgid "Add sibling"
 msgstr "Add sibling"
 
-#: gui/docks/trees_dock.py:2360
+#: gui/docks/trees_dock.py:2361
 msgid "Reread current position"
 msgstr "Reread current position"
 
-#: gui/docks/trees_dock.py:2366
+#: gui/docks/trees_dock.py:2367
 msgid "Edit node…"
 msgstr "Edit node…"
 
-#: gui/docks/trees_dock.py:2370
+#: gui/docks/trees_dock.py:2371
 msgid "Rename…"
 msgstr "Rename…"
 
-#: gui/docks/trees_dock.py:2376 gui/docks/trees_dock.py:3347
-#: gui/docks/trees_dock.py:3711 gui/docks/trees_move_flow.py:579
+#: gui/docks/trees_dock.py:2377 gui/docks/trees_dock.py:3349
+#: gui/docks/trees_dock.py:3713 gui/docks/trees_move_flow.py:579
 #: gui/docks/trees_move_flow.py:648
 msgid "Move to…"
 msgstr "Move to…"
 
-#: gui/docks/trees_dock.py:2383 gui/docks/trees_mount_rebase.py:401
+#: gui/docks/trees_dock.py:2384 gui/docks/trees_mount_rebase.py:401
 msgid "Change anchor from selection…"
 msgstr "Change anchor from selection…"
 
-#: gui/docks/trees_dock.py:2395
+#: gui/docks/trees_dock.py:2396
 msgid "Move up"
 msgstr "Move up"
 
-#: gui/docks/trees_dock.py:2398
+#: gui/docks/trees_dock.py:2399
 msgid "Move down"
 msgstr "Move down"
 
-#: gui/docks/trees_dock.py:2413 gui/docks/trees_dock.py:2779
-#: gui/docks/trees_dock.py:5295 gui/docks/trees_dock.py:5310
-#: gui/docks/trees_dock.py:5317 gui/docks/trees_dock.py:5338
-#: gui/docks/trees_dock.py:5361 gui/docks/trees_dock.py:5377
-#: gui/docks/trees_dock.py:5388 gui/docks/trees_dock.py:5393
+#: gui/docks/trees_dock.py:2414 gui/docks/trees_dock.py:2780
+#: gui/docks/trees_dock.py:5294 gui/docks/trees_dock.py:5309
+#: gui/docks/trees_dock.py:5316 gui/docks/trees_dock.py:5337
+#: gui/docks/trees_dock.py:5360 gui/docks/trees_dock.py:5376
+#: gui/docks/trees_dock.py:5387 gui/docks/trees_dock.py:5392
 msgid "Add node"
 msgstr "Add node"
 
-#: gui/docks/trees_dock.py:2416
+#: gui/docks/trees_dock.py:2417
 msgid "Set anchor…"
 msgstr "Set anchor…"
 
-#: gui/docks/trees_dock.py:2812
+#: gui/docks/trees_dock.py:2813
 msgid "Rename node"
 msgstr "Rename node"
 
-#: gui/docks/trees_dock.py:2812
+#: gui/docks/trees_dock.py:2813
 msgid "Display name (label, not the ref identity):"
 msgstr "Display name (label, not the ref identity):"
 
-#: gui/docks/trees_dock.py:2911
+#: gui/docks/trees_dock.py:2913
 #, python-brace-format
 msgid "Reread current position failed: {error}"
 msgstr "Reread current position failed: {error}"
 
-#: gui/docks/trees_dock.py:2965
+#: gui/docks/trees_dock.py:2967
 msgid "re-reading copper"
 msgstr "re-reading copper"
 
-#: gui/docks/trees_dock.py:2969
+#: gui/docks/trees_dock.py:2971
 #, python-brace-format
 msgid "Reread inter-node copper failed: {error}"
 msgstr "Reread inter-node copper failed: {error}"
 
-#: gui/docks/trees_dock.py:3022
+#: gui/docks/trees_dock.py:3024
 #, python-brace-format
 msgid ""
 "Inter-node copper re-read: {added} added, {updated} updated, {missing} "
@@ -6549,30 +6550,30 @@ msgstr ""
 "Inter-node copper re-read: {added} added, {updated} updated, {missing} "
 "not found ({narrowed})."
 
-#: gui/docks/trees_dock.py:3026
+#: gui/docks/trees_dock.py:3028
 msgid "selection"
 msgstr "selection"
 
-#: gui/docks/trees_dock.py:3027
+#: gui/docks/trees_dock.py:3029
 msgid "whole board"
 msgstr "whole board"
 
-#: gui/docks/trees_dock.py:3095
+#: gui/docks/trees_dock.py:3097
 #, python-brace-format
 msgid "Select copper on board failed: {error}"
 msgstr "Select copper on board failed: {error}"
 
-#: gui/docks/trees_dock.py:3104
+#: gui/docks/trees_dock.py:3106
 #, python-brace-format
 msgid "Selected {found} copper piece(s) for {name!r}."
 msgstr "Selected {found} copper piece(s) for {name!r}."
 
-#: gui/docks/trees_dock.py:3144
+#: gui/docks/trees_dock.py:3146
 #, python-brace-format
 msgid "Whose copper is this? failed: {error}"
 msgstr "Whose copper is this? failed: {error}"
 
-#: gui/docks/trees_dock.py:3342
+#: gui/docks/trees_dock.py:3344
 #, python-brace-format
 msgid ""
 "Node {ref!r}: the offset can NOT be recalculated and was not read from "
@@ -6580,134 +6581,134 @@ msgid ""
 " board."
 msgstr ""
 
-#: gui/docks/trees_dock.py:3348 gui/docks/trees_dock.py:4450
+#: gui/docks/trees_dock.py:3350 gui/docks/trees_dock.py:4452
 #, python-brace-format
 msgid ""
 "Re-hang {ref!r} WITHOUT recalculating its offset? It keeps the stored "
 "coordinates, which now mean a different place."
 msgstr ""
 
-#: gui/docks/trees_dock.py:3471 gui/docks/trees_move_flow.py:155
+#: gui/docks/trees_dock.py:3473 gui/docks/trees_move_flow.py:155
 #: gui/docks/trees_move_flow.py:536 gui/docks/trees_move_flow.py:571
 msgid "(top level)"
 msgstr "(top level)"
 
-#: gui/docks/trees_dock.py:3476 gui/docks/trees_dock.py:4096
+#: gui/docks/trees_dock.py:3478 gui/docks/trees_dock.py:4098
 #, python-brace-format
 msgid "{ref} (current parent)"
 msgstr ""
 
-#: gui/docks/trees_dock.py:3684 gui/docks/trees_dock.py:3689
+#: gui/docks/trees_dock.py:3686 gui/docks/trees_dock.py:3691
 msgid "Create tree"
 msgstr "Create tree"
 
-#: gui/docks/trees_dock.py:3722 gui/docks/trees_dock.py:3728
+#: gui/docks/trees_dock.py:3724 gui/docks/trees_dock.py:3730
 msgid "Rename tree"
 msgstr "Rename tree"
 
-#: gui/docks/trees_dock.py:3754 gui/docks/trees_dock.py:3771
+#: gui/docks/trees_dock.py:3756 gui/docks/trees_dock.py:3773
 msgid "Delete tree"
 msgstr "Delete tree"
 
-#: gui/docks/trees_dock.py:3755
+#: gui/docks/trees_dock.py:3757
 #, python-brace-format
 msgid "Delete tree {name!r}? This cannot be undone (until you Save)."
 msgstr "Delete tree {name!r}? This cannot be undone (until you Save)."
 
-#: gui/docks/trees_dock.py:3772
+#: gui/docks/trees_dock.py:3774
 #, python-brace-format
 msgid "Also delete the net traces now only referenced by this tree: {nets}?"
 msgstr "Also delete the net traces now only referenced by this tree: {nets}?"
 
-#: gui/docks/trees_dock.py:3838
+#: gui/docks/trees_dock.py:3840
 msgid "Nothing selected — check some nodes first."
 msgstr "Nothing selected — check some nodes first."
 
-#: gui/docks/trees_dock.py:3918 gui/docks/trees_dock.py:3921
-#: gui/docks/trees_module_redraw.py:108
+#: gui/docks/trees_dock.py:3920 gui/docks/trees_dock.py:3923
+#: gui/docks/trees_module_redraw.py:111
 msgid "Nothing to redraw."
 msgstr "Nothing to redraw."
 
-#: gui/docks/trees_dock.py:3950
+#: gui/docks/trees_dock.py:3952
 #, python-brace-format
 msgid "Redraw failed: {error}"
 msgstr "Redraw failed: {error}"
 
-#: gui/docks/trees_dock.py:3951
+#: gui/docks/trees_dock.py:3953
 msgid "Redraw failed — see log"
 msgstr "Redraw failed — see log"
 
 # ── Node form: the Parent combo re-hangs a node
 # (plan_2026_09_12_node_dialog_usability) ──
-#: gui/docks/trees_dock.py:4100
+#: gui/docks/trees_dock.py:4102
 msgid "Parent:"
 msgstr ""
 
-#: gui/docks/trees_dock.py:4118
+#: gui/docks/trees_dock.py:4120
 msgid "Offset (board frame):"
 msgstr ""
 
-#: gui/docks/trees_dock.py:4134 gui/docks/trees_dock.py:5815
+#: gui/docks/trees_dock.py:4136 gui/docks/trees_dock.py:5814
 msgid "0"
 msgstr "0"
 
-#: gui/docks/trees_dock.py:4145 gui/docks/trees_dock.py:4918
-#: gui/docks/trees_dock.py:4933 gui/docks/trees_dock.py:4943
-#: gui/docks/trees_dock.py:4948 gui/docks/trees_dock.py:4969
+#: gui/docks/trees_dock.py:4147 gui/docks/trees_dock.py:4917
+#: gui/docks/trees_dock.py:4932 gui/docks/trees_dock.py:4942
+#: gui/docks/trees_dock.py:4947 gui/docks/trees_dock.py:4968
 msgid "Read current position"
 msgstr "Read current position"
 
-#: gui/docks/trees_dock.py:4153
+#: gui/docks/trees_dock.py:4155
 msgid "Name (optional):"
 msgstr "Name (optional):"
 
-#: gui/docks/trees_dock.py:4155
+#: gui/docks/trees_dock.py:4157
 msgid "Group (optional):"
 msgstr "Group (optional):"
 
-#: gui/docks/trees_dock.py:4169
+#: gui/docks/trees_dock.py:4171
 msgid "Mount anchor (role)"
 msgstr ""
 
-#: gui/docks/trees_dock.py:4182
+#: gui/docks/trees_dock.py:4184
 msgid "Component address (ref or role)"
 msgstr "Component address (ref or role)"
 
 # ── Mount node's point marker (plan_2026_09_16_mount_point_marker) ──
-#: gui/docks/trees_dock.py:4205
+#: gui/docks/trees_dock.py:4207
 msgid "Show point on board"
 msgstr ""
 
-#: gui/docks/trees_dock.py:4209
+#: gui/docks/trees_dock.py:4211
 msgid "Remove from board"
 msgstr ""
 
-#: gui/docks/trees_dock.py:4444
+#: gui/docks/trees_dock.py:4446
 #, python-brace-format
 msgid ""
 "Node {ref!r}: the base of the new parent did not resolve on the live "
 "board — the offset can NOT be recalculated."
 msgstr ""
 
-#: gui/docks/trees_dock.py:4449
+#: gui/docks/trees_dock.py:4451
 msgid "Parent"
 msgstr ""
 
 # ── Node form: an honest reason for a missing base
 # (plan_2026_09_12_node_form_mount_parent_base) ──
-#: gui/docks/trees_dock.py:4531
+#: gui/docks/trees_dock.py:4530
 #, python-brace-format
 msgid "Node form: the base of {ref!r} did not resolve on the live board ({error})"
 msgstr ""
 
-#: gui/docks/trees_dock.py:4561
+#: gui/docks/trees_dock.py:4560
 msgid ""
 "No live board connection — showing the STORED values in the base's own "
 "frame; editing the offset and rotation is disabled until KiCad is "
 "connected."
 msgstr ""
 
-#: gui/docks/trees_dock.py:4565
+#: gui/docks/trees_dock.py:4564
 #, python-brace-format
 msgid ""
 "The node's base did not resolve on the live board: {error}. Showing the "
@@ -6715,40 +6716,40 @@ msgid ""
 " disabled until it resolves."
 msgstr ""
 
-#: gui/docks/trees_dock.py:4569
+#: gui/docks/trees_dock.py:4568
 msgid ""
 "The selected anchor does not resolve on the live board — showing the "
 "STORED values in the anchor's own frame; editing the offset and rotation "
 "is disabled until it resolves."
 msgstr ""
 
-#: gui/docks/trees_dock.py:4919
+#: gui/docks/trees_dock.py:4918
 msgid "No root config loaded — cannot resolve the record."
 msgstr "No root config loaded — cannot resolve the record."
 
-#: gui/docks/trees_dock.py:4934
+#: gui/docks/trees_dock.py:4933
 msgid "Mount anchor: Role is required."
 msgstr ""
 
-#: gui/docks/trees_dock.py:4949 gui/docks/trees_dock.py:5394
+#: gui/docks/trees_dock.py:4948 gui/docks/trees_dock.py:5393
 msgid "A component node needs an address — Ref or Role."
 msgstr "A component node needs an address — Ref or Role."
 
-#: gui/docks/trees_dock.py:4985
+#: gui/docks/trees_dock.py:4984
 msgid "rotation not available for this record kind"
 msgstr "rotation not available for this record kind"
 
-#: gui/docks/trees_dock.py:5059
+#: gui/docks/trees_dock.py:5058
 #, python-brace-format
 msgid "Mount point: the figures could not be removed from the board ({error})"
 msgstr ""
 
 # anchor source tabs (S-D, 2026-09-05)
-#: gui/docks/trees_dock.py:5199 kicadstamp/trees.py:154
+#: gui/docks/trees_dock.py:5198 kicadstamp/trees.py:154
 msgid "Component"
 msgstr ""
 
-#: gui/docks/trees_dock.py:5275
+#: gui/docks/trees_dock.py:5274
 #, python-brace-format
 msgid ""
 "Tree {name!r} is a tree_instances template — a node of kind (tree) inside"
@@ -6756,7 +6757,7 @@ msgid ""
 "non-template tree instead."
 msgstr ""
 
-#: gui/docks/trees_dock.py:5285
+#: gui/docks/trees_dock.py:5284
 #, python-brace-format
 msgid ""
 "Tree {ref!r} cannot be embedded in tree {name!r}: it is not a tree of "
@@ -6764,170 +6765,170 @@ msgid ""
 "tree may not embed its own template, nor a tree that already embeds it)."
 msgstr ""
 
-#: gui/docks/trees_dock.py:5295 gui/docks/trees_dock.py:6610
+#: gui/docks/trees_dock.py:5294 gui/docks/trees_dock.py:6609
 msgid "Ref is required."
 msgstr "Ref is required."
 
-#: gui/docks/trees_dock.py:5378
+#: gui/docks/trees_dock.py:5377
 msgid "A mount node needs a Role anchor."
 msgstr ""
 
-#: gui/docks/trees_dock.py:5586
+#: gui/docks/trees_dock.py:5585
 msgid "Origin (board 0,0)"
 msgstr "Origin (board 0,0)"
 
-#: gui/docks/trees_dock.py:5587
+#: gui/docks/trees_dock.py:5586
 msgid "Config record"
 msgstr "Config record"
 
-#: gui/docks/trees_dock.py:5588
+#: gui/docks/trees_dock.py:5587
 msgid "External refdes"
 msgstr "External refdes"
 
-#: gui/docks/trees_dock.py:5589
+#: gui/docks/trees_dock.py:5588
 msgid "Self (component this tree places)"
 msgstr ""
 
-#: gui/docks/trees_dock.py:5696
+#: gui/docks/trees_dock.py:5695
 msgid "All kinds"
 msgstr "All kinds"
 
-#: gui/docks/trees_dock.py:5702 gui/docks/trees_dock.py:5980
+#: gui/docks/trees_dock.py:5701 gui/docks/trees_dock.py:5979
 #: gui/docks/trees_node_form.py:145 gui/docks/trees_node_form.py:147
 msgid "record name (from config)"
 msgstr "record name (from config)"
 
-#: gui/docks/trees_dock.py:5753
+#: gui/docks/trees_dock.py:5752
 msgid "node of this tree (optional)"
 msgstr ""
 
-#: gui/docks/trees_dock.py:5755 gui/docks/trees_dock.py:5813
+#: gui/docks/trees_dock.py:5754 gui/docks/trees_dock.py:5812
 msgid "Node:"
 msgstr ""
 
-#: gui/docks/trees_dock.py:5794
+#: gui/docks/trees_dock.py:5793
 msgid "Tree settings"
 msgstr ""
 
-#: gui/docks/trees_dock.py:5797
+#: gui/docks/trees_dock.py:5796
 msgid "Tree origin (0,0)"
 msgstr ""
 
-#: gui/docks/trees_dock.py:5798
+#: gui/docks/trees_dock.py:5797
 msgid "Coordinate (xy/polar)"
 msgstr ""
 
-#: gui/docks/trees_dock.py:5799
+#: gui/docks/trees_dock.py:5798
 msgid "Node of this tree"
 msgstr ""
 
-#: gui/docks/trees_dock.py:5800
+#: gui/docks/trees_dock.py:5799
 msgid "Suspension point:"
 msgstr ""
 
-#: gui/docks/trees_dock.py:5806
+#: gui/docks/trees_dock.py:5805
 msgid "Use node's offset..."
 msgstr ""
 
-#: gui/docks/trees_dock.py:5808
+#: gui/docks/trees_dock.py:5807
 msgid ""
 "Fill the coordinate with the LOCAL offset of the selected node — a static"
 " snapshot of this tree's own layout."
 msgstr ""
 
-#: gui/docks/trees_dock.py:5816
+#: gui/docks/trees_dock.py:5815
 msgid "Angle (board deg):"
 msgstr ""
 
 # ── Trees dock: anchor/base overlay circles
 # (plan_2026_09_12_tree_point_markers) ──
-#: gui/docks/trees_dock.py:5834 gui/docks/trees_dock.py:6687
+#: gui/docks/trees_dock.py:5833 gui/docks/trees_dock.py:6686
 msgid "Show tree markers"
 msgstr ""
 
-#: gui/docks/trees_dock.py:5836
+#: gui/docks/trees_dock.py:5835
 msgid ""
 "Draw the tree's anchor (where it hangs) and the origin of its local frame"
 " on the board overlay — the vector between the two circles is the "
 "suspension point."
 msgstr ""
 
-#: gui/docks/trees_dock.py:5963 gui/docks/trees_node_form.py:127
+#: gui/docks/trees_dock.py:5962 gui/docks/trees_node_form.py:127
 msgid "external refdes (live board)"
 msgstr "external refdes (live board)"
 
-#: gui/docks/trees_dock.py:5996
+#: gui/docks/trees_dock.py:5995
 #, python-brace-format
 msgid "This tree's own root Entity {ref!r} can't anchor itself — use Self."
 msgstr ""
 
-#: gui/docks/trees_dock.py:6312
+#: gui/docks/trees_dock.py:6311
 msgid "(no node can be a handle)"
 msgstr ""
 
-#: gui/docks/trees_dock.py:6322
+#: gui/docks/trees_dock.py:6321
 msgid ""
 "No node of this tree can be a suspension point: every positioned node "
 "hangs from a live component through a mount node. Use a coordinate "
 "instead."
 msgstr ""
 
-#: gui/docks/trees_dock.py:6390
+#: gui/docks/trees_dock.py:6389
 msgid ""
 "The selected anchor does not resolve on the live board — the suspension "
 "point and angle are shown disabled until it resolves."
 msgstr ""
 
-#: gui/docks/trees_dock.py:6394
+#: gui/docks/trees_dock.py:6393
 msgid ""
 "The selected anchor does not resolve on the live board — the shift is "
 "shown as the raw config value and disabled until it resolves."
 msgstr ""
 
-#: gui/docks/trees_dock.py:6441
+#: gui/docks/trees_dock.py:6440
 msgid "The anchor shift is stored on an existing tree — create the tree first."
 msgstr ""
 
-#: gui/docks/trees_dock.py:6484
+#: gui/docks/trees_dock.py:6483
 msgid "Suspension point: choose a node of this tree, or switch to a coordinate."
 msgstr ""
 
-#: gui/docks/trees_dock.py:6488
+#: gui/docks/trees_dock.py:6487
 #, python-brace-format
 msgid "Suspension point: {ref!r} cannot be a handle of this tree."
 msgstr ""
 
-#: gui/docks/trees_dock.py:6496
+#: gui/docks/trees_dock.py:6495
 msgid "The anchor does not resolve — cannot convert the suspension point."
 msgstr ""
 
-#: gui/docks/trees_dock.py:6516
+#: gui/docks/trees_dock.py:6515
 msgid "The anchor does not resolve — cannot convert the angle."
 msgstr ""
 
-#: gui/docks/trees_dock.py:6525
+#: gui/docks/trees_dock.py:6524
 #, python-brace-format
 msgid "Angle: {text!r} is not a number."
 msgstr "Angle: {text!r} is not a number."
 
-#: gui/docks/trees_dock.py:6605
+#: gui/docks/trees_dock.py:6604
 msgid "Point name is required."
 msgstr "Point name is required."
 
-#: gui/docks/trees_dock.py:6664 gui/docks/trees_node_row.py:356
+#: gui/docks/trees_dock.py:6663 gui/docks/trees_node_row.py:356
 msgid "Applied — keep editing or Redraw."
 msgstr "Applied — keep editing or Redraw."
 
-#: gui/docks/trees_dock.py:6686
+#: gui/docks/trees_dock.py:6685
 msgid "Hide tree markers"
 msgstr ""
 
-#: gui/docks/trees_dock.py:6769
+#: gui/docks/trees_dock.py:6768
 #, python-brace-format
 msgid "Show tree markers failed: {error}"
 msgstr ""
 
-#: gui/docks/trees_dock.py:6849 gui/docks/trees_dock.py:6883
+#: gui/docks/trees_dock.py:6848 gui/docks/trees_dock.py:6882
 msgid "Set anchor"
 msgstr "Set anchor"
 
@@ -6949,7 +6950,39 @@ msgstr ""
 msgid "Trees: root config failed to reload: {error}"
 msgstr "Trees: root config failed to reload: {error}"
 
-#: gui/docks/trees_keep_place.py:143
+#: gui/docks/trees_keep_place.py:145
+msgid "the template's own anchor"
+msgstr ""
+
+#: gui/docks/trees_keep_place.py:163
+#, python-brace-format
+msgid ""
+"Tree {tree!r} is an instance of {template!r} and is no longer placed by "
+"module {marker!r} in {owner!r}: its place was NOT moved (the anchor chain"
+" does not reduce to one point) — and an instance keeps nothing by itself,"
+" so set its anchor in Tools → Trees → Instances… if the place matters"
+msgstr ""
+
+#: gui/docks/trees_keep_place.py:171
+#, python-brace-format
+msgid ""
+"Tree {tree!r} is an instance of {template!r} and is no longer placed by "
+"module {marker!r} in {owner!r}: its place is NOT kept — to keep it, set "
+"the instance's anchor in Tools → Trees → Instances… to {kind} + shift "
+"({x:.3f}, {y:.3f}), rotation {rotation:.1f}° (now: {now_kind} shift "
+"({now_shift}), rotation {now_rotation:.1f}°)"
+msgstr ""
+
+#: gui/docks/trees_keep_place.py:184
+#, python-brace-format
+msgid ""
+"Tree {tree!r} came out of a `tree_instances` declaration that is gone and"
+" is no longer placed by module {marker!r} in {owner!r} — nothing is kept:"
+" a copy has no place of its own, and there is no declaration left to "
+"write one into"
+msgstr ""
+
+#: gui/docks/trees_keep_place.py:248
 #, python-brace-format
 msgid ""
 "Tree {tree!r} is no longer placed by module {marker!r} in {owner!r} — its"
@@ -6957,7 +6990,7 @@ msgid ""
 "so the place was NOT moved; the tree now stands from its own anchor"
 msgstr ""
 
-#: gui/docks/trees_keep_place.py:158
+#: gui/docks/trees_keep_place.py:263
 #, python-brace-format
 msgid ""
 "Tree {tree!r} is no longer placed by module {marker!r} in {owner!r}: its "
@@ -7296,19 +7329,19 @@ msgstr ""
 msgid "{old!r} → {new!r}: the tree's self anchor follows."
 msgstr ""
 
-#: gui/docks/trees_owner_place.py:140
+#: gui/docks/trees_owner_place.py:125
 #, python-brace-format
 msgid "placed by module {marker!r} in {owner!r} — edit that marker there"
 msgstr ""
 
-#: gui/docks/trees_owner_place.py:144
+#: gui/docks/trees_owner_place.py:129
 #, python-brace-format
 msgid ""
 "placed by module {marker!r} in {owner!r}: xy ({x:.3f}, {y:.3f}), rotation"
 " {rot:.1f}° — edit that marker there"
 msgstr ""
 
-#: gui/docks/trees_owner_place.py:219
+#: gui/docks/trees_owner_place.py:204
 #, python-brace-format
 msgid ""
 "Tree {tree!r} is placed by module {marker!r} in {owner!r} — its own "
@@ -8481,7 +8514,7 @@ msgid ""
 "{groups} group(s)."
 msgstr ""
 
-#: kicadstamp/cell_frame.py:415
+#: kicadstamp/cell_frame.py:432
 msgid ""
 "the rotation of the cell's single component could not be determined (no "
 "live footprint, or the board side is unknown) — 0° is used, which may be "
@@ -8491,34 +8524,34 @@ msgstr ""
 "live footprint, or the board side is unknown) — 0° is used, which may be "
 "wrong for a turned instance"
 
-#: kicadstamp/cell_frame.py:450
+#: kicadstamp/cell_frame.py:467
 #, python-brace-format
 msgid ""
 "the selection is not a rigid copy of this cell (worst deviation "
 "{deviation} mm) — the geometry was re-read anyway"
 msgstr ""
 
-#: kicadstamp/cell_frame.py:455
+#: kicadstamp/cell_frame.py:472
 #, python-brace-format
 msgid ""
 "the instance is rotated {angle}° — the geometry was expressed in the "
 "cell's own frame, anchor_xy is left unchanged"
 msgstr ""
 
-#: kicadstamp/cell_frame.py:461
+#: kicadstamp/cell_frame.py:478
 #, python-brace-format
 msgid ""
 "the instance stands on the other side of the board ({side} vs the cell's "
 "{cell_layer}) — its geometry was un-mirrored into the cell's own frame"
 msgstr ""
 
-#: kicadstamp/cell_frame.py:467
+#: kicadstamp/cell_frame.py:484
 msgid ""
 "the instance is mirrored relative to the cell — its geometry was un-"
 "mirrored into the cell's own frame"
 msgstr ""
 
-#: kicadstamp/cell_geometry_refresh.py:378
+#: kicadstamp/cell_geometry_refresh.py:371
 #, python-brace-format
 msgid ""
 "template {pattern!r}: {n} record(s) in the cell, {m} live item(s) "
@@ -8527,13 +8560,13 @@ msgstr ""
 "template {pattern!r}: {n} record(s) in the cell, {m} live item(s) "
 "matching its shape"
 
-#: kicadstamp/cell_geometry_refresh.py:420
+#: kicadstamp/cell_geometry_refresh.py:413
 #, python-brace-format
 msgid "net {net!r}: {n} record(s) in the cell, {m} live item(s)"
 msgstr "net {net!r}: {n} record(s) in the cell, {m} live item(s)"
 
-#: kicadstamp/cell_geometry_refresh.py:442
-#: kicadstamp/cell_geometry_refresh.py:462
+#: kicadstamp/cell_geometry_refresh.py:435
+#: kicadstamp/cell_geometry_refresh.py:455
 #, python-brace-format
 msgid ""
 "net-less record(s) in the cell: {n} record(s), {m} unclaimed live item(s)"
@@ -8542,7 +8575,7 @@ msgstr ""
 "net-less record(s) in the cell: {n} record(s), {m} unclaimed live item(s)"
 " after resolving every named net"
 
-#: kicadstamp/cell_geometry_refresh.py:480
+#: kicadstamp/cell_geometry_refresh.py:473
 #, python-brace-format
 msgid ""
 "extra copper in selection: {desc} — not described by any "
@@ -8551,12 +8584,12 @@ msgstr ""
 "extra copper in selection: {desc} — not described by any "
 "net/template/net:null record of this cell"
 
-#: kicadstamp/cell_geometry_refresh.py:490
+#: kicadstamp/cell_geometry_refresh.py:483
 #, python-brace-format
 msgid "{kind} on {net}"
 msgstr "{kind} on {net}"
 
-#: kicadstamp/cell_geometry_refresh.py:609
+#: kicadstamp/cell_geometry_refresh.py:602
 #, python-brace-format
 msgid ""
 "{ref}: no {field!r} field — every selected component must have a Role for"
@@ -8565,7 +8598,7 @@ msgstr ""
 "{ref}: no {field!r} field — every selected component must have a Role for"
 " a {action}"
 
-#: kicadstamp/cell_geometry_refresh.py:615
+#: kicadstamp/cell_geometry_refresh.py:608
 #: kicadstamp/template_extraction.py:293
 #, python-brace-format
 msgid ""
@@ -8575,7 +8608,7 @@ msgstr ""
 "role {role!r} appears twice in selection: {ref1!r} and {ref2!r} — roles "
 "must be unique"
 
-#: kicadstamp/cell_geometry_refresh.py:628
+#: kicadstamp/cell_geometry_refresh.py:621
 #, python-brace-format
 msgid ""
 "role {role!r} is in the cell but not in the selection — {action} needs "
@@ -8584,7 +8617,7 @@ msgstr ""
 "role {role!r} is in the cell but not in the selection — {action} needs "
 "the whole cluster"
 
-#: kicadstamp/cell_geometry_refresh.py:632
+#: kicadstamp/cell_geometry_refresh.py:625
 #, python-brace-format
 msgid ""
 "role {role!r} is in the selection but not in the cell — {action} cannot "
@@ -8593,7 +8626,7 @@ msgstr ""
 "role {role!r} is in the selection but not in the cell — {action} cannot "
 "add components"
 
-#: kicadstamp/cell_geometry_refresh.py:650
+#: kicadstamp/cell_geometry_refresh.py:643
 msgid ""
 "none of the cell's roles is in the current selection — there is nothing "
 "to measure the geometry from"
@@ -8601,78 +8634,78 @@ msgstr ""
 "none of the cell's roles is in the current selection — there is nothing "
 "to measure the geometry from"
 
-#: kicadstamp/cell_geometry_refresh.py:705
-#: kicadstamp/cell_geometry_refresh.py:954
+#: kicadstamp/cell_geometry_refresh.py:698
+#: kicadstamp/cell_geometry_refresh.py:947
 msgid "refresh"
 msgstr "refresh"
 
-#: kicadstamp/cell_geometry_refresh.py:734
+#: kicadstamp/cell_geometry_refresh.py:727
 msgid ""
 "the parent instance is mirrored — a composite cell cannot be mirrored, so"
 " the relative mirror of this nested placement is not defined"
 msgstr ""
 
-#: kicadstamp/cell_geometry_refresh.py:738
+#: kicadstamp/cell_geometry_refresh.py:731
 msgid ""
 "its cell shares a role name with the parent cell — the two instances "
 "cannot be told apart"
 msgstr ""
 
-#: kicadstamp/cell_geometry_refresh.py:747
+#: kicadstamp/cell_geometry_refresh.py:740
 #, python-brace-format
 msgid "cannot identify its live instance ({error})"
 msgstr ""
 
-#: kicadstamp/cell_geometry_refresh.py:750
+#: kicadstamp/cell_geometry_refresh.py:743
 msgid "no role of its cell could be resolved on the live board"
 msgstr ""
 
-#: kicadstamp/cell_geometry_refresh.py:752
+#: kicadstamp/cell_geometry_refresh.py:745
 msgid ""
 "its roles resolve to a component the parent cell already claims — "
 "ambiguous"
 msgstr ""
 
-#: kicadstamp/cell_geometry_refresh.py:758
+#: kicadstamp/cell_geometry_refresh.py:751
 msgid "none of its resolved components is on the live board"
 msgstr ""
 
-#: kicadstamp/cell_geometry_refresh.py:770
+#: kicadstamp/cell_geometry_refresh.py:763
 msgid "none of the resolved components is a role of its cell"
 msgstr ""
 
-#: kicadstamp/cell_geometry_refresh.py:977
+#: kicadstamp/cell_geometry_refresh.py:970
 #, python-brace-format
 msgid "nested {name!r} is not a valid placement ({error}) — record left untouched"
 msgstr ""
 
-#: kicadstamp/cell_geometry_refresh.py:983
+#: kicadstamp/cell_geometry_refresh.py:976
 #, python-brace-format
 msgid ""
 "nested {name!r}: cell {cell!r} is not in the config — record left "
 "untouched"
 msgstr ""
 
-#: kicadstamp/cell_geometry_refresh.py:996
+#: kicadstamp/cell_geometry_refresh.py:989
 #, python-brace-format
 msgid "nested {name!r}: {reason} — record left untouched"
 msgstr ""
 
-#: kicadstamp/cell_geometry_refresh.py:1049
+#: kicadstamp/cell_geometry_refresh.py:1042
 #, python-brace-format
 msgid "records outside this cell reference the removed role {role!r}: {refs}"
 msgstr ""
 
-#: kicadstamp/cell_geometry_refresh.py:1099 kicadstamp/cell_origin.py:331
+#: kicadstamp/cell_geometry_refresh.py:1092 kicadstamp/cell_origin.py:331
 #: kicadstamp/cell_origin.py:368
 msgid "cannot refresh cell geometry from the current selection"
 msgstr "cannot refresh cell geometry from the current selection"
 
-#: kicadstamp/cell_geometry_refresh.py:1296
+#: kicadstamp/cell_geometry_refresh.py:1291
 msgid "import"
 msgstr "import"
 
-#: kicadstamp/cell_geometry_refresh.py:1328
+#: kicadstamp/cell_geometry_refresh.py:1323
 msgid "cannot import vias/tracks from the current selection"
 msgstr "cannot import vias/tracks from the current selection"
 
@@ -10219,7 +10252,7 @@ msgstr "  FATAL ERROR: {title}"
 msgid "Placement stopped, board not modified. Fix the config and run again."
 msgstr "Placement stopped, board not modified. Fix the config and run again."
 
-#: kicadstamp/exceptions.py:292 kicadstamp/link_trees.py:152
+#: kicadstamp/exceptions.py:292 kicadstamp/link_trees.py:246
 #: kicadstamp/validation.py:291 kicadstamp/validation.py:318
 #, python-brace-format
 msgid " — did you mean {suggestion!r}?"
@@ -10897,22 +10930,22 @@ msgid ""
 " than 2 × tolerance)"
 msgstr ""
 
-#: kicadstamp/link_trees.py:127
+#: kicadstamp/link_trees.py:221
 #, python-brace-format
 msgid "tree {name!r}"
 msgstr "tree {name!r}"
 
-#: kicadstamp/link_trees.py:134
+#: kicadstamp/link_trees.py:228
 #, python-brace-format
 msgid "{where} > node {ref!r}"
 msgstr "{where} > node {ref!r}"
 
-#: kicadstamp/link_trees.py:142
+#: kicadstamp/link_trees.py:236
 #, python-brace-format
 msgid "{where}: "
 msgstr "{where}: "
 
-#: kicadstamp/link_trees.py:174
+#: kicadstamp/link_trees.py:268
 #, python-brace-format
 msgid ""
 "config has multiple records with key {key!r} ({a!r} and {b!r}) — names "
@@ -10921,35 +10954,35 @@ msgstr ""
 "config has multiple records with key {key!r} ({a!r} and {b!r}) — names "
 "must be unique"
 
-#: kicadstamp/link_trees.py:246
+#: kicadstamp/link_trees.py:340
 #, python-brace-format
 msgid "{location}node {ref!r} (kind {kind!r}) not found in config{suggestion}"
 msgstr "{location}node {ref!r} (kind {kind!r}) not found in config{suggestion}"
 
-#: kicadstamp/link_trees.py:257
+#: kicadstamp/link_trees.py:351
 #, python-brace-format
 msgid "{location}node {ref!r} not found in config{suggestion}"
 msgstr "{location}node {ref!r} not found in config{suggestion}"
 
-#: kicadstamp/link_trees.py:260
+#: kicadstamp/link_trees.py:354
 msgid "If this is an external (live-board-only) refdes, add (kind mount)"
 msgstr "If this is an external (live-board-only) refdes, add (kind mount)"
 
-#: kicadstamp/link_trees.py:264
+#: kicadstamp/link_trees.py:358
 #, python-brace-format
 msgid "{location}node {ref!r} is ambiguous across sections: {kinds}"
 msgstr "{location}node {ref!r} is ambiguous across sections: {kinds}"
 
-#: kicadstamp/link_trees.py:266
+#: kicadstamp/link_trees.py:360
 msgid "Add an explicit (kind ...) to disambiguate"
 msgstr "Add an explicit (kind ...) to disambiguate"
 
-#: kicadstamp/link_trees.py:300
+#: kicadstamp/link_trees.py:394
 #, python-brace-format
 msgid "{location}anchor {ref!r} is ambiguous across sections: {kinds}"
 msgstr "{location}anchor {ref!r} is ambiguous across sections: {kinds}"
 
-#: kicadstamp/link_trees.py:349
+#: kicadstamp/link_trees.py:443
 #, python-brace-format
 msgid ""
 "tree {name!r} has a module node referencing itself — a tree cannot embed "
@@ -10958,7 +10991,7 @@ msgstr ""
 "tree {name!r} has a module node referencing itself — a tree cannot embed "
 "itself"
 
-#: kicadstamp/link_trees.py:352
+#: kicadstamp/link_trees.py:446
 #, python-brace-format
 msgid ""
 "tree {name!r}: module node references unknown tree {ref!r} (no tree with "
@@ -10967,7 +11000,7 @@ msgstr ""
 "tree {name!r}: module node references unknown tree {ref!r} (no tree with "
 "that name exists)"
 
-#: kicadstamp/link_trees.py:356
+#: kicadstamp/link_trees.py:450
 #, python-brace-format
 msgid ""
 "tree {name!r} embeds tree {ref!r} more than once — a parent may embed a "
@@ -10976,12 +11009,12 @@ msgstr ""
 "tree {name!r} embeds tree {ref!r} more than once — a parent may embed a "
 "tree by module only once"
 
-#: kicadstamp/link_trees.py:385
+#: kicadstamp/link_trees.py:479
 #, python-brace-format
 msgid "tree module cycle: {chain}"
 msgstr "tree module cycle: {chain}"
 
-#: kicadstamp/link_trees.py:455
+#: kicadstamp/link_trees.py:549
 #, python-brace-format
 msgid ""
 "{location}module {ref!r} references a tree that is not in this set of "
@@ -12419,38 +12452,38 @@ msgstr ""
 "Apply/Redraw keeps using it; this tree redraw moves it TEMPORARILY, "
 "without touching the record"
 
-#: kicadstamp/tree_position.py:181
+#: kicadstamp/tree_position.py:184
 #, python-brace-format
 msgid "node {ref!r}: mount node has no anchor"
 msgstr ""
 
-#: kicadstamp/tree_position.py:184
+#: kicadstamp/tree_position.py:187
 #, python-brace-format
 msgid ""
 "tree {tree!r}: mount node {ref!r} is part of a cycle — its base depends "
 "on itself through the nodes it anchors"
 msgstr ""
 
-#: kicadstamp/tree_position.py:201
+#: kicadstamp/tree_position.py:204
 #, python-brace-format
 msgid ""
 "node {ref!r}: mount node needs a live board connection — its anchor role "
 "{role!r} is not placed by this tree"
 msgstr ""
 
-#: kicadstamp/tree_position.py:340
+#: kicadstamp/tree_position.py:343
 #, python-brace-format
 msgid ""
 "node {ref!r}: mount node's anchor names pad {pad!r} — reading a pad's "
 "shape needs a live board connection"
 msgstr ""
 
-#: kicadstamp/tree_position.py:489
+#: kicadstamp/tree_position.py:492
 #, python-brace-format
 msgid "tree {tree_name!r}: pivot-ref {pivot_ref!r} not found in its own layout"
 msgstr ""
 
-#: kicadstamp/tree_position.py:953
+#: kicadstamp/tree_position.py:956
 #, python-brace-format
 msgid ""
 "self-anchor needs EXACTLY ONE top-level placement node on an Entity "
@@ -12458,18 +12491,18 @@ msgid ""
 "add an explicit (anchor ...) to this tree instead"
 msgstr ""
 
-#: kicadstamp/placement/entity_placement.py:170 kicadstamp/tree_position.py:962
+#: kicadstamp/placement/entity_placement.py:170 kicadstamp/tree_position.py:965
 #, python-brace-format
 msgid "tree {name!r} self-anchor"
 msgstr ""
 
-#: kicadstamp/tree_position.py:1108
+#: kicadstamp/tree_position.py:1111
 msgid ""
 "a tree anchor's live base needs the plain configuration tree (cfg.trees) "
 "— the rigid redraw cannot read it"
 msgstr ""
 
-#: kicadstamp/tree_position.py:1170
+#: kicadstamp/tree_position.py:1173
 #, python-brace-format
 msgid ""
 "base {ref!r}: no rotation concept — assumed 0.0 for rigid-group "
@@ -12478,7 +12511,7 @@ msgstr ""
 "base {ref!r}: no rotation concept — assumed 0.0 for rigid-group "
 "composition"
 
-#: kicadstamp/tree_position.py:1253
+#: kicadstamp/tree_position.py:1256
 #, python-brace-format
 msgid ""
 "tree redraw: node {name!r} has no resolvable live position ({error}) — "
@@ -12487,7 +12520,7 @@ msgstr ""
 "tree redraw: node {name!r} has no resolvable live position ({error}) — "
 "redrawn from its own record fields, not rigidly"
 
-#: kicadstamp/tree_position.py:1587
+#: kicadstamp/tree_position.py:1561
 #, python-brace-format
 msgid ""
 "redraw conflict: tree {child!r} is embedded by active modules in several "
@@ -12496,7 +12529,7 @@ msgstr ""
 "redraw conflict: tree {child!r} is embedded by active modules in several "
 "trees ({parents}) — uncheck one of the module markers for this redraw"
 
-#: kicadstamp/tree_position.py:1607
+#: kicadstamp/tree_position.py:1581
 #, python-brace-format
 msgid ""
 "Tree {name!r} is placed through a module in this redraw — nodes checked "
@@ -12505,7 +12538,7 @@ msgstr ""
 "Tree {name!r} is placed through a module in this redraw — nodes checked "
 "in the tree itself are applied once via the module"
 
-#: kicadstamp/tree_position.py:1668
+#: kicadstamp/tree_position.py:1645
 msgid "cross-tree anchor cycle in curated redraw forest"
 msgstr "cross-tree anchor cycle in curated redraw forest"
 

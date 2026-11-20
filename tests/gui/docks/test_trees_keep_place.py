@@ -13,6 +13,7 @@ anchor must land exactly where the module put it.
 import ast
 import logging
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -41,14 +42,20 @@ def by_name(trees, name):
 
 
 class _Dock:
-    """Just enough dock for the hook: the buffer and `_mark_dirty`."""
+    """Just enough dock for the hook: the buffer, `_mark_dirty`, and — for the instance
+    cells — the read-only declaration index and the STICKY `_generated` set."""
 
-    def __init__(self, trees):
+    def __init__(self, trees, *, instances=None, generated=()):
         self._trees = trees
         self.dirty = 0
+        self._instances = dict(instances or {})
+        self._generated = set(generated)
 
     def _mark_dirty(self):
         self.dirty += 1
+
+    def _instance_of(self, tree):
+        return self._instances.get(getattr(tree, "name", None))
 
 
 def _cfg(**extra):
@@ -341,3 +348,79 @@ def test_m2_a_host_placed_by_TWO_markers_is_a_yellow_line_not_a_guess(caplog):
     assert power.anchor.shift_xy == (5.0, -60.0)
     assert dock.dirty == 0
     assert any("does not reduce to one point" in r.getMessage() for r in caplog.records)
+
+
+# ── a GENERATED `tree_instances` copy keeps nothing (Ф4, 2026-11-20, decision «в» of
+#    plan_2026_11_19_forest_index_keys_and_instances) ────────────────────────
+#
+# The copy's place lives in the DECLARATION, and the dock never writes that section
+# (`_do_save` drops every generated tree), so a silent write into the copy would be lost
+# by the next expansion while the Log claimed success. Nothing is written, `_mark_dirty`
+# is not called, and ONE yellow line carries the numbers for Tools → Trees → Instances…
+
+def test_z3_an_instance_keeps_nothing_and_says_the_numbers(caplog):
+    """Cell «з3»: the copy and the declaration stay as they are, the buffer is not
+    dirtied, and the line names the place AND what the declaration says now."""
+    copy = tree("Switch_B", [])
+    main = tree("main", [], shift=(10.0, 5.0))
+    marker = node("Switch_B", kind="module", xy=(40.0, -24.0))
+    inst = SimpleNamespace(template="Switch_A", name="Switch_B",
+                           anchor={"point": "Origin", "shift": [1.5, -2.5]},
+                           rotation=30.0)
+    dock = _Dock([main, copy], instances={"Switch_B": inst},
+                 generated={"Switch_B"})
+    before = (copy.anchor.shift_xy, copy.rotation)
+
+    caplog.clear()
+    with caplog.at_level(logging.WARNING):
+        assert kp.keep_places_after_removal(dock, [(marker, main)]) == 0
+
+    assert (copy.anchor.shift_xy, copy.rotation) == before
+    assert dock.dirty == 0
+    assert len(caplog.records) == 1
+    line = caplog.records[0].getMessage()
+    assert "is an instance of 'Switch_A'" in line
+    assert "origin + shift (50.000, -19.000), rotation 0.0°" in line
+    assert "(now: point 'Origin' shift (1.500, -2.500), rotation 30.0°)" in line
+    assert "Instances…" in line
+    assert "keeps that place" not in line
+
+
+def test_z3b_an_instance_still_placed_elsewhere_keeps_quiet(caplog):
+    """Cell «з3б»: another marker still places the copy — nothing is written, nothing is
+    said (the silence rule of Р4 covers instances too)."""
+    copy = tree("Switch_B", [])
+    main = tree("main", [], shift=(10.0, 5.0))
+    marker = node("Switch_B", kind="module", xy=(40.0, -24.0))
+    aux = tree("aux", [node("Switch_B", kind="module", xy=(-5.0, 5.0))])
+    inst = SimpleNamespace(template="Switch_A", name="Switch_B",
+                           anchor=None, rotation=None)
+    dock = _Dock([main, copy, aux], instances={"Switch_B": inst},
+                 generated={"Switch_B"})
+
+    caplog.clear()
+    with caplog.at_level(logging.WARNING):
+        assert kp.keep_places_after_removal(dock, [(marker, main)]) == 0
+
+    assert caplog.records == []
+    assert dock.dirty == 0
+    assert copy.anchor.shift_xy == (0.0, 0.0)
+
+
+def test_z3v_a_copy_whose_declaration_is_gone_keeps_nothing(caplog):
+    """Cell «з3в»: `_generated` is STICKY — a copy whose declaration was deleted is still
+    not an ordinary tree (a write would be dropped by Save), so it gets its own line."""
+    copy = tree("Switch_B", [])
+    main = tree("main", [], shift=(10.0, 5.0))
+    marker = node("Switch_B", kind="module", xy=(40.0, -24.0))
+    dock = _Dock([main, copy], generated={"Switch_B"})
+
+    caplog.clear()
+    with caplog.at_level(logging.WARNING):
+        assert kp.keep_places_after_removal(dock, [(marker, main)]) == 0
+
+    assert dock.dirty == 0
+    assert copy.anchor.shift_xy == (0.0, 0.0)
+    assert len(caplog.records) == 1
+    line = caplog.records[0].getMessage()
+    assert "declaration that is gone" in line and "nothing is kept" in line
