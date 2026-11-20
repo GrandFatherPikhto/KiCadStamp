@@ -39,6 +39,7 @@ from kicadstamp.link_trees import LinkedAnchor, LinkedNode, LinkedTree, link_tre
 from kicadstamp.trees import (Tree, TreeAnchor, TreeNode, load_trees,
                               tree_from_dict)
 from kicadstamp.tree_position import (
+    _forest_index,
     apply_rigid_override,
     capture_rigid_state,
     child_absolute_position,
@@ -1366,6 +1367,83 @@ def test_forest_point_and_external_not_emitted():
     ])
     names, warnings = curated_redraw_plan_forest([t], {"A1", "B1"})
     assert set(names) == {"A1", "B1"}
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# The FOREST index keys LOCAL names by IDENTITY (2026-11-20, plan
+# plan_2026_11_19_forest_index_keys_and_instances, Ф3)
+# ═══════════════════════════════════════════════════════════════════════════
+#
+# A `tree_instances` clone keeps every mount/copper/component name
+# un-suffixed (`config/tree_instances.py`, `_expand_mount_node`, rule (а)), so
+# two clones of one template carry the SAME `driver_mnt`. A `ref -> node` map
+# over the whole forest kept the LAST one and attributed `Switch_A`'s nodes to
+# an ancestor of `Switch_B` — the live HP-Channel line of 19.11.
+
+def _clone_pair():
+    """Two clones of one template: identical local mount name, cloned record
+    names. Returns (trees, (mount_a, mount_b), (spoke_a, spoke_b))."""
+    def clone(tree_name, suffix):
+        spoke = _linked_node(f"spoke_{suffix}",
+                             record=_record("placement", f"spoke_{suffix}"))
+        mount = _linked_node("driver_mnt", children=[spoke])
+        driver = _linked_node(f"driver_{suffix}",
+                              record=_record("placement", f"driver_{suffix}"),
+                              children=[mount])
+        return _linked_tree(tree_name, is_origin=True, nodes=[driver]), mount, spoke
+
+    tree_a, mount_a, spoke_a = clone("Switch_A", "a")
+    tree_b, mount_b, spoke_b = clone("Switch_B", "b")
+    return [tree_a, tree_b], (mount_a, mount_b), (spoke_a, spoke_b)
+
+
+def test_clone_pair_keeps_each_mounts_own_parent_and_tree():
+    """Cell «с1а»: ONE local name `driver_mnt`, TWO nodes — the index holds both
+    by identity, and each spoke's parent is the mount of ITS OWN tree (a bare
+    `ref` key answered with `Switch_B`'s mount for both)."""
+    trees, (mount_a, mount_b), (spoke_a, spoke_b) = _clone_pair()
+    index = _forest_index(trees)
+    # Both clones' records are in the name index — a record ref is unique.
+    assert {"driver_a", "spoke_a", "driver_b", "spoke_b"} <= set(index.by_ref)
+    # The two mounts are two entries, each owned by its own tree.
+    assert id(mount_a) != id(mount_b)
+    assert index.owner[id(mount_a)] == "Switch_A"
+    assert index.owner[id(mount_b)] == "Switch_B"
+    # Each spoke hangs from ITS OWN mount, not from the last one seen.
+    assert index.parent[id(spoke_a)] is mount_a
+    assert index.parent[id(spoke_b)] is mount_b
+    assert index.parent_ref[id(spoke_a)] == "driver_mnt"
+    assert index.parent_ref[id(spoke_b)] == "driver_mnt"
+
+
+def test_clone_pair_order_is_the_same_as_its_own_single_tree_order():
+    """The order of the FIRST clone's records does not depend on the second tree
+    being there (control: a mount is no vertex, so the edge through it never
+    existed — what DID change is whose mount answers the question)."""
+    trees, _mounts, _spokes = _clone_pair()
+    pair_names, _ = curated_redraw_plan_forest(
+        trees, {"driver_a", "spoke_a"})
+    alone = [t for t in trees if t.name == "Switch_A"]
+    solo_names, _ = curated_redraw_plan_forest(alone, {"driver_a", "spoke_a"})
+    assert pair_names == solo_names == ["driver_a", "spoke_a"]
+
+
+def test_one_clone_index_keeps_the_plain_refs_and_pairs():
+    """Control: with ONE tree the index says exactly what the old one did — a
+    record's ref in `by_ref`, the parent's ref in `parent_ref`, the tree name in
+    `owner` — so nothing of the single-tree behaviour moved."""
+    tree = _linked_tree("t", is_origin=True, nodes=[
+        _linked_node("A", record=_record("placement", "A"),
+                     children=[_linked_node("mnt", children=[
+                         _linked_node("A1", record=_record("placement", "A1"))])])])
+    index = _forest_index([tree])
+    assert set(index.by_ref) == {"A", "A1"}
+    a = index.by_ref["A"]
+    a1 = index.by_ref["A1"]
+    assert index.parent_ref[id(a)] is None          # origin anchor
+    assert index.parent[id(a)] is None
+    assert index.parent_ref[id(a1)] == "mnt"
+    assert id(a) in index.top_level
 
 
 def test_forest_cross_tree_cycle_is_fatal():

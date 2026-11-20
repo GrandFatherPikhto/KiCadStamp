@@ -125,11 +125,17 @@ MUTATIONS = [
      ["test_a_diagonal_shift_is_reported_as_the_distance",
       "test_both_axes_below_the_tolerance_can_still_be_a_deviation"]),
 
+    # 2026-11-20: the planner now asks the node OBJECT (by identity, plan
+    # plan_2026_11_19_forest_index_keys_and_instances), so the template follows.
     ("M15 the FOREST planner always passes from_plan=False", TREE_POS,
-     "                plan_pose_subject(cfg, index.node_index.get(p),\n"
-     "                                  index.owner_map.get(p)) is not None))\n",
-     "                plan_pose_subject(cfg, index.node_index.get(p),\n"
-     "                                  index.owner_map.get(p)) is not None\n"
+     "                plan_pose_subject(\n"
+     "                    cfg, parent_node,\n"
+     "                    index.owner.get(id(parent_node)) if parent_node is not None else None\n"
+     "                ) is not None))\n",
+     "                plan_pose_subject(\n"
+     "                    cfg, parent_node,\n"
+     "                    index.owner.get(id(parent_node)) if parent_node is not None else None\n"
+     "                ) is not None\n"
      "                and False))  # MUTATION: never from the plan\n",
      ["test_the_forest_planner_names_a_placement_parent_as_the_trees_place"]),
 

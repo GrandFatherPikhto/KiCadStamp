@@ -102,7 +102,9 @@ CEILINGS = {
     # module's MARKER (before the embedded tree's pivot) and the EFF base its content
     # is stored in — because the anchor sync must sit in the same stage as the
     # tree's own anchor point.
-    "kicadstamp/tree_position.py": 1945,
+    # 1945 → 1926 (plan_2026_11_19_forest_index_keys_and_instances): the ref-keyed
+    # forest index became a thin seam over `link_trees.forest_index`.
+    "kicadstamp/tree_position.py": 1926,
     # 2381 → 2320 (§1 of plan_2026_11_14_used_refs_by_uuid): the local-name rule
     # and its wording moved to kicadstamp/trees_local_refs.py, and the other half
     # of the lock demands the number come DOWN in the same commit.

@@ -116,6 +116,100 @@ class LinkedTree:
     nodes: list[LinkedNode]
 
 
+@dataclass(frozen=True)
+class ForestIndex:
+    """The identity of every node of a FOREST — ONE key rule (2026-11-20).
+
+    `mount`, `copper`, `component`, `external` and `module` refs are LOCAL NAMES, and a
+    `tree_instances` clone keeps them un-suffixed (`config/tree_instances.py`,
+    `_expand_mount_node`, rule (а)): two clones of one template carry the SAME
+    `driver_mnt`, `p15v_5`, `n5v_8`. A `ref -> node` map over the whole forest therefore
+    silently keeps the LAST one, and both forest-wide consumers did exactly that — the
+    planner's order and drift warning (`tree_position._forest_index`) and the «ancestor
+    is NOT being redrawn» line (`gui/docks/tree_place_drift._forest_index`). On
+    HP-Channel that attributed nodes of `Switch_A` to an ancestor of `Switch_B`
+    («… ancestor 'driver_switcha__Switch_B' is NOT being redrawn … will land off by
+    46.6 mm», Log 16:17:44, plan_2026_11_19_forest_index_keys_and_instances).
+
+    So the key is the node's IDENTITY, and only the names that really are unique across
+    the forest stay strings:
+
+      by_ref     — a node that EMITS A NAME (a record, or a component node, which the
+                   plan drives through a transient placement). A record's ref is unique
+                   by construction. A COMPONENT name is NOT — two clones share one
+                   vertex — and that stays an open question, not silently "fixed".
+      parent_ref — id(node) -> its parent's ref; for a TOP-LEVEL node it is its tree's
+                   ANCHOR ref (None for an origin anchor) — what the anchor edge and the
+                   warning label have always used.
+      parent     — id(node) -> the parent NODE when one carries that ref (cross-tree
+                   anchoring included); None for a top-level node whose anchor names no
+                   node of this forest.
+      owner      — id(node) -> the name of the tree it lives in.
+      top_level  — ids of the trees' top-level nodes.
+    """
+    by_ref: dict[str, LinkedNode]
+    parent_ref: dict[int, "str | None"]
+    parent: dict[int, "LinkedNode | None"]
+    owner: dict[int, str]
+    top_level: set[int]
+
+
+def emits_a_name(linked_node: LinkedNode) -> bool:
+    """Whether this node is a VERTEX of the redraw plan and emits a name — the ONE
+    predicate (moved here from `tree_position._emits_a_name`, which needs it as much as
+    the index does; a second copy is how the name/local split drifted).
+
+    The kinds that deliberately do NOT emit: `external` (record None, a live refdes),
+    `mount`/`copper` (record None, local names), `module` (a pass-through vertex of its
+    own), `point` (apply_only_filter has no support for points at all)."""
+    if linked_node.node.kind == "component":
+        return True
+    return (linked_node.record is not None
+            and linked_node.record.kind != "point")
+
+
+def forest_index(linked_trees) -> ForestIndex:
+    """Build the forest index described by `ForestIndex` (Qt-free, reads nothing).
+
+    Two passes on purpose: a tree's ANCHOR may name a node of a tree that comes LATER in
+    the list (cross-tree anchoring, plan 3.2 §9.3), so `by_ref` has to be complete before
+    any anchor is looked up."""
+    by_ref: dict[str, LinkedNode] = {}
+
+    def collect(nodes) -> None:
+        for ln in nodes:
+            if emits_a_name(ln):
+                by_ref[ln.node.ref] = ln
+            collect(ln.children)
+
+    for tree in linked_trees:
+        collect(tree.nodes)
+
+    parent_ref: dict[int, "str | None"] = {}
+    parent: dict[int, "LinkedNode | None"] = {}
+    owner: dict[int, str] = {}
+    top_level: set[int] = set()
+
+    def walk(nodes, parent_node: "LinkedNode | None", tree_name: str,
+             anchor_ref: "str | None", under_anchor: bool) -> None:
+        for ln in nodes:
+            key = id(ln)
+            owner[key] = tree_name
+            if under_anchor:
+                parent_ref[key] = anchor_ref
+                parent[key] = by_ref.get(anchor_ref) if anchor_ref else None
+                top_level.add(key)
+            else:
+                parent_ref[key] = parent_node.node.ref if parent_node is not None else None
+                parent[key] = parent_node
+            walk(ln.children, ln, tree_name, anchor_ref, False)
+
+    for tree in linked_trees:
+        walk(tree.nodes, None, tree.name, tree.anchor.anchor.ref, True)
+    return ForestIndex(by_ref=by_ref, parent_ref=parent_ref, parent=parent,
+                       owner=owner, top_level=top_level)
+
+
 def _fatal(message: str) -> None:
     raise ValidationError(message)
 

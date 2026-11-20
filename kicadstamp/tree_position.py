@@ -41,11 +41,14 @@ from .domain.geometry import Vector2
 from .geometry.clone_geometry import clone_shift_mm
 from .geometry.spoke_layout import local_to_absolute, rotate_local_offset
 from .link_trees import (
+    ForestIndex,
     LinkedAnchor,
     LinkedNode,
     LinkedTree,
     _build_by_name_index,
     _resolve_anchor_ref,
+    emits_a_name,
+    forest_index,
     inline_anchor_field,
 )
 from .order_pass import EdgeProvider, run_order_pass
@@ -1399,14 +1402,10 @@ def _emits_a_name(linked_node: LinkedNode) -> bool:
     which carries NO config record at all and is planned through a transient
     CoordPlacement — is added to the plan in ONE place instead of five.
 
-    The kinds that deliberately do NOT emit: `external` (record None, a live
-    refdes), `mount`/`copper` (record None, local names), `module` (a
-    pass-through vertex of its own), `point` (apply_only_filter has no support
-    for points at all)."""
-    if linked_node.node.kind == "component":
-        return True
-    return (linked_node.record is not None
-            and linked_node.record.kind != "point")
+    Since 2026-11-20 the host is `link_trees.emits_a_name`: the FOREST INDEX
+    splits names from local names by the very same rule, and a second copy is
+    how those two drifted (plan_2026_11_19_forest_index_keys_and_instances)."""
+    return emits_a_name(linked_node)
 
 
 def _is_copper(linked_node: LinkedNode) -> bool:
@@ -1415,49 +1414,21 @@ def _is_copper(linked_node: LinkedNode) -> bool:
             and linked_node.record.kind == "net_trace")
 
 
-@dataclasses.dataclass
-class _ForestIndex:
-    """The forest-wide vertex view both order passes work on.
+def _forest_index(linked_trees: list[LinkedTree]) -> ForestIndex:
+    """The forest-wide vertex view both order passes work on — ONE seam over
+    `link_trees.forest_index`, whose `ForestIndex` documents the key rule.
 
-    node_index / parent_map are ONE combined map over every tree: a top-level
-    node's parent is its TREE ANCHOR's ref (None for an origin anchor), a
-    nested node's parent is its enclosing node's ref. Because the anchor ref is
-    the parent of the top-level nodes, a tree whose anchor points at a node of
-    ANOTHER tree gets a cross-tree edge for free — the unified parent map is
-    what plan 3.2 (§9.3 cross-tree anchoring) needs.
+    The key is the node's IDENTITY, never the bare `ref`: `mount`/`copper`/
+    `component` names are LOCAL and a `tree_instances` clone keeps them
+    un-suffixed, so a ref-keyed map silently kept the LAST clone's node and
+    attributed `Switch_A`'s nodes to `Switch_B`'s ancestor (live HP-Channel line
+    of 19.11, plan_2026_11_19_forest_index_keys_and_instances).
 
-    `top_level` is the split the two PROVIDERS need (plan_2026_09_17 Э1,
-    Т1.2): a node whose parent is the tree's ANCHOR is an "anchor" edge, a node
-    whose parent is another NODE of the same tree is a "structure" edge.
-    Splitting them costs one set, and it is what lets a cycle report say WHICH
-    source to go and fix instead of naming one unnamed loop for both."""
-    node_index: dict[str, LinkedNode]
-    parent_map: dict[str, str | None]
-    top_level: set[str]
-    owner_map: dict[str, str]          # node ref -> the tree that holds it
-
-
-def _forest_index(linked_trees: list[LinkedTree]) -> _ForestIndex:
-    node_index: dict[str, LinkedNode] = {}
-    parent_map: dict[str, str | None] = {}
-    top_level: set[str] = set()
-    owner_map: dict[str, str] = {}
-    for tree in linked_trees:
-        anchor_ref = tree.anchor.anchor.ref
-
-        def walk(nodes: list[LinkedNode], parent_ref: str | None,
-                 under_anchor: bool = False) -> None:
-            for ln in nodes:
-                node_index[ln.node.ref] = ln
-                parent_map[ln.node.ref] = parent_ref
-                owner_map[ln.node.ref] = tree.name
-                if under_anchor:
-                    top_level.add(ln.node.ref)
-                walk(ln.children, ln.node.ref, under_anchor=False)
-
-        walk(tree.nodes, anchor_ref, under_anchor=True)
-    return _ForestIndex(node_index=node_index, parent_map=parent_map,
-                        top_level=top_level, owner_map=owner_map)
+    `top_level` is the split the two PROVIDERS need (plan_2026_09_17 Э1, Т1.2):
+    a node whose parent is the tree's ANCHOR is an "anchor" edge, a node whose
+    parent is another NODE of the same tree is a "structure" edge — a cycle
+    report then says WHICH source to go and fix."""
+    return forest_index(linked_trees)
 
 
 # ── edge providers (plan_2026_09_17 Э1, Т1.2) ─────────────────────────────────
@@ -1473,29 +1444,32 @@ _MODULE = "module"
 _COPPER = "copper"
 
 
-def _structure_provider(index: _ForestIndex) -> EdgeProvider:
+def _structure_provider(index: ForestIndex) -> EdgeProvider:
     """Nesting: a node inside another node of the same tree goes after it."""
     def edges(vertices):
-        for ref in index.node_index:
-            if ref in index.top_level or ref not in vertices:
+        for ref, ln in index.by_ref.items():
+            if id(ln) in index.top_level or ref not in vertices:
                 continue
-            parent = index.parent_map.get(ref)
-            if parent is not None and parent in vertices:
-                yield parent, ref
+            parent = index.parent.get(id(ln))
+            # A mount/copper parent emits no name and is no vertex; the edge is
+            # skipped exactly as before, but by IDENTITY now — a mount whose name
+            # happened to match a record's could otherwise invent an edge.
+            if parent is not None and parent.node.ref in vertices:
+                yield parent.node.ref, ref
     return EdgeProvider(_STRUCTURE, edges)
 
 
-def _anchor_provider(index: _ForestIndex) -> EdgeProvider:
+def _anchor_provider(index: ForestIndex) -> EdgeProvider:
     """Anchoring: a top-level node goes after its tree's ANCHOR, when that
     anchor names a node this run places (within-tree or cross-tree). An origin
     anchor names nothing, so its top-level nodes stay roots."""
     def edges(vertices):
-        for ref in index.top_level:
-            if ref not in vertices:
+        for ref, ln in index.by_ref.items():
+            if id(ln) not in index.top_level or ref not in vertices:
                 continue
-            parent = index.parent_map.get(ref)
-            if parent is not None and parent in vertices:
-                yield parent, ref
+            anchor_ref = index.parent_ref.get(id(ln))
+            if anchor_ref is not None and anchor_ref in vertices:
+                yield anchor_ref, ref
     return EdgeProvider(_ANCHOR, edges)
 
 
@@ -1610,7 +1584,7 @@ def _module_placement_checks(active,
     return content_refs, warnings
 
 
-def _plan_forest(index: _ForestIndex, linked_trees: list[LinkedTree],
+def _plan_forest(index: ForestIndex, linked_trees: list[LinkedTree],
                  selected_refs: set[str],
                  copper_deps: dict[str, set[str]] | None = None,
                  cfg=None) -> tuple[list[str], list[str]]:
@@ -1638,18 +1612,21 @@ def _plan_forest(index: _ForestIndex, linked_trees: list[LinkedTree],
 
     # forest-channel selected records EXCLUDING module-placed trees' own nodes'
     # content (D3 suppression: they are represented once, through the module).
+    # `by_ref` holds exactly the name-emitting nodes (records + component
+    # vertices); a LOCAL name never lands here, so two clones' mounts cannot
+    # overwrite each other's node (2026-11-20).
     selected: dict[str, LinkedNode] = {}
-    for ref, ln in index.node_index.items():
-        if ref in selected_refs and ref not in content_refs and _emits_a_name(ln):
+    for ref, ln in index.by_ref.items():
+        if ref in selected_refs and ref not in content_refs:
             selected[ref] = ln
 
     # Copper (record kind "net_trace") is deferred: a net_trace record stores
     # its geometry as offsets from its OWN anchor pad and plan_net_traces lays
     # it out LIVE from that pad, so it DEPENDS on where the components ended up
     # — while no component ever depends on copper. Forest copper nodes are in
-    # node_index; copper pulled in through an active module's content is not,
+    # by_ref; copper pulled in through an active module's content is not,
     # so it is collected from the module content too.
-    copper_refs = {ref for ref, ln in index.node_index.items() if _is_copper(ln)}
+    copper_refs = {ref for ref, ln in index.by_ref.items() if _is_copper(ln)}
     for m, _owner in active:
         copper_refs |= _module_content_record_refs(m, kind="net_trace")
 
@@ -1675,18 +1652,22 @@ def _plan_forest(index: _ForestIndex, linked_trees: list[LinkedTree],
     # WHERE that pose comes from is the ONE rule of tree_plan_warnings (21.10:
     # this planner spelled the old "current position" out here by hand).
     labels = top_level_anchor_labels(linked_trees)
-    for ref in selected:
+    for ref, ln in selected.items():
         if ref in copper_refs:
             # Copper's base is its OWN anchor pad, never its tree parent — the
             # note below is false for it (P.2.2 of the 2026-09-16 plan).
             continue
-        p = index.parent_map.get(ref)
+        key = id(ln)
+        p = index.parent_ref.get(key)                  # the parent's NAME
+        parent_node = index.parent.get(key)            # and its NODE, by identity
         parent_label = p if p is not None else labels.get(ref, "(origin)")
         if p is None or (p not in selected and p not in content_refs):
             warnings.append(parent_outside_selection_warning(
                 ref, parent_label,
-                plan_pose_subject(cfg, index.node_index.get(p),
-                                  index.owner_map.get(p)) is not None))
+                plan_pose_subject(
+                    cfg, parent_node,
+                    index.owner.get(id(parent_node)) if parent_node is not None else None
+                ) is not None))
     return names, warnings
 
 
