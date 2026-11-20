@@ -91,8 +91,11 @@ def start_embedded_redraw(dock, tree, *, only_names=None, drift_refs=None,
     """Start the FOREST redraw of `tree` in its module's frame.
 
     `None` — nobody places `tree`: the caller runs its own (unchanged) path. This is the answer
-    for a standalone tree, for a generated `tree_instances` copy (which can never be module-placed
-    at all, Р3) and for the case the door would otherwise duplicate.
+    for a standalone tree and for the case the door would otherwise duplicate. A generated
+    `tree_instances` copy is NOT such a case: what the config forbids is the PAIR «template ↔ its
+    own instance», so a THIRD tree may place the copy — and then the door goes through that module
+    exactly like any other embedded tree (Ф4 of plan_2026_11_19_forest_index_keys_and_instances;
+    the wording here used to claim the copy «can never be module-placed at all»).
     `False` — placed, but the run could not start (no config/root, or the first-run heads-up said
     no): the caller must NOT continue down its own path, that would be the Grid-Origin redraw.
     `True` — a worker was started; `trigger` (if given) is its busy guard.

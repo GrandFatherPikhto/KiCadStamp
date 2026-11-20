@@ -228,6 +228,58 @@ def test_the_module_holds_no_message_box():
     assert "QtWidgets" not in imported
 
 
+# ── an EMBEDDED `tree_instances` copy (2026-11-20, Ф4 of
+#    plan_2026_11_19_forest_index_keys_and_instances) ────────────────────────
+#
+# The docstring here used to claim a generated copy «can never be module-placed at
+# all». It can: the config forbids the PAIR «template ↔ its own instance», so a THIRD
+# tree's marker may name the copy — on HP-Channel `Main` holds `Switch_B` (40, −24) and
+# the copy stands live there. The doors never asked `_instance_of`, so nothing in the
+# CODE had to change; the CLAIM did, and these cells pin it.
+
+def _instance_forest():
+    """A `tree_instances` copy as the expansion writes it: records carry the clone
+    suffix (`__Switch_B`), the mount keeps the template's own LOCAL name."""
+    return [tree("main", [node("Switch_B", kind="module", xy=(40.0, -24.0))]),
+            tree("Switch_B", [node("DRV__Switch_B", children=[
+                node("driver_mnt", kind="mount",
+                     children=[node("spoke__Switch_B")])])])]
+
+
+def test_z2_an_embedded_INSTANCE_goes_through_its_module(started, said):
+    """Cell «з2»: the copy's tab redraws through the module that names it — the chain
+    is handed over by its marker's name and the applied set is the asked one, for a
+    NODE and for a MOUNT alike."""
+    from gui.docks.trees_accept import subtree_refs
+
+    dock = _Dock(_instance_forest())
+    switch_b = by_name(dock._trees, "Switch_B")
+    mount = switch_b.nodes[0].children[0]
+
+    assert tmr.redraw_embedded(dock, switch_b, only_names={"spoke__Switch_B"},
+                               drift_refs={"spoke__Switch_B"}) is True
+    assert tmr.redraw_embedded(dock, switch_b, only_names=subtree_refs(mount),
+                               drift_refs=subtree_refs(mount)) is True
+
+    assert len(started) == 2
+    for call in started:
+        payload = call["payload"]
+        # The MARKER's name is the selection; the copy's own refs are only applied.
+        assert payload["selected_refs"] == {"Switch_B"}
+        assert payload["only_names"] == {"spoke__Switch_B"}
+        assert payload["trees"] is dock._trees
+    assert said == []
+
+
+def test_z2b_an_instance_nobody_embeds_runs_its_own_path(started):
+    """Cell «з2б» (control): the same copy with no marker naming it is an ordinary
+    tree — the door answers None and starts nothing."""
+    dock = _Dock(_instance_forest()[1:])
+
+    assert tmr.redraw_embedded(dock, dock._trees[0]) is None
+    assert started == []
+
+
 def test_all_four_doors_ask_this_module():
     """The doors live in three files (two of them a 6900-line giant) — a grep-free AST cell keeps
     a reader from "just" adding a fifth door that lays the tree out from its own anchor."""
