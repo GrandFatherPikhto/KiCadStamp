@@ -3,7 +3,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version:  kicadstamp\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-11-20 19:05+0300\n"
+"POT-Creation-Date: 2026-11-20 19:20+0300\n"
 "PO-Revision-Date: 2026-07-27 12:00+0000\n"
 "Last-Translator: \n"
 "Language: en\n"
@@ -509,7 +509,7 @@ msgstr ""
 msgid "could not read the project config for the transfer: {error}"
 msgstr ""
 
-#: gui/explode_wiring.py:81 kicadstamp/explode_transfer.py:96
+#: gui/explode_wiring.py:81 kicadstamp/explode_transfer.py:97
 #, python-brace-format
 msgid ""
 "net_traces {name}: the record's file was not found in the project graph —"
@@ -10439,29 +10439,34 @@ msgstr ""
 msgid "restore is off by {nm} nm — the journal was kept"
 msgstr ""
 
-#: kicadstamp/explode_transfer.py:103
+#: kicadstamp/explode_transfer.py:104
 #, python-brace-format
 msgid ""
 "net_traces {name}: the record is not in {path} — the read is refused, "
 "nothing was changed"
 msgstr ""
 
-#: kicadstamp/explode_transfer.py:109
+#: kicadstamp/explode_transfer.py:110
 #, python-brace-format
 msgid ""
 "net_traces {name}: a tree_instances copy is not 1:1 with the template — "
 "the read is refused, nothing was changed"
 msgstr ""
 
-#: kicadstamp/explode_transfer.py:174
+#: kicadstamp/explode_transfer.py:184
 #, python-brace-format
 msgid "net_traces {name} is now empty — delete the record by hand"
 msgstr ""
 
-#: kicadstamp/explode_transfer.py:177
+#: kicadstamp/explode_transfer.py:187
 #, python-brace-format
 msgid "the transfer also applies to its {n} tree_instances cop(y/ies)"
 msgstr ""
+
+#: kicadstamp/explode_transfer.py:193
+#, python-brace-format
+msgid "the cell now draws these pieces at all its {count} instance(s)"
+msgstr "the cell now draws these pieces at all its {count} instance(s)"
 
 #: kicadstamp/extract_writer.py:133
 #, python-brace-format

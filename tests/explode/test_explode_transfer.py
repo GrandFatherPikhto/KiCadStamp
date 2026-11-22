@@ -63,6 +63,11 @@ def _setup(tmp_path, *, vias=2, tracks=3, copies=1, copy_tracks=None):
     return cfg_path, cfg, records
 
 
+def _entity(name, cell, cluster, sheet):
+    return SimpleNamespace(name=name, uuid=f"uuid-{name}", cell=cell,
+                           cluster=cluster, sheet=sheet)
+
+
 def _seed_registry(cfg_path, records):
     via_path, trk_path = registry_paths_for_config(str(cfg_path), None, None)
     vias, trks = {}, {}
@@ -138,6 +143,43 @@ def test_a_copy_not_one_to_one_refuses_the_edit(tmp_path):
                             entry_files={"rec": str(cfg_path)})
     assert _entry(cfg_path) == before                 # nothing written
     assert any("1:1" in line for line in lines)
+
+
+def test_the_line_says_how_many_instances_will_draw_the_piece(tmp_path):
+    """Р6 (plan_2026_11_20_cell_read_takes_inter_node_copper, Denis 20.11): the
+    transferred piece is part of the CELL's geometry now, so EVERY instance draws
+    it — and ONE yellow line says how many there are. The count is the number of
+    DISTINCT (cluster, sheet) addresses of the cell, not the number of records."""
+    cfg_path, cfg, _ = _setup(tmp_path)
+    # Entities carry name+uuid: `cell_record_addresses` names them through
+    # `record_key_part`, which is a FATAL under the format-3 gate without one.
+    cfg.entities = [_entity("e1", "spoke_lv", "A", "S1"),
+                    _entity("e2", "spoke_lv", "B", "S1"),
+                    _entity("e3", "spoke_lv", "B", "S1"),
+                    _entity("e4", "other", "C", "S1")]
+    cfg.clone_placements = []
+
+    lines = apply_transfers(cfg_path, cfg, [NetTraceTransfer("rec", "track", 1)],
+                            entry_files={"rec": str(cfg_path)},
+                            cell_name="spoke_lv")
+
+    assert any("at all its 2 instance(s)" in line for line in lines), lines
+
+
+def test_without_a_cell_name_the_instances_are_not_counted(tmp_path):
+    """Р6: a caller that does not name the cell says nothing rather than guessing —
+    and a cell nothing places gets no line either (0 instances is not a claim)."""
+    cfg_path, cfg, _ = _setup(tmp_path)
+    cfg.entities = [_entity("e1", "spoke_lv", "A", "S1")]
+    cfg.clone_placements = []
+    assert apply_transfers(cfg_path, cfg, [NetTraceTransfer("rec", "track", 1)],
+                           entry_files={"rec": str(cfg_path)}) == []
+
+    cfg_path, cfg, _ = _setup(tmp_path / "second")
+    cfg.entities, cfg.clone_placements = [], []
+    assert apply_transfers(cfg_path, cfg, [NetTraceTransfer("rec", "track", 1)],
+                           entry_files={"rec": str(cfg_path)},
+                           cell_name="spoke_lv") == []
 
 
 def test_a_record_in_an_included_file_is_edited_there(tmp_path):

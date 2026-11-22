@@ -3,7 +3,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version:  kicadstamp\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-11-20 19:05+0300\n"
+"POT-Creation-Date: 2026-11-20 19:20+0300\n"
 "PO-Revision-Date: 2026-07-27 12:00+0000\n"
 "Last-Translator: \n"
 "Language: ru\n"
@@ -558,7 +558,7 @@ msgstr "Кластеры разнесены — сначала «Вернуть�
 msgid "could not read the project config for the transfer: {error}"
 msgstr "не удалось прочитать конфиг проекта для передачи: {error}"
 
-#: gui/explode_wiring.py:81 kicadstamp/explode_transfer.py:96
+#: gui/explode_wiring.py:81 kicadstamp/explode_transfer.py:97
 #, python-brace-format
 msgid ""
 "net_traces {name}: the record's file was not found in the project graph —"
@@ -11177,7 +11177,7 @@ msgstr "журнал СОХРАНЁН: {n} предмет(ов) не верну�
 msgid "restore is off by {nm} nm — the journal was kept"
 msgstr "возврат промахнулся на {nm} нм — журнал сохранён"
 
-#: kicadstamp/explode_transfer.py:103
+#: kicadstamp/explode_transfer.py:104
 #, python-brace-format
 msgid ""
 "net_traces {name}: the record is not in {path} — the read is refused, "
@@ -11186,7 +11186,7 @@ msgstr ""
 "net_traces {name}: записи нет в {path} — чтение отклонено, ничего не "
 "изменено"
 
-#: kicadstamp/explode_transfer.py:109
+#: kicadstamp/explode_transfer.py:110
 #, python-brace-format
 msgid ""
 "net_traces {name}: a tree_instances copy is not 1:1 with the template — "
@@ -11195,15 +11195,21 @@ msgstr ""
 "net_traces {name}: копия tree_instances не 1:1 с шаблоном — чтение "
 "отклонено, ничего не изменено"
 
-#: kicadstamp/explode_transfer.py:174
+#: kicadstamp/explode_transfer.py:184
 #, python-brace-format
 msgid "net_traces {name} is now empty — delete the record by hand"
 msgstr "запись net_traces {name} пуста — удалить руками"
 
-#: kicadstamp/explode_transfer.py:177
+#: kicadstamp/explode_transfer.py:187
 #, python-brace-format
 msgid "the transfer also applies to its {n} tree_instances cop(y/ies)"
 msgstr "перейдёт и в копиях tree_instances: {n}"
+
+#: kicadstamp/explode_transfer.py:193
+#, python-brace-format
+msgid "the cell now draws these pieces at all its {count} instance(s)"
+msgstr ""
+"теперь ячейка рисует эти куски во всех своих экземплярах: {count}"
 
 #: kicadstamp/extract_writer.py:133
 #, python-brace-format

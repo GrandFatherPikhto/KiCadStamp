@@ -1864,12 +1864,12 @@ class CellDock(QWidget):
                 self._show_message(line, _ERROR_STYLE)
             return
         updated, added, removed = self._apply_refresh_plan(plan)
-        # Р3а-1: the ownership transfer is applied on the UI thread, TOGETHER with
-        # the plan (one working-set edit), and only because the plan went through —
-        # every refusal / no-op path above returned before this line.
+        # Р3а-1: the transfer is applied on the UI thread, TOGETHER with the plan
+        # (one working-set edit), and only because the plan went through.
         if transfers:
             for line in apply_transfers(str(self._root_path), cfg, transfers,
-                                        entry_files=entry_files):
+                                        entry_files=entry_files,
+                                        cell_name=self.name_edit.text().strip()):
                 self._show_message(line, _WARN_STYLE)
         # J.1 (2026-09-10): the frame's honest report lines — the live cluster is
         # not a rigid copy of the cell, and/or the instance is turned (the

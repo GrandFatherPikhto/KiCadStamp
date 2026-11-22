@@ -29,7 +29,27 @@ from .cluster_matching import cluster_prefix_match
 from .constants import CLUSTER_FIELD_NAME
 from .placement.services.role_narrowing import narrow_candidates_by_sheet
 
-__all__ = ["resolve_context_footprints"]
+__all__ = ["cell_instance_count", "resolve_context_footprints"]
+
+
+def cell_instance_count(cfg, cell_name: str | None) -> int:
+    """How many INSTANCES of ``cell_name`` the loaded config declares — the number
+    of DISTINCT (cluster, sheet) addresses among the records that place it.
+
+    Р6 of plan_2026_11_20_cell_read_takes_inter_node_copper (Denis, 20.11): the
+    Log line «the cell now draws these pieces at all its N instance(s)» is a claim
+    about the CELL — the transferred copper became part of its geometry, so every
+    instance gets a copy — and this is the ONE count behind it. It comes from
+    ``selection_narrowing.cell_record_addresses`` (the ONE walk of
+    ``entities``/``clone_placements``, materialized ``tree_instances`` copies
+    included), never from a second walk of the graph.
+
+    An address with NO cluster is not an instance — the same rule ``cell_clusters``
+    follows; 0 is then an honest answer for a cell nothing places yet."""
+    from .selection_narrowing import cell_record_addresses
+
+    return len({address for address in cell_record_addresses(cfg, cell_name).values()
+                if address[0]})
 
 
 def resolve_context_footprints(adapter, footprints, cluster: str, sheet,

@@ -34,6 +34,7 @@ import logging
 from collections import defaultdict
 from pathlib import Path
 
+from .cell_instance import cell_instance_count
 from .config_writer import _read_data, upsert_list_entry
 from .i18n import _
 from .net_trace_planner import net_trace_registry_key
@@ -117,7 +118,8 @@ def _section_of(kind: str) -> str:
     return "vias" if "via" in str(kind).lower() else "tracks"
 
 
-def apply_transfers(config_path, cfg, transfers, *, entry_files=None) -> list[str]:
+def apply_transfers(config_path, cfg, transfers, *, entry_files=None,
+                    cell_name: str | None = None) -> list[str]:
     """Let the ``net_traces`` records of ``transfers`` give their pieces away.
 
     ``entry_files`` is {identity: physical file} (Р3а-2) — each record is edited in
@@ -127,7 +129,15 @@ def apply_transfers(config_path, cfg, transfers, *, entry_files=None) -> list[st
     performed, its refusal lines are returned and NOTHING is written — not one
     record, not one registry key. A half-applied transfer would leave two owners.
 
-    Returns the yellow Log lines (an emptied record, the affected copies)."""
+    ``cell_name`` — the cell the pieces went to. When given, ONE more line states
+    what the transfer MEANS (Р6 of plan_2026_11_20_cell_read_takes_inter_node_
+    copper): the piece is part of the cell's geometry now, so EVERY instance of
+    that cell draws it — with the count from ``cell_instance.cell_instance_count``
+    (the ONE count of a cell's instances). No cell name, no line: a caller that
+    does not know the cell says nothing rather than guessing.
+
+    Returns the yellow Log lines (an emptied record, the affected copies, the
+    instance count)."""
     transfers = list(transfers or ())
     if not transfers:
         return []
@@ -176,6 +186,12 @@ def apply_transfers(config_path, cfg, transfers, *, entry_files=None) -> list[st
         if len(records) > 1:
             lines.append(_("the transfer also applies to its {n} tree_instances "
                            "cop(y/ies)").format(n=len(records) - 1))
+
+    if cell_name:
+        count = cell_instance_count(cfg, cell_name)
+        if count:
+            lines.append(_("the cell now draws these pieces at all its {count} "
+                           "instance(s)").format(count=count))
 
     if release:
         dropped = 0

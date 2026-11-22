@@ -559,7 +559,8 @@ def test_the_transfer_runs_on_the_ui_thread_only_when_the_plan_applies(
                         lambda cfg, transfers, files: [])
     calls = []
     monkeypatch.setattr(ce_mod, "apply_transfers",
-                        lambda path, cfg, transfers, entry_files=None: calls.append(
+                        lambda path, cfg, transfers, entry_files=None,
+                        cell_name=None: calls.append(
                             (threading.current_thread().name, tuple(transfers)))
                         or [])
     monkeypatch.setattr(dock, "_apply_refresh_plan", lambda plan: (0, 1, 0))
