@@ -50,6 +50,10 @@ class ReadOutcome:
     selected: int = 0
     read: int = 0
     skipped: int = 0
+    #: ((label, count), ...) — the reasons of the line, the SAME parts it prints.
+    #: Data, like the three numbers above, so a cell can assert С1's invariant
+    #: «the reasons add up to `skipped`» without parsing the text.
+    reasons: tuple = ()
 
     @property
     def replaced(self) -> bool:
@@ -59,6 +63,15 @@ class ReadOutcome:
         return bool(self.items)
 
 
+def _missed(fp, plan_uuids: set, plan_ids: set) -> bool:
+    """Was this selected component left out of the read?
+
+    The identity is the UUID — the same key ``select_items`` hands the board — and
+    only an object WITHOUT one (a test double) falls back to ``id()``."""
+    uuid = getattr(fp, "uuid", None)
+    return uuid not in plan_uuids if uuid else id(fp) not in plan_ids
+
+
 def _skip_parts(*, selected_components, plan_components, layer_off,
                 other_records, inter_node, skipped) -> list:
     """The reasons of the line, as ``[(label, count), ...]`` — only the non-zero
@@ -66,10 +79,15 @@ def _skip_parts(*, selected_components, plan_components, layer_off,
     explain is named as such (`not read`), never hidden."""
     parts: list = []
     # A component the read did NOT take is one of another cluster (the read takes
-    # its own instance's components, wherever they sit) — by IDENTITY, so a live
-    # item the plan really holds is never counted as a skip.
-    plan_ids = {id(fp) for fp in plan_components}
-    other_cluster = sum(1 for fp in selected_components if id(fp) not in plan_ids)
+    # its own instance's components, wherever they sit). The plan's components are
+    # RE-READ board objects, so `id()` never matches them — the live «skipped 5:
+    # another cluster — 2; another record's copper — 5» (Ч2 of plan_2026_11_20_
+    # cell_read_takes_inter_node_copper). The identity is therefore the UUID, and
+    # an object without one falls back to `id()`.
+    plan_uuids = {getattr(fp, "uuid", None) for fp in plan_components} - {None}
+    plan_ids = {id(fp) for fp in plan_components if not getattr(fp, "uuid", None)}
+    other_cluster = sum(1 for fp in selected_components
+                        if _missed(fp, plan_uuids, plan_ids))
     if other_cluster:
         parts.append((_("another cluster"), other_cluster))
     if other_records:
@@ -79,6 +97,13 @@ def _skip_parts(*, selected_components, plan_components, layer_off,
     if layer_off:
         parts.append((_("layer off"), layer_off))
     known = sum(count for _label, count in parts)
+    if known > skipped:
+        # The parts may not claim MORE than was skipped: that means the identity
+        # rule disagreed with the counts (Ч2 of plan_2026_11_20_cell_read_takes_
+        # inter_node_copper — the `id()`/uuid mix of «another cluster»). Loud, and
+        # the numbers stay in the line for whoever reads the Log.
+        logger.error("read outcome: reasons (%d) exceed the skipped items (%d)",
+                     known, skipped)
     if skipped > known:
         parts.append((_("not read"), skipped - known))
     return parts
@@ -129,7 +154,8 @@ def read_outcome(*, footprints, vias, raw_tracks, plan_footprints, plan_vias,
             count=skipped,
             reasons="; ".join(f"{label} — {count}" for label, count in parts))
     return ReadOutcome(items=items, line=line, selected=selected_total,
-                       read=read_total, skipped=skipped)
+                       read=read_total, skipped=skipped,
+                       reasons=tuple(parts))
 
 
 def replace_selection(adapter, *, footprints, vias, raw_tracks, plan_footprints,

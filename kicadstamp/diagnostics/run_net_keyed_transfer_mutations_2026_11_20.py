@@ -17,6 +17,7 @@ The contract the rows attack, piece by piece:
   M9 a `net:` ORPHAN key skips the orphan path and gets subtracted
   M10 the dock hands NO cell name to `apply_transfers` (so no «all its N instances»)
   M11 `cell_instance_count` counts an address with NO cluster
+  M12 «another cluster» counted by `id()` — the plan's components are RE-READ
   K  cosmetic control (a comment must change nothing)
 
 Safeguards as in every harness here (rule 38): a template matching more than once
@@ -54,6 +55,8 @@ M10_CELL = "test_the_dock_hands_the_cell_name_to_the_transfer"
 M11_CELL = "test_an_address_without_a_cluster_is_not_an_instance"
 EDITOR = "gui/docks/cell_editor.py"
 CELL_INSTANCE = "kicadstamp/cell_instance.py"
+OUTCOME = "gui/read_outcome.py"
+M12_CELL = "test_the_plans_components_are_recognised_by_uuid_not_by_object"
 
 MUTATIONS = [
     ("M1 the `net:` key means subtract again", MIXED,
@@ -128,6 +131,14 @@ MUTATIONS = [
      "    return len(set(cell_record_addresses(cfg, cell_name).values()))  # MUTATION\n",
      [M11_CELL],
      "tests/explode/test_explode_transfer.py -k an_address_without_a_cluster"),
+
+    ("M12 «another cluster» counted by id()", OUTCOME,
+     "    other_cluster = sum(1 for fp in selected_components\n"
+     "                        if _missed(fp, plan_uuids, plan_ids))\n",
+     "    other_cluster = sum(1 for fp in selected_components\n"
+     "                        if id(fp) not in {id(p) for p in plan_components})  # MUTATION\n",
+     [M12_CELL],
+     "tests/gui/test_read_outcome.py -k recognised_by_uuid"),
 
     ("K cosmetic control", MIXED,
      "def _keyed_decisions(net_keyed, net_traces, adapter, sheet_names,\n"

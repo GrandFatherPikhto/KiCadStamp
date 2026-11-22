@@ -52,6 +52,29 @@ def test_a_clean_read_says_how_many_it_read_and_selects_them_back():
     assert outcome.skipped == 0 and outcome.replaced
 
 
+def test_the_plans_components_are_recognised_by_uuid_not_by_object():
+    """с1 (Ч2 of plan_2026_11_20_cell_read_takes_inter_node_copper): the plan's
+    components are RE-READ board objects — the same footprints as DIFFERENT Python
+    objects. Counting «another cluster» by `id()` called the read's own components
+    foreign, which is the live «skipped 5: another cluster — 2; another record's
+    copper — 5» while the plan held them; the identity is the uuid.
+
+    Mutation: «count by `id()`» and both components become «another cluster»."""
+    selected = [_fp("C1"), _fp("C2")]
+    plan = [SimpleNamespace(ref="C1", uuid="uuid-C1"),     # the re-read objects
+            SimpleNamespace(ref="C2", uuid="uuid-C2")]
+
+    outcome = read_outcome(footprints=selected, vias=[], raw_tracks=[],
+                           plan_footprints=plan, plan_vias=[], plan_tracks=[],
+                           prelude=None, layer_report=_layer_report())
+
+    assert outcome.line == "read 2 of 2 selected item(s)"
+    assert outcome.skipped == 0
+    # С1's invariant, as data: the reasons may never add up to more than was
+    # skipped (the mutant makes them claim 2 «another cluster» skips out of 0).
+    assert sum(count for _label, count in outcome.reasons) == outcome.skipped
+
+
 def test_the_line_names_every_reason_with_its_count():
     """One component of ANOTHER cluster, one via another record owns and one track
     on a layer that is not read: each is named with its count, and they add up to
