@@ -492,6 +492,36 @@ def test_t4v_a_geometry_piece_between_other_nodes_is_subtracted(gate, board):
     assert any("does not touch this instance" in t for t in texts), texts
 
 
+# ── М9: a `net:` key whose RECORD is gone keeps the ORPHAN path ────────────
+
+def test_m9_a_net_key_of_a_vanished_record_is_read_as_an_orphan(gate, board):
+    """М9 (acceptance 22.11): a `net:` key whose record no longer exists in the
+    config OWNS NOTHING (plan_2026_10_27_orphan_anchor_keys_own_nothing), so the
+    piece must go the OLD way — read, counted as an orphan, never subtracted as if
+    somebody owned it.
+
+    RED with the mutant «`_split_net_keyed` ignores orphans»: the piece reaches
+    `_keyed_decisions`, `net_trace_record_for_key` finds no record, and it is
+    SUBTRACTED with «the record no longer has that piece»."""
+    cfg = _cfg([])                      # the record is GONE from the config
+    sel_track = _track("sel-t")
+    _write_registries(
+        board.tmp_path,
+        track_entries={"net:ghost-record|ghost-record|None|0":
+                       _track_entry("sel-t")})
+    adapter = _Adapter(board.fields, footprints=board.footprints,
+                       tracks=[sel_track])
+
+    prelude = _narrow(board.tmp_path, adapter, cfg, vias=[], tracks=[sel_track])
+
+    assert prelude is not None and prelude.refusal is None
+    assert _uuids(prelude.tracks) == ["sel-t"], "the piece STAYS in the read"
+    assert prelude.transfers == ()
+    texts = _texts(prelude)
+    assert any("no longer in the config" in t for t in texts), texts
+    assert not any("no longer has that piece" in t for t in texts), texts
+
+
 # ── т8: Р5 — the door's journal no longer decides anything ──────────────────
 
 def test_t8_a_foreign_journal_no_longer_decides_the_transfer(gate, board):

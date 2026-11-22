@@ -614,6 +614,47 @@ def test_a_refused_transfer_refuses_the_whole_read(ex, monkeypatch):
     assert any("nothing was changed" in line for line in errors)
 
 
+def test_the_dock_hands_the_cell_name_to_the_transfer(ex, monkeypatch):
+    """М10 (acceptance 22.11): Р6's line «the cell now draws these pieces at all
+    its N instance(s)» is produced by `apply_transfers(..., cell_name=...)`, so the
+    DOCK has to hand the cell name in — the one wiring no kernel cell can see.
+
+    `apply_transfers` is stubbed to return a line ONLY when it received a cell name,
+    which IS the property under test (the line's own text and its count are celled
+    in tests/explode/test_explode_transfer.py)."""
+    from gui.docks import cell_editor as ce_mod
+    from kicadstamp.explode_transfer import NetTraceTransfer
+
+    dock = ex._dock_hub.cells_dock
+    dock._root_path = ex._dock_hub.root_metadata_dock.root_path
+    monkeypatch.setattr("kicadstamp.config.load_config",
+                        lambda path: (SimpleNamespace(net_traces=[]),
+                                      SimpleNamespace(sheet_names={})))
+    monkeypatch.setattr("gui.docks.rename.find_list_entry_file",
+                        lambda root, section, entry: dock._root_path)
+    monkeypatch.setattr("kicadstamp.explode_transfer.precheck_transfers",
+                        lambda cfg, transfers, files: [])
+    monkeypatch.setattr(ce_mod, "apply_transfers",
+                        lambda path, cfg, transfers, entry_files=None,
+                        cell_name=None: (["the cell now draws these pieces at all "
+                                          "its 1 instance(s)"] if cell_name else []))
+    monkeypatch.setattr(dock, "_apply_refresh_plan", lambda plan: (0, 1, 0))
+    monkeypatch.setattr(dock, "_report_layer_read", lambda report: None)
+    said = []
+    monkeypatch.setattr(dock, "_show_message",
+                        lambda text, style=None: said.append(text))
+    plan = SimpleNamespace(component_updates=[{"x": 1}], via_updates=[],
+                           track_updates=[], new_via_records=[],
+                           new_track_records=[], removed_via_records=[],
+                           removed_track_records=[])
+    dock.name_edit.setText("spoke_lv")
+
+    dock._finish_refresh_geometry(
+        {"plan": plan, "transfers": (NetTraceTransfer("rec", "track", 0),)})
+
+    assert any("at all its 1 instance(s)" in text for text in said), said
+
+
 # ── Р3а-3: the transfer runs ONLY for the journal's instance ────────────────
 
 def test_the_reread_gate_carries_the_journal_only_for_its_instance(

@@ -14,6 +14,9 @@ The contract the rows attack, piece by piece:
   M6 the boundary Р2 is not asked (a record between other nodes hands copper over)
   M7 only the ADDRESS half of the boundary counts (the refs half is dropped)
   M8 Р2 is not applied to the GEOMETRY half of the ownership map
+  M9 a `net:` ORPHAN key skips the orphan path and gets subtracted
+  M10 the dock hands NO cell name to `apply_transfers` (so no «all its N instances»)
+  M11 `cell_instance_count` counts an address with NO cluster
   K  cosmetic control (a comment must change nothing)
 
 Safeguards as in every harness here (rule 38): a template matching more than once
@@ -46,6 +49,11 @@ T3G = "test_t3g_a_kind_mismatch_subtracts_with_a_line"
 T4 = "test_t4_a_record_between_other_nodes_is_subtracted_and_named"
 T4B = "test_t4b_a_pieces_far_end_on_this_instance_makes_the_record_touch_it"
 T4V = "test_t4v_a_geometry_piece_between_other_nodes_is_subtracted"
+M9_CELL = "test_m9_a_net_key_of_a_vanished_record_is_read_as_an_orphan"
+M10_CELL = "test_the_dock_hands_the_cell_name_to_the_transfer"
+M11_CELL = "test_an_address_without_a_cluster_is_not_an_instance"
+EDITOR = "gui/docks/cell_editor.py"
+CELL_INSTANCE = "kicadstamp/cell_instance.py"
 
 MUTATIONS = [
     ("M1 the `net:` key means subtract again", MIXED,
@@ -102,6 +110,24 @@ MUTATIONS = [
      "                   if not touches(tr.identity)}\n",
      "    owned_other = {}  # MUTATION: everything the walk owns is handed over\n",
      [T4V]),
+
+    ("M9 a `net:` orphan key gets subtracted", MIXED,
+     "        if key and key.startswith(NET_TRACE_KEY_PREFIX) and key not in orphans:\n",
+     "        if key and key.startswith(NET_TRACE_KEY_PREFIX):  # MUTATION: orphans too\n",
+     [M9_CELL]),
+
+    ("M10 the dock hands no cell name", EDITOR,
+     "                                        cell_name=self.name_edit.text().strip()):\n",
+     "                                        cell_name=None):  # MUTATION: no cell named\n",
+     [M10_CELL],
+     "tests/gui/test_explode_page.py -k the_dock_hands_the_cell_name"),
+
+    ("M11 an address without a cluster counts", CELL_INSTANCE,
+     "    return len({address for address in cell_record_addresses(cfg, cell_name).values()\n"
+     "                if address[0]})\n",
+     "    return len(set(cell_record_addresses(cfg, cell_name).values()))  # MUTATION\n",
+     [M11_CELL],
+     "tests/explode/test_explode_transfer.py -k an_address_without_a_cluster"),
 
     ("K cosmetic control", MIXED,
      "def _keyed_decisions(net_keyed, net_traces, adapter, sheet_names,\n"

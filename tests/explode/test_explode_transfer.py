@@ -12,6 +12,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from kicadstamp.cell_instance import cell_instance_count
 from kicadstamp.config_writer import _read_data, write_config_file
 from kicadstamp.explode_transfer import NetTraceTransfer, apply_transfers
 from kicadstamp.net_trace_planner import net_trace_registry_key
@@ -143,6 +144,21 @@ def test_a_copy_not_one_to_one_refuses_the_edit(tmp_path):
                             entry_files={"rec": str(cfg_path)})
     assert _entry(cfg_path) == before                 # nothing written
     assert any("1:1" in line for line in lines)
+
+
+def test_an_address_without_a_cluster_is_not_an_instance():
+    """М11 (acceptance 22.11): `cell_instance_count` counts DISTINCT (cluster,
+    sheet) addresses — an address with NO cluster is not a place (the same rule
+    `cell_clusters` follows), so two real addresses plus one bare one is 2.
+
+    RED with the mutant «drop the `if address[0]` filter»: the bare address counts
+    and the answer becomes 3."""
+    cfg = SimpleNamespace(
+        entities=[_entity("e1", "spoke_lv", "A", "S1"),
+                  _entity("e2", "spoke_lv", "B", "S1"),
+                  _entity("e3", "spoke_lv", None, "S1")],
+        clone_placements=[])
+    assert cell_instance_count(cfg, "spoke_lv") == 2
 
 
 def test_the_line_says_how_many_instances_will_draw_the_piece(tmp_path):

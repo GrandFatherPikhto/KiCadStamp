@@ -113,10 +113,11 @@ class MixedPrelude:
     chosen_address: Optional[tuple] = None
     log_lines: list = field(default_factory=list)
     refusal: Optional[str] = None
-    # Р3/Р1: the pieces handed from a net_traces record to the cell — plain data
-    # for the apply step. Since Т1 of plan_2026_11_20_cell_read_takes_inter_node_
-    # copper a piece the REGISTRY already knows (`net:` key) is transferred on
-    # EVERY read; a piece found by GEOMETRY only still needs the explode door.
+    # Р1: the pieces handed from a net_traces record to the cell — plain data for
+    # the apply step, filled on EVERY read: since Т1 a piece the REGISTRY already
+    # knows (`net:` key) goes over, since Т3 a piece found by GEOMETRY goes over
+    # too. Nothing here depends on the explode door any more; the only line is Р2
+    # (the record must TOUCH the instance being read).
     transfers: tuple = ()
     # Г (plan_2026_10_08_narrowing_net_traces_cost): WHAT this read subtracted and
     # WHY, split by kind — ((record identity, count), ...). The read-outcome line
