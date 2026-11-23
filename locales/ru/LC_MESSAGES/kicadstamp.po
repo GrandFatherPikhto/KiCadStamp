@@ -19998,6 +19998,32 @@ msgstr ""
 "imprint {name}: перенос на вложенный лист-клон ({dst}) пока не "
 "поддерживается — переименование цепей знает только листы верхнего уровня"
 
+#: kicadstamp/validation.py:268
+msgid "clone_placement"
+msgstr "clone_placement"
+
+#: kicadstamp/validation.py:274
+msgid "net_traces entry"
+msgstr "запись net_traces"
+
+#: kicadstamp/validation.py:316
+#, python-brace-format
+msgid ""
+"{record}: sheet {sheet!r} names {count} instances of {cluster} ({addresses}) "
+"— set the sheet to one of them"
+msgstr ""
+"{record}: лист {sheet!r} называет {count} экземпляр(ов) {cluster} "
+"({addresses}) — укажите в листе один из них"
+
+#: kicadstamp/validation.py:322
+#, python-brace-format
+msgid ""
+"{record}: sheet {sheet!r} names {count} instances ({addresses}) — set the "
+"sheet to one of them"
+msgstr ""
+"{record}: лист {sheet!r} называет {count} экземпляр(ов) ({addresses}) — "
+"укажите в листе один из них"
+
 #~ msgid ""
 #~ "role {role!r} occurs {count} times in"
 #~ " cluster {cluster!r} — this is a "

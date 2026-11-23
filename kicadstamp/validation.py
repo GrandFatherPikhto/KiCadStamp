@@ -248,6 +248,88 @@ def check_anchor_sheet_configured(cfg: Config, sheet_names=None) -> None:
         _("anchor_sheet is used but sheet name dictionary is empty"), problems))
 
 
+# (kind, name, sheet, matched addresses) already reported in this process — a
+# read happens per click and a load per dock refresh; Р5 says ONE line per
+# record, not one per read.
+_ambiguous_warned: set[tuple] = set()
+
+
+def ambiguous_sheet_addresses(cfg, sheet_names) -> list[tuple]:
+    """Р5: every record whose OLD sheet names SEVERAL instances now.
+
+    A single name ("ISO In") matches any chain segment, so on a hierarchy where
+    that sheet occurs more than once the record addresses more than one
+    instance — legal, loadable, and until now silent (the selection then simply
+    failed as «partial»). Nothing is refused: each match is listed so the
+    profile can be pointed at ONE address.
+
+    Returns [(kind, display name, the record's sheet, its cluster,
+    [matching addresses]), …], sorted by kind/name; EMPTY without a hierarchy
+    (Р4: a plain dict cannot know the multiplicities, so there is nothing
+    honest to say)."""
+    if getattr(sheet_names, "hierarchy", None) is None:
+        return []
+    from .sheet_names import all_instance_addresses, sheet_in_path
+    addresses = all_instance_addresses(sheet_names)
+    if not addresses:
+        return []
+    records: list[tuple[str, str, str | None, str | None]] = []
+    for e in getattr(cfg, "entities", ()) or ():
+        records.append((_("entity"), str(getattr(e, "name", "") or ""),
+                        getattr(e, "sheet", None), getattr(e, "cluster", None)))
+    for c in getattr(cfg, "clone_placements", ()) or ():
+        if getattr(c, "retired", False):
+            continue
+        records.append((_("clone_placement"), clone_placement_effective_name(c),
+                        getattr(c, "anchor_sheet", None), getattr(c, "cluster", None)))
+    for nt in getattr(cfg, "net_traces", ()) or ():
+        if getattr(nt, "retired", False):
+            continue
+        records.append((_("net_traces entry"), str(getattr(nt, "net", "") or ""),
+                        getattr(nt, "anchor_sheet", None),
+                        getattr(nt, "anchor_cluster", None)))
+    out: list[tuple] = []
+    for kind, name, sheet, cluster in records:
+        if not sheet or is_root_sheet(sheet):
+            continue
+        matches = [a for a in addresses
+                   if a != sheet and sheet_in_path(a.split("/"), sheet)]
+        if len(matches) > 1:
+            out.append((kind, name, sheet, cluster, matches))
+    out.sort(key=lambda row: (row[1], row[2]))
+    return out
+
+
+def warn_ambiguous_sheet_addresses(cfg, sheet_names) -> int:
+    """ONE yellow Log line per ambiguous record (Р5) — never a modal, never a
+    refusal, and at most once per record per process.
+
+    `entity E: sheet 'ISO In' names 2 instances of SIG_IN (ISO In/Signal In A,
+    ISO In/Signal In B) — set the sheet to one of them`."""
+    told = 0
+    for kind, name, sheet, cluster, matches in \
+            ambiguous_sheet_addresses(cfg, sheet_names):
+        key = (kind, name, sheet, tuple(matches))
+        if key in _ambiguous_warned:
+            continue
+        _ambiguous_warned.add(key)
+        label = f"{kind} {name}"
+        if cluster:
+            logger.warning(_(
+                "{record}: sheet {sheet!r} names {count} instances of {cluster} "
+                "({addresses}) — set the sheet to one of them").format(
+                    record=label, sheet=sheet, count=len(matches),
+                    cluster=cluster, addresses=", ".join(matches)))
+        else:
+            logger.warning(_(
+                "{record}: sheet {sheet!r} names {count} instances ({addresses}) "
+                "— set the sheet to one of them").format(
+                    record=label, sheet=sheet, count=len(matches),
+                    addresses=", ".join(matches)))
+        told += 1
+    return told
+
+
 def check_clone_nets_exist_on_board(adapter: KiCadBoardAdapter, cfg: Config) -> None:
     """
     Resolves the nets a clone's apply would USE and checks each against the real
@@ -417,6 +499,7 @@ def check_config_structure(cfg: Config, sheet_names=None) -> None:
     check_no_cell_definition_cycles(cfg)
     check_no_duplicate_clone_anchors(cfg)
     check_anchor_sheet_configured(cfg, sheet_names=_sn)
+    warn_ambiguous_sheet_addresses(cfg, _sn)
 
 
 def _fatal_title_line(e: ValidationError) -> str:

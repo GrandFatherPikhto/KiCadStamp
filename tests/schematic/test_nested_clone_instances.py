@@ -18,6 +18,7 @@ The cells follow the plan's ш1–ш8 and ш10, plus Denis's two Imprint decisio
 («the same instance» via `sheet_in_path`; moving INTO a nested clone refuses in
 one red line).
 """
+import logging
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -313,6 +314,50 @@ def test_check_placement_names_the_same_instance(hp_iso):
     assert check_placement._instance_of(
         _fp(("b-iso-in", "b-sia", "own")), hp_iso["map"]) == "ISO In/Signal In A"
     assert check_placement._instance_of(_fp(("own",)), hp_iso["map"]) == ROOT_SHEET
+
+
+# ── ш9: Р5, the yellow line for an address that now names several ──────────
+
+def _address_cfg(sheet):
+    return SimpleNamespace(
+        entities=[SimpleNamespace(name="SIG_IN_A", cluster="SIG_IN",
+                                  sheet=sheet, cell="sig")],
+        clone_placements=[], net_traces=[])
+
+
+def test_an_old_address_that_now_names_two_instances_gets_one_yellow_line(
+        hp_iso, caplog):
+    import kicadstamp.validation as validation
+
+    validation._ambiguous_warned.clear()
+    with caplog.at_level(logging.WARNING, logger="kicadstamp.validation"):
+        told = validation.warn_ambiguous_sheet_addresses(
+            _address_cfg("ISO In"), hp_iso["map"])
+    assert told == 1
+    lines = [r.getMessage() for r in caplog.records
+             if r.levelno == logging.WARNING]
+    assert len(lines) == 1
+    assert "entity SIG_IN_A: sheet 'ISO In' names 2 instances of SIG_IN" in lines[0]
+    assert "ISO In/Signal In A" in lines[0] and "ISO In/Signal In B" in lines[0]
+    assert "set the sheet to one of them" in lines[0]
+    # ONE line per record per process, not one per read
+    with caplog.at_level(logging.WARNING, logger="kicadstamp.validation"):
+        assert validation.warn_ambiguous_sheet_addresses(
+            _address_cfg("ISO In"), hp_iso["map"]) == 0
+    validation._ambiguous_warned.clear()
+
+
+def test_an_exact_address_or_no_hierarchy_stays_silent(hp_iso, caplog):
+    import kicadstamp.validation as validation
+
+    validation._ambiguous_warned.clear()
+    with caplog.at_level(logging.WARNING, logger="kicadstamp.validation"):
+        assert validation.warn_ambiguous_sheet_addresses(
+            _address_cfg("ISO In/Signal In A"), hp_iso["map"]) == 0
+        plain = {"b-iso-in": "ISO In", "b-sia": "Signal In A"}
+        assert validation.warn_ambiguous_sheet_addresses(
+            _address_cfg("ISO In"), plain) == 0
+    assert [r for r in caplog.records if r.levelno == logging.WARNING] == []
 
 
 # ── Imprint: «the same instance» is a predicate, not a string compare ───────

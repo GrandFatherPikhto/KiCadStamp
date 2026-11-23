@@ -42,6 +42,10 @@ def warn_once(path, connection, checked: set) -> None:
         has_sheets = len(ctx.sheet_names) > 0
     except Exception:  # noqa: BLE001 — a broken config is reported by the docks
         return
+    # Р5 of plan_2026_11_23_nested_clone_sheet_instances: with a hierarchy, an OLD single-name
+    # sheet may now name SEVERAL instances — one yellow line per record, never a modal.
+    from kicadstamp.validation import warn_ambiguous_sheet_addresses
+    warn_ambiguous_sheet_addresses(cfg, ctx.sheet_names)
     if has_sheets:
         return
     from kicadstamp.sheet_names import sheet_narrowing_disabled_line
