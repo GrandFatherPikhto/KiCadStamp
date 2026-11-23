@@ -46,7 +46,7 @@ from typing import Any, Iterable
 from .cluster_matching import cluster_prefix_match
 from .i18n import _
 from .registry import record_key_part
-from .sheet_names import sheet_in_path, sheet_of_names
+from .sheet_names import instance_sheet_of, sheet_in_path, sheet_of_names
 
 logger = logging.getLogger(__name__)
 
@@ -244,13 +244,18 @@ def cell_entity_naming_address(cfg, cell_name: str | None,
 # ── grouping ────────────────────────────────────────────────────────────────
 
 def _sheet_identity(chain: Iterable[str | None], cluster: str | None,
-                    entities) -> str | None:
+                    entities, fp=None, sheet_names=None) -> str | None:
     """The instance-sheet identity of a footprint: the Entity's ``sheet`` when an
     Entity with the same Cluster NAMES this instance (exact for hierarchical
-    channels like Channel_0/1/2), else the resolved chain's own identity — the
-    SAME rule ``gui/docks/reead.instance_sheet`` uses (both delegate to
-    ``sheet_names.sheet_of_names`` / ``sheet_in_path``, the ONE owners), so the
-    two never group a selection differently.
+    channels like Channel_0/1/2), else the instance address of the footprint's
+    own sheet — the SAME rule ``gui/docks/reead.instance_sheet`` uses (both
+    delegate to ``sheet_names.instance_sheet_of`` / ``sheet_in_path``, the ONE
+    owners), so the two never group a selection differently.
+
+    The footprint itself (`fp`) is what lets the NESTED clones be told apart
+    (plan_2026_11_23_nested_clone_sheet_instances): two copies of one sheet file
+    share every NAME, and only the count of places can separate them. Without
+    it, or without a hierarchy (Р4), the old first-segment answer stands.
 
     ROOT (2026-10-14, plan_2026_10_13_root_sheet_clusters Ч1): an EMPTY chain is
     a symbol on the ROOT sheet and its identity is ROOT_SHEET ("/"), not None —
@@ -267,21 +272,32 @@ def _sheet_identity(chain: Iterable[str | None], cluster: str | None,
                     and cluster_prefix_match(str(cluster), str(e_cluster))
                     and sheet_in_path(chain, e_sheet)):
                 return e_sheet
+    if fp is not None and getattr(sheet_names, "hierarchy", None) is not None:
+        try:
+            return instance_sheet_of(fp, sheet_names)
+        except Exception:
+            pass                      # a footprint shape we cannot read: Р4
     return sheet_of_names(chain)
 
 
-def group_selection(infos: Iterable[FootprintInfo], entities=()
-                    ) -> dict[tuple, list[FootprintInfo]]:
+def group_selection(infos: Iterable[FootprintInfo], entities=(),
+                    sheet_names=None) -> dict[tuple, list[FootprintInfo]]:
     """{(Cluster tag, instance sheet): [FootprintInfo, ...]}.
 
     Footprints without a Cluster tag are ignored (they belong to no instance —
-    the same convention ``gui/docks/reead.group_selected`` has)."""
+    the same convention ``gui/docks/reead.group_selected`` has).
+
+    `sheet_names` is what makes the grouping see the HIERARCHY: each info's
+    ``item`` is the live footprint, so the instance address is counted there
+    (``instance_sheet_of``). Without a map, or with a plain dict (Р4), the
+    grouping is exactly today's first-segment one."""
     groups: dict[tuple, list[FootprintInfo]] = {}
     for info in infos or ():
         if not info.cluster:
             continue
         key = (str(info.cluster),
-               _sheet_identity(info.sheet, info.cluster, entities))
+               _sheet_identity(info.sheet, info.cluster, entities,
+                               fp=info.item, sheet_names=sheet_names))
         groups.setdefault(key, []).append(info)
     return groups
 

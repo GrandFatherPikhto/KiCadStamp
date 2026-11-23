@@ -64,7 +64,7 @@ from .selection_narrowing import (
     group_selection,
     is_own_key,
 )
-from .sheet_names import instance_label, resolve_sheet_path_names
+from .sheet_names import instance_label, resolve_sheet_path_names, sheet_map
 from .utils.layers import layer_to_str
 from .utils.units import MM
 
@@ -465,7 +465,9 @@ def plan_explode(adapter, cfg, config_path: str, cell_name: str, cluster: str,
     """Read the board + registries and build the explode plan. Writes NOTHING."""
     margin_nm = int(round(margin_mm * MM))
     gap_nm = int(round(gap_mm * MM))
-    sheet_names = dict(sheet_names or {})
+    # NOT `dict(...)`: that would drop the instance hierarchy and group the
+    # selection by the old first-segment rule without anything failing.
+    sheet_names = sheet_map(sheet_names)
     board_fps = list(adapter.get_footprints())
     tracks = list(adapter.get_tracks())
     vias = list(adapter.get_vias())
@@ -482,7 +484,8 @@ def plan_explode(adapter, cfg, config_path: str, cell_name: str, cluster: str,
     fp_boxes = _box_map(adapter, board_fps)
 
     infos = [_info(adapter, fp, sheet_names) for fp in board_fps]
-    groups = group_selection(infos, getattr(cfg, "entities", ()) or ())
+    groups = group_selection(infos, getattr(cfg, "entities", ()) or (),
+                             sheet_names=sheet_names)
     cell_keys = {key for key, members in groups.items()
                  if any(getattr(m.item, "uuid", None) in instance_uuids
                         for m in members)}

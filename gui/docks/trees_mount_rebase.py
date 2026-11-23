@@ -61,7 +61,7 @@ from PyQt6.QtWidgets import QInputDialog
 
 from kicadstamp.exceptions import ValidationError
 from kicadstamp.i18n import _
-from kicadstamp.sheet_names import resolve_sheet_path_names, sheet_of_names
+from kicadstamp.sheet_names import instance_sheet_of
 from kicadstamp.trees import Tree, TreeAnchor, TreeNode
 
 from ..entity.anchor_workers import classify_selection_anchor
@@ -342,7 +342,7 @@ def _anchor_from_selection(dock):
     sheet_names = (dock._ctx.sheet_names
                    if getattr(dock, "_ctx", None) is not None else {})
     footprint = read["footprint"]
-    sheet = (sheet_of_names(resolve_sheet_path_names(footprint, sheet_names))
+    sheet = (instance_sheet_of(footprint, sheet_names)
              if footprint is not None else None)
     return TreeAnchor(role=read["role"], is_origin=False, anchor_sheet=sheet,
                       anchor_cluster=read["cluster"],

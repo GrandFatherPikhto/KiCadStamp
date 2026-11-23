@@ -19989,6 +19989,15 @@ msgid ""
 msgstr ""
 "иерархия листов: {file} не найден — экземпляры считаются по первому листу"
 
+#: kicadstamp/imprint_apply.py:296
+#, python-brace-format
+msgid ""
+"imprint {name}: onto a nested clone sheet ({dst}) is not supported yet — the "
+"net remap knows only top-level sheets"
+msgstr ""
+"imprint {name}: перенос на вложенный лист-клон ({dst}) пока не "
+"поддерживается — переименование цепей знает только листы верхнего уровня"
+
 #~ msgid ""
 #~ "role {role!r} occurs {count} times in"
 #~ " cluster {cluster!r} — this is a "

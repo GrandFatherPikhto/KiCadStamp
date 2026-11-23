@@ -58,6 +58,7 @@ from .utils.units import MM
 from .cloner.models import TwinMap
 from .channel_copy import build_channel_groups, sheet_name_of_fp
 from .i18n import _
+from .sheet_names import sheet_in_path
 
 logger = logging.getLogger(__name__)
 
@@ -201,11 +202,18 @@ def _inner_key(chain: tuple[str, ...]) -> str | None:
 
 def _recorded_source_sheet_name(adapter, record: ImprintConfig,
                                 fp_by_ref: dict[str, object]) -> str:
-    """Top-level sheet name of the recorded region for the net remap: the first
+    """Top-level sheet name of the recorded region for the NET REMAP: the first
     segment of `record.source_sheet` when set (a full path is fine), else the
     live top-level sheet name of the first recorded component actually present
     (the region has no anchor component — any present recorded ref is a valid
-    representative). Empty string when nothing usable is found."""
+    representative). Empty string when nothing usable is found.
+
+    NOTE (plan_2026_11_23_nested_clone_sheet_instances, Т2): this is NOT the
+    «same instance?» question any more — that one is answered by
+    `sheet_in_path` over the FULL source path in `plan_imprint`. The first
+    segment here is exactly the limit of the net remap: it renames nets per
+    TOP-LEVEL sheet, which is why moving a region INTO a nested clone is
+    refused instead of silently remapping to the wrong nets."""
     src = record.source_sheet
     if src:
         return src.split("/", 1)[0]
@@ -286,7 +294,23 @@ def plan_imprint(entity: Entity, record: ImprintConfig, adapter,
     entity_name = entity.name or entity.imprint or "imprint"
     dst_name = entity.sheet or ""
     src_name = record.source_sheet or ""
-    onto = bool(dst_name) and dst_name != src_name
+    # «The same instance» is the ONE predicate, not a string compare (Т2 of
+    # plan_2026_11_23_nested_clone_sheet_instances). `record.source_sheet` is
+    # the FULL path of the recorded region (imprint_capture writes
+    # "/".join(path)), so `dst != src` used to call Channel_0 vs Channel_0/DAC
+    # «another sheet» although it is the same instance — and would have done
+    # the same to ISO In/Signal In A. `sheet_in_path` settles it: a prefix (or a
+    # single name anywhere in the chain) names the instance.
+    src_chain = tuple(part for part in src_name.split("/") if part)
+    onto = bool(dst_name) and not sheet_in_path(src_chain, dst_name)
+    if onto and "/" in dst_name:
+        # The net remap below knows only TOP-LEVEL sheets (channel_copy's
+        # sheet_name_of_fp reads the first local-net prefix segment) — moving a
+        # region INTO a nested clone would silently remap to the wrong nets.
+        _fatal_problems([_(
+            "imprint {name}: onto a nested clone sheet ({dst}) is not supported "
+            "yet — the net remap knows only top-level sheets").format(
+                name=entity_name, dst=dst_name)])
 
     all_fps = adapter.get_footprints()
     fp_by_ref = {fp.ref: fp for fp in all_fps}

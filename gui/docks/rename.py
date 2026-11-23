@@ -46,6 +46,7 @@ from kicadstamp.config import load_config
 from kicadstamp.config.includes import walk_include_tree
 from kicadstamp.exceptions import ValidationError
 from kicadstamp.i18n import _
+from kicadstamp.sheet_names import all_instance_addresses
 
 from ._common import read_data, write_data
 
@@ -277,12 +278,21 @@ def collect_all_sheet_names(root_path: Path) -> List[str]:
     not validation. NOTE: deliberately NOT a walk of the include: graph
     (unlike collect_all_cell_names/collect_all_point_names) — Sheet is not
     a YAML dictionary section, it is a parse result of the project's
-    *.kicad_sch files, normally declared only in the root config itself."""
+    *.kicad_sch files, normally declared only in the root config itself.
+
+    With a hierarchy (the profile's root_sheet is set) the list ALSO carries
+    every multi-segment instance address (`all_instance_addresses`: «ISO In/
+    Signal In A»), because otherwise a nested clone's address could be typed
+    but never PICKED from the combo (plan_2026_11_23_nested_clone_sheet_
+    instances, Т2). Without a hierarchy the list is exactly today's."""
     try:
         _, ctx = load_config(str(root_path))
     except (ValidationError, OSError):
         return []
-    return sorted(set(ctx.sheet_names.values()))
+    sheet_names = ctx.sheet_names
+    names = set(sheet_names.values())
+    names.update(all_instance_addresses(sheet_names))
+    return sorted(names)
 
 
 def rename_dict_entry(path: Path, section: str, old_name: str, new_name: str) -> None:

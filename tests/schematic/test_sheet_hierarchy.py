@@ -126,12 +126,18 @@ def test_children_keep_repeats_in_file_order(hp_iso):
     assert h.children[hp_iso["signal_in"]] == ()
 
 
-def test_every_block_knows_the_file_it_lives_in(hp_iso):
-    """`F` of Р1 comes from here, never from a file-name guess."""
+def test_every_block_knows_its_own_sheet_file_and_where_it_lives(hp_iso):
+    """`файл(блок)` of Р1 (the CHILD file — the `F` of the rule) and the file
+    the block was parsed from are two different maps, and mixing them up is
+    exactly the silent bug this cell exists for."""
     h = build_sheet_hierarchy(hp_iso["root"])
-    assert h.block_file["b-iso-in"] == hp_iso["root"]
-    assert h.block_file["b-sia"] == hp_iso["iso_in"]
-    assert h.block_file["b-sib"] == hp_iso["iso_in"]
+    # файл(блок) — where the block points:
+    assert h.block_file["b-iso-in"] == hp_iso["iso_in"]
+    assert h.block_file["b-sia"] == hp_iso["signal_in"]
+    assert h.block_file["b-sib"] == hp_iso["signal_in"]
+    # the file the block LIVES in:
+    assert h.block_parent["b-iso-in"] == hp_iso["root"]
+    assert h.block_parent["b-sia"] == hp_iso["iso_in"]
     assert len(h.block_file) == 2 + 2 + 4      # root, ISO In, ISO Out
 
 

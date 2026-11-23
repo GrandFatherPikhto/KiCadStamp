@@ -1730,12 +1730,10 @@ class CellDock(QWidget):
             # the line which keeps a remembered "off" from looking like damage.
             layer_read = layer_report(raw_tracks, tracks,
                                       payload.get("empty_layers"))
-            # N: the nested placements name OTHER cells, so their definitions
-            # (and the project's sheet map, used by the role-narrowing cascade)
-            # come from the root config. The mixed-selection prelude needs the
-            # SAME config (its cells/entities), so it is loaded whenever the root
-            # path is known; a config that fails to load falls back to today's
-            # whole-selection path rather than breaking the read.
+            # N: the nested placements name OTHER cells, so their definitions and
+            # the sheet map (role-narrowing cascade) come from the root config;
+            # the prelude needs the SAME config. A config that fails to load
+            # falls back to today's whole-selection path, never breaking the read.
             nested = payload.get("clone_placements") or []
             cells: Dict[str, Any] = {}
             sheet_names: Dict[str, Any] = {}
@@ -1745,7 +1743,8 @@ class CellDock(QWidget):
                 try:
                     cfg, ctx = load_config(payload["root_path"])
                     cells = dict(getattr(cfg, "cells", {}) or {})
-                    sheet_names = dict(getattr(ctx, "sheet_names", {}) or {})
+                    # not dict(): the map must keep its instance hierarchy
+                    sheet_names = getattr(ctx, "sheet_names", None) or {}
                 except Exception:  # noqa: BLE001
                     logger.exception("could not load the config for the mixed "
                                      "selection prelude")
@@ -2145,15 +2144,14 @@ class CellDock(QWidget):
             tracks = filter_tracks_by_layers(raw_tracks, payload.get("layers"))
             layer_read = layer_report(raw_tracks, tracks,
                                       payload.get("empty_layers"))
-            # The SAME mixed-selection prelude as the refresh read (plan item 4)
-            # — one narrowing for every door, never a copy.
+            # The SAME mixed-selection prelude as the refresh read (plan item 4).
             cfg = None
             sheet_names: Dict[str, Any] = {}
             if payload.get("root_path"):
                 from kicadstamp.config import load_config
                 try:
                     cfg, ctx = load_config(payload["root_path"])
-                    sheet_names = dict(getattr(ctx, "sheet_names", {}) or {})
+                    sheet_names = getattr(ctx, "sheet_names", None) or {}
                 except Exception:  # noqa: BLE001
                     logger.exception("could not load the config for the mixed "
                                      "selection prelude")

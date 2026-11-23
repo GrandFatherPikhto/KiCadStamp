@@ -34,7 +34,7 @@ from kicadstamp.cell_frame import (RIGID_TOLERANCE_MM, fit_cell_frame,  # noqa: 
                                    pair_deviation_mm, rotate_ydown_mm)
 from kicadstamp.config import load_config                            # noqa: E402
 from kicadstamp.constants import DEFAULT_TIMEOUT_MS                  # noqa: E402
-from kicadstamp.sheet_names import resolve_sheet_path_names          # noqa: E402
+from kicadstamp.sheet_names import instance_sheet_of, sheet_map      # noqa: E402
 from kicadstamp import check_report                                  # noqa: E402
 from kicadstamp.utils.units import MM                                # noqa: E402
 
@@ -108,6 +108,17 @@ def _load_copy(profile: Path, cfg_name: str):
     return tmp, cfg_file, cfg, ctx
 
 
+def _instance_of(fp, sheet_names) -> str:
+    """The instance address of one footprint — the ONE owner
+    (`sheet_names.instance_sheet_of`), with this tool's own "/" for «nothing
+    was resolved» (it has no better answer for an empty chain).
+
+    The address is the SHORTEST chain prefix whose sheet file occurs once (an
+    entity's `sheet`: Channel_0, FPGA, MCU — or ISO In/Signal In A for a nested
+    clone); a cluster may span its sub-sheets (DAC_BUF: Channel_0/DAC + …)."""
+    return instance_sheet_of(fp, sheet_names) or "/"
+
+
 def _cluster_cells(cfg) -> dict:
     """cluster -> set of cell names, from entities (the instances the trees place)."""
     out = defaultdict(set)
@@ -157,7 +168,9 @@ def main(argv):
     slot_mm = float(argv[argv.index("--slot-mm") + 1]) if "--slot-mm" in argv else 0.5
     tmp, cfg_file, cfg, ctx = _load_copy(profile, cfg_name)
     try:
-        sheet_names = dict((ctx.sheet_names if ctx else {}) or {})
+        # The map travels WITH its hierarchy (a `dict(...)` would drop it and
+        # silently fall back to the first-segment rule).
+        sheet_names = sheet_map(ctx.sheet_names if ctx else None)
         cl_cells = _cluster_cells(cfg)
         adapter = create_board_adapter(timeout_ms=DEFAULT_TIMEOUT_MS, config_path=str(cfg_file))
         try:
@@ -183,9 +196,7 @@ def main(argv):
             for fp in fps:
                 info[fp.ref] = (adapter.get_field_value(fp, "Role"),
                                 adapter.get_field_value(fp, "Cluster"),
-                                # the instance is the TOP sheet (an entity's `sheet`: Channel_0, FPGA, MCU);
-                                # a cluster may span its sub-sheets (DAC_BUF: Channel_0/DAC + Channel_0/OpAmp)
-                                next(iter(resolve_sheet_path_names(fp, sheet_names)), None) or "/")
+                                _instance_of(fp, sheet_names))
         finally:
             adapter.close()
     finally:

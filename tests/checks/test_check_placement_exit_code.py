@@ -11,7 +11,8 @@ A live KiCad is not needed here: the BOARD READ is the only thing replaced.
     (`refresh_board`, `get_board_filename`, `get_footprints`, `get_field_value`, `close`);
   * `_load_copy` — the temporary profile copy is replaced by in-memory cfg/ctx, so no
     `config.sexp` has to be a real profile (its OWN `_config_name`/copy logic is not the subject);
-  * `resolve_sheet_path_names` — one fixed top sheet, so the fake footprints need no sheet path.
+  * `instance_sheet_of` — one fixed instance, so the fake footprints need no sheet path
+    (the script's ONE owner of the address since plan_2026_11_23_nested_clone_sheet_instances).
 
 Everything that DECIDES the code runs for real: `_cluster_cells`, the consensus frame
 (`cell_frame.fit_cell_frame`, `pair_deviation_mm`), the misplaced-part detection and the final
@@ -104,8 +105,8 @@ def _run(tmp_path, monkeypatch, capsys, footprints, board_file="Test02.kicad_pcb
                         lambda path, name: (copy_dir, sexp, cfg, ctx))
     adapter = _Adapter(str(tmp_path / board_file), footprints)
     monkeypatch.setattr(check_placement, "create_board_adapter", lambda **kwargs: adapter)
-    monkeypatch.setattr(check_placement, "resolve_sheet_path_names",
-                        lambda footprint, names: ["Channel_0"])
+    monkeypatch.setattr(check_placement, "instance_sheet_of",
+                        lambda footprint, names: "Channel_0")
     # BOTH names of the home directory: `_compare_with_last` remembers itself under
     # `~/.local/state/...`, and `Path.home()` reads USERPROFILE on Windows — with HOME alone
     # this cell wrote into the runner's real profile and failed on `windows-latest` (Д-5(a)).

@@ -50,7 +50,7 @@ SCANNED_ROOTS = ("kicadstamp", "gui", "tools", "mcp_server")
 #: Entries are never deleted, even when a file drops under `BIG`: a retired giant stays locked.
 CEILINGS = {
     "gui/dock_hub.py": 2876,
-    "gui/docks/cell_editor.py": 2705,
+    "gui/docks/cell_editor.py": 2703,
     "gui/docks/cell_refs_tab.py": 1165,
     "gui/docks/config_tree.py": 1586,
     "gui/docks/configurator.py": 971,

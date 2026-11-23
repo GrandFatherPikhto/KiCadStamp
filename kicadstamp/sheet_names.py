@@ -177,14 +177,20 @@ class SheetHierarchy:
     plan's Р1, `экз(X, F)`: `instances(file, target)` is how many times the
     subtree of `file` contains `target`, memoized per file.
 
-    ``block_file`` maps every sheet BLOCK's uuid to the file it lives in — the `F`
-    of Р1 comes from there, never from a file-name guess."""
+    Two maps, and the difference matters (Р1 is written in terms of them):
+
+      * ``block_file`` — `файл(блок)`: the SHEET FILE the block points at, i.e.
+        its ``Sheetfile`` resolved against the directory of the file the block
+        lives in. THIS is what `F` of Р1 comes from;
+      * ``block_parent`` — the file the block itself lives in (where it was
+        parsed from), for diagnostics. It is NOT `файл(блок)`."""
 
     def __init__(self, root: str, children: dict[str, tuple[str, ...]],
-                 block_file: dict[str, str]):
+                 block_file: dict[str, str], block_parent: dict[str, str]):
         self.root = root
         self.children = children
         self.block_file = block_file
+        self.block_parent = block_parent
         self._reach: dict[str, dict[str, int]] = {}
 
     def _reach_from(self, file: str, chain: tuple[str, ...] = ()) -> dict[str, int]:
@@ -210,6 +216,25 @@ class SheetHierarchy:
         return self._reach_from(file).get(target, 0)
 
 
+def sheet_map(sheet_names):
+    """The map ITSELF when it is one — never a copy, never a rebuild.
+
+    A `dict(sheet_names)` on the way to a caller silently DROPS the instance
+    hierarchy (`LazySheetNameMap.hierarchy`), and the caller then falls back to
+    the first-segment rule with nothing failing — that is mutation row
+    «иерархия теряется по дороге к вызывающему». None -> {}."""
+    return {} if sheet_names is None else sheet_names
+
+
+def sheet_map_is_empty(sheet_names) -> bool:
+    """`not sheet_names` made HONEST for the lazy map: its `__bool__` is always
+    True by design (that means "do not force a parse", not "not empty"). Use
+    this where the caller asks "is the dictionary really empty?"."""
+    if not sheet_names:
+        return True
+    return len(sheet_names) == 0
+
+
 def build_sheet_hierarchy(root_sheet: str | None) -> SheetHierarchy | None:
     """The walk from the ROOT .kicad_sch over ``(property "Sheetfile" ...)``.
 
@@ -232,6 +257,7 @@ def build_sheet_hierarchy(root_sheet: str | None) -> SheetHierarchy | None:
         return None
     children: dict[str, tuple[str, ...]] = {}
     block_file: dict[str, str] = {}
+    block_parent: dict[str, str] = {}
     pending = [root]
     seen: set[str] = set()
     while pending:
@@ -246,17 +272,18 @@ def build_sheet_hierarchy(root_sheet: str | None) -> SheetHierarchy | None:
             return None
         kids: list[str] = []
         for uuid, (_name, sheetfile) in blocks.items():
-            block_file[uuid] = key
+            block_parent[uuid] = key
             if not sheetfile:
                 continue
             child = (path.parent / sheetfile).resolve()
             if not child.is_file():
                 _warn_no_hierarchy(str(child))
                 return None
+            block_file[uuid] = str(child)     # файл(блок) — F of Р1
             kids.append(str(child))
             pending.append(child)
         children[key] = tuple(kids)
-    return SheetHierarchy(str(root), children, block_file)
+    return SheetHierarchy(str(root), children, block_file, block_parent)
 
 
 def _warn_no_hierarchy(file: str) -> None:
@@ -349,11 +376,23 @@ def resolve_sheet_path_names(fp, sheet_names: dict[str, str]) -> list[str | None
     one) instead of naming an attribute itself — 2026-09-20, plan_2026_09_20_
     symbol_uuid_wrong_attribute.md: a hand-rolled read of a shape is exactly how
     the store lost its key for a week."""
-    path_uuids = list(sheet_path_uuids_of(fp))
-    chain = path_uuids[:-1]
+    return _chain_and_names(fp, sheet_names)[1]
+
+
+def _block_uuids(fp) -> list[str]:
+    """The sheet-path chain WITHOUT the symbol's own last hop — the same list
+    `resolve_sheet_path_names` names, read through the ONE shared reader."""
+    return list(sheet_path_uuids_of(fp))[:-1]
+
+
+def _chain_and_names(fp, sheet_names) -> tuple[list[str], list[str | None]]:
+    """(uuid chain, resolved names) from ONE read of the footprint's path — the
+    instance rule needs the uuids, its callers need the names, and the raw read
+    must not be done twice."""
+    chain = _block_uuids(fp)
     names = [sheet_names.get(u) for u in chain]
     _warn_reserved_sheet_name(names)
-    return names
+    return chain, names
 
 
 # The ONE marker of the root sheet (plan_2026_10_13_root_sheet_clusters, Ч1).
@@ -465,10 +504,12 @@ def sheet_display(sheet, absent: str = "—") -> str:
 
 
 def sheet_of_names(names: Iterable[str | None]) -> str | None:
-    """The INSTANCE-identity of a resolved sheet chain — the ONE owner of that
-    derivation (gui/docks/reead.sheet_of and
-    selection_narrowing._sheet_identity both delegate here, so the two can never
-    group a selection differently):
+    """The OLD (Р4) instance-identity of a resolved sheet chain: the first named
+    segment. Since plan_2026_11_23_nested_clone_sheet_instances the ONE owner of
+    a component's address is `instance_sheet_of(fp, sheet_names)` — it needs the
+    uuids, and a clone nested inside a clone cannot be told apart by names
+    alone. This function stays as its fallback and for callers that really have
+    nothing but a chain (a plain dict without a hierarchy, a stored record):
 
       * an EMPTY chain (no entries at all) = the symbol stands on the ROOT
         sheet -> ROOT_SHEET. This is exactly what resolve_sheet_path_names
@@ -492,6 +533,89 @@ def sheet_of_names(names: Iterable[str | None]) -> str | None:
     return None
 
 
+def instance_sheet_of(fp, sheet_names) -> str | None:
+    """THE instance address of the sheet `fp` stands on (Р1/Р2/Р4 of
+    plan_2026_11_23_nested_clone_sheet_instances) — the ONE function a caller
+    with a footprint must use instead of
+    `sheet_of_names(resolve_sheet_path_names(fp, sheet_names))`: the uuids are
+    what the count needs, and they are lost as soon as only the names remain.
+
+    Р1: the address is the SHORTEST chain prefix b1…bk whose sheet file occurs
+    EXACTLY ONCE under the file of that block, i.e. the first k with
+    `экз(файл(bk), файл(bn)) == 1`. Р2: those names joined by "/". The search
+    always stops: `экз(F, F) == 1`. When the first sheet already has one copy
+    the answer is one name — byte for byte what the old rule said, which is why
+    every profile where clones sit at the root (Channel_0/DAC) reads as before.
+
+    Р4 — the answer changes ONLY inside a real hierarchy:
+
+      * a plain dict (tests, CLI without schematic_dir) or a tree the walk
+        refused -> `sheet_of_names(names)`, the old first-segment rule;
+      * a block of the chain that the tree does not know, or a prefix segment
+        the dictionary cannot name -> also the old rule: inventing a path from
+        an unknown uuid would be worse than saying less."""
+    sheet_names = sheet_map(sheet_names)
+    chain, names = _chain_and_names(fp, sheet_names)
+    hierarchy = getattr(sheet_names, "hierarchy", None)
+    if hierarchy is None:
+        return sheet_of_names(names)
+    address = _address_of(chain, hierarchy, sheet_names)
+    return address if address is not None else sheet_of_names(names)
+
+
+def _address_of(chain: Iterable[str], hierarchy: SheetHierarchy,
+                sheet_names) -> str | None:
+    """The Р1/Р2 address of ONE chain of sheet blocks, or None when the tree
+    cannot answer (a block missing from it, or a segment the dictionary cannot
+    name) — the caller then says less (Р4) instead of inventing a path.
+
+    An EMPTY chain is not «no instance»: it is the ROOT sheet, and
+    `sheet_of_names` is the one place that says so."""
+    chain = tuple(chain)
+    if not chain:
+        return None
+    files = [hierarchy.block_file.get(uuid) for uuid in chain]
+    if any(file is None for file in files):
+        return None
+    target = files[-1]
+    for index, file in enumerate(files):
+        if hierarchy.instances(file, target) != 1:
+            continue
+        prefix = [sheet_names.get(uuid) for uuid in chain[:index + 1]]
+        if any(not segment for segment in prefix):
+            return None
+        return "/".join(prefix)
+    return None
+
+
+def all_instance_addresses(sheet_names) -> list[str]:
+    """Every INSTANCE ADDRESS of the sheet tree, parents first then sorted —
+    for the GUI's sheet combos, so «ISO In/Signal In A» can be PICKED and not
+    only typed. Empty without a hierarchy (Р4: the old single names are what
+    the dictionary already gives the caller)."""
+    hierarchy = getattr(sheet_names, "hierarchy", None)
+    if hierarchy is None:
+        return []
+    by_parent: dict[str, list[str]] = {}
+    for uuid, parent in hierarchy.block_parent.items():
+        by_parent.setdefault(parent, []).append(uuid)
+    out: list[str] = []
+
+    def walk(file: str, chain: tuple[str, ...], ancestors: tuple[str, ...]):
+        for uuid in by_parent.get(file, ()):
+            child = hierarchy.block_file.get(uuid)
+            if child is None or child in ancestors:
+                continue          # no child file / an invalid cycle
+            path = chain + (uuid,)
+            address = _address_of(path, hierarchy, sheet_names)
+            if address:
+                out.append(address)
+            walk(child, path, ancestors + (child,))
+
+    walk(hierarchy.root, (), (hierarchy.root,))
+    return sorted(set(out))
+
+
 def sheet_in_path(names: Iterable[str | None], sheet: str | None) -> bool:
     """True when `sheet` names the instance standing on the resolved chain
     `names`. THE one rule for "does this sheet name this component", shared by
@@ -510,6 +634,14 @@ def sheet_in_path(names: Iterable[str | None], sheet: str | None) -> bool:
       * any other name is ONE OF THE SEGMENTS, not necessarily the LAST one: the
         component may live deeper than the sheet we are looking for (a DAC
         sub-sheet inside Channel_0 is still Channel_0's);
+      * a MULTI-SEGMENT address ("ISO In/Signal In A", Р3 of
+        plan_2026_11_23_nested_clone_sheet_instances) matches when the chain
+        STARTS with exactly those segments; deeper segments may follow (a
+        component inside `Signal In A` is still its instance), but the same
+        names under another parent must NOT match. ONE name keeps its old
+        "any segment" meaning, so every existing profile reads as before —
+        KiCad forbids "/" inside a sheet name, which makes the record
+        unambiguous;
       * a None/empty `sheet` names nothing and matches nothing: "no sheet given"
         is NOT a wildcard and NOT the root. Callers that mean "any sheet" (a
         config entry with no sheet at all) decide that themselves, explicitly;
@@ -520,4 +652,10 @@ def sheet_in_path(names: Iterable[str | None], sheet: str | None) -> bool:
     names = tuple(names)
     if sheet == ROOT_SHEET:
         return not names
+    if "/" in sheet:
+        wanted = tuple(part for part in sheet.split("/") if part)
+        if not wanted:
+            return False
+        return len(names) >= len(wanted) and all(
+            names[i] == part for i, part in enumerate(wanted))
     return any(name == sheet for name in names)

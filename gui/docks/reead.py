@@ -29,8 +29,11 @@ from typing import Any, Iterable, Mapping, Optional
 
 from kicadstamp.explore import Selected
 from kicadstamp.sheet_names import (
+    instance_sheet_of,
     resolve_sheet_path_names,
     sheet_in_path,
+    sheet_map,
+    sheet_map_is_empty,
     sheet_of_names,
 )
 
@@ -83,18 +86,15 @@ def _slugify(text: str) -> str:
 
 
 def _materialize_sheet_names(sheet_names):
-    """A concrete {uuid: name} dict from whatever the caller passed.
+    """The map AS IS — a `dict(...)` here would drop the instance hierarchy.
 
     The RuntimeContext carries a lazy LazySheetNameMap (a Mapping that is, by
     design, ALWAYS truthy and parses the *.kicad_sch files only on first use),
-    while the GUI flows pass a plain dict (they call `dict(ctx.sheet_names)`).
-    Normalising here means the grouping and the diagnostics below inspect the
-    SAME materialised map — and `bool()` on it then honestly answers "is the
-    map empty?" (which the sheet-gate diagnostic needs, unlike the lazy
-    object's always-True __bool__). Accepts None / dict / any Mapping."""
-    if sheet_names is None or isinstance(sheet_names, dict):
-        return sheet_names
-    return {key: sheet_names[key] for key in sheet_names}
+    while some GUI flows hand a plain dict. Either way the object is passed on
+    UNCHANGED, because the nested-clone rule needs the hierarchy the lazy map
+    carries; the "is the dictionary really empty?" question of the sheet gate
+    is answered by ``sheet_map_is_empty``, never by the map's own __bool__."""
+    return sheet_map(sheet_names)
 
 
 def _sheet_chain(s: Selected, sheet_names: Optional[Mapping[str, str]] = None) -> list:
@@ -103,8 +103,12 @@ def _sheet_chain(s: Selected, sheet_names: Optional[Mapping[str, str]] = None) -
     None — but each Selected carries the raw footprint, so when `sheet_names`
     (from the config's RuntimeContext) is available we re-resolve the real
     names (Channel_0/1/2...) on the fly; otherwise fall back to the snapshot's
-    own chain (exact in CLI/tests)."""
-    if sheet_names:
+    own chain (exact in CLI/tests).
+
+    An EMPTY map is «nothing to re-resolve with» even when it is the lazy
+    object (whose __bool__ is always True by design), hence the honest
+    emptiness test — otherwise a snapshot chain would be replaced by []. """
+    if sheet_names and not sheet_map_is_empty(sheet_names):
         fp = getattr(s, "fp", None)
         if fp is not None:
             try:
@@ -151,13 +155,21 @@ def match_entity(entities, cluster: str, fp_sheet) -> Optional[Any]:
 
 def instance_sheet(fp: Selected, entities, sheet_names: Optional[Mapping[str, str]] = None) -> Optional[str]:
     """Sheet identity of a footprint for grouping: its matched Entity's sheet
-    (exact for hierarchical channels like Channel_0/1/2), else the chain's own
-    identity (sheet_of: the first named segment, or ROOT_SHEET for an empty
-    chain — a symbol on the root sheet)."""
+    (exact for hierarchical channels like Channel_0/1/2), else the footprint's
+    OWN instance address (``sheet_names.instance_sheet_of`` — the shortest chain
+    prefix whose sheet file occurs once, plan_2026_11_23_nested_clone_sheet_
+    instances). The old first-segment answer (`sheet_of`) remains the fallback
+    for a footprint we cannot re-read or a map without a hierarchy (Р4)."""
     chain = _sheet_chain(fp, sheet_names)
     e = match_entity(entities, fp.cluster or "", chain)
     if e is not None:
         return e.sheet
+    raw = getattr(fp, "fp", None)
+    if raw is not None and getattr(sheet_names, "hierarchy", None) is not None:
+        try:
+            return instance_sheet_of(raw, sheet_names)
+        except Exception:          # an unreadable footprint shape: Р4
+            pass
     return sheet_of(chain)
 
 
@@ -218,7 +230,7 @@ def fully_selected_clusters(selected: Iterable[Selected], snapshot: Iterable[Sel
                 reason=REASON_NO_CLUSTER_TAG, refs=untagged))
     groups = group_selected(selected_list, entities, sheet_names)
     profile_keys = set(profile_keys)
-    sheet_map_empty = not sheet_names
+    sheet_map_empty = sheet_map_is_empty(sheet_names)
     clusters: list[ReReadCluster] = []
     for (cluster, sheet), members in groups.items():
         member_refs = [s.ref for s in members]

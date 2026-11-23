@@ -27,7 +27,7 @@ from PyQt6.QtWidgets import (QDoubleSpinBox, QHBoxLayout, QHeaderView, QLabel,
                              QVBoxLayout, QWidget)
 
 from kicadstamp.i18n import _
-from kicadstamp.sheet_names import instance_label
+from kicadstamp.sheet_names import instance_label, sheet_map
 
 from .. import settings
 from ..worker import start_long_op
@@ -62,7 +62,8 @@ def plan_worker(connection, config_path, cell, cluster, sheet, margin, gap,
     cfg, ctx = load_config(config_path)
     return plan_explode(
         adapter, cfg, str(config_path), cell, cluster, sheet,
-        dict(getattr(ctx, "sheet_names", {}) or {}),
+        # NOT dict(...): the plan's grouping needs the instance hierarchy.
+        sheet_map(getattr(ctx, "sheet_names", None)),
         margin_mm=margin, gap_mm=gap, tick_overrides=dict(overrides or {}))
 
 

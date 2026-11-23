@@ -2101,12 +2101,12 @@ class DockHub:
             QMessageBox.warning(self.main_window, _("Extract tree"),
                                 _("Failed to load config: {error}").format(error=e))
             return
-        sheet_names = dict(ctx.sheet_names or {})
-
+        # sheet_map, not dict(): the lazy map travels WITH its instance hierarchy.
+        from kicadstamp.sheet_names import sheet_map
+        sheet_names = sheet_map(ctx.sheet_names)
         from .docks.reead import fully_selected_clusters
         # V.2: the engine reports WHICH gate dropped each group (structured,
-        # not text); the formatter turns them into a concrete message naming the
-        # real cause instead of always blaming the selection.
+        # not text); the formatter turns them into a concrete message instead.
         rejections: list = []
         clusters = fully_selected_clusters(
             self._selection_footprints,

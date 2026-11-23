@@ -29,7 +29,7 @@ from .exceptions import ValidationError, format_fatal_error
 from .i18n import _
 from .placement.services.clone_role_resolver import resolve_footprint_by_role
 from .placement.services.component_resolver import resolve_footprint_by_ref
-from .sheet_names import ROOT_SHEET, resolve_sheet_path_names
+from .sheet_names import ROOT_SHEET, instance_sheet_of, resolve_sheet_path_names
 
 logger = logging.getLogger(__name__)
 
@@ -88,18 +88,29 @@ def component_sheet_hint(fp, anchor, sheet_names=None) -> str | None:
     SAME footprint back from the board at apply time.
 
     The address's own `sheet` when it has one (that is what the user wrote),
-    else the leaf of the resolved footprint's hierarchical path — which its own
-    path always contains, so the narrowing can never drop the very footprint the
-    address just resolved to (see role_narrowing.narrow_candidates_by_sheet:
-    a sheet that matches nothing leaves the candidate list untouched).
+    else — when the map carries a HIERARCHY — the footprint's own instance
+    address (`sheet_names.instance_sheet_of`), which its own chain always
+    contains, so the narrowing can never drop the very footprint the address
+    just resolved to (see role_narrowing.narrow_candidates_by_sheet: a sheet
+    that matches nothing leaves the candidate list untouched). With a hierarchy
+    the address names ONE clone («ISO In/Signal In A»), where the leaf name it
+    used to take names both.
 
-    An EMPTY chain (a component standing on the ROOT sheet) carries ROOT_SHEET
-    ("/") instead, so the record narrows to ROOT components and never to a
-    same-tagged sub-sheet one; a chain that is non-empty but unnamed genuinely
-    did not resolve and stays None (no narrowing — the honest best-effort of the
-    whole cascade). 2026-10-14, plan_2026_10_13_root_sheet_clusters Ч1."""
+    WITHOUT a hierarchy (Р4) the LEAF of the resolved path is kept byte for
+    byte — `instance_sheet_of` would answer the FIRST segment there, and that
+    would change the sheet every existing profile's CoordinatePlacement stores
+    («out of scope: only where the old rule merged instances»).
+
+    An EMPTY chain (a component standing on the ROOT sheet) yields ROOT_SHEET
+    ("/"), so the record narrows to ROOT components and never to a same-tagged
+    sub-sheet one; a chain that is non-empty but unnamed genuinely did not
+    resolve and stays None (no narrowing — the honest best-effort of the whole
+    cascade). 2026-10-14, plan_2026_10_13_root_sheet_clusters Ч1;
+    plan_2026_11_23_nested_clone_sheet_instances Т2."""
     if anchor is not None and anchor.anchor_sheet:
         return anchor.anchor_sheet
+    if getattr(sheet_names, "hierarchy", None) is not None:
+        return instance_sheet_of(fp, sheet_names)
     names = resolve_sheet_path_names(fp, sheet_names or {})
     named = [n for n in names if n]
     if named:

@@ -52,7 +52,7 @@ from kicadstamp.placement.services.component_resolver import (
     ComponentResolver,
     resolve_footprint_by_ref,
 )
-from kicadstamp.sheet_names import resolve_sheet_path_names, sheet_of_names
+from kicadstamp.sheet_names import instance_sheet_of
 from kicadstamp.tree_mounts import (
     MountPlan,
     pad_number,
@@ -135,8 +135,9 @@ def resolve_instance(adapter, cfg, sheet_names, *, ref: Optional[str] = None,
                 [_("tag the component with a Role (Tools -> tree -> Tag selected) "
                    "or pick another component; a mount anchor is always a role "
                    "anchor, so the grammar has no ref anchor to write")]))
-        found_sheet = sheet_of_names(
-            resolve_sheet_path_names(footprint, sheet_names or {}))
+        # The mount anchor carries the component's OWN instance address — the
+        # same rule every other caller uses (nested clones included).
+        found_sheet = instance_sheet_of(footprint, sheet_names or {})
         if found_sheet is None:
             raise ValidationError(format_fatal_error(
                 _("mounts are addressed by a Role — {ref!r} stands on a sheet that "

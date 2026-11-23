@@ -129,7 +129,10 @@ class ExtractClusterFlow:
             show_message(_("Failed to load config: {error}").format(error=e),
                          _ERROR_STYLE, logger)
             return
-        sheet_names = dict(ctx.sheet_names or {})
+        # The lazy map travels WITH its hierarchy — a dict(...) here would make
+        # «Extract cluster» merge two nested clones of one sheet file.
+        from kicadstamp.sheet_names import sheet_map
+        sheet_names = sheet_map(ctx.sheet_names)
 
         from .docks.reead import fully_selected_clusters
         # V.2: the same structured diagnostics as "Extract tree..." — the

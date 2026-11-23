@@ -470,7 +470,9 @@ def narrow_mixed_selection(*, config_path: str, adapter: Any, footprints: list,
         cluster=adapter.get_field_value(fp, CLUSTER_FIELD_NAME),
         sheet=tuple(resolve_sheet_path_names(fp, sheet_names) or ()))
         for fp in footprints]
-    groups = group_selection(infos, entities)
+    # `sheet_names` travels WITH its hierarchy: grouping by the first segment
+    # would merge two nested clones of one sheet file into one instance.
+    groups = group_selection(infos, entities, sheet_names=sheet_names)
     choice = choose_instance(groups, cell_roles, clusters)
 
     unverified_line = ""
