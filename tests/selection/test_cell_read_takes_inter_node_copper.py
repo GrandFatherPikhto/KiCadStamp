@@ -403,6 +403,9 @@ def test_t3g_a_kind_mismatch_subtracts_with_a_line(gate, board):
     texts = _texts(prelude)
     assert any("while the live item is a" in t for t in texts), texts
     assert sum(count for _label, count in prelude.subtracted_net_traces) == 1
+    # С2: the line names the RECORD, never its registry uuid (`net:<uuid>`).
+    assert any(RECORD in t for t in texts), texts
+    assert not any("net:" in t for t in texts), texts
 
 
 # ── т4: Р2 — the boundary is the instance, not the selection frame ──────────

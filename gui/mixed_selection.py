@@ -44,6 +44,7 @@ from dataclasses import dataclass, field
 from typing import Any, Optional
 
 from kicadstamp.anchor_ids import config_anchor_ids, orphan_keys
+from kicadstamp.anchor_names import name_for, named_anchors
 from kicadstamp.cell_instance import resolve_context_footprints
 from kicadstamp.config import net_trace_effective_name
 from kicadstamp.constants import CLUSTER_FIELD_NAME, ROLE_FIELD_NAME
@@ -251,7 +252,7 @@ def _touch_table(net_traces, adapter, chosen_address, chosen_refs, sheet_names):
 
 
 def _keyed_decisions(net_keyed, net_traces, adapter, sheet_names,
-                     touches=None) -> tuple:
+                     touches=None, names=None) -> tuple:
     """(transfers, kept, refused_report, boundary, lines) — the registry-keyed
     pieces of ONE read.
 
@@ -275,7 +276,8 @@ def _keyed_decisions(net_keyed, net_traces, adapter, sheet_names,
     boundary: dict[str, int] = {}
     lines: list = []
     for item, run_kind, registry_kind, key in net_keyed:
-        label = key.split("|")[0] or key
+        # С2: the KEY's anchor id as the label, then the record's NAME for it.
+        label = name_for(names or {}, key.split("|")[0] or key)
         if registry_kind != run_kind:
             removed[label] = removed.get(label, 0) + 1
             lines.append(_("net_traces {name}: the registry says it is a {file_kind} "
@@ -312,17 +314,22 @@ def _keyed_decisions(net_keyed, net_traces, adapter, sheet_names,
     return tuple(transfers), kept, removed, boundary, lines
 
 
-def _merged_report(parts) -> dict:
+def _merged_report(parts, names: dict | None = None) -> dict:
     """{label -> count} over the subtraction reports of `parts` — ONE merge, used
-    by both the Log line and the read-outcome's reason counts."""
+    by both the Log line and the read-outcome's reason counts.
+
+    ``names`` (:func:`kicadstamp.anchor_names.named_anchors`) turns each anchor id
+    into the name the user knows the record by (С2): the report carries the
+    FORMATTED label, so the line and the data can never disagree."""
     merged: dict[str, int] = {}
     for sub in parts:
         for label, count in sub.report:
+            label = name_for(names or {}, label)
             merged[label] = merged.get(label, 0) + count
     return merged
 
 
-def _orphan_line(parts) -> Optional[str]:
+def _orphan_line(parts, names: dict | None = None) -> Optional[str]:
     """One INFO line naming the copper READ although its key's record is gone.
 
     Not a subtraction and not a warning (Denis, 27.10): the read did what it was
@@ -332,6 +339,7 @@ def _orphan_line(parts) -> Optional[str]:
     merged: dict[str, int] = {}
     for sub in parts:
         for label, count in getattr(sub, "orphan", ()) or ():
+            label = name_for(names or {}, label)
             merged[label] = merged.get(label, 0) + count
     if not merged:
         return None
@@ -523,6 +531,9 @@ def narrow_mixed_selection(*, config_path: str, adapter: Any, footprints: list,
     # instance itself, asked once per record (`_touch_table`).
     touches = _touch_table(net_traces, adapter, chosen_address, chosen_refs,
                            sheet_names)
+    # С2: the ONE map «anchor id → record name», built once per read; every Log
+    # line below goes through it, so a uuid never reaches the user's eyes alone.
+    names = named_anchors(cfg)
     # А1 (plan_2026_10_08_narrowing_net_traces_cost): the board's copper is read
     # ONCE for the whole narrowing and the ownership map is computed ONCE, then
     # handed to BOTH lists. It used to be read (and the whole net_traces list
@@ -587,7 +598,7 @@ def narrow_mixed_selection(*, config_path: str, adapter: Any, footprints: list,
     # cannot be trusted (`_keyed_decisions`).
     (keyed_transfers, keyed_kept, keyed_removed, keyed_boundary,
      keyed_lines) = _keyed_decisions(net_keyed, net_traces, adapter, sheet_names,
-                                     touches=touches)
+                                     touches=touches, names=names)
     transfers = tuple(transfers) + keyed_transfers
     for item, run_kind in keyed_kept:
         (kept_v if run_kind == "via" else kept_t).append(item)
@@ -621,8 +632,8 @@ def narrow_mixed_selection(*, config_path: str, adapter: Any, footprints: list,
     # Г: the subtracted copper, split by WHY (the read-outcome line counts each
     # kind separately). A transferred piece is NOT subtracted, so the net_traces
     # report is empty on that path.
-    registry_report = _merged_report([sub_v, sub_t])
-    net_report = _merged_report([net_v, net_t])
+    registry_report = _merged_report([sub_v, sub_t], names)
+    net_report = _merged_report([net_v, net_t], names)
     # Т1: a keyed piece a guard refused WAS subtracted — it belongs in the итог
     # (and in the read-outcome reasons), never in a silent void. The boundary
     # refusals of the keyed path are counted here as well (the geometry path's own
@@ -636,7 +647,7 @@ def narrow_mixed_selection(*, config_path: str, adapter: Any, footprints: list,
         lines.append((subtraction, SUCCESS))
     # INFO: the copper read although its key's record is no longer in the config.
     # Deliberately NOT in `subtraction`/`subtracted_records` — nothing was removed.
-    orphan_line = _orphan_line([sub_v, sub_t])
+    orphan_line = _orphan_line([sub_v, sub_t], names)
     if orphan_line:
         lines.append((orphan_line, SUCCESS))
 

@@ -18,6 +18,7 @@ The contract the rows attack, piece by piece:
   M10 the dock hands NO cell name to `apply_transfers` (so no «all its N instances»)
   M11 `cell_instance_count` counts an address with NO cluster
   M12 «another cluster» counted by `id()` — the plan's components are RE-READ
+  M13 the anchor NAME is not looked up — a line shows a uuid again
   K  cosmetic control (a comment must change nothing)
 
 Safeguards as in every harness here (rule 38): a template matching more than once
@@ -56,6 +57,8 @@ M11_CELL = "test_an_address_without_a_cluster_is_not_an_instance"
 EDITOR = "gui/docks/cell_editor.py"
 CELL_INSTANCE = "kicadstamp/cell_instance.py"
 OUTCOME = "gui/read_outcome.py"
+ANCHOR_NAMES = "kicadstamp/anchor_names.py"
+M13_CELL = "test_an_entity_anchor_names_its_record"
 M12_CELL = "test_the_plans_components_are_recognised_by_uuid_not_by_object"
 
 MUTATIONS = [
@@ -88,11 +91,11 @@ MUTATIONS = [
     ("M5 the keyed transfer needs the explode door", MIXED,
      "    (keyed_transfers, keyed_kept, keyed_removed, keyed_boundary,\n"
      "     keyed_lines) = _keyed_decisions(net_keyed, net_traces, adapter, sheet_names,\n"
-     "                                     touches=touches)\n",
+     "                                     touches=touches, names=names)\n",
      "    (keyed_transfers, keyed_kept, keyed_removed, keyed_boundary,\n"
      "     keyed_lines) = (\n"
      "        _keyed_decisions(net_keyed, net_traces, adapter, sheet_names,\n"
-     "                         touches=touches)\n"
+     "                         touches=touches, names=names)\n"
      "        if explode_transfer else ((), [], {}, {}, []))  # MUTATION: door decides\n",
      [T1B]),
 
@@ -140,12 +143,18 @@ MUTATIONS = [
      [M12_CELL],
      "tests/gui/test_read_outcome.py -k recognised_by_uuid"),
 
+    ("M13 the anchor name is not looked up", ANCHOR_NAMES,
+     "    return (anchors or {}).get(anchor) or str(anchor)\n",
+     "    return str(anchor)  # MUTATION: a uuid reaches the user again\n",
+     [M13_CELL],
+     "tests/test_anchor_names.py -k names_its_record"),
+
     ("K cosmetic control", MIXED,
      "def _keyed_decisions(net_keyed, net_traces, adapter, sheet_names,\n"
-     "                     touches=None) -> tuple:\n",
+     "                     touches=None, names=None) -> tuple:\n",
      "# a comment changes nothing\n"
      "def _keyed_decisions(net_keyed, net_traces, adapter, sheet_names,\n"
-     "                     touches=None) -> tuple:\n",
+     "                     touches=None, names=None) -> tuple:\n",
      []),
 ]
 
