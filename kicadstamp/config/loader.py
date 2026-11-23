@@ -579,12 +579,6 @@ def _load_config_uncached(path: str,
     schematic_dir = data.get('schematic_dir')
     schematic_files = data.get('schematic_files', []) or []
 
-    # Deliberate exception (see the `..sheet_names` import note above): the
-    # sheet-name map must be built HERE, at load time. anchor_sheet in the
-    # config references real schematic sheets, and this is the single
-    # construction point for the runtime map shared by the whole pipeline.
-    sheet_names = LazySheetNameMap(path, schematic_dir, schematic_files)
-
     config_dir = Path(path).parent
     # RAW values from the YAML (exactly what the user wrote, relative to that
     # YAML) stay on Config — Config is a pure description of the YAML schema.
@@ -607,6 +601,17 @@ def _load_config_uncached(path: str,
                                   if operation_log_dir else None)
     resolved_root_sheet = (resolve_config_relative_path(config_dir, root_sheet)
                            if root_sheet else None)
+
+    # Deliberate exception (see the `..sheet_names` import note above): the
+    # sheet-name map must be built HERE, at load time. anchor_sheet in the
+    # config references real schematic sheets, and this is the single
+    # construction point for the runtime map shared by the whole pipeline.
+    # It is built AFTER the path resolution because the map also carries the
+    # instance hierarchy, and that hierarchy is walked from the profile's ROOT
+    # sheet (Р1/Р4 of plan_2026_11_23_nested_clone_sheet_instances): no root or
+    # an incomplete tree -> no hierarchy -> the old first-segment rule.
+    sheet_names = LazySheetNameMap(path, schematic_dir, schematic_files,
+                                   root_sheet=resolved_root_sheet)
 
     # board_name — NOT a path, deliberately not resolved relative to the YAML
     # (see Config.board_name's docstring): it's a board/project identity string

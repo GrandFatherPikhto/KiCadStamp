@@ -19982,6 +19982,13 @@ msgstr "KiCad отклонил перемещение {ref!r} — плата н�
 msgid "footprint {ref!r} not found on the board"
 msgstr "футпринт {ref!r} не найден на плате"
 
+#: kicadstamp/sheet_names.py:245
+#, python-brace-format
+msgid ""
+"sheet hierarchy: {file} not found — instances fall back to the first sheet"
+msgstr ""
+"иерархия листов: {file} не найден — экземпляры считаются по первому листу"
+
 #~ msgid ""
 #~ "role {role!r} occurs {count} times in"
 #~ " cluster {cluster!r} — this is a "
