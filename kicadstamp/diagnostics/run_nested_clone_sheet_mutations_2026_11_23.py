@@ -17,6 +17,11 @@ address that now names several instances (Р5).
   M7 the Р5 line is never printed
   M8 экз is counted over schematic_files instead of the root walk (Denis)
   M9 Imprint compares strings again instead of sheet_in_path (Denis)
+  M10 the entity candidates group by the first segment again (Н1)
+  M11 find_entity_for_source compares a one-link chain again (Н2)
+  M12 component_sheet_hint loses its hierarchy branch (О8)
+  M13 the Р5 line fires on ONE instance too (О9)
+  M14 the mixed read drops the map on its way to the grouping (О11)
   K  cosmetic control (a comment must change nothing)
 
 Safeguards as in every harness here (rule 38): a template matching more than
@@ -38,6 +43,10 @@ SHEETS = "kicadstamp/sheet_names.py"
 REEAD = "gui/docks/reead.py"
 VALID = "kicadstamp/validation.py"
 IMPRINT = "kicadstamp/imprint_apply.py"
+CANDS = "gui/docks/instance_candidates.py"
+TREE = "gui/docks/tree_from_selection.py"
+MIXED = "gui/mixed_selection.py"
+ADDRESS = "kicadstamp/component_address.py"
 
 INSTANCES = "tests/schematic/test_nested_clone_instances.py"
 HIERARCHY = "tests/schematic/test_sheet_hierarchy.py"
@@ -137,10 +146,44 @@ MUTATIONS = [
      _only("does_not_need_schematic_files", HIERARCHY)),
 
     ("M9 Imprint compares strings again", IMPRINT,
-     "    onto = bool(dst_name) and not sheet_in_path(src_chain, dst_name)\n",
+     "    onto = bool(dst_name) and not sheet_in_path(address_chain(src_name), dst_name)\n",
      "    onto = bool(dst_name) and dst_name != src_name    # MUTATION\n",
      ["test_an_imprint_inside_the_channel_it_names_is_in_place"],
      _only("inside_the_channel_it_names")),
+
+    ("M10 the entity candidates group by the first segment again", CANDS,
+     "        groups.setdefault((part.cluster, part.instance or sheet_of(part.sheet)),\n"
+     "                          []).append(part)\n",
+     "        groups.setdefault((part.cluster, sheet_of(part.sheet)),\n"
+     "                          []).append(part)          # MUTATION\n",
+     ["test_the_entity_candidates_offer_each_nested_clone"],
+     _only("entity_candidates_offer_each_nested_clone")),
+
+    ("M11 find_entity_for_source compares a one-link chain again", TREE,
+     "            if e_sheet and not sheet_in_path(address_chain(sheet), e_sheet):\n",
+     "            if e_sheet and not sheet_in_path((sheet,), e_sheet):  # MUTATION\n",
+     ["test_find_entity_for_source_knows_a_nested_address"],
+     _only("find_entity_for_source_knows_a_nested_address")),
+
+    ("M12 component_sheet_hint loses its hierarchy branch", ADDRESS,
+     "    if getattr(sheet_names, \"hierarchy\", None) is not None:\n"
+     "        return instance_sheet_of(fp, sheet_names)\n",
+     "    if False:                                 # MUTATION: leaf always\n"
+     "        return instance_sheet_of(fp, sheet_names)\n",
+     ["test_the_sheet_hint_names_the_instance_when_a_hierarchy_exists"],
+     _only("sheet_hint_names_the_instance")),
+
+    ("M13 the Р5 line fires on ONE instance too", VALID,
+     "        if len(matches) > 1:\n",
+     "        if len(matches) >= 1:                     # MUTATION\n",
+     ["test_a_single_name_that_names_one_instance_stays_silent"],
+     _only("single_name_that_names_one_instance_stays_silent")),
+
+    ("M14 the mixed read drops the map on its way to the grouping", MIXED,
+     "    groups = group_selection(infos, entities, sheet_names=sheet_names)\n",
+     "    groups = group_selection(infos, entities)         # MUTATION\n",
+     ["test_the_mixed_read_pins_the_nested_clone_it_was_handed"],
+     _only("mixed_read_pins_the_nested_clone")),
 
     ("K cosmetic control", SHEETS,
      "def _address_of(chain: Iterable[str], hierarchy: SheetHierarchy,\n",

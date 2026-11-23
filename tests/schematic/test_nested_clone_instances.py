@@ -428,3 +428,152 @@ def test_a_map_without_a_hierarchy_is_the_old_answer():
     plain = {"b-iso-in": "ISO In", "b-sia": "Signal In A"}
     assert instance_sheet_of(fp, plain) == sheet_of_names(["ISO In", "Signal In A"])
     assert instance_sheet_of(fp, plain) == "ISO In"
+
+
+# ── Т5: the DOORS around the rule (к1, к3–к6) ───────────────────────────────
+
+def _selected(ref, cluster, chain, role="C"):
+    from kicadstamp.explore import Selected
+    return Selected(ref=ref, role=role, cluster=cluster,
+                    sheet=[None] * len(chain), nets={}, fp=_fp(chain))
+
+
+def _twelve(hp_iso):
+    return ([_selected(f"A{i}", "SIG_IN", ("b-iso-in", "b-sia", f"own-A{i}"))
+             for i in range(6)]
+            + [_selected(f"B{i}", "SIG_IN", ("b-iso-in", "b-sib", f"own-B{i}"))
+               for i in range(6)])
+
+
+def test_the_entity_candidates_offer_each_nested_clone(hp_iso):
+    """к1: «Add entities» на форме HP-ISO — ДВА кандидата по 6, оба подходят.
+    Сегодняшнее правило сливало их в одного кандидата из 12."""
+    from gui.docks.instance_candidates import instance_candidates, snapshot_parts
+    parts = snapshot_parts(_twelve(hp_iso), hp_iso["map"])
+    cands = instance_candidates(parts, ("C",) * 6)
+    assert [(c.sheet, len(c.refs), c.fits) for c in cands] == [
+        ("ISO In/Signal In A", 6, True),
+        ("ISO In/Signal In B", 6, True)]
+
+
+def test_without_a_hierarchy_the_candidates_stay_one_iso_in(hp_iso):
+    """к1, вторая половина: обычный словарь — как сегодня, ОДИН `ISO In`."""
+    from gui.docks.instance_candidates import instance_candidates, snapshot_parts
+    plain = {"b-iso-in": "ISO In", "b-sia": "Signal In A", "b-sib": "Signal In B"}
+    parts = snapshot_parts(_twelve(hp_iso), plain)
+    cands = instance_candidates(parts, ("C",) * 6)
+    assert [(c.sheet, len(c.refs)) for c in cands] == [("ISO In", 12)]
+
+
+def test_find_entity_for_source_knows_a_nested_address():
+    """к3/Н2: сущность обязана узнавать СВОЙ ЖЕ многосегментный адрес."""
+    from gui.docks.tree_from_selection import find_entity_for_source
+
+    def ent(name, sheet):
+        return SimpleNamespace(name=name, cell="sig", cluster="SIG_IN",
+                               sheet=sheet, imprint=None)
+
+    cfg = SimpleNamespace(entities=[ent("A", "ISO In/Signal In A"),
+                                    ent("B", "ISO In/Signal In B")])
+    same = find_entity_for_source(cfg, cell="sig", cluster="SIG_IN",
+                                  sheet="ISO In/Signal In A")
+    assert same.name == "A"
+    assert find_entity_for_source(cfg, cell="sig", cluster="SIG_IN",
+                                  sheet="ISO In/Signal In C") is None
+    # an OLD single-name address is «taken» for BOTH clones — that is the Р5
+    # situation, and it keeps its yellow line
+    old = SimpleNamespace(entities=[ent("old", "ISO In")])
+    for sheet in ("ISO In/Signal In A", "ISO In/Signal In B"):
+        assert find_entity_for_source(old, cell="sig", cluster="SIG_IN",
+                                      sheet=sheet).name == "old"
+    # the root marker and single names behave as before
+    root = SimpleNamespace(entities=[ent("root", "/")])
+    assert find_entity_for_source(root, cell="sig", cluster="SIG_IN",
+                                  sheet="/").name == "root"
+    assert find_entity_for_source(root, cell="sig", cluster="SIG_IN",
+                                  sheet="ISO In") is None
+
+
+def test_the_sheet_hint_names_the_instance_when_a_hierarchy_exists(tmp_path):
+    """к4: иерархия — `Channel_0`, вложенный — полный адрес; без иерархии —
+    ЛИСТ (прежний ответ, запись временная)."""
+    from kicadstamp.component_address import component_sheet_hint
+
+    dac = _write(tmp_path / "dac.kicad_sch")
+    ch = _write(tmp_path / "ch.kicad_sch", _sheet("b-dac", "DAC", "dac.kicad_sch"))
+    root = _write(tmp_path / "root.kicad_sch",
+                  _sheet("b-ch0", "Channel_0", "ch.kicad_sch"))
+    m = _map(root, tmp_path)
+    fp = _fp(("b-ch0", "b-dac", "own"))
+    assert component_sheet_hint(fp, None, m) == "Channel_0"
+    plain = {"b-ch0": "Channel_0", "b-dac": "DAC"}
+    assert component_sheet_hint(fp, None, plain) == "DAC"
+
+
+def test_a_single_name_that_names_one_instance_stays_silent(hp_iso, caplog):
+    """к5/О9: `"Signal In A"` — одно имя, но экземпляр ОДИН: жёлтой строки нет
+    (мутант `len(matches) >= 1` дал бы ложную)."""
+    import kicadstamp.validation as validation
+
+    validation._ambiguous_warned.clear()
+    with caplog.at_level(logging.WARNING, logger="kicadstamp.validation"):
+        assert validation.warn_ambiguous_sheet_addresses(
+            _address_cfg("Signal In A"), hp_iso["map"]) == 0
+    assert [r for r in caplog.records if r.levelno == logging.WARNING] == []
+
+
+class _HintAdapter:
+    """The minimum a mixed read asks of a board: fields, footprints, no copper."""
+
+    def __init__(self, fields, footprints):
+        self._fields = fields          # ref -> ((Role, Cluster))
+        self._fps = list(footprints)
+
+    def get_field_value(self, fp, name):
+        from kicadstamp.constants import ROLE_FIELD_NAME
+        role, cluster = self._fields[fp.ref]
+        return role if name == ROLE_FIELD_NAME else cluster
+
+    def get_footprints(self):
+        return list(self._fps)
+
+    def get_vias(self):
+        return []
+
+    def get_tracks(self):
+        return []
+
+    def get_footprint(self, ref):
+        return None
+
+    def get_pad_by_number(self, fp, pad):
+        return None
+
+    def get_footprint_pads(self, fp):
+        return []
+
+
+def test_the_mixed_read_pins_the_nested_clone_it_was_handed(hp_iso, tmp_path):
+    """к6/О11: выделение копии A приходит в `narrow_mixed_selection` как
+    экземпляр `ISO In/Signal In A`, без отказа «несколько экземпляров»."""
+    from gui.mixed_selection import narrow_mixed_selection
+
+    (tmp_path / "config.sexp").write_text("", encoding="utf-8")
+    a = [_fp(("b-iso-in", "b-sia", f"own-A{i}")) for i in range(6)]
+    for i, fp in enumerate(a):
+        fp.ref = f"A{i}"
+    b = [_fp(("b-iso-in", "b-sib", f"own-B{i}")) for i in range(6)]
+    for i, fp in enumerate(b):
+        fp.ref = f"B{i}"
+    fields = {fp.ref: ("C", "SIG_IN") for fp in a + b}
+    cfg = SimpleNamespace(
+        cells={"sig": SimpleNamespace(uuid="cell-uuid")},
+        entities=[], clone_placements=[], net_traces=[])
+    prelude = narrow_mixed_selection(
+        config_path=str(tmp_path / "config.sexp"),
+        adapter=_HintAdapter(fields, a + b), footprints=a, vias=[], tracks=[],
+        cfg=cfg, sheet_names=hp_iso["map"], cell_name="sig",
+        cell_roles={"C"}, remembered_cluster="SIG_IN", remembered_sheet=None,
+        expected_address=None, explode_transfer=False, explode_journal=None)
+    assert prelude is not None and not prelude.refusal
+    assert prelude.chosen_address == ("SIG_IN", "ISO In/Signal In A")

@@ -41,6 +41,8 @@ tests/gui/test_create_entity_form.py; здесь остались меню, об
 держим).
 """
 
+from dataclasses import dataclass, field
+
 import pytest
 from unittest.mock import MagicMock
 
@@ -63,6 +65,7 @@ from tests.gui.create_entity_helpers import (
     minimal_cells,
     minimal_imprint,
     names_of,
+    nested_clone_map,
     open_project,
     write_config,
 )
@@ -701,19 +704,40 @@ def test_a_typed_sheet_through_the_real_form_reaches_the_record(
 # ═══════════════════════════════════════════════════════════════════════════
 
 class _Fp:
-    def __init__(self, uuid):
+    def __init__(self, uuid, chain=None):
         self.uuid = uuid
+        if chain is not None:
+            self.sheet_path_uuids = chain
 
 
+@dataclass
 class _Sel:
-    """Достаточно того, что читает snapshot_parts: ref/role/cluster/sheet/fp."""
+    """Достаточно того, что читает snapshot_parts: ref/role/cluster/sheet/fp.
 
-    def __init__(self, ref, cluster, role="R", sheet=("Ch0",)):
-        self.ref = ref
-        self.role = role
-        self.cluster = cluster
-        self.sheet = sheet
-        self.fp = _Fp("u-" + ref)
+    A dataclass: `snapshot_with_resolved_sheets` re-resolves the chain with
+    `dataclasses.replace` when the map carries a hierarchy."""
+
+    ref: str
+    cluster: str
+    role: str = "R"
+    sheet: tuple = ("Ch0",)
+    chain: tuple | None = None
+    fp: object = field(default=None, init=False)
+
+    def __post_init__(self):
+        self.fp = _Fp("u-" + self.ref, self.chain)
+
+
+def _with_hierarchy(monkeypatch, tmp_path):
+    """The flow answers the REAL config with a map that HAS a hierarchy."""
+    from types import SimpleNamespace
+    import gui.docks.create_entity_flow as flow_mod
+    real = flow_mod.load_config
+    sheet_map = nested_clone_map(tmp_path)
+    monkeypatch.setattr(
+        flow_mod, "load_config",
+        lambda path: (real(path)[0], SimpleNamespace(sheet_names=sheet_map)))
+    return sheet_map
 
 
 def _set_snapshot(hub, monkeypatch, sels):
@@ -868,3 +892,38 @@ def test_an_empty_name_through_the_real_form_writes_nothing(
     assert record and record[0][1], (
         "форма обязана сказать КРАСНОЙ строкой, что имени нет — иначе «ничего "
         "не записано» неотличимо от отмены")
+
+
+# ── Т5/к2: вложенные клоны доезжают до формы порознь (Н1) ────────────────
+
+def test_each_nested_clone_reaches_the_create_form(
+        real_main_window, tmp_path, monkeypatch):
+    """Н1: карта с иерархией едет в форму «Create entity» БЕЗ копии — два
+    кандидата по 6 вместо одного `ISO In` из 12, и оба адреса есть в списке
+    листов формы (иначе вложенный адрес нельзя ВЫБРАТЬ)."""
+    hub = real_main_window._dock_hub
+    roles = [f"C{i}" for i in range(6)]
+    root = tmp_path / "root.sexp"
+    write_config(root, {"cells": {"sig": {
+        "components": [{"role": r} for r in roles]}}})
+    open_project(hub, root)
+    _with_hierarchy(monkeypatch, tmp_path)
+    _set_snapshot(hub, monkeypatch,
+                  [_Sel(f"A{i}", "SIG_IN", role=roles[i], sheet=[None, None],
+                        chain=("b-iso", "b-sia", f"o-A{i}")) for i in range(6)]
+                  + [_Sel(f"B{i}", "SIG_IN", role=roles[i], sheet=[None, None],
+                          chain=("b-iso", "b-sib", f"o-B{i}")) for i in range(6)])
+    _door(hub, monkeypatch)
+    made = {}
+    _recording_dialog(monkeypatch, made,
+                      ("ent", "SIG_IN", "ISO In/Signal In A"))
+
+    leaf = find_child(category(file_item(hub.config_tree_dock.tree, root),
+                               "cells"), "sig")
+    create_entity_action(hub.config_tree_dock, leaf, monkeypatch).trigger()
+
+    cands = made["kwargs"]["candidates"]
+    assert [(c.sheet, len(c.refs), c.fits) for c in cands] == [
+        ("ISO In/Signal In A", 6, True), ("ISO In/Signal In B", 6, True)]
+    assert "ISO In/Signal In A" in made["kwargs"]["sheet_names"]
+    assert "ISO In/Signal In B" in made["kwargs"]["sheet_names"]

@@ -13,8 +13,10 @@ answer a single question: does this instance of the board FIT this cell?
 The answer is deliberately narrow and pure. An INSTANCE is the (Cluster tag,
 sheet) pair the project already groups board footprints by (the same key
 ``reead.group_selected`` uses); this module re-implements neither the grouping
-nor the sheet identity — it reads the ONE helper ``reead.sheet_of``. And the fit
-itself is role multiplicity ONLY:
+nor the sheet identity — it reads the ONE helper ``reead.sheet_of`` and, when
+the map carries a hierarchy, the ONE address owner
+``sheet_names.instance_sheet_of`` (already computed into ``Part.instance`` by
+``snapshot_parts``). And the fit itself is role multiplicity ONLY:
 
   * every role of the cell must stand in the instance exactly as many times as
     the cell has slots of it — no more, no less (Денис, 09.10.2026: "меньше →
@@ -49,7 +51,8 @@ from kicadstamp.refdes_duplicates import (duplicate_refdes_groups,
                                           duplicate_short_reason,
                                           orphan_short_reason,
                                           refdes_duplicate_of)
-from kicadstamp.sheet_names import sheet_display, sheet_in_path
+from kicadstamp.sheet_names import (instance_sheet_of, sheet_display,
+                                    sheet_in_path)
 
 from .reead import sheet_of
 
@@ -82,14 +85,24 @@ class Part:
     callers that later need to address the part (never used in the fit itself).
     ``sheet`` is the RESOLVED sheet-name CHAIN (``Selected.sheet`` after
     ``snapshot_with_resolved_sheets``), not a single name — ``sheet_of`` derives
-    the instance identity from it, and ``sheet_in_path`` matches a chosen name
+    the OLD identity from it, and ``sheet_in_path`` matches a chosen name
     against it.
+
+    ``instance`` is the component's own INSTANCE ADDRESS
+    (``sheet_names.instance_sheet_of``): «ISO In/Signal In A» where ``sheet_of``
+    would say «ISO In» and merge two nested clones into one candidate. None when
+    the map carries no hierarchy (Р4) — the grouping then falls back to
+    ``sheet_of(part.sheet)``, byte for byte as before.
     """
     uuid: Optional[str]
     ref: str
     role: Optional[str] = None
     cluster: Optional[str] = None
     sheet: tuple = ()
+    # Derived from `sheet` + the map, so it is NOT part of Part equality: the
+    # identity of a board part is (uuid/ref/role/cluster/sheet), and a record
+    # built before this field existed must stay equal to the same part built now.
+    instance: Optional[str] = dataclasses.field(default=None, compare=False)
     # False when the footprint is an ORPHAN (no sheet-path chain: it is not
     # linked to the schematic) — the batch dialog then names the orphan instead
     # of offering the instance. None = UNKNOWN (a hand-built record): unknown is
@@ -312,7 +325,10 @@ def instance_candidates(parts: Iterable[Part],
     for part in parts:
         if not part.cluster:
             continue
-        groups.setdefault((part.cluster, sheet_of(part.sheet)), []).append(part)
+        # The component's OWN instance address when the map had a hierarchy
+        # (nested clones stay apart), else today's first-segment identity.
+        groups.setdefault((part.cluster, part.instance or sheet_of(part.sheet)),
+                          []).append(part)
 
     out: list[InstanceCandidate] = []
     for (cluster, sheet), members in groups.items():
@@ -516,14 +532,22 @@ def snapshot_parts(snapshot: Iterable, sheet_names: Optional[dict] = None
     resolved = snapshot_with_resolved_sheets(list(snapshot or ()),
                                              sheet_names or {})
     out: list[Part] = []
+    has_hierarchy = getattr(sheet_names, "hierarchy", None) is not None
     for s in resolved:
         fp = getattr(s, "fp", None)
+        instance = None
+        if fp is not None and has_hierarchy:
+            try:
+                instance = instance_sheet_of(fp, sheet_names)
+            except Exception:      # an unreadable footprint shape: Р4
+                instance = None
         out.append(Part(
             uuid=getattr(fp, "uuid", None),
             ref=str(getattr(s, "ref", "") or ""),
             role=getattr(s, "role", None),
             cluster=getattr(s, "cluster", None),
             sheet=tuple(getattr(s, "sheet", None) or ()),
+            instance=instance,
             # No footprint read at all -> UNKNOWN (None), never an orphan: the
             # same "never refuse on a guess" rule the detector follows. An empty
             # chain IS an orphan (the board bug's own shape) — the reader keeps

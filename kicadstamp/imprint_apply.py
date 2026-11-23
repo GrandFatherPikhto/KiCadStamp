@@ -58,7 +58,7 @@ from .utils.units import MM
 from .cloner.models import TwinMap
 from .channel_copy import build_channel_groups, sheet_name_of_fp
 from .i18n import _
-from .sheet_names import sheet_in_path
+from .sheet_names import address_chain, sheet_in_path
 
 logger = logging.getLogger(__name__)
 
@@ -301,8 +301,7 @@ def plan_imprint(entity: Entity, record: ImprintConfig, adapter,
     # «another sheet» although it is the same instance — and would have done
     # the same to ISO In/Signal In A. `sheet_in_path` settles it: a prefix (or a
     # single name anywhere in the chain) names the instance.
-    src_chain = tuple(part for part in src_name.split("/") if part)
-    onto = bool(dst_name) and not sheet_in_path(src_chain, dst_name)
+    onto = bool(dst_name) and not sheet_in_path(address_chain(src_name), dst_name)
     if onto and "/" in dst_name:
         # The net remap below knows only TOP-LEVEL sheets (channel_copy's
         # sheet_name_of_fp reads the first local-net prefix segment) — moving a

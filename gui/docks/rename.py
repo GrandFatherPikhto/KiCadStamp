@@ -46,7 +46,7 @@ from kicadstamp.config import load_config
 from kicadstamp.config.includes import walk_include_tree
 from kicadstamp.exceptions import ValidationError
 from kicadstamp.i18n import _
-from kicadstamp.sheet_names import all_instance_addresses
+from kicadstamp.sheet_names import sheet_combo_names
 
 from ._common import read_data, write_data
 
@@ -289,10 +289,7 @@ def collect_all_sheet_names(root_path: Path) -> List[str]:
         _, ctx = load_config(str(root_path))
     except (ValidationError, OSError):
         return []
-    sheet_names = ctx.sheet_names
-    names = set(sheet_names.values())
-    names.update(all_instance_addresses(sheet_names))
-    return sorted(names)
+    return sheet_combo_names(ctx.sheet_names)
 
 
 def rename_dict_entry(path: Path, section: str, old_name: str, new_name: str) -> None:

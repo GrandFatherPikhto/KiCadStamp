@@ -50,7 +50,12 @@ def snapshot_with_resolved_sheets(snapshot: list, sheet_names: dict) -> list:
     and callers/tests that build a synthetic snapshot without a real .fp
     (only .sheet, already whatever they intend) are not forced to fake one
     just because this helper runs unconditionally upstream."""
-    if not sheet_names:
+    # `sheet_map_is_empty`, not `not sheet_names`: the RuntimeContext map is a
+    # LazySheetNameMap whose __bool__ is always True by design, so the plain
+    # test silently re-resolved against an EMPTY map (and tried to `replace()` a
+    # test double that is not a dataclass).
+    from kicadstamp.sheet_names import sheet_map_is_empty
+    if sheet_map_is_empty(sheet_names):
         return snapshot
     from dataclasses import replace
 

@@ -96,10 +96,19 @@ def component_sheet_hint(fp, anchor, sheet_names=None) -> str | None:
     the address names ONE clone («ISO In/Signal In A»), where the leaf name it
     used to take names both.
 
+    The record this labels is TRANSIENT: the CoordinatePlacement is built while
+    applying (`entity_placement`), the Entity is recognised through
+    `component_refs`, and `sheet` is never written back to a profile. So the
+    hierarchy branch is not a "new answer for old profiles" at all — every
+    working profile HAS `root_sheet`, so all of them take it, and a component in
+    `Channel_0/DAC` simply gets the label `Channel_0` instead of `DAC`. That is
+    harmless: the label feeds Log lines and `--cluster`, and a stored record
+    without a map still narrows BY it more strictly — its own component is
+    always inside.
+
     WITHOUT a hierarchy (Р4) the LEAF of the resolved path is kept byte for
-    byte — `instance_sheet_of` would answer the FIRST segment there, and that
-    would change the sheet every existing profile's CoordinatePlacement stores
-    («out of scope: only where the old rule merged instances»).
+    byte: `instance_sheet_of` would answer the FIRST segment there, and for a
+    transient label the most specific single name is the better one.
 
     An EMPTY chain (a component standing on the ROOT sheet) yields ROOT_SHEET
     ("/"), so the record narrows to ROOT components and never to a same-tagged

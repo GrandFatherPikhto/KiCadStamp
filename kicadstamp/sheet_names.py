@@ -588,6 +588,22 @@ def _address_of(chain: Iterable[str], hierarchy: SheetHierarchy,
     return None
 
 
+def address_chain(address: str | None) -> tuple[str, ...]:
+    """An ADDRESS written for people («ISO In/Signal In A», "/") as the chain of
+    sheet names `sheet_in_path` compares against.
+
+    ROOT_SHEET gives the EMPTY chain — exactly the chain a symbol on the root
+    sheet has — and every other address its non-empty parts. This is the ONE
+    place an address is turned back into a chain: the callers that compare an
+    ADDRESS with a chain (`tree_from_selection.find_entity_for_source`,
+    `imprint_apply.plan_imprint`) used to hand-roll it, and a `(sheet,)` or a
+    local `split("/")` turned a nested address into ONE link — so a
+    multi-segment address silently matched nothing, not even itself."""
+    if not address or address == ROOT_SHEET:
+        return ()
+    return tuple(part for part in str(address).split("/") if part)
+
+
 def all_instance_addresses(sheet_names) -> list[str]:
     """Every INSTANCE ADDRESS of the sheet tree, parents first then sorted —
     for the GUI's sheet combos, so «ISO In/Signal In A» can be PICKED and not
@@ -614,6 +630,19 @@ def all_instance_addresses(sheet_names) -> list[str]:
 
     walk(hierarchy.root, (), (hierarchy.root,))
     return sorted(set(out))
+
+
+def sheet_combo_names(sheet_names) -> list[str]:
+    """Every name a Sheet combo should offer: the dictionary's own sheet names
+    PLUS the instance addresses of the hierarchy (`all_instance_addresses`), so
+    «ISO In/Signal In A» can be PICKED and not only typed.
+
+    THE one list for every combo — `collect_all_sheet_names` (the rename /
+    points / vias / node forms) and the Create-entity form both come here; a
+    second copy of this union is exactly how the two would drift apart."""
+    names = set(sheet_names.values()) if sheet_names is not None else set()
+    names.update(all_instance_addresses(sheet_names))
+    return sorted(names)
 
 
 def sheet_in_path(names: Iterable[str | None], sheet: str | None) -> bool:

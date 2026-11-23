@@ -2175,6 +2175,9 @@ selection of one copy was honestly refused as "selected 6 of 12".
   `anchor_sheet`, `Board.select(sheet=)`, role narrowing): it matches when the chain **starts**
   with those segments, while a single name still matches any segment. The sheet combos list the
   full addresses, so `ISO In/Signal In A` can be PICKED, not only typed.
+- "Create entity" and "Add entities" offer every nested clone as its OWN instance (their
+  candidates are grouped by the instance address, and the form's sheet list carries the full
+  addresses), so the second copy is made an Entity exactly like the first.
 - Without a hierarchy (no `root_sheet` in the profile, or any file of the tree missing) the old
   first-segment answer is used as a whole, and the Log says ONCE
   `sheet hierarchy: <file> not found — instances fall back to the first sheet`.

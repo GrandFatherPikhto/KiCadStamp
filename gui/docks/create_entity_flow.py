@@ -38,6 +38,7 @@ from kicadstamp.config import load_config
 from kicadstamp.config_writer import read_data, upsert_list_entry
 from kicadstamp.exceptions import ValidationError
 from kicadstamp.i18n import _
+from kicadstamp.sheet_names import sheet_combo_names, sheet_map
 
 from ._common import ERROR_STYLE as _ERROR_STYLE, WARN_STYLE as _WARN_STYLE, \
     display_path, show_message
@@ -94,7 +95,9 @@ def create_entity_from_tree(hub, source_kind: str, source_name: str,
         # same shape).
         cell_roles = [c.role for c in (getattr(cell, "components", None) or ())]
 
-    sheet_names = dict(getattr(ctx, "sheet_names", None) or {})
+    # The map travels WITH its hierarchy (a dict() copy would drop it and the
+    # nested clones would merge into one candidate).
+    sheet_names = sheet_map(getattr(ctx, "sheet_names", None))
     connection = hub.main_window.connection
 
     def _taken(cluster, sheet=None):
@@ -116,7 +119,7 @@ def create_entity_from_tree(hub, source_kind: str, source_name: str,
             candidates = instance_candidates(parts, cell_roles, _taken)
         dialog = CreateEntityDialog(
             hub.main_window, source_kind, source_name, existing_names,
-            candidates=candidates, sheet_names=list(sheet_names.values()),
+            candidates=candidates, sheet_names=sheet_combo_names(sheet_names),
             snapshot_available=bool(snapshot))
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return

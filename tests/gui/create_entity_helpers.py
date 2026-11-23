@@ -57,6 +57,36 @@ def minimal_cells(*names) -> dict:
     return {name: {"components": [{"role": "R"}]} for name in names}
 
 
+def nested_clone_map(tmp_path):
+    """The map of a TWO-CLONE hierarchy: `ISO In` occurs once and hands its file
+    to `Signal In A` and `Signal In B` — ONE file, TWO places. That is the shape
+    «Add entities»/«Create entity» must tell apart (plan_2026_11_23_nested_clone_
+    sheet_instances, Н1); a map WITHOUT a hierarchy keeps the old single name."""
+    from kicadstamp.config.loader import LazySheetNameMap
+
+    sch = Path(tmp_path) / "sheets"
+    sch.mkdir(exist_ok=True)
+
+    def _sheet(uuid, name, sheetfile=None):
+        lines = [f'(sheet (uuid "{uuid}")', f'  (property "Sheetname" "{name}")']
+        if sheetfile:
+            lines.append(f'  (property "Sheetfile" "{sheetfile}")')
+        return "\n".join(lines + [')'])
+
+    def _write(path, *blocks):
+        path.write_text('(kicad_sch\n' + '\n'.join(blocks) + '\n)\n',
+                        encoding="utf-8")
+
+    _write(sch / "signal_in.kicad_sch")
+    _write(sch / "iso_in.kicad_sch",
+           _sheet("b-sia", "Signal In A", "signal_in.kicad_sch"),
+           _sheet("b-sib", "Signal In B", "signal_in.kicad_sch"))
+    _write(sch / "root.kicad_sch", _sheet("b-iso", "ISO In", "iso_in.kicad_sch"))
+    files = sorted(str(p) for p in sch.glob("*.kicad_sch"))
+    return LazySheetNameMap(str(Path(tmp_path) / "root.sexp"), None, files,
+                            root_sheet=str(sch / "root.kicad_sch"))
+
+
 def minimal_imprint(name: str = "amp", source_sheet: str = "Channel_0") -> dict:
     """Минимальная ВАЛИДНАЯ запись imprints: (без anchor — рамка записи
     берётся по центру области), та же форма, что

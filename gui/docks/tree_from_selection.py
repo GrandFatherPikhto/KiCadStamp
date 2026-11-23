@@ -43,7 +43,7 @@ logger = logging.getLogger(__name__)
 from kicadstamp.domain.board import Footprint, Track, Via
 from kicadstamp.domain.geometry import Vector2
 from kicadstamp.i18n import _
-from kicadstamp.sheet_names import is_root_sheet, sheet_in_path
+from kicadstamp.sheet_names import address_chain, is_root_sheet, sheet_in_path
 
 from .live_position import entity_mount_fallback_reason
 from kicadstamp.placement.anchor_identity import (
@@ -239,12 +239,11 @@ def find_entity_for_source(cfg: Any, *, cell: Optional[str] = None,
             continue
         if sheet is not None:
             e_sheet = getattr(e, "sheet", None)
-            # An Entity WITHOUT a sheet stands on ANY sheet; with one, the name
-            # is matched by the project's ONE rule (sheet_in_path). The
-            # instance's sheet identity is a one-element chain here, so this is
-            # the same "does this sheet name this instance" gate the (Cluster,
-            # sheet) addressing applies everywhere else.
-            if e_sheet and not sheet_in_path((sheet,), e_sheet):
+            # An Entity WITHOUT a sheet stands on ANY sheet; with one, the ADDRESS
+            # is matched by the ONE rule (sheet_in_path) through `address_chain` —
+            # a nested address is a PREFIX chain, not one link, so a `(sheet,)`
+            # here made an entity unable to find even ITSELF (Т5, Н2).
+            if e_sheet and not sheet_in_path(address_chain(sheet), e_sheet):
                 continue
         return e
     return None

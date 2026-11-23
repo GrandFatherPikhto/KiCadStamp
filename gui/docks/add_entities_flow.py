@@ -35,6 +35,7 @@ from kicadstamp.config import load_config
 from kicadstamp.config_writer import read_data, write_data
 from kicadstamp.exceptions import ValidationError
 from kicadstamp.i18n import _
+from kicadstamp.sheet_names import sheet_map
 
 from ._common import ERROR_STYLE as _ERROR_STYLE, show_message
 from .add_entities import AddEntitiesDialog
@@ -100,7 +101,8 @@ def add_entities_from_tree(hub, cell_name: str, file_path) -> None:
         return
     cell_roles = [c.role for c in (getattr(cell, "components", None) or ())]
 
-    sheet_names = dict(getattr(ctx, "sheet_names", None) or {})
+    # NOT dict(...): the candidates' grouping needs the instance hierarchy.
+    sheet_names = sheet_map(getattr(ctx, "sheet_names", None))
     connection = hub.main_window.connection
 
     def _taken(cluster, sheet=None):

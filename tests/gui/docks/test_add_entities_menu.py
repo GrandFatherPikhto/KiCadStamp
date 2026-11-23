@@ -14,6 +14,7 @@
 Имена функций описывают СВОЙСТВО (правило 37), имя плана — в докстринге.
 """
 import logging
+from dataclasses import dataclass, field
 
 import pytest
 from PyQt6.QtWidgets import QDialog
@@ -28,6 +29,7 @@ from tests.gui.create_entity_helpers import (
     file_item,
     find_child,
     minimal_cells,
+    nested_clone_map,
     open_project,
     write_config,
 )
@@ -36,19 +38,30 @@ from tests.gui.create_entity_helpers import (
 # ── Снимок: простые stand-ins (Selected-подобные, без PyQt6) ─────────────
 
 class _Fp:
-    def __init__(self, uuid):
+    def __init__(self, uuid, chain=None):
         self.uuid = uuid
+        if chain is not None:
+            # A REAL sheet-path chain — what `instance_sheet_of` reads. Without
+            # one the attribute is absent, i.e. UNKNOWN (never an orphan).
+            self.sheet_path_uuids = chain
 
 
+@dataclass
 class _Sel:
-    """Достаточно того, что читает snapshot_parts: ref/role/cluster/sheet/fp."""
+    """Достаточно того, что читает snapshot_parts: ref/role/cluster/sheet/fp.
 
-    def __init__(self, ref, cluster, role="R", sheet=("Ch0",)):
-        self.ref = ref
-        self.role = role
-        self.cluster = cluster
-        self.sheet = sheet
-        self.fp = _Fp("u-" + ref)
+    A DATACLASS on purpose: `snapshot_with_resolved_sheets` re-resolves the
+    chain with `dataclasses.replace` when the map carries a hierarchy."""
+
+    ref: str
+    cluster: str
+    role: str = "R"
+    sheet: tuple = ("Ch0",)
+    chain: tuple | None = None
+    fp: object = field(default=None, init=False)
+
+    def __post_init__(self):
+        self.fp = _Fp("u-" + self.ref, self.chain)
 
 
 def _setup(hub, tmp_path, extra=None):
@@ -62,6 +75,18 @@ def _setup(hub, tmp_path, extra=None):
 
 def _set_snapshot(hub, monkeypatch, sels):
     monkeypatch.setattr(hub.main_window.connection, "_snapshot", list(sels))
+
+
+def _with_hierarchy(monkeypatch, tmp_path):
+    """The flow's `load_config` answers the REAL config with a map that HAS a
+    hierarchy — Р4 no longer applies (Т5/Н1)."""
+    from types import SimpleNamespace
+    real = flow_mod.load_config
+    sheet_map = nested_clone_map(tmp_path)
+    monkeypatch.setattr(
+        flow_mod, "load_config",
+        lambda path: (real(path)[0], SimpleNamespace(sheet_names=sheet_map)))
+    return sheet_map
 
 
 def _door(hub, monkeypatch, *, run=True):
@@ -316,3 +341,35 @@ def test_entity_without_a_sheet_takes_every_sheet(
     assert all(c.taken for c in made["candidates"]), (
         "сущность без листа обязана занимать все листы кластера")
     assert [e["name"] for e in entities_of(root)] == ["any_sheet"]
+
+
+# ── Т5/к2: вложенные клоны предлагаются ПОРОЗНЬ (Н1) ─────────────────────
+
+def test_each_nested_clone_is_offered_as_its_own_instance(
+        real_main_window, tmp_path, monkeypatch):
+    """Н1: карта с иерархией едет в `snapshot_parts` БЕЗ копии, поэтому две
+    копии одного файла — два кандидата по 6, и оба подходят. С `dict(...)` в
+    потоке они слились бы в один `ISO In` из 12 и «не подошли» бы (12 ролей на
+    6 слотов) — ровно та проба из приёмки."""
+    hub = real_main_window._dock_hub
+    roles = [f"C{i}" for i in range(6)]      # roles inside a cell are unique
+    root = _setup(hub, tmp_path, extra={"cells": {"sig": {
+        "components": [{"role": r} for r in roles]}}})
+    _with_hierarchy(monkeypatch, tmp_path)
+    _set_snapshot(hub, monkeypatch,
+                  [_Sel(f"A{i}", "SIG_IN", role=roles[i], sheet=[None, None],
+                        chain=("b-iso", "b-sia", f"o-A{i}")) for i in range(6)]
+                  + [_Sel(f"B{i}", "SIG_IN", role=roles[i], sheet=[None, None],
+                          chain=("b-iso", "b-sib", f"o-B{i}")) for i in range(6)])
+    _door(hub, monkeypatch)
+    made = {}
+    _accepting_dialog(monkeypatch, made,
+                      name_fn=lambda c: "ent_" + c.sheet.replace(" ", "_")
+                      .replace("/", "__"))
+
+    flow_mod.add_entities_from_tree(hub, "sig", root)
+
+    assert [(c.sheet, len(c.refs), c.fits) for c in made["candidates"]] == [
+        ("ISO In/Signal In A", 6, True), ("ISO In/Signal In B", 6, True)]
+    assert sorted(e["sheet"] for e in entities_of(root)) == [
+        "ISO In/Signal In A", "ISO In/Signal In B"]
