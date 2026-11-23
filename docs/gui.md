@@ -2157,6 +2157,34 @@ the **Show advanced net settings** checkbox reveals them for manual overrides.
   profile format is deliberately NOT bumped, so **update the code on every machine BEFORE opening
   such a profile**.
 
+## Instance address of a component (2026-11-23, plan_2026_11_23_nested_clone_sheet_instances)
+
+A component's `sheet` address is the **shortest chain prefix whose sheet file occurs exactly
+once** under it, written as those names joined by `/`. Clones standing at the root
+(`Channel_0/DAC` → `Channel_0`) or a sheet that occurs once keep the SINGLE name they always had:
+the answer changes only where the old "first named segment" rule merged different instances. The
+live case: `ISO In` occurs once and hands its file to `Signal In A` and `Signal In B`, so the two
+copies are `ISO In/Signal In A` and `ISO In/Signal In B`; before, both were `ISO In`, and a
+selection of one copy was honestly refused as "selected 6 of 12".
+
+- Every door that groups a selection by instance ("Extract cluster"/"Extract tree", the Cell
+  read, "Select cell", explode, the mount rebase, `tools/check_placement.py`) asks the ONE
+  function `kicadstamp/sheet_names.instance_sheet_of`; the counts come from the walk of the
+  profile's `root_sheet`, never from `schematic_files`.
+- A multi-segment address works everywhere a sheet is compared (`entities.sheet`,
+  `anchor_sheet`, `Board.select(sheet=)`, role narrowing): it matches when the chain **starts**
+  with those segments, while a single name still matches any segment. The sheet combos list the
+  full addresses, so `ISO In/Signal In A` can be PICKED, not only typed.
+- Without a hierarchy (no `root_sheet` in the profile, or any file of the tree missing) the old
+  first-segment answer is used as a whole, and the Log says ONCE
+  `sheet hierarchy: <file> not found — instances fall back to the first sheet`.
+- An OLD address that now names several instances (e.g. `entity SIG_IN: sheet "ISO In"`) still
+  loads and behaves as before; the Log carries ONE yellow line per such record naming both
+  instances, so the profile can be pointed at one of them.
+- Imprint: "the same instance" is decided by the same prefix rule, so a region recorded on
+  `Channel_0/DAC` and placed by an Entity saying `Channel_0` stays IN PLACE. Moving a region
+  INTO a nested clone is refused with one red line — the net remap knows only top-level sheets.
+
 ## Placer
 
 **Placer dock REMOVED (2026-10-13, plan_2026_10_08_remove_placer).** A placement is
