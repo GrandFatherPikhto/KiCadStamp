@@ -2955,6 +2955,30 @@ the extractor's own heuristic (a net a selected role's pad carries -> `net_from_
 plain literal net — Add selected copper never writes `net: null`, 2026-09-04), and its geometry is relative to the
 same zero-offset origin.
 
+**A cell read takes the inter-node copper — "the cluster comes first"** (20–23.11.2026, plan
+`plan_2026_11_20_cell_read_takes_inter_node_copper`; Denis, 20.11: «давай дадим приоритет кластеру. Если читаем
+кластер, пусть автоматически выпиливает из межнодовой меди»). A selected piece of copper that a LIVE `net_traces`
+record owns (by registry or by geometry) is **handed to the cell** by a read instead of being subtracted: the piece
+STAYS in the read (it becomes the cell's copper) and is named by
+`transferred from net_traces <name> into the cell: N track(s), M via(s)`, while the record loses exactly those
+pieces (its registry keys are RELEASED, not renumbered). The transfer runs on EVERY read — the Explode tab is no
+longer a gate. The boundary is the INSTANCE, not the selection frame: only copper of a record that **touches the
+instance being read** goes over (its `(cluster, sheet)` address names it, or its anchor / a piece's far end stands
+on one of its components). Copper of a record between two OTHER nodes is subtracted as before, and one yellow line
+names the record. A `net:`-keyed piece is NOT transferred when the key cannot be trusted: the kind the registry FILE
+states disagrees with the live item's type, the record no longer has that piece (it was shortened after the keys
+were issued), or the piece stands on another net — then it is subtracted with a yellow line. An ORPHAN (`net:` key
+whose record is gone from the config) keeps the old read-as-orphan path. After a transfer one yellow line says
+"the cell now draws these pieces at all its N instance(s)" — the piece is the CELL's geometry now, so every
+instance draws it; an emptied record is NOT deleted (`net_traces <name> is now empty — delete the record by hand`).
+
+**The read's итог line is checkable now** (23.11, same plan): "read N of M selected item(s); skipped K: <reasons>",
+where "another cluster" is split into two reasons — "another cluster — 2 (P1, P2)" (a different cluster) and
+"no Cluster field — 1 (J5)", at most five refs, then "…"; records are named by NAME, not by UUID
+(`spoke_rst_switcha: 1` instead of `name:6038e889-…`); and when a component carries a field that only LOOKS like
+`Cluster`/`Role` (`Claster`) while the effective value is empty, one yellow line says
+"J5: field 'Claster' looks like 'Cluster' — the component is read as having no Cluster".
+
 **Subtract selected copper** (2026-10-06) — the third action over a cell's records: a **Subtract copper**
 button in the Cell dialog next to Refresh geometry and Add copper, and a right-click **Subtract selected copper...** action
 on a Cell leaf in the Cells category. It is Refresh's mirror image: instead of turning copper the cell does
