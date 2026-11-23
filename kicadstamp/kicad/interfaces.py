@@ -104,6 +104,16 @@ class IBoardAdapter(ABC):
     @abstractmethod
     def has_field(self, footprint: Footprint, field_name: str) -> bool: ...
 
+    def field_names(self, footprint: Footprint) -> frozenset[str]:
+        """Every field NAME this footprint carries — the question the read's
+        near-miss line asks (С4 of plan_2026_11_20_cell_read_takes_inter_node_copper).
+
+        NOT abstract, deliberately: a dozen test doubles answer ``has_field`` only,
+        and «no names known» is an honest answer for them — the line is then simply
+        not emitted. ``KiCadAdapter`` answers from the field cache it already keeps,
+        so asking costs no new board read."""
+        return frozenset()
+
     @abstractmethod
     def set_field_value(self, footprint: Footprint, field_name: str, value: str) -> None: ...
 

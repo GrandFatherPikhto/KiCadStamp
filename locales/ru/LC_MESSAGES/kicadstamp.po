@@ -3,7 +3,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version:  kicadstamp\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-11-23 14:56+0300\n"
+"POT-Creation-Date: 2026-11-23 15:10+0300\n"
 "PO-Revision-Date: 2026-07-27 12:00+0000\n"
 "Last-Translator: \n"
 "Language: ru\n"
@@ -1269,7 +1269,7 @@ msgstr ""
 "({refs}) — снимок перестраивается по кнопке Refresh; до этого их "
 "подсветка и pending-состояние пропускаются"
 
-#: gui/mixed_selection.py:144
+#: gui/mixed_selection.py:145
 #, python-brace-format
 msgid ""
 "read instance {cluster} on {sheet}; skipped {count} component(s) of other"
@@ -1280,14 +1280,14 @@ msgstr ""
 
 #: gui/docks/add_entities.py:161 gui/docks/instance_candidates.py:136
 #: gui/docks/instance_candidates.py:451 gui/entity/address.py:142
-#: gui/entity/address.py:146 gui/mixed_selection.py:146
-#: gui/mixed_selection.py:381 gui/mixed_selection.py:497 gui/select_cell.py:147
+#: gui/entity/address.py:146 gui/mixed_selection.py:147
+#: gui/mixed_selection.py:417 gui/mixed_selection.py:533 gui/select_cell.py:147
 #: gui/select_cell.py:243 gui/select_enclosed_copper.py:87
 #: gui/subtract_copper.py:67
 msgid "(no sheet)"
 msgstr "(без листа)"
 
-#: gui/mixed_selection.py:159
+#: gui/mixed_selection.py:160
 #, python-brace-format
 msgid ""
 "transferred from net_traces {name} into the cell: {tracks} track(s), "
@@ -1296,7 +1296,7 @@ msgstr ""
 "перейдёт из net_traces {name} в ячейку: {tracks} дорожек, {vias} "
 "переходных"
 
-#: gui/mixed_selection.py:216
+#: gui/mixed_selection.py:217
 #, python-brace-format
 msgid ""
 "net_traces {name}: the record does not touch this instance — its copper "
@@ -1305,7 +1305,7 @@ msgstr ""
 "net_traces {name}: запись не касается этого экземпляра — её медь вычтена,"
 " а не перенесена"
 
-#: gui/mixed_selection.py:289
+#: gui/mixed_selection.py:325
 #, python-brace-format
 msgid ""
 "net_traces {name}: the registry says it is a {file_kind} while the live "
@@ -1314,11 +1314,11 @@ msgstr ""
 "net_traces {name}: в реестре это {file_kind}, а живой предмет — "
 "{live_kind} — кусок вычтен, а не перенесён"
 
-#: gui/mixed_selection.py:292
+#: gui/mixed_selection.py:328
 msgid "(unknown kind)"
 msgstr "(вид неизвестен)"
 
-#: gui/mixed_selection.py:299
+#: gui/mixed_selection.py:335
 #, python-brace-format
 msgid ""
 "net_traces {name}: the record no longer has that piece — the piece was "
@@ -1327,7 +1327,7 @@ msgstr ""
 "net_traces {name}: у записи больше нет этого куска — кусок вычтен, а не "
 "перенесён"
 
-#: gui/mixed_selection.py:311
+#: gui/mixed_selection.py:347
 #, python-brace-format
 msgid ""
 "net_traces {name}: its piece #{index} stands on net {live!r} while the "
@@ -1336,7 +1336,7 @@ msgstr ""
 "net_traces {name}: её кусок №{index} стоит на цепи {live!r}, а запись "
 "говорит {own!r} — кусок вычтен, а не перенесён"
 
-#: gui/mixed_selection.py:355
+#: gui/mixed_selection.py:391
 #, python-brace-format
 msgid ""
 "read {count} item(s) held by key(s) of a record that is no longer in the "
@@ -1345,17 +1345,17 @@ msgstr ""
 "прочитано {count} предмет(ов), которые держат ключи записи, которой "
 "больше нет в конфиге — {anchors}"
 
-#: gui/mixed_selection.py:370
+#: gui/mixed_selection.py:406
 #, python-brace-format
 msgid "subtracted from selection: {count} item(s) — {records}"
 msgstr "вычтено из выделения: {count} элемент(ов) — {records}"
 
-#: gui/mixed_selection.py:379
+#: gui/mixed_selection.py:415
 #, python-brace-format
 msgid "{cluster} on {sheet} ({refs})"
 msgstr "{cluster} на {sheet} ({refs})"
 
-#: gui/mixed_selection.py:382
+#: gui/mixed_selection.py:418
 #, python-brace-format
 msgid ""
 "the selection mixes {count} instances of cell {cell!r}: {candidates} — "
@@ -1364,7 +1364,7 @@ msgstr ""
 "выделение смешивает {count} экземпляр(ов) ячейки {cell!r}: {candidates} —"
 " выдели ОДИН экземпляр и прочитай снова"
 
-#: gui/mixed_selection.py:471
+#: gui/mixed_selection.py:507
 #, python-brace-format
 msgid ""
 "no component of cluster {cluster!r} is in the selection — select the "
@@ -1373,7 +1373,7 @@ msgstr ""
 "в выделении нет ни одного компонента кластера {cluster!r} — выделите "
 "экземпляр ячейки {cell!r} или запомните его на странице якоря ячейки"
 
-#: gui/mixed_selection.py:494
+#: gui/mixed_selection.py:530
 #, python-brace-format
 msgid ""
 "cluster {cluster!r} on {sheet} is not on the current board — select the "
@@ -1381,6 +1381,15 @@ msgid ""
 msgstr ""
 "кластер {cluster!r} на {sheet} отсутствует на текущей плате — выделите "
 "экземпляр вручную"
+
+#: gui/mixed_selection.py:682
+#, python-brace-format
+msgid ""
+"{ref}: field {field!r} looks like {target!r} — the component is read as "
+"having no {target}"
+msgstr ""
+"{ref}: поле {field!r} похоже на {target!r} — компонент читается так, будто "
+"{target} не задан"
 
 # ── Overlay markers owner (plan_2026_09_11_overlay_markers_owner) ──
 #: gui/overlay_markers.py:228
@@ -11255,7 +11264,7 @@ msgstr ""
 msgid "placer file wiring failed: {error}"
 msgstr "не удалось связать файл расстановки: {error}"
 
-#: kicadstamp/field_override_adapter.py:151
+#: kicadstamp/field_override_adapter.py:156
 #, python-brace-format
 msgid ""
 "{count} Role/Cluster value(s) came from the override store, not from the "
@@ -18764,12 +18773,12 @@ msgstr "Получено {count} треков"
 msgid "Setting GUI selection to {count} items"
 msgstr "Установка выделения в GUI: {count} элементов"
 
-#: kicadstamp/kicad/adapter.py:739
+#: kicadstamp/kicad/adapter.py:745
 #, python-brace-format
 msgid "cannot set field {field!r}"
 msgstr "не удалось задать поле {field!r}"
 
-#: kicadstamp/kicad/adapter.py:740
+#: kicadstamp/kicad/adapter.py:746
 #, python-brace-format
 msgid ""
 "{ref} has no field {field!r} on its footprint — add the field once in the"
@@ -18780,32 +18789,32 @@ msgstr ""
 "в редакторе схемы/футпринтов, этот инструмент никогда не создаёт поле с "
 "нуля"
 
-#: kicadstamp/kicad/adapter.py:807
+#: kicadstamp/kicad/adapter.py:813
 #, python-brace-format
 msgid "Found zone {name}"
 msgstr "Найдена зона {name}"
 
-#: kicadstamp/kicad/adapter.py:809
+#: kicadstamp/kicad/adapter.py:815
 #, python-brace-format
 msgid "Zone {name} not found"
 msgstr "Зона {name} не найдена"
 
-#: kicadstamp/kicad/adapter.py:815
+#: kicadstamp/kicad/adapter.py:821
 #, python-brace-format
 msgid "Found net {name}"
 msgstr "Найдена цепь {name}"
 
-#: kicadstamp/kicad/adapter.py:817
+#: kicadstamp/kicad/adapter.py:823
 #, python-brace-format
 msgid "Net {name} not found"
 msgstr "Цепь {name} не найдена"
 
-#: kicadstamp/kicad/adapter.py:822
+#: kicadstamp/kicad/adapter.py:828
 #, python-brace-format
 msgid "Retrieved {count} nets"
 msgstr "Получено {count} цепей"
 
-#: kicadstamp/kicad/adapter.py:861
+#: kicadstamp/kicad/adapter.py:867
 #, python-brace-format
 msgid ""
 "Bounding boxes: {got} answer(s) for {asked} item(s) — re-reading them one"
@@ -18814,30 +18823,30 @@ msgstr ""
 "Габариты: {got} ответ(ов) на {asked} предмет(ов) — перечитываю их по "
 "одному, чтобы сохранить позиции"
 
-#: kicadstamp/kicad/adapter.py:894
+#: kicadstamp/kicad/adapter.py:900
 msgid "Beginning transaction"
 msgstr "Начало транзакции"
 
-#: kicadstamp/kicad/adapter.py:901
+#: kicadstamp/kicad/adapter.py:907
 #, python-brace-format
 msgid "Committing transaction: {desc}"
 msgstr "Применение транзакции: {desc}"
 
-#: kicadstamp/kicad/adapter.py:909
+#: kicadstamp/kicad/adapter.py:915
 #, python-brace-format
 msgid "Transaction committed: {desc}"
 msgstr "Транзакция применена: {desc}"
 
-#: kicadstamp/kicad/adapter.py:912
+#: kicadstamp/kicad/adapter.py:918
 msgid "Rolling back transaction"
 msgstr "Откат транзакции"
 
-#: kicadstamp/kicad/adapter.py:937
+#: kicadstamp/kicad/adapter.py:943
 #, python-brace-format
 msgid "Checking open schematics failed: {e}"
 msgstr "Проверка открытых схем не удалась: {e}"
 
-#: kicadstamp/kicad/adapter.py:941
+#: kicadstamp/kicad/adapter.py:947
 msgid ""
 "Schematic editor is open: if there have been no interactive edits in this"
 " KiCad session, the first API write may crash KiCad (issue #24966). "
@@ -18849,7 +18858,7 @@ msgstr ""
 " подвиньте любой компонент + Ctrl+S в pcbnew, или закройте окно схемы на "
 "время прогона."
 
-#: kicadstamp/kicad/adapter.py:976
+#: kicadstamp/kicad/adapter.py:982
 #, python-brace-format
 msgid ""
 "{op}: KiCad not ready to respond (busy/modal dialog?), retrying in "
@@ -18858,7 +18867,7 @@ msgstr ""
 "{op}: KiCad не готов ответить (занят/модальный диалог?), повтор через "
 "{wait:.1f}s [{attempt}/{retries}]"
 
-#: kicadstamp/kicad/adapter.py:987
+#: kicadstamp/kicad/adapter.py:993
 #, python-brace-format
 msgid ""
 "{op}: connection to KiCad broke during write — KiCad probably crashed "
@@ -18871,12 +18880,12 @@ msgstr ""
 "issue #24966; обходной путь: подвиньте компонент + Ctrl+S в pcbnew перед "
 "запуском). Исходная ошибка: {e}"
 
-#: kicadstamp/kicad/adapter.py:997
+#: kicadstamp/kicad/adapter.py:1003
 #, python-brace-format
 msgid "Updating {count} items"
 msgstr "Обновление {count} объектов"
 
-#: kicadstamp/kicad/adapter.py:1007
+#: kicadstamp/kicad/adapter.py:1013
 #, python-brace-format
 msgid ""
 "{ref}: restored {count} definition item(s) that kipy's orientation setter"
@@ -18885,51 +18894,51 @@ msgstr ""
 "{ref}: возвращено {count} элемент(ов) определения, которые сеттер "
 "ориентации kipy выбросил бы"
 
-#: kicadstamp/kicad/adapter.py:1015
+#: kicadstamp/kicad/adapter.py:1021
 #, python-brace-format
 msgid "Creating {count} items"
 msgstr "Создание {count} объектов"
 
-#: kicadstamp/kicad/adapter.py:1019
+#: kicadstamp/kicad/adapter.py:1025
 #, python-brace-format
 msgid "Created {count} items"
 msgstr "Создано {count} объектов"
 
-#: kicadstamp/kicad/adapter.py:1024
+#: kicadstamp/kicad/adapter.py:1030
 #, python-brace-format
 msgid "Flipping {count} footprints via GUI action"
 msgstr "Флип {count} футпринтов через GUI-действие"
 
-#: kicadstamp/kicad/adapter.py:1042
+#: kicadstamp/kicad/adapter.py:1048
 msgid "Flip performed"
 msgstr "Флип выполнен"
 
-#: kicadstamp/kicad/adapter.py:1058
+#: kicadstamp/kicad/adapter.py:1064
 #, python-brace-format
 msgid "Attempt {attempt}/{total} for {desc}"
 msgstr "Попытка {attempt}/{total} для {desc}"
 
-#: kicadstamp/kicad/adapter.py:1070
+#: kicadstamp/kicad/adapter.py:1076
 #, python-brace-format
 msgid "Failed to roll back transaction {desc}: {e}"
 msgstr "Не удалось откатить транзакцию {desc}: {e}"
 
-#: kicadstamp/kicad/adapter.py:1072
+#: kicadstamp/kicad/adapter.py:1078
 #, python-brace-format
 msgid "Error in transaction {desc} (attempt {attempt}): {type}: {e}"
 msgstr "Ошибка в транзакции {desc} (попытка {attempt}): {type}: {e}"
 
-#: kicadstamp/kicad/adapter.py:1083
+#: kicadstamp/kicad/adapter.py:1089
 #, python-brace-format
 msgid "Creating via at ({x:.3f}, {y:.3f}) mm, net={net}"
 msgstr "Создание via в ({x:.3f}, {y:.3f}) мм, цепь={net}"
 
-#: kicadstamp/kicad/adapter.py:1096
+#: kicadstamp/kicad/adapter.py:1102
 #, python-brace-format
 msgid "Creating track ({sx:.3f}, {sy:.3f}) -> ({ex:.3f}, {ey:.3f}) mm, net={net}"
 msgstr "Создание трека ({sx:.3f}, {sy:.3f}) -> ({ex:.3f}, {ey:.3f}) мм, цепь={net}"
 
-#: kicadstamp/kicad/adapter.py:1139
+#: kicadstamp/kicad/adapter.py:1145
 #, python-brace-format
 msgid "Failed to delete {count} objects: {type}: {e}"
 msgstr ""

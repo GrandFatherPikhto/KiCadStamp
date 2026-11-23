@@ -45,6 +45,7 @@ from typing import Any, Optional
 
 from kicadstamp.anchor_ids import config_anchor_ids, orphan_keys
 from kicadstamp.anchor_names import name_for, named_anchors
+from kicadstamp.near_miss import near_miss
 from kicadstamp.cell_instance import resolve_context_footprints
 from kicadstamp.config import net_trace_effective_name
 from kicadstamp.constants import CLUSTER_FIELD_NAME, ROLE_FIELD_NAME
@@ -216,6 +217,41 @@ def _boundary_lines(boundary: dict) -> list:
     return [_("net_traces {name}: the record does not touch this instance — its "
               "copper was subtracted, not transferred").format(name=name)
             for name in sorted(boundary)]
+
+
+def _near_miss_lines(adapter, infos, instance_uuids, instance_fps) -> list:
+    """``[(ref, field, target)]`` — a look-alike field name behind a MISSING tag.
+
+    С4 of plan_2026_11_20_cell_read_takes_inter_node_copper: the live J5 (19.11)
+    carried `Claster` and was read as an untagged component without a word. A line is
+    earned only when the EFFECTIVE value is empty (an override may have supplied
+    the Cluster — then the component is read fine and there is nothing to say) AND
+    the footprint really carries a name one or two edits away.
+
+    ``field_names`` is a NEW adapter method with a default of «no names known», so a
+    test double that never heard of it simply yields nothing."""
+    names_of = getattr(adapter, "field_names", None)
+    if names_of is None:
+        return []
+    out: list = []
+    for info in infos:
+        item = info.item
+        uuid = getattr(item, "uuid", None)
+        if (uuid in instance_uuids) if uuid else any(item is fp for fp in instance_fps):
+            continue
+        try:
+            names = names_of(item) or ()
+        except Exception:  # noqa: BLE001 — a name question must never break a read
+            continue
+        for target, value in ((CLUSTER_FIELD_NAME, info.cluster),
+                              (ROLE_FIELD_NAME, info.role)):
+            if value:
+                continue
+            look_alike = near_miss(names, target)
+            if look_alike:
+                out.append((str(getattr(item, "ref", None) or "?"), look_alike,
+                            target))
+    return out
 
 
 def _record_touches(adapter, nt, chosen_address, chosen_refs, sheet_names) -> bool:
@@ -512,6 +548,8 @@ def narrow_mixed_selection(*, config_path: str, adapter: Any, footprints: list,
             continue
         (other_cluster_refs if info.cluster else no_cluster_refs).append(
             str(getattr(item, "ref", None) or "?"))
+    # С4: a look-alike field name behind a missing tag (see `_near_miss_lines`).
+    near_misses = _near_miss_lines(adapter, infos, instance_uuids, instance_fps)
 
     cell = (getattr(cfg, "cells", {}) or {}).get(cell_name)
     cell_uuid = getattr(cell, "uuid", None) if cell is not None else None
@@ -639,6 +677,11 @@ def narrow_mixed_selection(*, config_path: str, adapter: Any, footprints: list,
     # Ф3: a net_traces record whose anchor could not be resolved says so.
     for note in net_notes:
         lines.append((note, WARN))
+    # С4: ONE line per component whose tag is missing because of a look-alike name.
+    for ref, look_alike, target in near_misses:
+        lines.append((_("{ref}: field {field!r} looks like {target!r} — the component "
+                        "is read as having no {target}").format(
+            ref=ref, field=look_alike, target=target), WARN))
     # Т1: every keyed piece that was NOT transferred says WHY it was subtracted.
     for line in keyed_lines:
         lines.append((line, WARN))

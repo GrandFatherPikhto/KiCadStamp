@@ -21,6 +21,8 @@ The contract the rows attack, piece by piece:
   M13 the anchor NAME is not looked up — a line shows a uuid again
   M14 «another cluster» keeps ONE half — a missing Cluster is not told apart
   M15 the reason REFS are not printed — a count the user cannot check
+  M16 a look-alike field name is never reported (the `Claster` typo stays silent)
+  M17 the EFFECTIVE tag value is not checked (an override that sets it is ignored)
   K  cosmetic control (a comment must change nothing)
 
 Safeguards as in every harness here (rule 38): a template matching more than once
@@ -63,6 +65,8 @@ ANCHOR_NAMES = "kicadstamp/anchor_names.py"
 M13_CELL = "test_an_entity_anchor_names_its_record"
 C3_CELL = "test_c3_the_two_halves_of_another_cluster_are_told_apart"
 C3_LINE_CELL = "test_the_two_halves_of_another_cluster_name_their_refs"
+NEAR_MISS = "kicadstamp/near_miss.py"
+C4_OVERRIDE_CELL = "test_c4_an_effective_cluster_earns_no_line"
 M12_CELL = "test_the_plans_components_are_recognised_by_uuid_not_by_object"
 
 MUTATIONS = [
@@ -165,6 +169,22 @@ MUTATIONS = [
      "    return str(anchor)  # MUTATION: a uuid reaches the user again\n",
      [M13_CELL],
      "tests/test_anchor_names.py -k names_its_record"),
+
+    ("M16 a look-alike name is never reported", NEAR_MISS,
+     "        if 0 < edit_distance(name, target) <= 2:\n"
+     "            return name\n",
+     "        if False:  # MUTATION: a typo stays silent\n"
+     "            return name\n",
+     ["test_a_typo_is_a_near_miss_and_the_target_is_not"],
+     "tests/test_near_miss.py -k typo"),
+
+    ("M17 the effective tag value is not checked", MIXED,
+     "            if value:\n"
+     "                continue\n",
+     "            if False:  # MUTATION: an override that set the tag is ignored\n"
+     "                continue\n",
+     [C4_OVERRIDE_CELL],
+     "tests/selection/test_cell_read_takes_inter_node_copper.py -k c4_an_effective"),
 
     ("K cosmetic control", MIXED,
      "def _keyed_decisions(net_keyed, net_traces, adapter, sheet_names,\n"

@@ -56,11 +56,15 @@ def gate(request, monkeypatch):
 class _Adapter:
     """Just enough board for the narrowing: fields, footprints, copper."""
 
-    def __init__(self, fields, footprints=(), vias=(), tracks=()):
+    def __init__(self, fields, footprints=(), vias=(), tracks=(), names=None):
         self._fields = fields
         self._footprints = list(footprints)
         self._vias = list(vias)
         self._tracks = list(tracks)
+        self._names = dict(names or {})
+
+    def field_names(self, fp):
+        return frozenset(self._names.get(fp.ref, ()))
 
     def get_field_value(self, fp, name):
         role, cluster = self._fields[fp.ref]
@@ -520,6 +524,47 @@ def test_c3_the_two_halves_of_another_cluster_are_told_apart(gate, board):
     assert prelude is not None and prelude.refusal is None
     assert prelude.other_cluster_refs == ("R12",), prelude.other_cluster_refs
     assert prelude.no_cluster_refs == ("J5",), prelude.no_cluster_refs
+
+
+# ── С4: a look-alike field name behind a missing tag ───────────────────────
+
+def test_c4_a_lookalike_field_name_is_said_out_loud(gate, board):
+    """С4: J5 carries `Claster` instead of `Cluster`, so the read treats it as
+    untagged — ONE yellow line says why. `Clusters2025` is a DIFFERENT field (two
+    edits away? no — it is four) and stays silent."""
+    cfg = _cfg([])
+    j5 = _fp("J5", "DB", None, 22.0, 20.0)
+    j6 = _fp("J6", "DB", None, 24.0, 20.0)
+    adapter = _Adapter({**board.fields, "J5": ("DB", None), "J6": ("DB", None)},
+                       footprints=[*board.footprints, j5, j6],
+                       names={"J5": ("Claster",), "J6": ("Clusters2025",)})
+
+    prelude = _narrow(board.tmp_path, adapter, cfg, vias=[], tracks=[],
+                      footprints=[board.footprints[0], j5, j6])
+    texts = _texts(prelude)
+
+    assert any("looks like 'Cluster'" in t for t in texts), texts
+    assert sum(1 for t in texts if "looks like" in t) == 1, texts
+
+
+def test_c4_an_effective_cluster_earns_no_line(gate, board):
+    """С4: the line is about the EFFECTIVE value. Here an override supplied the
+    Cluster (the read sees a tag, from its value store), while the footprint itself
+    carries `Claster` — the component is read as ANOTHER CLUSTER, which the reason
+    line already says; calling it «untagged because of a typo» would be a second,
+    wrong story about the same component."""
+    cfg = _cfg([])
+    j5 = _fp("J5", "DB", None, 22.0, 20.0)
+    adapter = _Adapter({**board.fields, "J5": ("DB", "OTHER_CL")},
+                       footprints=[*board.footprints, j5],
+                       names={"J5": ("Claster",)})
+
+    prelude = _narrow(board.tmp_path, adapter, cfg, vias=[], tracks=[],
+                      footprints=[board.footprints[0], j5])
+    texts = _texts(prelude)
+
+    assert prelude.other_cluster_refs == ("J5",), prelude.other_cluster_refs
+    assert not any("looks like" in t for t in texts), texts
 
 
 # ── М9: a `net:` key whose RECORD is gone keeps the ORPHAN path ────────────

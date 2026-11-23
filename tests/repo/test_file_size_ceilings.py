@@ -89,7 +89,11 @@ CEILINGS = {
     "kicadstamp/config_writer.py": 864,
     "kicadstamp/diagnostics/net_from_role_audit.py": 897,
     "kicadstamp/diagnostics/probe_gui_min_sizes.py": 874,
-    "kicadstamp/kicad/adapter.py": 1141,
+    # 1141 → 1138 (С4 of plan_2026_11_20_cell_read_takes_inter_node_copper):
+    # `field_names` is new here, and the three docstrings around the field map
+    # (`get_field_value`, `has_field`, the new method) were tightened to pay for
+    # it — the lock asks for the number to come DOWN in the same commit.
+    "kicadstamp/kicad/adapter.py": 1138,
     "kicadstamp/placement/entity_placement.py": 988,
     "kicadstamp/placement/services/clone_role_resolver.py": 935,
     # 1926 → 1927 (§1 of plan_2026_11_16_tree_anchor_read_current_position): the

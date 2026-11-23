@@ -664,32 +664,29 @@ class KiCadBoardAdapter(IBoardAdapter):
 
     def get_field_value(self, footprint: Footprint, field_name: str) -> str | None:
         """
-        Value of a custom component field (e.g., Role for KiCadStamp 4.0).
+        Value of a custom component field (e.g., Role for KiCadStamp 4.0), read
+        through the per-generation field map (_field_values_for) instead of
+        re-scanning texts_and_fields per call; the field-vs-BoardText filtering
+        happens in that scan, once per footprint.
 
-        Reads through the per-generation field map (_field_values_for) instead
-        of re-scanning texts_and_fields on every call; the type filtering that
-        scan needs (fields vs. plain BoardText) happens there, once per
-        footprint.
-
-        Returns None for a footprint that has no such field; a field that does
-        exist returns what the scan found (see _scan_field_values — '' for an
-        empty value on a live kipy Field). has_field() is what tells "absent"
-        from "present" unambiguously.
+        None for a footprint with no such field; an existing field returns what the
+        scan found ('' for an empty value). has_field() tells "absent" from
+        "present" unambiguously.
         """
         return self._field_values_for(footprint).get(field_name)
 
+    def field_names(self, footprint: Footprint) -> frozenset[str]:
+        """Every field name of ONE footprint — the SAME map, no second scan."""
+        return frozenset(self._field_values_for(footprint))
+
     def has_field(self, footprint: Footprint, field_name: str) -> bool:
-        """True if footprint carries a field with this name at all — the
-        question get_field_value() cannot answer. An ABSENT field yields None
-        from get_field_value(), but so does a PRESENT field whose text object
-        is missing entirely, and a present-but-empty field yields '' rather
-        than None (kipy 0.7.1's Field.text is always a BoardText wrapper — see
-        _scan_field_values). This distinguishes "no such field" from "field
-        present, whatever its value", so a caller (Role/Cluster tagging) can
-        skip a footprint instead of hitting set_field_value's fatal
-        ValidationError mid-batch. Reads KEY PRESENCE of the same
-        per-generation map (see _field_values_for), so both calls share one
-        scan."""
+        """True if footprint carries a field with this name at all — the question
+        get_field_value() cannot answer: an ABSENT field and a PRESENT one whose
+        text object is missing both yield None, a present-but-empty one yields ''
+        (kipy 0.7.1 wraps Field.text — see _scan_field_values). A caller
+        (Role/Cluster tagging) can then skip a footprint instead of hitting
+        set_field_value's fatal mid-batch. KEY PRESENCE of the same map, so both
+        calls share one scan."""
         return field_name in self._field_values_for(footprint)
 
     def set_field_value(self, footprint: Footprint, field_name: str, value: str) -> None:

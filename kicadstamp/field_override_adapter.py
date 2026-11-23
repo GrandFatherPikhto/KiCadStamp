@@ -104,6 +104,11 @@ class FieldOverrideAdapter:
         changes compares the two sides on the strength of this answer."""
         return self._inner.has_field(footprint, field_name)
 
+    def field_names(self, footprint) -> frozenset[str]:
+        """Also about the BOARD: the NAMES are physical, only the values are
+        overridden (`has_field` above says the same for presence)."""
+        return self._inner.field_names(footprint)
+
     # ── per-call rebinding (MCP: one adapter, many profiles) ──────────────
 
     def bind_store(self, store, *, source: str = None) -> None:
