@@ -72,31 +72,58 @@ def _missed(fp, plan_uuids: set, plan_ids: set) -> bool:
     return uuid not in plan_uuids if uuid else id(fp) not in plan_ids
 
 
+def _refs_text(refs) -> str:
+    """``" (R12, J5)"`` — AT MOST five refs, then «…»; empty when there are none.
+
+    С3 of plan_2026_11_20_cell_read_takes_inter_node_copper (Denis 23.11): a count
+    behind a reason is checkable only when the line says WHICH components, and a
+    selection of forty is not worth forty refs."""
+    named = [str(ref) for ref in refs or () if ref]
+    if not named:
+        return ""
+    head = ", ".join(named[:5])
+    return f" ({head}{', …' if len(named) > 5 else ''})"
+
+
 def _skip_parts(*, selected_components, plan_components, layer_off,
-                other_records, inter_node, skipped) -> list:
-    """The reasons of the line, as ``[(label, count), ...]`` — only the non-zero
-    ones, and only the parts the caller can name. A remainder the parts do not
-    explain is named as such (`not read`), never hidden."""
+                other_records, inter_node, skipped, no_cluster_refs=(),
+                other_cluster_refs=()) -> list:
+    """The reasons of the line, as ``[(label, count, refs), ...]`` — only the
+    non-zero ones, and only the parts the caller can name. A remainder the parts do
+    not explain is named as such (`not read`), never hidden.
+
+    «another cluster» has TWO halves (С3): a component of a DIFFERENT cluster, and
+    a component whose Cluster field is EMPTY — a broken tag is not «another
+    cluster», and each half names its own refs. The split is decided by
+    ``narrow_mixed_selection`` (it reads every selected component's Cluster field);
+    the uuid comparison below is only the FALLBACK for a read with no prelude."""
     parts: list = []
-    # A component the read did NOT take is one of another cluster (the read takes
-    # its own instance's components, wherever they sit). The plan's components are
-    # RE-READ board objects, so `id()` never matches them — the live «skipped 5:
-    # another cluster — 2; another record's copper — 5» (Ч2 of plan_2026_11_20_
-    # cell_read_takes_inter_node_copper). The identity is therefore the UUID, and
-    # an object without one falls back to `id()`.
-    plan_uuids = {getattr(fp, "uuid", None) for fp in plan_components} - {None}
-    plan_ids = {id(fp) for fp in plan_components if not getattr(fp, "uuid", None)}
-    other_cluster = sum(1 for fp in selected_components
-                        if _missed(fp, plan_uuids, plan_ids))
-    if other_cluster:
-        parts.append((_("another cluster"), other_cluster))
+    if no_cluster_refs or other_cluster_refs:
+        if other_cluster_refs:
+            parts.append((_("another cluster"), len(other_cluster_refs),
+                          _refs_text(other_cluster_refs)))
+        if no_cluster_refs:
+            parts.append((_("no Cluster field"), len(no_cluster_refs),
+                          _refs_text(no_cluster_refs)))
+    else:
+        # The plan's components are RE-READ board objects, so `id()` never matches
+        # them — the live «skipped 5: another cluster — 2» (Ч2 of plan_2026_11_20_
+        # cell_read_takes_inter_node_copper). The identity is the UUID; an object
+        # without one falls back to `id()`.
+        plan_uuids = {getattr(fp, "uuid", None) for fp in plan_components} - {None}
+        plan_ids = {id(fp) for fp in plan_components
+                    if not getattr(fp, "uuid", None)}
+        missed = [fp for fp in selected_components
+                  if _missed(fp, plan_uuids, plan_ids)]
+        if missed:
+            parts.append((_("another cluster"), len(missed), ""))
     if other_records:
-        parts.append((_("another record's copper"), other_records))
+        parts.append((_("another record's copper"), other_records, ""))
     if inter_node:
-        parts.append((_("inter-node copper"), inter_node))
+        parts.append((_("inter-node copper"), inter_node, ""))
     if layer_off:
-        parts.append((_("layer off"), layer_off))
-    known = sum(count for _label, count in parts)
+        parts.append((_("layer off"), layer_off, ""))
+    known = sum(count for _label, count, _refs in parts)
     if known > skipped:
         # The parts may not claim MORE than was skipped: that means the identity
         # rule disagreed with the counts (Ч2 of plan_2026_11_20_cell_read_takes_
@@ -105,7 +132,7 @@ def _skip_parts(*, selected_components, plan_components, layer_off,
         logger.error("read outcome: reasons (%d) exceed the skipped items (%d)",
                      known, skipped)
     if skipped > known:
-        parts.append((_("not read"), skipped - known))
+        parts.append((_("not read"), skipped - known, ""))
     return parts
 
 
@@ -143,16 +170,22 @@ def read_outcome(*, footprints, vias, raw_tracks, plan_footprints, plan_vias,
                         getattr(prelude, "subtracted_records", ()) or ())
     inter_node = sum(count for _label, count in
                      getattr(prelude, "subtracted_net_traces", ()) or ())
-    parts = _skip_parts(selected_components=list(footprints or ()),
-                        plan_components=plan_footprints, layer_off=layer_off,
-                        other_records=other_records, inter_node=inter_node,
-                        skipped=skipped)
+    parts = _skip_parts(
+        selected_components=list(footprints or ()),
+        plan_components=plan_footprints, layer_off=layer_off,
+        other_records=other_records, inter_node=inter_node, skipped=skipped,
+        # С3: the prelude already decided WHICH half of «another cluster» each
+        # component is; without one (the whole-selection path) the split is not
+        # known and the uuid comparison inside `_skip_parts` answers alone.
+        no_cluster_refs=getattr(prelude, "no_cluster_refs", ()) or (),
+        other_cluster_refs=getattr(prelude, "other_cluster_refs", ()) or ())
     line = _("read {read} of {selected} selected item(s)").format(
         read=read_total, selected=selected_total)
     if skipped:
         line += _("; skipped {count}: {reasons}").format(
             count=skipped,
-            reasons="; ".join(f"{label} — {count}" for label, count in parts))
+            reasons="; ".join(f"{label} — {count}{refs}"
+                              for label, count, refs in parts))
     return ReadOutcome(items=items, line=line, selected=selected_total,
                        read=read_total, skipped=skipped,
                        reasons=tuple(parts))

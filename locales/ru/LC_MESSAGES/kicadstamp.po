@@ -3,7 +3,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version:  kicadstamp\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-11-20 19:20+0300\n"
+"POT-Creation-Date: 2026-11-23 14:56+0300\n"
 "PO-Revision-Date: 2026-07-27 12:00+0000\n"
 "Last-Translator: \n"
 "Language: ru\n"
@@ -1269,7 +1269,7 @@ msgstr ""
 "({refs}) — снимок перестраивается по кнопке Refresh; до этого их "
 "подсветка и pending-состояние пропускаются"
 
-#: gui/mixed_selection.py:136
+#: gui/mixed_selection.py:144
 #, python-brace-format
 msgid ""
 "read instance {cluster} on {sheet}; skipped {count} component(s) of other"
@@ -1280,14 +1280,14 @@ msgstr ""
 
 #: gui/docks/add_entities.py:161 gui/docks/instance_candidates.py:136
 #: gui/docks/instance_candidates.py:451 gui/entity/address.py:142
-#: gui/entity/address.py:146 gui/mixed_selection.py:138
-#: gui/mixed_selection.py:366 gui/mixed_selection.py:482 gui/select_cell.py:147
+#: gui/entity/address.py:146 gui/mixed_selection.py:146
+#: gui/mixed_selection.py:381 gui/mixed_selection.py:497 gui/select_cell.py:147
 #: gui/select_cell.py:243 gui/select_enclosed_copper.py:87
 #: gui/subtract_copper.py:67
 msgid "(no sheet)"
 msgstr "(без листа)"
 
-#: gui/mixed_selection.py:151
+#: gui/mixed_selection.py:159
 #, python-brace-format
 msgid ""
 "transferred from net_traces {name} into the cell: {tracks} track(s), "
@@ -1296,7 +1296,7 @@ msgstr ""
 "перейдёт из net_traces {name} в ячейку: {tracks} дорожек, {vias} "
 "переходных"
 
-#: gui/mixed_selection.py:208
+#: gui/mixed_selection.py:216
 #, python-brace-format
 msgid ""
 "net_traces {name}: the record does not touch this instance — its copper "
@@ -1305,7 +1305,7 @@ msgstr ""
 "net_traces {name}: запись не касается этого экземпляра — её медь вычтена,"
 " а не перенесена"
 
-#: gui/mixed_selection.py:280
+#: gui/mixed_selection.py:289
 #, python-brace-format
 msgid ""
 "net_traces {name}: the registry says it is a {file_kind} while the live "
@@ -1314,11 +1314,11 @@ msgstr ""
 "net_traces {name}: в реестре это {file_kind}, а живой предмет — "
 "{live_kind} — кусок вычтен, а не перенесён"
 
-#: gui/mixed_selection.py:283
+#: gui/mixed_selection.py:292
 msgid "(unknown kind)"
 msgstr "(вид неизвестен)"
 
-#: gui/mixed_selection.py:290
+#: gui/mixed_selection.py:299
 #, python-brace-format
 msgid ""
 "net_traces {name}: the record no longer has that piece — the piece was "
@@ -1327,7 +1327,7 @@ msgstr ""
 "net_traces {name}: у записи больше нет этого куска — кусок вычтен, а не "
 "перенесён"
 
-#: gui/mixed_selection.py:302
+#: gui/mixed_selection.py:311
 #, python-brace-format
 msgid ""
 "net_traces {name}: its piece #{index} stands on net {live!r} while the "
@@ -1336,7 +1336,7 @@ msgstr ""
 "net_traces {name}: её кусок №{index} стоит на цепи {live!r}, а запись "
 "говорит {own!r} — кусок вычтен, а не перенесён"
 
-#: gui/mixed_selection.py:340
+#: gui/mixed_selection.py:355
 #, python-brace-format
 msgid ""
 "read {count} item(s) held by key(s) of a record that is no longer in the "
@@ -1345,17 +1345,17 @@ msgstr ""
 "прочитано {count} предмет(ов), которые держат ключи записи, которой "
 "больше нет в конфиге — {anchors}"
 
-#: gui/mixed_selection.py:355
+#: gui/mixed_selection.py:370
 #, python-brace-format
 msgid "subtracted from selection: {count} item(s) — {records}"
 msgstr "вычтено из выделения: {count} элемент(ов) — {records}"
 
-#: gui/mixed_selection.py:364
+#: gui/mixed_selection.py:379
 #, python-brace-format
 msgid "{cluster} on {sheet} ({refs})"
 msgstr "{cluster} на {sheet} ({refs})"
 
-#: gui/mixed_selection.py:367
+#: gui/mixed_selection.py:382
 #, python-brace-format
 msgid ""
 "the selection mixes {count} instances of cell {cell!r}: {candidates} — "
@@ -1364,7 +1364,7 @@ msgstr ""
 "выделение смешивает {count} экземпляр(ов) ячейки {cell!r}: {candidates} —"
 " выдели ОДИН экземпляр и прочитай снова"
 
-#: gui/mixed_selection.py:456
+#: gui/mixed_selection.py:471
 #, python-brace-format
 msgid ""
 "no component of cluster {cluster!r} is in the selection — select the "
@@ -1373,7 +1373,7 @@ msgstr ""
 "в выделении нет ни одного компонента кластера {cluster!r} — выделите "
 "экземпляр ячейки {cell!r} или запомните его на странице якоря ячейки"
 
-#: gui/mixed_selection.py:479
+#: gui/mixed_selection.py:494
 #, python-brace-format
 msgid ""
 "cluster {cluster!r} on {sheet} is not on the current board — select the "
@@ -1415,32 +1415,37 @@ msgstr ""
 "— они не тронуты (для удаления устаревших фигур используйте очистку слоя "
 "оверлея)."
 
-#: gui/read_outcome.py:74
+#: gui/read_outcome.py:103 gui/read_outcome.py:119
 msgid "another cluster"
 msgstr "другой кластер"
 
-#: gui/read_outcome.py:76
+#: gui/read_outcome.py:106 gui/role_table_model.py:75
+#: kicadstamp/overrides_apply.py:64
+msgid "no Cluster field"
+msgstr "нет поля Cluster"
+
+#: gui/read_outcome.py:121
 msgid "another record's copper"
 msgstr "медь другой записи"
 
-#: gui/read_outcome.py:78
+#: gui/read_outcome.py:123
 msgid "inter-node copper"
 msgstr "межузловая медь"
 
-#: gui/read_outcome.py:80
+#: gui/read_outcome.py:125
 msgid "layer off"
 msgstr "слой снят"
 
-#: gui/read_outcome.py:83
+#: gui/read_outcome.py:135
 msgid "not read"
 msgstr "не читалось"
 
-#: gui/read_outcome.py:125
+#: gui/read_outcome.py:182
 #, python-brace-format
 msgid "read {read} of {selected} selected item(s)"
 msgstr "прочитано {read} из {selected} выбранных предметов"
 
-#: gui/read_outcome.py:128
+#: gui/read_outcome.py:185
 #, python-brace-format
 msgid "; skipped {count}: {reasons}"
 msgstr "; пропущено {count}: {reasons}"
@@ -1448,10 +1453,6 @@ msgstr "; пропущено {count}: {reasons}"
 #: gui/role_table_model.py:73 kicadstamp/overrides_apply.py:62
 msgid "no Role field"
 msgstr "нет поля Role"
-
-#: gui/role_table_model.py:75 kicadstamp/overrides_apply.py:64
-msgid "no Cluster field"
-msgstr "нет поля Cluster"
 
 #: gui/role_table_model.py:77 kicadstamp/overrides_apply.py:60
 msgid "not on the board"
@@ -11208,8 +11209,7 @@ msgstr "перейдёт и в копиях tree_instances: {n}"
 #: kicadstamp/explode_transfer.py:193
 #, python-brace-format
 msgid "the cell now draws these pieces at all its {count} instance(s)"
-msgstr ""
-"теперь ячейка рисует эти куски во всех своих экземплярах: {count}"
+msgstr "теперь ячейка рисует эти куски во всех своих экземплярах: {count}"
 
 #: kicadstamp/extract_writer.py:133
 #, python-brace-format

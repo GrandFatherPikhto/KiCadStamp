@@ -126,6 +126,12 @@ class MixedPrelude:
     # reasons are data, not a text the caller would have to parse.
     subtracted_records: tuple = ()
     subtracted_net_traces: tuple = ()
+    # С3: the TWO halves of «another cluster», decided by the narrow itself — it
+    # read every selected component's Cluster field, so «has a different cluster»
+    # and «has no Cluster at all» are told apart here and the refs travel as plain
+    # data for `gui/read_outcome` to print.
+    no_cluster_refs: tuple = ()
+    other_cluster_refs: tuple = ()
 
 
 def _component_roles(components) -> set:
@@ -493,6 +499,20 @@ def narrow_mixed_selection(*, config_path: str, adapter: Any, footprints: list,
 
     chosen_refs = [r for r in (getattr(fp, "ref", None) for fp in instance_fps) if r]
 
+    # С3: split the components the read will NOT take into «another cluster» and
+    # «no Cluster field». The instance's own components are recognised by uuid (the
+    # board's identity) and, for an object WITHOUT one (a test double), by identity.
+    instance_uuids = {getattr(fp, "uuid", None) for fp in instance_fps} - {None}
+    no_cluster_refs: list[str] = []
+    other_cluster_refs: list[str] = []
+    for info in infos:
+        item = info.item
+        uuid = getattr(item, "uuid", None)
+        if (uuid in instance_uuids) if uuid else any(item is fp for fp in instance_fps):
+            continue
+        (other_cluster_refs if info.cluster else no_cluster_refs).append(
+            str(getattr(item, "ref", None) or "?"))
+
     cell = (getattr(cfg, "cells", {}) or {}).get(cell_name)
     cell_uuid = getattr(cell, "uuid", None) if cell is not None else None
     cell_identity = record_key_part(cell_name, cell_uuid)
@@ -661,4 +681,6 @@ def narrow_mixed_selection(*, config_path: str, adapter: Any, footprints: list,
         log_lines=lines,
         transfers=transfers,
         subtracted_records=tuple(sorted(registry_report.items())),
-        subtracted_net_traces=tuple(sorted(net_report.items())))
+        subtracted_net_traces=tuple(sorted(net_report.items())),
+        no_cluster_refs=tuple(no_cluster_refs),
+        other_cluster_refs=tuple(other_cluster_refs))

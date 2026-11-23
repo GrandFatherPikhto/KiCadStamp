@@ -72,7 +72,46 @@ def test_the_plans_components_are_recognised_by_uuid_not_by_object():
     assert outcome.skipped == 0
     # С1's invariant, as data: the reasons may never add up to more than was
     # skipped (the mutant makes them claim 2 «another cluster» skips out of 0).
-    assert sum(count for _label, count in outcome.reasons) == outcome.skipped
+    assert sum(count for _label, count, _refs in outcome.reasons) == outcome.skipped
+
+
+def test_a_component_without_a_uuid_is_matched_by_identity():
+    """С1's fallback, celled on request (acceptance 23.11): the plan's components
+    always carry a uuid on a live board, but a test double may not — the SAME object
+    in both lists must then be recognised by `id()`, or its own read would be called
+    a skip.
+
+    Mutation: «drop the `id()` fallback» → 1 «another cluster» out of 0 skips."""
+    double = SimpleNamespace(ref="C1")          # no uuid at all
+
+    outcome = read_outcome(footprints=[double], vias=[], raw_tracks=[],
+                           plan_footprints=[double], plan_vias=[], plan_tracks=[],
+                           prelude=None, layer_report=_layer_report())
+
+    assert outcome.line == "read 1 of 1 selected item(s)"
+    assert outcome.skipped == 0
+    assert sum(count for _label, count, _refs in outcome.reasons) == outcome.skipped
+
+
+def test_the_two_halves_of_another_cluster_name_their_refs():
+    """С3 (plan_2026_11_20_cell_read_takes_inter_node_copper, Denis 23.11): the line
+    says WHICH components each half is about, and at most five refs per half.
+
+    The halves come from the prelude as plain data — it is the narrow that read every
+    selected component's Cluster field; `read_outcome` only formats them."""
+    refs = SimpleNamespace(subtracted_records=(), subtracted_net_traces=(),
+                           other_cluster_refs=("R12",),
+                           no_cluster_refs=("J5", "J6", "J7", "J8", "J9", "J10"))
+
+    outcome = read_outcome(
+        footprints=[_fp("R12")] + [_fp(f"J{i}") for i in range(5, 11)],
+        vias=[], raw_tracks=[], plan_footprints=[], plan_vias=[],
+        plan_tracks=[], prelude=refs, layer_report=_layer_report())
+
+    assert outcome.line == (
+        "read 0 of 7 selected item(s); skipped 7: another cluster — 1 (R12); "
+        "no Cluster field — 6 (J5, J6, J7, J8, J9, …)")
+    assert sum(count for _label, count, _refs in outcome.reasons) == 7
 
 
 def test_the_line_names_every_reason_with_its_count():

@@ -164,12 +164,13 @@ _THIS_INSTANCE = {"cell": "spoke_lv", "cluster": "SPOKE_P5V", "sheet": "SwitchA"
 
 
 def _narrow(tmp_path, adapter, cfg, *, vias, tracks, transfer=True,
-            journal=None):
+            journal=None, footprints=None):
     from gui.mixed_selection import narrow_mixed_selection
 
     return narrow_mixed_selection(
         config_path=str(tmp_path / "config.sexp"), adapter=adapter,
-        footprints=[adapter.get_footprints()[0]], vias=list(vias),
+        footprints=(list(footprints) if footprints is not None
+                    else [adapter.get_footprints()[0]]), vias=list(vias),
         tracks=list(tracks), cfg=cfg, sheet_names={"sa": "SwitchA"},
         cell_name="spoke_lv", cell_roles={"DA", "DB"},
         remembered_cluster="SPOKE_P5V", remembered_sheet="SwitchA",
@@ -493,6 +494,32 @@ def test_t4v_a_geometry_piece_between_other_nodes_is_subtracted(gate, board):
     assert prelude.transfers == ()
     texts = _texts(prelude)
     assert any("does not touch this instance" in t for t in texts), texts
+
+
+# ── С3: the two halves of «another cluster» are told apart BY the narrow ───
+
+def test_c3_the_two_halves_of_another_cluster_are_told_apart(gate, board):
+    """С3: a component of a DIFFERENT cluster and a component with NO Cluster field
+    are two different defects — the narrow tells them apart (it is the one place
+    that reads every selected component's Cluster field) and carries the refs, so
+    the read's line can name them.
+
+    RED with the mutant «both halves are one reason»: the two lists collapse."""
+    cfg = _cfg([])
+    r12 = _fp("R12", "DB", "OTHER_CL", 20.0, 20.0)
+    j5 = _fp("J5", "DB", None, 22.0, 20.0)
+    adapter = _Adapter({**board.fields, "R12": ("DB", "OTHER_CL"),
+                        "J5": ("DB", None)},
+                       footprints=[*board.footprints, r12, j5])
+
+    # The selection is the instance's own component + the two strangers (U1, the
+    # record anchor, is on the BOARD but not selected).
+    prelude = _narrow(board.tmp_path, adapter, cfg, vias=[], tracks=[],
+                      footprints=[board.footprints[0], r12, j5])
+
+    assert prelude is not None and prelude.refusal is None
+    assert prelude.other_cluster_refs == ("R12",), prelude.other_cluster_refs
+    assert prelude.no_cluster_refs == ("J5",), prelude.no_cluster_refs
 
 
 # ── М9: a `net:` key whose RECORD is gone keeps the ORPHAN path ────────────

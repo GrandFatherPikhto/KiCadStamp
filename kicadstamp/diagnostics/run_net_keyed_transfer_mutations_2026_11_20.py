@@ -19,6 +19,8 @@ The contract the rows attack, piece by piece:
   M11 `cell_instance_count` counts an address with NO cluster
   M12 «another cluster» counted by `id()` — the plan's components are RE-READ
   M13 the anchor NAME is not looked up — a line shows a uuid again
+  M14 «another cluster» keeps ONE half — a missing Cluster is not told apart
+  M15 the reason REFS are not printed — a count the user cannot check
   K  cosmetic control (a comment must change nothing)
 
 Safeguards as in every harness here (rule 38): a template matching more than once
@@ -59,6 +61,8 @@ CELL_INSTANCE = "kicadstamp/cell_instance.py"
 OUTCOME = "gui/read_outcome.py"
 ANCHOR_NAMES = "kicadstamp/anchor_names.py"
 M13_CELL = "test_an_entity_anchor_names_its_record"
+C3_CELL = "test_c3_the_two_halves_of_another_cluster_are_told_apart"
+C3_LINE_CELL = "test_the_two_halves_of_another_cluster_name_their_refs"
 M12_CELL = "test_the_plans_components_are_recognised_by_uuid_not_by_object"
 
 MUTATIONS = [
@@ -136,12 +140,25 @@ MUTATIONS = [
      "tests/explode/test_explode_transfer.py -k an_address_without_a_cluster"),
 
     ("M12 «another cluster» counted by id()", OUTCOME,
-     "    other_cluster = sum(1 for fp in selected_components\n"
-     "                        if _missed(fp, plan_uuids, plan_ids))\n",
-     "    other_cluster = sum(1 for fp in selected_components\n"
-     "                        if id(fp) not in {id(p) for p in plan_components})  # MUTATION\n",
+     "        missed = [fp for fp in selected_components\n"
+     "                  if _missed(fp, plan_uuids, plan_ids)]\n",
+     "        missed = [fp for fp in selected_components\n"
+     "                  if id(fp) not in {id(p) for p in plan_components}]  # MUTATION\n",
      [M12_CELL],
      "tests/gui/test_read_outcome.py -k recognised_by_uuid"),
+
+    ("M14 «another cluster» keeps one half", MIXED,
+     "        (other_cluster_refs if info.cluster else no_cluster_refs).append(\n",
+     "        (other_cluster_refs).append(  # MUTATION: a missing Cluster is folded in\n",
+     [C3_CELL],
+     "tests/selection/test_cell_read_takes_inter_node_copper.py -k c3_"),
+
+    ("M15 the reason refs are not printed", OUTCOME,
+     "    head = \", \".join(named[:5])\n"
+     "    return f\" ({head}{', …' if len(named) > 5 else ''})\"\n",
+     "    return \"\"  # MUTATION: the count is not checkable any more\n",
+     [C3_LINE_CELL],
+     "tests/gui/test_read_outcome.py -k two_halves"),
 
     ("M13 the anchor name is not looked up", ANCHOR_NAMES,
      "    return (anchors or {}).get(anchor) or str(anchor)\n",

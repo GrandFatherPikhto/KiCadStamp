@@ -292,14 +292,16 @@ def test_import_reconciles_a_new_role(main_window, tmp_path):
 
 def test_the_read_line_names_what_it_read_and_what_it_skipped(main_window, tmp_path):
     """5 selected (2 + 2 components, 1 via), 3 read: the line accounts for the
-    difference and names the reason — the OTHER CLUSTER's two components."""
+    difference, names the reason AND the components it is about (С3 of
+    plan_2026_11_20_cell_read_takes_inter_node_copper — a count the user cannot
+    check is a count he has to trust)."""
     dock, _ = _make_dock(main_window, tmp_path)
     board = _MixedBoard()
 
     result = dock._run_refresh_geometry(_payload(dock, board))
 
     assert result["read_line"] == (
-        "read 3 of 5 selected item(s); skipped 2: another cluster — 2"), \
+        "read 3 of 5 selected item(s); skipped 2: another cluster — 2 (P1, P2)"), \
         result.get("read_line")
     assert _refs(board.selected_calls[0]) == ["C1", "C2", "v-unreg"]
 
