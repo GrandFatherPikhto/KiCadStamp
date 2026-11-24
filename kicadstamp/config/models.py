@@ -508,20 +508,16 @@ class NetTrace:
     Filled ONLY on a fresh (re)extract via extract_net_trace.
 
     tracks/vias — the copper as LOCAL (along/across) offsets from the anchor
-    point, reusing the exact TemplateTrack/TemplateVia shape Cell.tracks/
-    Cell.vias use (same local_to_absolute formula at apply time; the along/
-    across deltas are a RAW board-frame difference from the anchor, NOT rotated
-    into the anchor's local frame at capture — the whole rotation correction
-    lives at apply time via anchor_rotation_deg above). Track/via net is ALWAYS
-    written explicitly (the whole record is about ONE net; there is no
-    enclosing record to inherit a net from, unlike Cell contents).
+    point, reusing the TemplateTrack/TemplateVia shape Cell.tracks/Cell.vias use
+    (same local_to_absolute formula at apply time; the along/across deltas are a
+    RAW board-frame difference from the anchor, NOT rotated into the anchor's
+    local frame at capture — the rotation correction lives at apply time via
+    anchor_rotation_deg above). A track/via net is ALWAYS written explicitly.
 
-    retired/skip — the same convention as every other section (Rule/
-    ClonePlacement/ThermalViaArrayConfig): retired: true = "does not exist on
-    the board right now" (registry protection dropped, see
-    _compute_all_anchor_ids in apply_pipeline.py); skip: true = "skip just
-    this run" (registry protection kept). Both simply mean "don't plan this
-    record" — a net trace never moves components, only creates/adopts copper.
+    retired/skip — the same convention as every other section: retired: true =
+    "does not exist on the board right now" (registry protection dropped, see
+    _compute_all_anchor_ids in apply_pipeline.py); skip: true = "skip just this
+    run" (protection kept). Both mean "don't plan this record".
     """
     net: str
     anchor_role: str
@@ -539,6 +535,10 @@ class NetTrace:
     # legacy record (nothing ever stored it) — such a record can only be
     # matched by its net, see config/internode_capture.py.
     pads: list[str] | None = None
+    # Which OWNER this copper has (kicadstamp/net_trace_category.py): None =
+    # inter-node, the historical meaning; "extra" = written by the extra-copper
+    # door. Optional with a default, so the format number is NOT bumped.
+    category: str | None = None
     anchor_sheet: str | None = None
     anchor_cluster: str | None = None
     anchor_pad: str | None = None

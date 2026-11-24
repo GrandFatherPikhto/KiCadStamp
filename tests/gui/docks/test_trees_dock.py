@@ -896,6 +896,7 @@ def test_root_context_menu_is_the_exact_tree_menu(main_window, tmp_path, monkeyp
         "Redraw selected",
         "Redraw whole tree",
         "Reread inter-node copper",
+        "Read extra copper from selection",
         "",
         "Instances...",
         "Rename tree...",

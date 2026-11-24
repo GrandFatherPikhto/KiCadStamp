@@ -293,12 +293,9 @@ class MainWindow(QMainWindow):
         self.trees_menu.addAction(self.delete_tree_action)
         self.trees_menu.addSeparator()
         menu_actions.add_reread_positions_action(self, self.trees_menu)
-        # ── "Copper" submenu (2026-10-07, plan_2026_10_05_tree_reread_modules
-        #    Т5): everything about the CURRENT tree's inter-node copper, in the
-        #    order a user works — reread it, select what a reread WOULD take,
-        #    select what the records already describe, then ask whose it is. The
-        #    two moved actions keep their OBJECTS and attribute names (dock_hub
-        #    delegates and tests reference them).
+        # ── "Copper" submenu (plan_2026_10_05_tree_reread_modules Т5, and the
+        #    extra-copper door beside its re-read): everything about the tree's
+        #    copper, in the order a user works it. Attribute names stay.
         self.trees_copper_menu = self.trees_menu.addMenu(_("Copper"))
         # "Reread inter-node copper" (2026-09-12, plan_2026_09_12_internode_
         # copper_core Э4): re-read the tree's copper between pads from the live
@@ -307,23 +304,26 @@ class MainWindow(QMainWindow):
         self.reread_internode_action.triggered.connect(
             lambda: self._dock_hub.reread_internode_copper())
         self.trees_copper_menu.addAction(self.reread_internode_action)
+        # "Read extra copper from selection" (plan_2026_11_10_extra_copper_by_selection п.3).
+        self.read_extra_action = QAction(_("Read extra copper from selection"), self)
+        self.read_extra_action.triggered.connect(
+            lambda: self._dock_hub.read_extra_copper())
+        self.trees_copper_menu.addAction(self.read_extra_action)
         # "Select inter-node copper" (2026-10-07, Т5-1): highlight on the board
         # the copper a WHOLE-BOARD re-read would take — read-only, no dialog.
         self.select_internode_action = QAction(_("Select inter-node copper"), self)
         self.select_internode_action.triggered.connect(
             lambda: self._dock_hub.select_inter_node_copper())
         self.trees_copper_menu.addAction(self.select_internode_action)
-        # "Select recorded inter-node copper" (2026-10-07, Т5-2): highlight the
-        # live copper of every net_traces record the current tree references —
-        # read-only; the counterpart of В1 once the tree HAS been re-read.
+        # "Select recorded inter-node copper" (Т5-2): the live copper of every
+        # net_traces record the tree references — the counterpart of В1.
         self.select_recorded_internode_action = QAction(
             _("Select recorded inter-node copper"), self)
         self.select_recorded_internode_action.triggered.connect(
             lambda: self._dock_hub.select_recorded_inter_node_copper())
         self.trees_copper_menu.addAction(self.select_recorded_internode_action)
-        # "Whose copper is this?" (2026-09-12, plan select_copper_by_record Э3):
-        # map the board SELECTION back to the net_traces records that own it —
-        # read-only, the answer in the Log, an identified tree node highlighted.
+        # "Whose copper is this?" (plan select_copper_by_record Э3): map the
+        # SELECTION back to the records that own it — read-only, a Log answer.
         self.identify_copper_action = QAction(_("Whose copper is this?"), self)
         self.identify_copper_action.triggered.connect(
             lambda: self._dock_hub.identify_selected_copper())

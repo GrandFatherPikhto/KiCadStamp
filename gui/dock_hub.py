@@ -1928,31 +1928,31 @@ class DockHub:
 
     def reread_internode_copper(self, tree=None) -> None:
         """Tools → Trees → "Reread inter-node copper" (plan_2026_09_12_internode_
-        copper_core Э4): re-read the CURRENT tree's copper between pads from the
-        live board — a background worker, no dialog, the report in the Log. The
-        menu QAction is the operation's guard widget (Э2).
-
-        `tree` (Ч2): the tree ROOT's context menu passes its OWN tree, Tools
-        passes nothing (the dock's active tab)."""
+        copper_core Э4) — a background worker, no dialog, the report in the Log;
+        `tree` is the clicked root's (Ч2), None = the dock's active tab."""
         self._focus_trees_dock()
         self.trees_dock._on_reread_internode_copper(
             self._menu_trigger_action("reread_internode_action"), tree)
 
+    def read_extra_copper(self, tree=None) -> None:
+        """Tools → Trees → Copper → "Read extra copper from selection" (п.3 of
+        plan_2026_11_10_extra_copper_by_selection); `tree` — the clicked root's."""
+        self._focus_trees_dock()
+        self.trees_dock._on_read_extra_copper(
+            self._menu_trigger_action("read_extra_action"), tree)
+
     def identify_selected_copper(self) -> None:
         """Tools → Trees → "Whose copper is this?" (plan_2026_09_12_select_copper_
-        by_record Э3): map the live board SELECTION back to the net_traces records
-        that own it — a background worker, the answer in the Log, read-only. The
-        menu QAction is the operation's guard widget (Э2)."""
+        by_record Э3): map the live SELECTION back to the net_traces records that
+        own it — read-only, the answer in the Log (the QAction is the guard, Э2)."""
         self._focus_trees_dock()
         self.trees_dock._on_identify_selected_copper(
             self._menu_trigger_action("identify_copper_action"))
 
     def select_inter_node_copper(self) -> None:
-        """Tools → Trees → Copper → "Select inter-node copper" (В1, Т5-1 of
-        plan_2026_10_05_tree_reread_modules): highlight on the board the CURRENT
-        tree's inter-node copper that a WHOLE-BOARD re-read would take — a
-        background worker, READ-ONLY, the outcome in the Log. The menu QAction is
-        the operation's guard widget (Э2)."""
+        """Tools → Trees → Copper → "Select inter-node copper" (В1, Т5-1):
+        highlight on the board the copper a WHOLE-BOARD re-read would take —
+        READ-ONLY, the outcome in the Log (the QAction is the guard, Э2)."""
         self._focus_trees_dock()
         self.trees_dock._on_select_inter_node_copper(
             self._menu_trigger_action("select_internode_action"))

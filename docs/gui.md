@@ -1138,6 +1138,13 @@ on board** / **Redraw** / **Delete node**: it has no coordinates (its geometry l
 own name and no children, and its place IN THE FILE is no longer visible, so the structural actions would
 act on something the user cannot see.
 
+**UPDATE 2026-11-10 (plan_2026_11_10_extra_copper_by_selection):** the fold tells the two OWNERS of copper
+apart. A record the extra-copper door wrote (`category: extra`, see `docs/config.md`) is drawn under its own
+**"Extra copper (n)"** row, right below **"Copper (n)"** — same rules for both rows: a VIEW-only marker, no
+`TreeNode`, checkable (marking it marks every row of its group, so **Redraw selected** takes exactly those
+records), collapsed by default under the same remembered key, no context menu of its own, and each node's own
+menu is the copper menu. A tree with no extra records still shows ONE row, exactly as before.
+
 **Deleting several nodes** (2026-10-22, plan `plan_2026_10_22_trees_group_delete_and_no_apply`): the
 node menu's **Delete node** item and the **Delete** key both delete the WHOLE selection — with several
 rows selected the item reads **Delete N nodes**. Only the subtree ROOTS of the selection are removed: a
@@ -1975,9 +1982,14 @@ the piece does not touch (a record naming no anchor pad at all keeps the piece's
 a pair that cannot be verified is not invented).
 
 **Tools → Trees → Copper** (2026-10-07, plan `plan_2026_10_05_tree_reread_modules`) gathers everything
-about the CURRENT tree's inter-node copper in one place: **Reread inter-node copper**, **Select inter-node
+about the CURRENT tree's copper in one place: **Reread inter-node copper**, **Read extra copper from
+selection** (2026-11-10, plan `plan_2026_11_10_extra_copper_by_selection` — the third owner: it turns the
+pieces of the SELECTION the classifier leaves alone — a dead end from a node's pad into a pour — into
+`net_traces:` records with `category: extra`; the SAME builder the re-read uses, one Log line per refused
+piece naming its reason, the selection read on the worker, no board write), **Select inter-node
 copper**, **Select recorded inter-node copper** and **Whose copper is this?** (the last two moved here with
-the reread; the actions themselves are unchanged).
+the reread; the actions themselves are unchanged). The same item sits in the tree ROOT's context menu and
+acts on THAT tree, never on the active tab.
 
 **Copper inside a module belongs to that module, and a record's name carries its channel** (2026-10-05/07,
 same plan): copper between two own nodes of ONE embedded `kind "module"` tree is that MODULE's copper — the

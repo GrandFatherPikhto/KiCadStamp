@@ -547,6 +547,10 @@ class NetTraceDock(QWidget):
                 entry["vias"] = saved["vias"]
             if "anchor_rotation_deg" in saved:
                 entry["anchor_rotation_deg"] = saved["anchor_rotation_deg"]
+            # The OWNER marker is machine-written too (the extra-copper door):
+            # a Save from this form must never strip it.
+            if "category" in saved:
+                entry["category"] = saved["category"]
             break
         try:
             overwritten = upsert_list_entry(self._path, "net_traces", entry,

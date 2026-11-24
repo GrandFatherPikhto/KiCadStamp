@@ -135,3 +135,34 @@ def _tree_net_trace_nets(tree: "Tree") -> set[str]:
 
     walk(tree.nodes)
     return nets
+
+
+def copper_nodes(tree) -> list:
+    """Every `kind="net_trace"` node of `tree`, DFS in DOCUMENT order (Т1.1 of
+    plan_2026_09_16_copper_pseudo_node) — the rows the copper pseudo-node(s) show,
+    wherever the node sits in the file."""
+    out: list = []
+
+    def walk(nodes: list) -> None:
+        for node in nodes:
+            if node.kind == "net_trace":
+                out.append(node)
+            walk(node.children)
+
+    walk(tree.nodes)
+    return out
+
+
+def extra_record_ids(cfg) -> set[str]:
+    """The identities of the config's EXTRA records (plan_2026_11_10_extra_copper_
+    by_selection п.2): the tree's copper nodes whose record the ROOT dock must
+    draw under «Extra copper (n)», not under «Copper (n)».
+
+    Read through `net_trace_effective_name` and `is_extra` — the ONE seam of the
+    identity and the ONE test of the category, so a legacy nameless record and a
+    future category are both handled without a second rule here."""
+    from kicadstamp.config import net_trace_effective_name
+    from kicadstamp.net_trace_category import is_extra
+
+    records = getattr(cfg, "net_traces", None) or []
+    return {net_trace_effective_name(nt) for nt in records if is_extra(nt)}

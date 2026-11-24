@@ -1287,7 +1287,15 @@ Each record carries
 * **`pads`** — the set of pads the unit connects (`"ROLE.pad"` strings), i.e.
   what the unit IS. A re-read matches fresh copper to stored records by THIS
   SET, never by geometry, because the geometry is exactly what a re-read
-  refreshes; a changed pad set is a different bridge and gets a new record.
+  refreshes; a changed pad set is a different bridge and gets a new record;
+* **`category`** — which OWNER the piece belongs to (2026-11-10, plan
+  `plan_2026_11_10_extra_copper_by_selection`). ABSENT means INTER-NODE copper,
+  the historical meaning: every profile written before this field reads exactly
+  as before, and the format number is NOT bumped. `"extra"` is written only by
+  **Tools → Trees → Copper → Read extra copper from selection** — a dead end
+  from a node's pad into a pour, which no other door records. The inter-node
+  re-read never matches, refreshes or calls such a record "no longer on the
+  board"; a tree instance copies the field into its own copy.
 
 ```sexp
 ; e.g. net_traces.sexp, included into the config
@@ -1296,6 +1304,7 @@ Each record carries
     (name "spi_clk__fpga__ch0_dac")  ; IDENTITY (unique) — written at capture
     (net "SPI_CLK")         ; the network this copper belongs to (an attribute)
     (pads "DAC_BUF.5" "FPGA.22")     ; the unit's identity: what it connects
+    ; (category "extra")    ; optional — EXTRA copper, not inter-node (absent = inter-node)
     (anchor_role "DAC_BUF") ; anchor footprint by Role (whole-board search)
     ; (anchor_sheet ...)    ; optional — narrow the Role search by sheet
     ; (anchor_cluster ...)  ; optional — narrow by Cluster (prefix match)

@@ -20346,3 +20346,91 @@ msgstr ""
 #~ "copper was subtracted"
 #~ msgstr "читается не разнесённый экземпляр — межкластерная медь вычтена"
 
+
+# ── the extra-copper door (plan_2026_11_10_extra_copper_by_selection, п.1–п.8)
+# Hand-written; the entries above carry their own file:line references.
+
+#: kicadstamp/extra_copper.py
+#, python-brace-format
+msgid "  copy 1/2: uuid {uuid}, {position}"
+msgstr "  копия 1/2: uuid {uuid}, {position}"
+
+#: kicadstamp/extra_copper.py
+#, python-brace-format
+msgid "  copy 2/2: uuid {uuid}, {position}{orphan}"
+msgstr "  копия 2/2: uuid {uuid}, {position}{orphan}"
+
+#: kicadstamp/extra_copper.py
+#, python-brace-format
+msgid "  not taken:  {counts} — copper another owner keeps"
+msgstr "  не взято:   {counts} — медь, которую держит другой хозяин"
+
+#: kicadstamp/extra_copper.py
+#, python-brace-format
+msgid "Extra copper ({count})"
+msgstr "Добавочная медь ({count})"
+
+#: kicadstamp/extra_copper.py
+#, python-brace-format
+msgid "Extra copper: {added} added, {updated} updated, {unchanged} unchanged ({area})."
+msgstr "Добавочная медь: добавлено {added}, обновлено {updated}, без изменений {unchanged} ({area})."
+
+#: kicadstamp/extra_copper.py
+#, python-brace-format
+msgid "Fix the config"
+msgstr "Исправьте конфигурацию"
+
+#: kicadstamp/extra_copper.py
+#, python-brace-format
+msgid "Read extra copper failed: {error}"
+msgstr "Чтение добавочной меди не удалось: {error}"
+
+#: kicadstamp/extra_copper.py
+#, python-brace-format
+msgid "Read extra copper from selection"
+msgstr "Прочитать добавочную медь по выделению"
+
+#: kicadstamp/extra_copper.py
+#, python-brace-format
+msgid "Tree {name!r}: extra copper read."
+msgstr "Дерево {name!r}: чтение добавочной меди."
+
+#: kicadstamp/extra_copper.py
+#, python-brace-format
+msgid "extra copper: the selection holds no track and no via — nothing was read"
+msgstr "добавочная медь: в выделении нет ни трека, ни переходного — читать нечего"
+
+#: kicadstamp/extra_copper.py
+#, python-brace-format
+msgid "reading extra copper"
+msgstr "чтение добавочной меди"
+
+#: kicadstamp/extra_copper.py
+#, python-brace-format
+msgid "skipped copper {net!r} (pads {pads}): it is the copper of cell {cell!r} — the cell's record owns it, the extra door leaves it alone"
+msgstr "пропущен кусок меди {net!r} (площадки {pads}): это медь ячейки {cell!r} — её держит запись ячейки, дверь добавочной меди её не трогает"
+
+#: kicadstamp/extra_copper.py
+#, python-brace-format
+msgid "skipped copper {net!r} (pads {pads}): it joins two or more nodes of tree {tree!r} — that is inter-node copper, «Reread inter-node copper» writes it"
+msgstr "пропущен кусок меди {net!r} (площадки {pads}): он соединяет два и более узла дерева {tree!r} — это межузловая медь, её пишет «Перечитать межузловую медь»"
+
+#: kicadstamp/extra_copper.py
+#, python-brace-format
+msgid "skipped copper {net!r} (pads {pads}): its pads belong to one node of tree {tree!r} — that is the node's own copper, not a dead end"
+msgstr "пропущен кусок меди {net!r} (площадки {pads}): его площадки принадлежат одному узлу дерева {tree!r} — это собственная медь узла, а не тупик"
+
+#: kicadstamp/extra_copper.py
+#, python-brace-format
+msgid "skipped copper {net!r} (pads {pads}): the pad(s) {outside} belong to no node of tree {tree!r} — there is no node to anchor a record on"
+msgstr "пропущен кусок меди {net!r} (площадки {pads}): площадки {outside} не принадлежат ни одному узлу дерева {tree!r} — якорем записи им стать не на чем"
+
+#: kicadstamp/extra_copper.py
+#, python-brace-format
+msgid "skipped copper {net!r}: it touches no pad at all — there is nothing to anchor a record on"
+msgstr "пропущен кусок меди {net!r}: он не касается ни одной площадки — якоря для записи нет"
+
+#: kicadstamp/extra_copper.py
+#, python-brace-format
+msgid "the copper between these pads is written in extra record {name!r} — «Read extra copper from selection» owns it, so it is not taken as inter-node copper"
+msgstr "медь между этими площадками записана в добавочной записи {name!r} — ею владеет «Прочитать добавочную медь по выделению», поэтому как межузловая она не берётся"

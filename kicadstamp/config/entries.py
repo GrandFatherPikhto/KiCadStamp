@@ -603,7 +603,7 @@ def _load_mutually_exclusive_position(data: dict[str, Any], mode_specs, label: s
 _NET_TRACE_KNOWN_KEYS = {
     'net', 'name', 'pads', 'anchor_role', 'anchor_sheet', 'anchor_cluster',
     'anchor_pad', 'anchor_rotation_deg', 'tracks', 'vias', 'retired', 'skip',
-    'comment',
+    'comment', 'category',
     'uuid',
 }
 
@@ -617,10 +617,9 @@ def _load_net_trace(data: dict[str, Any]) -> NetTrace:
     WHOLE net_traces list, not one entry.
 
     name — OPTIONAL identity (2026-09-12, plan_2026_09_12_internode_copper_core
-    Э2; design §11). Absent on every legacy record, where the net is the
-    effective name (net_trace_effective_name). Must be a non-empty string when
-    present: a nameless-but-present key would collapse two records onto the
-    empty identity.
+    Э2; design §11): absent, the net is the effective name
+    (net_trace_effective_name); when present it must be a non-empty string, or
+    two records would collapse onto the empty identity.
 
     net — REQUIRED: the record's network, an attribute now (not the key), so
     several records on one net are legal — they are several bridges of that
@@ -670,9 +669,8 @@ def _load_net_trace(data: dict[str, Any]) -> NetTrace:
         anchor_rotation_deg = float(anchor_rotation_deg)
 
     # pads — the unit's PAD SIGNATURE (plan Э4; design §11/§16): "ROLE.pad"
-    # strings, the set this piece of copper connects. Absent on a legacy record
-    # (the re-read then falls back to matching by net). Validated as non-empty
-    # strings: a malformed entry would silently never match anything.
+    # strings, the set this copper connects. Absent on a legacy record (the
+    # re-read falls back to the net). A malformed entry never matches anything.
     raw_pads = data.get('pads')
     pads: list[str] | None = None
     if raw_pads is not None:
@@ -717,6 +715,8 @@ def _load_net_trace(data: dict[str, Any]) -> NetTrace:
         anchor_role=anchor_role,
         name=name,
         pads=pads,
+        # Which OWNER this copper has; absent = inter-node (net_trace_category).
+        category=data.get('category'),
         anchor_sheet=anchor_sheet,
         anchor_cluster=anchor_cluster,
         anchor_pad=str(anchor_pad) if anchor_pad is not None else None,

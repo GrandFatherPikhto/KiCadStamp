@@ -118,9 +118,9 @@ from .trees_markers import (  # noqa: F401 — re-export for callers and tests
 # re-exported, so every caller and test that asks THIS module for them is
 # unchanged.
 from .trees_view_helpers import (  # noqa: F401 — re-export for callers and tests
+    extra_record_ids,
     _COPPER_GROUP_PANEL,
     _COPPER_ROW_KINDS,
-    _CopperGroupItem,
     _MULTI_SELECTION_PANEL,
     _anchor_label,
     _is_copper_group_item,
@@ -1520,37 +1520,20 @@ class TreesDock(QWidget):
                              expanded_refs: Optional[set] = None,
                              dup_refs: Optional[set] = None,
                              dup_tooltip: Optional[str] = None) -> None:
-        """Draw the "Copper" pseudo-node of `tree` under `parent_item` — or
-        nothing at all when the tree has no copper (Т1.1: no copper, no
-        pseudo-node; a legacy "copper" container with no children therefore
-        renders as nothing, its own row is never drawn).
-
-        The row is purely a VIEW: it holds no TreeNode (its UserRole is the
-        _CopperGroupItem marker, Т1.2), it is NOT put into _node_items (so it
-        can never be collected as a checked ref and never counts as a node), and
-        it carries the SAME checkbox flags a node with children has — checking
-        it marks every copper row (the propagation Qt does not do by itself is
-        in _on_item_check_changed). Every copper node of the tree goes under it,
-        wherever it sits in the file, in DOCUMENT order (Т1.1); the place a node
-        occupies in the file is not touched. The row is collapsed unless the
-        saved copper_expanded says otherwise (Т1.2)."""
-        copper_nodes = [n for n in _walk_nodes(tree.nodes)
-                        if n.kind == "net_trace"]
-        if not copper_nodes:
-            return
-        item = QTreeWidgetItem(parent_item)
-        item.setText(0, _("Copper ({count})").format(count=len(copper_nodes)))
-        item.setData(0, Qt.ItemDataRole.UserRole, _CopperGroupItem())
-        item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable
-                      | Qt.ItemFlag.ItemIsUserTristate)
-        item.setCheckState(0, Qt.CheckState.Unchecked)
-        for node in copper_nodes:
-            self._render_node(item, node, expanded_refs, dup_refs=dup_refs,
-                              dup_tooltip=dup_tooltip,
-                              pivot_ref=tree.pivot_ref, copper_rows=True)
-        # setExpanded is only meaningful on a populated parent, so it comes
-        # after the children exist (the same order _render_node uses).
-        item.setExpanded(bool(copper_expanded))
+        """Draw the copper pseudo-rows of `tree` under `parent_item`: «Copper (n)»
+        and, when the tree has extra records, «Extra copper (n)» beside it
+        (plan_2026_11_10_extra_copper_by_selection п.2) — nothing at all when the
+        tree has no copper. Both rows are pure VIEW and obey the rules spelled out
+        in gui/docks/trees_copper_groups.py; the node rendering stays HERE, so both
+        groups are drawn by the ONE renderer."""
+        from .trees_copper_groups import render_copper_groups
+        render_copper_groups(
+            parent_item, tree, copper_expanded=copper_expanded,
+            extra_ids=extra_record_ids(self._cfg),
+            render_node=lambda item, node: self._render_node(
+                item, node, expanded_refs, dup_refs=dup_refs,
+                dup_tooltip=dup_tooltip, pivot_ref=tree.pivot_ref,
+                copper_rows=True))
 
     def _refresh_tree_marks(self, tree: Optional[Tree]) -> None:
         """Re-apply the informational ROW MARKS (suspension handle, duplicate
@@ -2426,12 +2409,15 @@ class TreesDock(QWidget):
             reread = menu.addAction(_("Reread inter-node copper"))
             reread.triggered.connect(
                 lambda: self._tree_menu("reread_internode_copper", tree))
+            extra = menu.addAction(_("Read extra copper from selection"))
+            extra.triggered.connect(
+                lambda: self._tree_menu("read_extra_copper", tree))
             if long_op_running(self._active_op):
                 # One operation — one lock on BOTH menus: while a socket-holding run is in
                 # flight these items are greyed, exactly as the Tools → Trees QActions are
                 # (that QAction IS the run's guard widget). `long_op_running`, not
                 # `is not None`: the dock KEEPS the controller, so the old test greyed forever.
-                for act in (redraw_selected, redraw_whole, reread):
+                for act in (redraw_selected, redraw_whole, reread, extra):
                     act.setEnabled(False)
             menu.addSeparator()
             menu.addAction(_("Instances...")).triggered.connect(
@@ -3041,6 +3027,15 @@ class TreesDock(QWidget):
         re-read would take (the SAME classifier) — READ-ONLY, on a worker."""
         from gui.select_internode_copper import select_inter_node_copper
         select_inter_node_copper(self, trigger)
+
+    def _on_read_extra_copper(self, trigger=None, tree=None) -> None:
+        """Tools → Trees → Copper → "Read extra copper from selection" AND the
+        same item of the tree-root menu (plan_2026_11_10_extra_copper_by_selection
+        п.3): `tree` is the clicked root's own tree, None for the active tab. The
+        guards, the payload, the worker and the report live in
+        gui/read_extra_copper.py; a giant keeps one-line delegates only."""
+        from gui.read_extra_copper import read_extra_copper
+        read_extra_copper(self, trigger, tree)
 
     def _on_select_recorded_inter_node_copper(self, trigger=None) -> None:
         """Tools → Trees → Copper → "Select recorded inter-node copper" (В2,

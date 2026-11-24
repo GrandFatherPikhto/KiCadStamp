@@ -986,19 +986,23 @@ def test_tools_trees_copper_submenu_groups_the_inter_node_copper_actions(
         real_main_window, monkeypatch):
     """2026-10-07 (plan_2026_10_05_tree_reread_modules Т5): the current tree's
     inter-node copper lives in ONE nested "Copper" submenu under Tools → Trees,
-    in the order a user works — reread, select what a reread would take, select
-    what the records describe, then ask whose it is. The two MOVED actions are the
-    SAME objects DockHub delegates reference (their attribute names do not
-    change), and the two new ones route to their own DockHub delegates."""
+    in the order a user works — reread, read the extra copper of a selection
+    (plan_2026_11_10_extra_copper_by_selection п.3, right beside the re-read),
+    select what a reread would take, select what the records describe, then ask
+    whose it is. The MOVED actions are the SAME objects DockHub delegates
+    reference (their attribute names do not change)."""
     trees = _trees_menu(real_main_window)
     copper = next(a for a in trees.actions()
                   if a.menu() is not None and a.text() == "Copper").menu()
     texts = [a.text() for a in copper.actions()]
-    assert texts == ["Reread inter-node copper", "Select inter-node copper",
+    assert texts == ["Reread inter-node copper",
+                     "Read extra copper from selection",
+                     "Select inter-node copper",
                      "Select recorded inter-node copper", "Whose copper is this?"]
 
     hub = real_main_window._dock_hub
     for attr, delegate in (("select_internode_action", "select_inter_node_copper"),
+                           ("read_extra_action", "read_extra_copper"),
                            ("select_recorded_internode_action",
                             "select_recorded_inter_node_copper")):
         called = []

@@ -221,15 +221,17 @@ def report_select_recorded_inter_node_copper(result: dict) -> None:
 
 # ── the doors (a giant keeps one-line delegates — deepseek.md §45) ─────────
 
-def _guarded_tree(dock):
-    """The CURRENT tree for a Tools → Trees → Copper → Select… action, or None
-    with the reason already reported (no tree / a read-only instance / no project
-    / no board) — the guard both select actions share.
+def _guarded_tree(dock, tree=None):
+    """The tree a Tools → Trees → Copper action acts on, or None with the reason
+    already reported (no tree / a read-only instance / no project / no board) —
+    the guard every copper action shares.
 
-    The dock is duck-typed (``_current_tree``, ``_warn_read_only_instance``,
-    ``_cfg``, ``_root_path``, ``_ctx``, ``_main_window``): the wiring lives HERE
-    so the >800-line giant keeps no more than the two one-line delegates below."""
-    tree = dock._current_tree()
+    `tree` is the tree whose ROOT was right-clicked (Ч2 of the trees-menus cleanup:
+    the root menu acts on ITS tree, never on "the active tab"); None means the
+    active tab. The dock is duck-typed (``_current_tree``, ``_warn_read_only_
+    instance``, ``_cfg``, ``_root_path``, ``_ctx``, ``_main_window``): the wiring
+    lives HERE so the >800-line giant keeps one-line delegates only."""
+    tree = tree or dock._current_tree()
     if tree is None or dock._warn_read_only_instance(tree):
         return None
     if dock._cfg is None or dock._root_path is None:

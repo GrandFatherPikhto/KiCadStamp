@@ -68,6 +68,7 @@ from .internode_nodes import (
     same_geometry,
     tree_node_keys,
 )
+from .net_trace_category import extra_shadow_line, extra_signatures, inter_node_records
 from .net_trace_planner import resolve_live_anchor
 from .reread_report import report_lines
 from .sheet_names import instance_label, resolve_sheet_path_names, sheet_in_path
@@ -120,15 +121,13 @@ class RereadPlan:
     #: the board, and saying so would be a lie.
     cell_duplicates: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
-    # ── what the re-read did NOT take, and why (Э4 of
-    # plan_2026_09_15_internode_copper_sheets_and_nets) ────────────────────
+    # ── what the re-read did NOT take, and why (Э4) ────────────────────────
     # `discarded` counts units by verdict (CopperVerdict.value -> count); only
     # the non-zero ones are ever reported. `matched_components` /
     # `unmatched_components` count the area's components that carry a Cluster and
     # did / did not match a node of this tree, and `node_keys` is that tree's own
     # key list ("PIF_DVDD/Channel_0", ...) — together they turn "the re-read sees
-    # no copper" from silence into one line that names the tree and what its
-    # nodes wait for (the live complaint this stage exists for).
+    # no copper" from silence into one line naming the tree and its nodes' wait.
     discarded: dict[str, int] = field(default_factory=dict)
     matched_components: int = 0
     unmatched_components: int = 0
@@ -643,9 +642,8 @@ def plan_internode_reread(adapter, cfg: Config, tree: Tree, *,
 
     The plan also carries what was NOT taken (Э4 of
     plan_2026_09_15_internode_copper_sheets_and_nets): the discarded units by
-    verdict, and — when not one area component matched a node of this tree — the
-    tree's own node keys, so the report can say what its nodes wait for instead
-    of printing an empty result.
+    verdict and, when no area component matched a node, the tree's own node keys
+    — so the report says what its nodes wait for instead of nothing.
 
     The classification itself is `_classify_area` — the SAME step
     `internode_units` (and therefore "Select inter-node copper") runs, so the
@@ -680,18 +678,18 @@ def plan_internode_reread(adapter, cfg: Config, tree: Tree, *,
     resolver = classification.resolver
 
     identities = tree_net_trace_identities(tree)
-    tree_records = [nt for nt in cfg.net_traces
-                    if net_trace_effective_name(nt) in set(identities)]
-    known = {net_trace_effective_name(nt) for nt in tree_records}
+    # п.8: EXTRA records are another door's copper — never matched, never `missing`.
+    tree_records = inter_node_records(cfg.net_traces, set(identities))
+    extra_shadow = extra_signatures(cfg.net_traces, set(identities))
+    known = {net_trace_effective_name(nt) for nt in cfg.net_traces}
     for ident in identities:
         if ident not in known:
             plan.warnings.append(_(
                 "tree {tree!r}: node {ref!r} references no net_traces: record — "
                 "skipped").format(tree=tree.name, ref=ident))
 
-    # Match keys. A record with a stored signature is matched by it; a legacy
-    # one (no signature) only by its net. Both maps are POPPED on use, so one
-    # stored record can never satisfy two fresh units.
+    # Match keys: a stored signature matches exactly, a legacy record only by net.
+    # Both maps are POPPED on use, so one record never satisfies two units.
     by_signature: dict[frozenset[str], NetTrace] = {}
     legacy_by_net: dict[str, NetTrace] = {}
     for nt in tree_records:
@@ -709,6 +707,9 @@ def plan_internode_reread(adapter, cfg: Config, tree: Tree, *,
         old = by_signature.pop(signature, None)
         if old is None:
             old = legacy_by_net.pop(unit.net_name, None)
+        if old is None and signature in extra_shadow:   # п.8: already another owner's
+            plan.warnings.append(extra_shadow_line(extra_shadow[signature]))
+            continue
 
         # ONE builder, shared with the dialog's capture (capture_unit) — the
         # re-read and the "Extract tree" dialog must produce the SAME copper.
@@ -723,9 +724,8 @@ def plan_internode_reread(adapter, cfg: Config, tree: Tree, *,
         if record is None:
             continue
         if old is None and record.name:
-            # §0 п.6 + §0.1: a generated record name must not collide with a LOCAL
-            # name of this tree (a mount, a copper container) NOR with a record the
-            # config already has — THE rule answers both bans in one call.
+            # §0 п.6 + §0.1: a generated name must not collide with a LOCAL name of
+            # this tree (a mount, a copper container) NOR with an existing record.
             free = free_node_ref("net_trace", tree.name, record.name, tree.nodes,
                                  taken=existing_names)
             if free != record.name:
