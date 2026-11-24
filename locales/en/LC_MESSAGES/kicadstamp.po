@@ -19310,5 +19310,5 @@ msgstr "skipped copper {net!r}: it touches no pad at all — there is nothing to
 
 #: kicadstamp/extra_copper.py
 #, python-brace-format
-msgid "the copper between these pads is written in extra record {name!r} — «Read extra copper from selection» owns it, so it is not taken as inter-node copper"
-msgstr "the copper between these pads is written in extra record {name!r} — «Read extra copper from selection» owns it, so it is not taken as inter-node copper"
+msgid "the copper of this piece is written in extra record {name!r} — «Read extra copper from selection» owns it, so it is not taken as inter-node copper; delete that record, then re-read"
+msgstr "the copper of this piece is written in extra record {name!r} — «Read extra copper from selection» owns it, so it is not taken as inter-node copper; delete that record, then re-read"

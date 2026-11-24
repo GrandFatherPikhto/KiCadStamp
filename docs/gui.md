@@ -1986,7 +1986,8 @@ about the CURRENT tree's copper in one place: **Reread inter-node copper**, **Re
 selection** (2026-11-10, plan `plan_2026_11_10_extra_copper_by_selection` — the third owner: it turns the
 pieces of the SELECTION the classifier leaves alone — a dead end from a node's pad into a pour — into
 `net_traces:` records with `category: extra`; the SAME builder the re-read uses, one Log line per refused
-piece naming its reason, the selection read on the worker, no board write), **Select inter-node
+piece naming its reason, the selection read on the worker, no board write; it writes ONLY by selection —
+an EMPTY selection is one refusal line, never a board-wide sweep), **Select inter-node
 copper**, **Select recorded inter-node copper** and **Whose copper is this?** (the last two moved here with
 the reread; the actions themselves are unchanged). The same item sits in the tree ROOT's context menu and
 acts on THAT tree, never on the active tab.

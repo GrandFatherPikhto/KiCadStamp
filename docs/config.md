@@ -1295,7 +1295,10 @@ Each record carries
   **Tools → Trees → Copper → Read extra copper from selection** — a dead end
   from a node's pad into a pour, which no other door records. The inter-node
   re-read never matches, refreshes or calls such a record "no longer on the
-  board"; a tree instance copies the field into its own copy.
+  board", and it never TAKES a piece whose pads CONTAIN such a record's pads on
+  the same net (the dead end that later grew a track to another node): one line
+  names that record and asks to delete it before a re-read. A tree instance
+  copies the field into its own copy.
 
 ```sexp
 ; e.g. net_traces.sexp, included into the config

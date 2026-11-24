@@ -413,6 +413,27 @@ def test_redraw_carries_anchor_rotation_deg(main_window, tmp_path, monkeypatch):
     assert nt.anchor_rotation_deg == 180.0
 
 
+def test_save_keeps_the_extra_category(main_window, tmp_path):
+    """Е2 of the acceptance of `57a6df3d`: `category` is machine-written, like
+    `tracks:`/`vias:`/`anchor_rotation_deg:` — the form has no field for it, so a
+    Save from this dock must carry the marker the extra-copper door wrote.
+    (The record is named after its net, the shape every other save cell here
+    uses: a nameless form entry is matched to it by that same identity.)"""
+    dock, target = _make_dock(main_window, tmp_path, data={
+        "net_traces": [{
+            "name": "N", "net": "N", "anchor_role": "A",
+            "pads": ["A.1"], "category": "extra", "tracks": [], "vias": [],
+        }]
+    })
+    dock.load_entry({"net": "N", "anchor_role": "A", "tracks": [], "vias": []})
+
+    dock._on_save()
+
+    data = _load(target)
+    assert len(data["net_traces"]) == 1
+    assert data["net_traces"][0].get("category") == "extra"
+
+
 def test_extract_preserves_existing_retired_flag(main_window, tmp_path, caplog):
     """Review fix 2026-08-21: a re-Extract refreshes the GEOMETRY of an
     already-saved record but must NOT silently clear its hand-set retired:

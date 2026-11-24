@@ -56,20 +56,42 @@ def inter_node_records(records, identities) -> list:
 
 
 def extra_signatures(records, identities) -> dict:
-    """`pads:` signature -> identity of every EXTRA record this tree references.
+    """net -> [(pads signature, identity), …] of every EXTRA record this tree uses.
 
-    The map that lets the inter-node re-read say «that copper is already written
-    in extra record X» instead of taking it (п. 8): a dead end that later grew a
-    track to another node is INTERNODE now, but the piece is another owner's
-    record already, so this door names it and leaves it."""
+    The map the inter-node re-read asks before it takes a piece (п. 8, Н1 of the
+    acceptance): a dead end that later grew a track to another node is INTERNODE
+    now, yet part of its copper is another owner's record already.
+
+    The match is a SUBSET on the SAME NET, never equality: an extra record is
+    always written from a STUB, i.e. it has exactly ONE pad, while the bridge that
+    absorbed it has two or more — equality could never fire (measured by the
+    acceptance on the real form: the bridge was taken as a NEW inter-node record
+    and the dead end kept its own, two owners for one piece of copper)."""
     from .config import net_trace_effective_name, net_trace_pad_signature
 
     out: dict = {}
     for nt in records:
-        signature = net_trace_pad_signature(nt)
-        if signature and is_extra(nt) and net_trace_effective_name(nt) in identities:
-            out.setdefault(signature, net_trace_effective_name(nt))
+        if not is_extra(nt) or net_trace_effective_name(nt) not in identities:
+            continue
+        out.setdefault(nt.net, []).append(
+            (net_trace_pad_signature(nt), net_trace_effective_name(nt)))
     return out
+
+
+def shadow_of(extras: dict, signature, net) -> str | None:
+    """The identity of the EXTRA record that already owns part of this piece — or
+    None. `extras` is `extra_signatures`' map, `signature`/`net` describe the FRESH
+    inter-node piece.
+
+    «Owns part of it» = the record's pads are a SUBSET of the piece's pads on the
+    same net. An empty signature (a record with no `pads:` — only a hand-edited
+    profile can carry one) is a subset of anything, so it shadows every piece of
+    its net: the refusal is the honest answer there, and the line names the record
+    so the human decides."""
+    for signature_, identity in extras.get(net, ()):
+        if signature_ <= frozenset(signature):
+            return identity
+    return None
 
 
 def extra_shadow_line(identity: str) -> str:
@@ -77,6 +99,6 @@ def extra_shadow_line(identity: str) -> str:
     from .i18n import _
 
     return _(
-        "the copper between these pads is written in extra record {name!r} — "
-        "«Read extra copper from selection» owns it, so it is not taken as "
-        "inter-node copper").format(name=identity)
+        "the copper of this piece is written in extra record {name!r} — «Read "
+        "extra copper from selection» owns it, so it is not taken as inter-node "
+        "copper; delete that record, then re-read").format(name=identity)

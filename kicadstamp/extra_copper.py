@@ -147,7 +147,11 @@ def plan_extra_copper(adapter, cfg: Config, tree, *,
                                       if not isinstance(item, Via)),
                       area_vias=sum(1 for item in items
                                     if isinstance(item, Via)))
-    if not items:
+    # Н2 of the acceptance: this door writes ONLY by selection (п.3 of the plan).
+    # An empty selection arrives here as the WHOLE-board area (`read_reread_area`
+    # opens it for the re-read, narrowed=False) — taking it would write every dead
+    # end of the board from a click with nothing selected. One refusal line.
+    if not narrowed or not items:
         plan.warnings.append(_(
             "extra copper: the selection holds no track and no via — nothing "
             "was read"))

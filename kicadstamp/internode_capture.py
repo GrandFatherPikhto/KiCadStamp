@@ -68,7 +68,7 @@ from .internode_nodes import (
     same_geometry,
     tree_node_keys,
 )
-from .net_trace_category import extra_shadow_line, extra_signatures, inter_node_records
+from .net_trace_category import extra_shadow_line, extra_signatures, inter_node_records, shadow_of
 from .net_trace_planner import resolve_live_anchor
 from .reread_report import report_lines
 from .sheet_names import instance_label, resolve_sheet_path_names, sheet_in_path
@@ -688,8 +688,7 @@ def plan_internode_reread(adapter, cfg: Config, tree: Tree, *,
                 "tree {tree!r}: node {ref!r} references no net_traces: record — "
                 "skipped").format(tree=tree.name, ref=ident))
 
-    # Match keys: a stored signature matches exactly, a legacy record only by net.
-    # Both maps are POPPED on use, so one record never satisfies two units.
+    # Match keys: exact signature first, then a legacy record by net — both POPPED.
     by_signature: dict[frozenset[str], NetTrace] = {}
     legacy_by_net: dict[str, NetTrace] = {}
     for nt in tree_records:
@@ -705,14 +704,15 @@ def plan_internode_reread(adapter, cfg: Config, tree: Tree, *,
     for unit in classification.units:
         signature = frozenset(_pad_label(p, components) for p in unit.pads)
         old = by_signature.pop(signature, None)
+        # п.8 (Н1): exact record → extra shadow (subset of pads, same net) → legacy net.
+        shadow = shadow_of(extra_shadow, signature, unit.net_name) if old is None else None
+        if shadow is not None:
+            plan.warnings.append(extra_shadow_line(shadow))
+            continue
         if old is None:
             old = legacy_by_net.pop(unit.net_name, None)
-        if old is None and signature in extra_shadow:   # п.8: already another owner's
-            plan.warnings.append(extra_shadow_line(extra_shadow[signature]))
-            continue
 
-        # ONE builder, shared with the dialog's capture (capture_unit) — the
-        # re-read and the "Extract tree" dialog must produce the SAME copper.
+        # ONE builder (capture_unit): the re-read and the dialog build the SAME copper.
         record, warning = capture_unit(
             adapter, unit, components=components,
             node_by_ref=classification.node_name_label_by_ref,

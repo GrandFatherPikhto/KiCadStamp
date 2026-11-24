@@ -29,7 +29,8 @@ copied — one way to build an area in this tree).
 import dataclasses
 from types import SimpleNamespace
 
-from kicadstamp.config import load_config
+from kicadstamp.config import NetTrace, load_config
+from kicadstamp.trees import TreeNode
 from kicadstamp.config.sexp_format import dict_to_sexp, sexp_to_dict
 from kicadstamp.extra_copper import extra_report_lines, plan_extra_copper
 from kicadstamp.internode_capture import apply_reread_plan, plan_internode_reread
@@ -236,12 +237,36 @@ def test_zh_the_inter_node_reread_never_touches_an_extra_record():
 
 
 # ── з: a piece that BECAME inter-node is not taken from its owner ─────────
+#
+# Н1 of the acceptance: a dead end ALWAYS has ONE pad (the door accepts only
+# STUB), so «the same pad set» could never fire — the rule is a SUBSET, on the
+# same net. Both cells below start from the REAL form: the extra record is
+# written by `plan_extra_copper` itself, then the dead end grows a track to a
+# second node.
 
-def test_z_an_inter_node_piece_matching_extra_copper_names_the_record():
-    stored = _extra_record()
+def _door_written_dead_end():
+    """The extra record the door itself writes for `_stub_area` (pads ["A.1"])."""
+    board, fps, items = _stub_area()
+    written = _plan(board, fps, items)
+    assert len(written.added) == 1, written.warnings
+    stored = dataclasses.replace(written.added[0].record, uuid="uuid-extra")
+    assert stored.pads == ["A.1"] and is_extra(stored)
+    return stored
+
+
+def _bridge_board():
+    """The stub's track, now reaching R2.1 — one INTERNODE piece `A.1 → B.1`."""
+    fps = [_fp("R1", role="A", cluster="A"), _fp("R2", role="B", cluster="B")]
+    pads = {"R1": [_pad("1", "N", 10, 10)], "R2": [_pad("1", "N", 20, 10)]}
+    track = _track(10, 10, 20, 10, "N")
+    return _AreaBoard(fps, pads, tracks=[track]), fps, [track]
+
+
+def test_z_a_bridge_over_an_extra_dead_end_is_not_taken():
+    stored = _door_written_dead_end()
     cfg = dataclasses.replace(_cfg(), net_traces=[stored])
     tree = _tree(net_trace_refs=(stored.name,))
-    board, fps, items = _pair_area()
+    board, fps, items = _bridge_board()
 
     plan = plan_internode_reread(board, cfg, tree, config_path=None,
                                  area_items=items, area_footprints=fps)
@@ -250,15 +275,77 @@ def test_z_an_inter_node_piece_matching_extra_copper_names_the_record():
     lines = [w for w in plan.warnings if stored.name in w]
     assert len(lines) == 1
     assert "extra record" in lines[0]
+    assert "delete that record, then re-read" in lines[0]
 
 
-def _extra_record():
-    """A stored EXTRA record of the test's pair, with the pads of a bridge."""
-    from kicadstamp.config import NetTrace
+def test_z2_a_legacy_record_does_not_swallow_the_shadowed_piece():
+    """The order of the checks (точная подпись → тень → `legacy_by_net`): an old
+    bridge record without `pads:` on the same net must NOT take the piece before
+    the shadow can name the extra record that owns part of it."""
+    stored = _door_written_dead_end()
+    legacy = NetTrace(net="N", anchor_role="A", name="old_bridge")
+    cfg = dataclasses.replace(_cfg(), net_traces=[legacy, stored])
+    tree = _tree(net_trace_refs=(legacy.name, stored.name))
+    board, fps, items = _bridge_board()
 
-    return NetTrace(net="N", anchor_role="A", anchor_pad="1", anchor_cluster="A",
-                    anchor_rotation_deg=0.0, name="n__a__b", pads=["A.1", "B.1"],
-                    category=CATEGORY_EXTRA)
+    plan = plan_internode_reread(board, cfg, tree, config_path=None,
+                                 area_items=items, area_footprints=fps)
+
+    assert plan.added == [] and plan.updated == []
+    assert len([w for w in plan.warnings if stored.name in w]) == 1
+    assert apply_reread_plan(cfg, plan).net_traces == [legacy, stored]
+
+
+# ── повторы и имена: ключ (площадки, сеть), имена одного прогона ──────────
+
+def test_e3_the_same_pad_on_another_net_is_a_new_record():
+    """Е3: the repeat key is «the same pads AND the same net» — a pads-only key
+    would refresh a record of ANOTHER net."""
+    board, fps, items = _stub_area()
+    first = _plan(board, fps, items)
+    stored = dataclasses.replace(first.added[0].record, uuid="uuid-other",
+                                 net="M")
+    cfg = dataclasses.replace(_cfg(), net_traces=[stored])
+    tree = _tree(net_trace_refs=(stored.name,))
+
+    plan = _plan(board, fps, items, cfg=cfg, tree=tree)
+
+    assert len(plan.added) == 1 and plan.updated == []
+    assert plan.added[0].record.net == "N"
+    assert plan.added[0].record.pads == stored.pads
+
+
+def test_e4_two_dead_ends_of_one_run_get_two_names():
+    """Е4: two vias of one node on one net produce the SAME `generate_trace_name`
+    — the run's `existing_names` is what keeps the second record distinguishable."""
+    fps = [_fp("R1", role="A", cluster="A")]
+    pads = {"R1": [_pad("1", "GND", 10, 10), _pad("2", "GND", 14, 10)]}
+    tracks = [_track(10, 10, 10, 8, "GND"), _track(14, 10, 14, 8, "GND")]
+    vias = [_via(10, 8, "GND"), _via(14, 8, "GND")]
+    board = _AreaBoard(fps, pads, tracks=tracks, vias=vias)
+
+    plan = _plan(board, fps, [*tracks, *vias])
+
+    assert len(plan.added) == 2, plan.warnings
+    names = [c.record.name for c in plan.added]
+    assert all(names) and names[0] != names[1]
+
+
+def test_e5_a_name_a_local_node_holds_is_suffixed():
+    """Е5: `generate_trace_name` already avoids the config's RECORD names; what
+    only `free_node_ref` answers is the tree's LOCAL names — a `kind "copper"`
+    container of the same name is exactly the shape that would make the tree
+    unloadable once the record's node is added."""
+    board, fps, items = _stub_area()
+    natural = _plan(board, fps, items).added[0].record.name
+    tree = _tree(net_trace_refs=(), nodes=(TreeNode(
+        ref=natural, kind="copper", xy=None, polar=None, rotation=0.0,
+        name=None, group=None, children=[]),))
+
+    plan = _plan(board, fps, items, tree=tree)
+
+    name = plan.added[0].record.name
+    assert name != natural and name.startswith(natural)
 
 
 # ── и: the s-expr round trip carries the category, and its absence ────────

@@ -179,6 +179,29 @@ def test_n_the_worker_reads_the_selection_and_returns_the_plan(monkeypatch):
     assert result["plan"].area_tracks == 1
 
 
+def test_n2_an_empty_selection_reads_nothing_and_says_so(monkeypatch):
+    """Н2 of the acceptance: with nothing selected `read_reread_area` hands the
+    WHOLE board over (that is right for the re-read). This door writes ONLY by
+    selection, so an empty one must be one refusal line, never a board-wide write."""
+    from gui import read_extra_copper as door
+
+    board, fps, items = _stub_area()
+    board = _WorkerBoard(board._fps, board._pads, tracks=board._tracks,
+                         vias=board._vias, selected=[])
+    monkeypatch.setattr("kicadstamp.adapter_factory.create_board_adapter",
+                        lambda **kw: board)
+
+    result = door.run_read_extra_copper_worker({
+        "cfg": _cfg(), "tree": _tree(net_trace_refs=()),
+        "config_path": None, "sheet_names": {}, "timeout_ms": 500})
+
+    assert result["narrowed_to_selection"] is False
+    assert result["added"] == [] and result["plan"].records == []
+    assert result["cfg"].net_traces == []
+    assert len(result["plan"].warnings) == 1
+    assert "no track and no via" in result["plan"].warnings[0]
+
+
 def test_n_the_door_itself_never_reads_the_board(monkeypatch):
     """`read_extra_copper` only wires the worker: no adapter is built and no
     board method is called on the UI thread (the `ui_thread_board_read` rule)."""

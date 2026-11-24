@@ -20,6 +20,13 @@ matches an extra record nor calls it «no longer on the board».
   M10 a tree instance loses the category on the copy
   M11 the «Extra copper» row lists the inter-node records too
   M12 the door always acts on the active tab
+  M13 the shadow demands EQUALITY of pads again (a dead end has one pad — Н1)
+  M14 the legacy net match runs BEFORE the shadow (Н1, the order of the checks)
+  M15 an empty selection reads the whole board again (Н2)
+  M16 the dock's Save strips the category again (Е2)
+  M17 the repeat key ignores the net (Е3)
+  M18 two new dead ends of one run get one name (no `existing_names.append`, Е4)
+  M19 a new name may take one the config already holds (no `free_node_ref`, Е5)
   K   cosmetic control (a comment must change nothing)
 
 Safeguards as in every harness here (rule 38): a template matching more than once
@@ -80,8 +87,8 @@ MUTATIONS = [
     ("M4 the re-read takes a piece an extra record owns", CAPTURE,
      "    extra_shadow = extra_signatures(cfg.net_traces, set(identities))\n",
      "    extra_shadow = {}                              # MUTATION\n",
-     ["test_z_an_inter_node_piece_matching_extra_copper_names_the_record"],
-     _only("matching_extra_copper_names_the_record")),
+     ["test_z_a_bridge_over_an_extra_dead_end_is_not_taken"],
+     _only("bridge_over_an_extra_dead_end")),
 
     ("M5 the INTERNODE refusal is gone", EXTRA,
      "        if verdict is CopperVerdict.INTERNODE:\n",
@@ -131,6 +138,54 @@ MUTATIONS = [
      "    tree = _guarded_tree(dock)                       # MUTATION\n",
      ["test_m_the_door_acts_on_the_tree_it_was_handed"],
      _only("acts_on_the_tree_it_was_handed", GUI_CELLS)),
+
+    # ── Н1/Н2 and the acceptance's own survivors (Е2–Е5) ───────────────────
+    ("M13 the shadow demands equality of pads again", CATEGORY,
+     "        if signature_ <= frozenset(signature):\n",
+     "        if signature_ == frozenset(signature):         # MUTATION\n",
+     ["test_z_a_bridge_over_an_extra_dead_end_is_not_taken"],
+     _only("bridge_over_an_extra_dead_end")),
+
+    ("M14 the legacy net match runs before the shadow", CAPTURE,
+     "        shadow = shadow_of(extra_shadow, signature, unit.net_name) if old is None else None\n"
+     "        if shadow is not None:\n",
+     "        if old is None:\n"
+     "            old = legacy_by_net.pop(unit.net_name, None)   # MUTATION: legacy first\n"
+     "        shadow = shadow_of(extra_shadow, signature, unit.net_name) if old is None else None\n"
+     "        if shadow is not None:\n",
+     ["test_z2_a_legacy_record_does_not_swallow_the_shadowed_piece"],
+     _only("legacy_record_does_not_swallow")),
+
+    ("M15 an empty selection reads the whole board", EXTRA,
+     "    if not narrowed or not items:\n",
+     "    if not items:                                  # MUTATION\n",
+     ["test_n2_an_empty_selection_reads_nothing_and_says_so"],
+     _only("empty_selection_reads_nothing", GUI_CELLS)),
+
+    ("M16 the dock's Save strips the category", "gui/docks/net_trace.py",
+     "            if \"category\" in saved:\n",
+     "            if False:                                  # MUTATION\n",
+     ["test_save_keeps_the_extra_category"],
+     _only("save_keeps_the_extra_category", "tests/gui/docks/test_net_trace_dock.py")),
+
+    ("M17 the repeat key ignores the net", EXTRA,
+     "        old = by_key.pop((signature, unit.net_name), None)\n",
+     "        old = next((by_key.pop(k) for k in list(by_key)   # MUTATION\n"
+     "                    if k[0] == signature), None)\n",
+     ["test_e3_the_same_pad_on_another_net_is_a_new_record"],
+     _only("same_pad_on_another_net")),
+
+    ("M18 two new dead ends of one run get one name", EXTRA,
+     "            existing_names.append(identity)\n",
+     "            pass                                       # MUTATION\n",
+     ["test_e4_two_dead_ends_of_one_run_get_two_names"],
+     _only("two_dead_ends_of_one_run")),
+
+    ("M19 a new name may take a local node's", EXTRA,
+     "        if old is None and record.name:\n",
+     "        if False:                                  # MUTATION\n",
+     ["test_e5_a_name_a_local_node_holds_is_suffixed"],
+     _only("name_a_local_node_holds")),
 
     ("K cosmetic control", CATEGORY,
      "def is_extra(record) -> bool:\n",

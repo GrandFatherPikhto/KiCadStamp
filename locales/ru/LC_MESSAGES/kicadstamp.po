@@ -20432,5 +20432,5 @@ msgstr "пропущен кусок меди {net!r}: он не касается
 
 #: kicadstamp/extra_copper.py
 #, python-brace-format
-msgid "the copper between these pads is written in extra record {name!r} — «Read extra copper from selection» owns it, so it is not taken as inter-node copper"
-msgstr "медь между этими площадками записана в добавочной записи {name!r} — ею владеет «Прочитать добавочную медь по выделению», поэтому как межузловая она не берётся"
+msgid "the copper of this piece is written in extra record {name!r} — «Read extra copper from selection» owns it, so it is not taken as inter-node copper; delete that record, then re-read"
+msgstr "медь этого куска записана в добавочной записи {name!r} — ею владеет «Прочитать добавочную медь по выделению», поэтому как межузловая она не берётся; удалите ту запись и перечитайте"
