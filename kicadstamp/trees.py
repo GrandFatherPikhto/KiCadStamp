@@ -738,20 +738,20 @@ def find_role_placement_matches(cfg, tree: "Tree", role: str, *,
                 continue
             if n.kind in _PLACEMENT_KINDS:
                 entity = _find_entity(cfg, n.ref)
-                if entity is None:
-                    continue
-                cell = cells.get(entity.cell)
-                if cell is None:
-                    continue
-                if sheet is not None and sheet != getattr(entity, "sheet", None):
-                    continue
-                if cluster is not None and cluster != getattr(entity, "cluster", None):
-                    continue
-                for slot in cell.components:
-                    if slot.role == role:
-                        out.append(RolePlacementMatch(
-                            tree=tree, node=n, path=node_path, entity=entity,
-                            cell=cell, slot=slot))
+                cell = cells.get(entity.cell) if entity is not None else None
+                # A narrow (sheet, cluster) query must still DESCEND: a nested
+                # placement may hang under mount children of a node that itself
+                # sits on another sheet (`Ch_R` root on ChannelR, arms below it
+                # on ChannelR/ArmP) — a `continue` here would hide them.
+                if (cell is not None
+                        and (sheet is None or sheet == getattr(entity, "sheet", None))
+                        and (cluster is None
+                             or cluster == getattr(entity, "cluster", None))):
+                    for slot in cell.components:
+                        if slot.role == role:
+                            out.append(RolePlacementMatch(
+                                tree=tree, node=n, path=node_path, entity=entity,
+                                cell=cell, slot=slot))
             walk(n.children, node_path)
 
     walk(tree.nodes, [])

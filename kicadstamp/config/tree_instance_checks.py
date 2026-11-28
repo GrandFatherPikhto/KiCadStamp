@@ -14,6 +14,8 @@ from __future__ import annotations
 import logging
 
 from ..i18n import _
+from ..sheet_names import ROOT_SHEET
+from .sheet_instance_policy import follows_source
 
 logger = logging.getLogger(__name__)
 
@@ -46,22 +48,35 @@ def template_needs_old_sheet(nodes: list) -> bool:
 
 def derive_old_sheet(template: dict, entities_by_name: dict,
                      instance_name: str | None = None) -> str | None:
-    """The template's own sheet read off its PLACEMENT RECORDS, or None.
+    """The template's own sheet (S) — where its records live BEFORE the instance
+    moves them — or None when the template never says.
 
-    Н3 (plan_2026_11_07_tree_instances_dialog_and_subtree): a POINT-anchored
-    template with several top-level nodes yields no `old_sheet` from a role
-    anchor or from the single root Entity, yet a MOUNT node still needs it. When
-    EVERY placement record of the template sits on ONE non-empty sheet and no
-    record is sheetless, that sheet IS the answer — it is not a guess, it is the
-    only sheet the template's copper could be on.
+    TWO sources, in this order, both read off the PLACEMENT RECORDS:
 
-    Called only when the template NEEDS the sheet (`template_needs_old_sheet`):
-    a template without mount nodes never asks, so a sheetless point template
-    keeps loading exactly as before. The INFO line names the source, because a
-    derived value must never look hand-written."""
+    Р1 (plan_2026_11_27_tree_instances_nested_sheet_paths, Н1): ONE top-level
+    placement node whose Entity carries an explicit sheet, with every OTHER
+    top-level node being copper (a `net_trace`/`copper` node places no record).
+    The live `Ch_L` shape: one placement + six neighbouring net_trace records at
+    the top. Requiring exactly one top-level node made that template unable to
+    yield its own sheet at all; the copper beside the root places nothing, so it
+    cannot make the answer ambiguous. Every OTHER placement record of the
+    template must sit on that sheet or below it (segment boundaries, the ONE rule
+    in `sheet_instance_policy.follows_source`) — otherwise the template spans
+    sheets and this source is not used.
+
+    Н3 (plan_2026_11_07_tree_instances_dialog_and_subtree): every placement
+    record of the template sits on ONE non-empty sheet and none is sheetless —
+    that sheet IS the answer. Kept as the fallback, because a template may spread
+    its records over children of ONE sheet while its root placement is unnamed.
+
+    Both INFO lines name the source, because a derived value must never look
+    hand-written. `None` is honest: the caller's policy then keeps the historical
+    flat behaviour (and a template with a MOUNT node is refused by the gate,
+    exactly as before)."""
     nodes = template.get('nodes') or []
-    if not template_needs_old_sheet(nodes):
-        return None
+    sheet = _source_from_single_placement(nodes, entities_by_name, instance_name)
+    if sheet is not None:
+        return sheet
     sheets, without = template_entry_sheets(nodes, entities_by_name)
     if len(sheets) != 1 or without:
         return None
@@ -71,6 +86,39 @@ def derive_old_sheet(template: dict, entities_by_name: dict,
                   "anchor and no single root to read it off)").format(
                       name=instance_name, sheet=sheet))
     return sheet
+
+
+def _source_from_single_placement(nodes: list, entities_by_name: dict,
+                                  instance_name: str | None) -> str | None:
+    """Р1's source: ONE top-level placement among copper, read off its Entity.
+
+    The narrow rule the plan asks for — never a guess: the sole top-level
+    placement must carry an explicit sheet, every other top-level node must place
+    no record (copper), and every placement record of the WHOLE template must sit
+    on that sheet or below it. A sheetless record or a record on a sister sheet
+    means the template spans sheets, so this source is not used and Н3 decides."""
+    top = [n for n in nodes if isinstance(n, dict)]
+    roots = [n for n in top if n.get('kind') in (None, 'placement')]
+    if len(roots) != 1:
+        return None
+    if any(n.get('kind') not in ('net_trace', 'copper')
+           for n in top if n is not roots[0]):
+        return None
+    ref = roots[0].get('ref')
+    entity = entities_by_name.get(ref) if ref is not None else None
+    source = entity.get('sheet') if isinstance(entity, dict) else None
+    if not source or source == ROOT_SHEET:
+        return None
+    sheets, without = template_entry_sheets(nodes, entities_by_name)
+    if without or not sheets:
+        return None
+    if not all(follows_source(address, source) for address in sheets):
+        return None
+    logger.info(_(
+        "tree_instance {name!r}: the template's own sheet {sheet!r} was taken from "
+        "its single top-level placement node {ref!r} (the other top-level nodes "
+        "place no record)").format(name=instance_name, sheet=source, ref=ref))
+    return source
 
 
 def template_entry_sheets(nodes: list, entities_by_name: dict

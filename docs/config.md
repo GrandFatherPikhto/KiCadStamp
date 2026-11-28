@@ -885,22 +885,24 @@ layer/mirror checks as hand-written ones — nothing is validated twice.
   NOT suffixed with `__{instance.name}` like a placement ref. Instead the net's LEADING SHEET SEGMENT
   is replaced with the instance `sheet` (`/Channel_1/DAC/+3V3_AVDD`), independently on the record's
   `net`, on every `tracks[].net` and every `vias[].net`; the generated `net_traces:` copy's
-  `anchor_sheet` is unconditionally set to the instance `sheet`. The old sheet comes from the template
-  tree's own role-anchor `sheet` (or, for a self-anchored template, from its subject Entity's
-  own `sheet`) — a net whose leading segment isn't it is a fatal
-  (it's not this template's copper), never silently rewritten. Distinct per-instance nets keep the
-  one-record-per-net
-  dedup happy for free.
+  `anchor_sheet` follows the template's own sheet only when it IS that sheet or lies BELOW it —
+  segment by segment, so `ChannelL/ArmP` becomes `ChannelR/ArmP` (2026-11-27, plan
+  plan_2026_11_27_tree_instances_nested_sheet_paths, Р2). An address OUTSIDE the template
+  (`Power`, `ChannelRight/ArmP`) is kept VERBATIM with a WARNING line: a board-wide anchor is not
+  the instance's to move. The old sheet comes from the template tree's own role-anchor `sheet`
+  (or, for a self-anchored template, from its subject Entity's own `sheet`). Distinct per-instance
+  nets keep the one-record-per-net dedup happy for free.
 - **Mount nodes inside a template (v1.5, 2026-09-11, plan
   tree_instances_and_converter_safety §В.3/§В.4):** a `kind "mount"` node is a point of reference, so
   it has no Entity copy and its `ref` is NOT suffixed with `__{instance.name}` (a mount ref is a LOCAL
   name, unique per tree, never resolved against the config — each generated instance is its own tree,
   so the same mount name there is unambiguous). Its anchor's `sheet` decides whether it looks INSIDE
-  the template or OUT at the board, STRUCTURALLY: equal to the template's own sheet (the role anchor's
-  `sheet`, or the root Entity's for an auto template) → replaced by the instance `sheet`; a DIFFERENT
-  `sheet` is a board-wide
-  reference and is kept VERBATIM (an info line in the Log, never rewritten) — unlike a `net_trace`
-  net, where a foreign sheet is a fatal; a mount anchor with NO `(sheet ...)` at all is a fatal,
+  the template or OUT at the board, STRUCTURALLY: the template's own sheet (the role anchor's
+  `sheet`, or the root Entity's for an auto template) OR ANY SHEET BELOW IT follows the instance by
+  segment prefix (`ChannelL/ArmP` → `ChannelR/ArmP`); any other `sheet` is a board-wide reference
+  kept VERBATIM (an info line in the Log, never rewritten). A `component` node's
+  `(role ... (sheet ...))` address follows the SAME rule. A mount anchor with NO `(sheet ...)` at
+  all is a fatal,
   because the role would be ambiguous across the instances' sheets. A generated instance INHERITS the
   template's inner point (`pivot-xy`/`pivot-polar`/`pivot-ref`), its own `rotation` and its anchor
   `shift` unchanged; the template's `pivot-ref` is rewritten to follow the node renames (`placement`
@@ -914,6 +916,13 @@ layer/mirror checks as hand-written ones — nothing is validated twice.
   sheets among the records, or one record without a sheet, stay the historical refusal — its hint now
   lists every way out: a role anchor's `sheet`, an explicit sheet on the root Entity, the mount nodes
   gathered under one root, or the declaration's own `root` node (see below).
+- **ONE top-level placement beside copper gives the source (2026-11-27, Р1):** a point-anchored
+  template with SEVEN top-level nodes — one `placement` and six neighbouring `net_trace` records —
+  used to be uninstantiable ("the template's own sheet cannot be derived"). The sheet is now read
+  off that SINGLE placement's Entity when every other top-level node places no record and every
+  placement record of the template lies on that sheet or below it (an INFO line names the node; two
+  top-level placements, a sheetless record or a sister sheet still refuse with the list of ways
+  out). Nothing is regrouped, and `root:` is still about the SUBTREE, not about the source.
 - **An instance from a NODE — `root:` (2026-11-07, Н6):** a declaration may name ONE placement node of
   its template; the copy then holds that node and everything under it, and the rest of the template is
   neither copied nor touched:

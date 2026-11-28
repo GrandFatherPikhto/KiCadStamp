@@ -24,6 +24,7 @@ Two questions, both answered from the SAME graph the Save will flush:
 from __future__ import annotations
 
 from kicadstamp.config.loader import resolved_graph
+from kicadstamp.config.sheet_instance_policy import follows_source
 from kicadstamp.config.tree_instance_checks import template_generated_clusters
 from kicadstamp.config.tree_instances import expand_tree_instances
 from kicadstamp.config_writer import merged_tree_instances
@@ -95,8 +96,13 @@ def sheet_warnings(rows: list, template_name: str, data: dict,
                          "project's sheets").format(sheet=sheet, name=name))
             continue
         if template_clusters:
+            # The instance's own records live on the instance sheet AND on the
+            # children it keeps (ChannelR/ArmP, ChannelR/ArmN) — the sheet policy's
+            # own test, so a nested template is not reported as "places nothing"
+            # just because its arms are one level down (plan_2026_11_27, Р4).
             on_sheet = {e.get("cluster") for e in entities
-                        if e.get("sheet") == sheet and e.get("cluster")}
+                        if follows_source(e.get("sheet"), sheet)
+                        and e.get("cluster")}
             if not (on_sheet & template_clusters):
                 out.append(_(
                     "no clusters of template {template!r} ({clusters}) are on "

@@ -32,9 +32,10 @@ the net's LEADING sheet segment is replaced (e.g. `/Channel_0/DAC/+3V3` ->
 own role-anchor `sheet` (anchor.sheet — the single point of sheet
 parameterization for the whole template, see Q2): a net whose leading segment
 is not that sheet is NOT this template's copper and is a fatal, never silently
-rewritten. The generated NetTrace's `anchor_sheet` is unconditionally
-overwritten with the instance sheet (same pattern as Tree.anchor.anchor_sheet
-and the Entity copy's sheet). Registry identity (`net_trace_anchor_id` is
+rewritten. The generated NetTrace's `anchor_sheet` FOLLOWS the instance through
+`config/sheet_instance_policy.py` (a nested address keeps its path; the pattern
+is the same as Tree.anchor.anchor_sheet and the Entity copy's sheet). Registry
+identity (`net_trace_anchor_id` is
 built from the record's identity) is therefore per-copy automatically, no
 extra code.
 
@@ -95,8 +96,8 @@ role-anchored one. A BARE (self) needs EXACTLY ONE top-level placement node
 (the anchor subject); a NAMED (self (ref "...")) does not. For a self template
 the subject Entity's cell mount IS the anchor, so there is no separate
 anchor.sheet substitution to make: the instance sheet lands on every generated
-copy — root included — through the SAME unconditional _expand_node
-`ent['sheet'] = sheet` path.
+copy — root included — through the SAME _expand_node `entity_sheet` call every
+placement record goes through.
 The only genuinely new work: (a) the entry gate admits the shape — checked
 HERE with the same EXACTLY-ONE rule auto-anchor resolution itself requires
 (_template_root_entity_ref), and (b) `old_sheet` for a MOUNT node, which for an
@@ -197,8 +198,10 @@ re-readability ("Reread current position": a live component is found by
 Role+Sheet+Cluster, so a sheetless template Entity is ambiguous when the same
 Role+Cluster exists on several sheets, exactly the AD_DAC-on-Channel_0/1/2
 case). Expansion does NOT fatal on it and does NOT keep it: the generated
-ENTITY COPY's sheet is unconditionally overwritten with the instance sheet
-(the same pattern as the role-anchor sheet and as sheet_templates.py's
+ENTITY COPY's sheet follows the instance (`sheet_instance_policy.entity_sheet`:
+a child of the template's own sheet keeps its path, anything else takes the
+instance sheet with a warning; the same rule as the role-anchor sheet and as
+sheet_templates.py's
 `gen['sheet'] = sheet`). The template itself (and the file on disk) is never
 mutated — expansion works on copy.deepcopy only.
 """
@@ -208,6 +211,7 @@ import logging
 from ..exceptions import ValidationError, format_fatal_error
 from ..i18n import _
 from .format_version import current_format
+from .sheet_instance_policy import entity_sheet, role_address, trace_anchor_sheet
 from .tree_instance_checks import derive_old_sheet, template_needs_old_sheet
 from .tree_instance_expand import expand_one_declaration
 from .tree_instance_refs import (rewrite_pivot_ref as _rewrite_pivot_ref,
@@ -347,13 +351,10 @@ def _expand_mount_node(node: dict, instance_name: str, sheet: str,
                 [_("add (sheet ...) to this mount node's anchor so it can be "
                    "parameterized per instance — without a sheet the role is "
                    "ambiguous across the instances' sheets")]))
-        if anchor_sheet == old_sheet:
-            anchor['sheet'] = sheet
-        else:
-            logger.info(_("tree_instance {name!r}: mount node {ref!r} anchors to "
-                          "sheet {sheet!r}, not the template's {old!r} — kept "
-                          "verbatim").format(name=instance_name, ref=orig_ref,
-                                             sheet=anchor_sheet, old=old_sheet))
+        # Р2: the template's own sheet or a child of it follows the instance;
+        # anything else is a board-wide reference, kept verbatim (policy's line).
+        anchor['sheet'] = role_address(anchor_sheet, old_sheet, sheet,
+                                       ref=orig_ref, instance_name=instance_name)
     children = node.get('children') or []
     if children:
         gen['children'] = [_expand_node(c, instance_name, sheet, entities_by_name,
@@ -414,15 +415,9 @@ def _expand_component_node(node: dict, instance_name: str, sheet: str,
                 [_("add (sheet ...) to this component node's address so it can "
                    "be parameterized per instance — without a sheet the role is "
                    "ambiguous across the instances' sheets")]))
-        if anchor_sheet == old_sheet:
-            anchor['sheet'] = sheet
-        else:
-            logger.info(_("tree_instance {name!r}: component node {ref!r} "
-                          "addresses sheet {sheet!r}, not the template's {old!r} "
-                          "— kept verbatim").format(name=instance_name,
-                                                   ref=orig_ref,
-                                                   sheet=anchor_sheet,
-                                                   old=old_sheet))
+        anchor['sheet'] = role_address(anchor_sheet, old_sheet, sheet,
+                                       ref=orig_ref, kind="component",
+                                       instance_name=instance_name)
     children = node.get('children') or []
     if children:
         gen['children'] = [_expand_node(c, instance_name, sheet, entities_by_name,
@@ -449,8 +444,9 @@ def _expand_node(node: dict, instance_name: str, sheet: str,
     kind=net_trace (v1.1; two paths since 2026-09-12, plan Э3.2 — see the
     module docstring for the full reasoning): the node's ref is the record's
     IDENTITY; the matching net_traces: record is copied into
-    generated_net_traces with its anchor_sheet unconditionally overwritten by
-    the instance sheet. A LEGACY record (no name:, literal net paths) takes
+    generated_net_traces with its anchor_sheet following the instance
+    (`sheet_instance_policy.trace_anchor_sheet`). A LEGACY record (no name:,
+    literal net paths) takes
     path A: the leading sheet segment of its net (and of every track/via net) is
     replaced by the instance sheet and the node's own ref is rewritten to the
     new net. A NAMED (role, pad)-based record takes path B: nothing is rewritten
@@ -539,18 +535,19 @@ def _expand_node(node: dict, instance_name: str, sheet: str,
         # included, so the node ref and the record's effective identity stay
         # equal.
         #
-        # The LEGACY literal-net branch (a nameless record whose nets were
-        # rewritten by leading-segment substitution) is GONE — plan
-        # plan_2026_10_05_uuid_tails Д1/4: no post-lift graph can carry a
-        # nameless record, so that branch was unreachable dead code, and a
-        # format-2 file of that shape is refused by the format-3 dangling
-        # reference check, whose message names the template, the node and the
-        # net_traces record it could not find.
+        # The LEGACY literal-net branch is GONE (plan_2026_10_05_uuid_tails
+        # Д1/4): no post-lift graph carries a nameless record, and a format-2
+        # file of that shape is refused by the format-3 reference check.
         new_ref = f"{_record_identity(record)}__{instance_name}"
         gen['ref'] = new_ref
         ref_map[orig_ref] = new_ref
         gen_nt['name'] = new_ref
-        gen_nt['anchor_sheet'] = sheet
+        # Р2/Н3: the anchor role is searched on THIS sheet live, so a nested
+        # address (ChannelL/ArmN) keeps its path — that is what makes each
+        # copy's endpoints resolve to its OWN arm. The policy owns the rule.
+        gen_nt['anchor_sheet'] = trace_anchor_sheet(
+            gen_nt.get('anchor_sheet'), old_sheet, sheet,
+            identity=orig_ref, instance_name=instance_name)
         literal = _literal_item_nets(gen_nt)
         if literal:
             logger.warning(_(
@@ -609,7 +606,10 @@ def _expand_node(node: dict, instance_name: str, sheet: str,
                            for c in children]
     ent = copy.deepcopy(entity)
     ent['name'] = new_ref
-    ent['sheet'] = sheet
+    # Р2: a child of the template's own sheet keeps its path; a flat record keeps
+    # today's instance sheet (the policy decides, and warns when outside).
+    ent['sheet'] = entity_sheet(ent.get('sheet'), old_sheet, sheet,
+                                ref=orig_ref, instance_name=instance_name)
     if params is not None:
         # Per-key MERGE into the generated copy's OWN params — keys not named
         # in the declaration keep the template Entity's value (back-compat);

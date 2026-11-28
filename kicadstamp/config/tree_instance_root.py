@@ -34,6 +34,7 @@ from __future__ import annotations
 
 from ..exceptions import ValidationError, format_fatal_error
 from ..i18n import _
+from .sheet_instance_policy import follows_source
 
 # NOTE: the two geometry helpers are imported INSIDE the functions on purpose.
 # `kicadstamp.domain.geometry` lives in a package whose `__init__` re-exports the
@@ -287,8 +288,12 @@ def outward_problem(node: dict, subtree_refs: set[str], roles: set[str],
         anchor = anchor if isinstance(anchor, dict) else {}
         sheet = anchor.get('sheet')
         role = anchor.get('role')
-        if role and sheet and old_sheet is not None and sheet == old_sheet \
-                and role not in roles:
+        # "Looks INSIDE" is the sheet policy's own test (the template's own sheet
+        # OR a child of it, at any depth) — equality alone would call a mount on
+        # a nested child sheet (ChannelL/ArmP) an external reference and skip its
+        # role check entirely (plan_2026_11_27, the same rule as Р2).
+        if role and sheet and old_sheet is not None \
+                and follows_source(sheet, old_sheet) and role not in roles:
             return _(
                 "tree_instance {name!r}: template {template!r} node {ref!r} "
                 "anchors role {role!r} that the copied subtree does not place"

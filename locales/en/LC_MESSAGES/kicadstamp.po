@@ -16174,6 +16174,39 @@ msgstr ""
 "tree_instance {name!r}: mount node {ref!r} anchors to sheet {sheet!r}, "
 "not the template's {old!r} — kept verbatim"
 
+#: kicadstamp/config/sheet_instance_policy.py
+#, python-brace-format
+msgid ""
+"tree_instance {name!r}: placement record {ref!r} sits on sheet {sheet!r}, "
+"which is not the template's own {old!r} or below it — the copy takes the "
+"instance sheet {target!r}, as before"
+msgstr ""
+"tree_instance {name!r}: placement record {ref!r} sits on sheet {sheet!r}, "
+"which is not the template's own {old!r} or below it — the copy takes the "
+"instance sheet {target!r}, as before"
+
+#: kicadstamp/config/sheet_instance_policy.py
+#, python-brace-format
+msgid ""
+"tree_instance {name!r}: net_traces record {ref!r} anchors on sheet "
+"{sheet!r}, which is not the template's own {old!r} or below it — kept "
+"verbatim (an external anchor is not the instance's to move)"
+msgstr ""
+"tree_instance {name!r}: net_traces record {ref!r} anchors on sheet "
+"{sheet!r}, which is not the template's own {old!r} or below it — kept "
+"verbatim (an external anchor is not the instance's to move)"
+
+#: kicadstamp/config/tree_instance_checks.py
+#, python-brace-format
+msgid ""
+"tree_instance {name!r}: the template's own sheet {sheet!r} was taken from "
+"its single top-level placement node {ref!r} (the other top-level nodes "
+"place no record)"
+msgstr ""
+"tree_instance {name!r}: the template's own sheet {sheet!r} was taken from "
+"its single top-level placement node {ref!r} (the other top-level nodes "
+"place no record)"
+
 #: kicadstamp/config/tree_instances.py:401
 #, python-brace-format
 msgid ""
