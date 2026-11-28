@@ -16207,6 +16207,21 @@ msgstr ""
 "its single top-level placement node {ref!r} (the other top-level nodes "
 "place no record)"
 
+#: kicadstamp/config/tree_instance_checks.py
+#, python-brace-format
+msgid "the template's placement records name: {sheets}"
+msgstr "the template's placement records name: {sheets}"
+
+#: kicadstamp/config/tree_instance_checks.py
+#, python-brace-format
+msgid "a record with no sheet: {refs}"
+msgstr "a record with no sheet: {refs}"
+
+#: kicadstamp/config/tree_instance_checks.py
+#, python-brace-format
+msgid "no placement record of the template names any sheet"
+msgstr "no placement record of the template names any sheet"
+
 #: kicadstamp/config/tree_instances.py:401
 #, python-brace-format
 msgid ""

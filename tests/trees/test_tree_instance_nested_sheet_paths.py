@@ -325,11 +325,21 @@ def test_nested_role_addresses_follow_the_channel(ref):
 # ── Т05: external and look-alike addresses stay external ──────────────────
 
 @pytest.mark.parametrize("address", ["Power", f"{SOURCE}2/ArmP"])
-@pytest.mark.parametrize("ref", ["x_7", "ext_arm"])
-def test_external_and_similar_prefix_addresses_stay_external(ref, address):
+@pytest.mark.parametrize("kind,ref", [("mount", "x_7"), ("component", "ext_arm"),
+                                      ("net_trace", "in_ac__arm_in__opamp_channel")])
+def test_external_and_similar_prefix_addresses_stay_external(kind, ref, address):
     """A board-wide anchor and a name that only LOOKS like a prefix are kept —
-    never re-pointed at `ChannelR`, never treated as `ChannelL` + `2/ArmP`."""
+    never re-pointed at `ChannelR`, never treated as `ChannelL` + `2/ArmP`. ALL
+    THREE address kinds are driven through the EXPANSION (the Т05 matrix)."""
     graph = nested_template_graph()
+    if kind == "net_trace":
+        record = next(r for r in graph["net_traces"] if r["name"] == ref)
+        record["anchor_sheet"] = address
+        _tree, _entities, traces = _expand(graph)
+        got = {t["name"].removesuffix("__Ch_R"): t["anchor_sheet"]
+               for t in traces}
+        assert got[ref] == address
+        return
     for node in graph["trees"][0]["nodes"][0]["children"]:
         if node.get("ref") == ref:
             node["anchor"]["sheet"] = address
@@ -413,8 +423,11 @@ def test_two_unrelated_placement_roots_refuse_atomically(tmp_path):
     before = copy.deepcopy(graph)
     path = _write_constrained(tmp_path, graph, [declare()])
 
-    with pytest.raises(ValidationError, match="own sheet cannot be derived"):
+    with pytest.raises(ValidationError, match="own sheet cannot be derived") as exc:
         load_config(str(path))
+    # Р1/M-6: the refusal NAMES what it saw instead of letting the user guess.
+    for candidate in ("ChannelL/ArmP", "ChannelL/ArmN", "Other"):
+        assert candidate in str(exc.value), candidate
     cfg, _ctx, failures = load_config_lenient(str(path))
     assert [(f["name"], "own sheet cannot be derived" in f["error"])
             for f in failures] == [("Ch_R", True)]
@@ -462,10 +475,16 @@ def _four_arm_board():
     return _Board(fps, pads), names
 
 
-def test_right_arm_lookup_and_trace_endpoints_never_pick_left():
+def test_right_arm_lookup_and_trace_endpoints_never_pick_left(tmp_path):
     """The copied `anchor_sheet` is what the LIVE resolver narrows by: every one
     of the six records comes down to its RIGHT ref, never to the left arm's —
-    and the flat `ChannelR` leaves the two arms ambiguous."""
+    and the flat `ChannelR` leaves the two arms ambiguous. The ENDPOINTS are then
+    resolved by the planner's own reader: each copy's track nets the pad of ITS
+    arm, and the same record made flat cannot name a single component at all."""
+    import dataclasses
+
+    from kicadstamp.net_trace_planner import net_trace_piece_net, net_trace_refs
+
     _tree, _entities, traces = _expand()
     board, names = _four_arm_board()
     resolver = RoleResolver(board, names)
@@ -486,6 +505,23 @@ def test_right_arm_lookup_and_trace_endpoints_never_pick_left():
     assert flat == {"R201", "R202"}
     assert not resolver.resolves_to("R_LOAD_1", "ChannelR", "ARM_IN", "R201")
 
+    # ── the ENDPOINTS, through the REAL loaded copies and the planner's reader ──
+    cfg, _ctx = load_config(str(_write_constrained(
+        tmp_path, nested_template_graph(), [declare()])))
+    for record, expected in _EXPECTED.items():
+        nt = next(t for t in cfg.net_traces if t.name == f"{record}__Ch_R")
+        assert net_trace_piece_net(board, nt, "track", 0, names) == \
+            f"N_{expected}", record
+        assert net_trace_refs(board, nt, names) == {expected}, record
+        if nt.anchor_role in {"R_LOAD_1", "R_EQ"}:     # the role lives on BOTH
+            # arms: with the flat sheet it names two components and the reader
+            # refuses to pick — the endpoint half of Н3/М03.
+            assert net_trace_piece_net(board, dataclasses.replace(
+                nt, anchor_sheet="ChannelR"), "track", 0, names) is None, record
+        else:                                          # a unique role still resolves
+            assert net_trace_piece_net(board, dataclasses.replace(
+                nt, anchor_sheet="ChannelR"), "track", 0, names) == f"N_{expected}"
+
 
 # ── Т13: an explicit Root copies only its subtree ─────────────────────────
 
@@ -503,30 +539,72 @@ def test_explicit_root_still_copies_only_its_subtree():
     assert traces == []
 
 
-# ── Т14: flat instances keep their existing contract ─────────────────────
+# ── Т14: flat instances keep their existing contract (role/self/point) ───
 
-def test_flat_instances_keep_their_existing_contract(tmp_path):
+_FLAT_POINT_GRAPH = {
+    "cells": {"c_dac": {}},
+    "points": {"Origin": {"xy": [0.0, 0.0]}},
+    "entities": [{"name": "dac_buf", "cell": "c_dac"},
+                 {"name": "pif_avdd", "cell": "c_dac"}],
+    "trees": [{"name": "tpl",
+               "anchor": {"point": "Origin", "shift": [0.0, 0.0]},
+               "nodes": [{"ref": "dac_buf", "kind": "placement",
+                          "xy": [1.0, 2.0], "rotation": 90.0,
+                          "children": [{"ref": "pif_avdd", "kind": "placement",
+                                        "xy": [0.5, 0.0]}]}]}],
+    "tree_instances": [
+        {"template": "tpl", "name": "ch0", "sheet": "S0",
+         "anchor": {"point": "Origin", "shift": [0.0, 0.0]}},
+        {"template": "tpl", "name": "ch1", "sheet": "S1",
+         "anchor": {"point": "Origin", "shift": [0.0, 0.0]}}],
+}
+
+
+@pytest.mark.parametrize("mode", ["role", "self", "point"])
+def test_flat_instances_keep_their_existing_contract(tmp_path, mode):
     """A template whose records say NO sheet keeps the historical flat rule (the
-    instance sheet, silently), and the geometry is the template's own — the fix
-    must not change a profile that never had the defect."""
+    instance sheet, silently) and the template's own geometry — for ALL THREE
+    anchor modes of the old contract (role / self / point)."""
     from tests.trees.test_tree_instances import _template_data, _write
 
-    data = _template_data([
-        {"template": "dac_buf_tpl", "name": "ch0", "sheet": "S0"},
-        {"template": "dac_buf_tpl", "name": "ch1", "sheet": "S1"},
-    ])
-    path = _write(tmp_path, "flat.sexp", data)
+    if mode == "point":
+        path = _write(tmp_path, "flat_point.sexp",
+                      copy.deepcopy(_FLAT_POINT_GRAPH))
+        template_name = "tpl"
+    else:
+        data = _template_data(
+            [{"template": "dac_buf_tpl", "name": "ch0", "sheet": "S0"},
+             {"template": "dac_buf_tpl", "name": "ch1", "sheet": "S1"}],
+            anchor={"self": {}} if mode == "self" else None)
+        path = _write(tmp_path, "flat.sexp", data)
+        template_name = "dac_buf_tpl"
     cfg, _ctx = load_config(str(path))
 
-    flat = {(e.name, e.sheet) for e in cfg.entities
-            if e.name in {"dac_buf__ch0", "pif_avdd__ch0"}}
-    assert flat == {("dac_buf__ch0", "S0"), ("pif_avdd__ch0", "S0")}
-    second = {(e.name, e.sheet) for e in cfg.entities
-              if e.name in {"dac_buf__ch1", "pif_avdd__ch1"}}
-    assert second == {("dac_buf__ch1", "S1"), ("pif_avdd__ch1", "S1")}
-    template = next(t for t in cfg.trees if t.name == "dac_buf_tpl")
+    names = {"dac_buf", "pif_avdd"}
+    for instance, sheet in (("ch0", "S0"), ("ch1", "S1")):
+        got = {(e.name, e.sheet) for e in cfg.entities
+               if e.name in {f"{n}__{instance}" for n in names}}
+        assert got == {(f"{n}__{instance}", sheet) for n in names}, mode
+    template = next(t for t in cfg.trees if t.name == template_name)
     for instance in ("ch0", "ch1"):
         copy_tree = next(t for t in cfg.trees if t.name == instance)
         assert copy_tree.nodes[0].xy == template.nodes[0].xy == (1.0, 2.0)
         assert copy_tree.nodes[0].rotation == template.nodes[0].rotation == 90.0
         assert copy_tree.nodes[0].children[0].xy == (0.5, 0.0)
+
+
+# ── M-6: the ambiguous refusal NAMES the sheets it saw ────────────────────
+
+def test_source_candidates_lists_sheets_and_sheetless_records():
+    """Р1's refusal names the candidates instead of asking the user to guess —
+    the ONE helper behind that line lists every sheet and every sheetless ref."""
+    from kicadstamp.config.tree_instance_checks import source_candidates
+
+    graph = nested_template_graph()
+    entities, _records = by_name(graph)
+    assert source_candidates(graph["trees"][0]["nodes"], entities) == (
+        "the template's placement records name: "
+        "ChannelL, ChannelL/ArmN, ChannelL/ArmP")
+    entities["gain_bridge_channell"] = {"name": "gain_bridge_channell"}
+    assert "a record with no sheet: gain_bridge_channell" in \
+        source_candidates(graph["trees"][0]["nodes"], entities)

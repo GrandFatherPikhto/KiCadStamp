@@ -19,7 +19,7 @@ from .sheet_instance_policy import follows_source
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["derive_old_sheet", "template_entry_sheets",
+__all__ = ["derive_old_sheet", "source_candidates", "template_entry_sheets",
            "template_generated_clusters", "template_needs_old_sheet"]
 
 
@@ -154,6 +154,22 @@ def template_entry_sheets(nodes: list, entities_by_name: dict
             sheets |= child_sheets
             without.extend(child_without)
     return sheets, without
+
+
+def source_candidates(nodes: list, entities_by_name: dict) -> str:
+    """ONE hint line naming the sheets the template's own records sit on — the
+    "the template's own sheet cannot be derived" refusal says WHICH sheets it saw
+    instead of asking the user to guess (Р1: name the candidates, never pick the
+    first one)."""
+    sheets, without = template_entry_sheets(nodes, entities_by_name)
+    parts = sorted(sheets)
+    if without:
+        parts.append(_("a record with no sheet: {refs}").format(
+            refs=", ".join(without)))
+    if not parts:
+        return _("no placement record of the template names any sheet")
+    return _("the template's placement records name: {sheets}").format(
+        sheets=", ".join(parts))
 
 
 def template_generated_clusters(nodes: list, entities_by_name: dict) -> set[str]:

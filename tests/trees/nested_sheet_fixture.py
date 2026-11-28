@@ -51,6 +51,16 @@ RECORDS = [
 ]
 
 
+def _one_track(role: str) -> dict:
+    """ONE track per record, addressing its net as a (role, pad) REFERENCE — so the
+    planner resolves each copy's copper live, on THAT copy's sheet/cluster (the
+    endpoint half of Т11: a flat address would resolve to two arms or none)."""
+    return {"start_along_mm": 0.0, "start_across_mm": 0.0,
+            "end_along_mm": 1.0, "end_across_mm": 0.0,
+            "width_mm": 0.25, "layer": "F.Cu",
+            "net_from_role": role, "net_from_role_pad": "1"}
+
+
 def _cell_name(role: str) -> str:
     """The cell that places exactly ONE role — a mount anchor must resolve to a
     single placement under the tree."""
@@ -95,7 +105,8 @@ def nested_template_graph() -> dict:
     records = [
         {"name": name, "net": f"/{SOURCE}/{name}", "anchor_role": role,
          "anchor_sheet": sheet, "anchor_cluster": cluster,
-         "anchor_pad": "1", "pads": [f"{role}.1"], "tracks": [], "vias": []}
+         "anchor_pad": "1", "pads": [f"{role}.1"],
+         "tracks": [_one_track(role)], "vias": []}
         for name, role, sheet, cluster in RECORDS
     ]
     nodes = [

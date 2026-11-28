@@ -17206,6 +17206,21 @@ msgstr ""
 "единственного верхнего placement-узла {ref!r} (остальные верхние узлы "
 "записей не размещают)"
 
+#: kicadstamp/config/tree_instance_checks.py
+#, python-brace-format
+msgid "the template's placement records name: {sheets}"
+msgstr "записи размещения шаблона называют листы: {sheets}"
+
+#: kicadstamp/config/tree_instance_checks.py
+#, python-brace-format
+msgid "a record with no sheet: {refs}"
+msgstr "запись без листа: {refs}"
+
+#: kicadstamp/config/tree_instance_checks.py
+#, python-brace-format
+msgid "no placement record of the template names any sheet"
+msgstr "ни одна запись размещения шаблона не называет листа"
+
 #: kicadstamp/config/tree_instances.py:401
 #, python-brace-format
 msgid ""

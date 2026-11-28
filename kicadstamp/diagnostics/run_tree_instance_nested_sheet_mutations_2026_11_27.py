@@ -29,8 +29,11 @@ expander and hand the generated arm's OWN address to the selection.
 
 Safeguards as in every harness here (rule 38): a template matching more than
 once is REFUSED; a row that reddens nothing is a MISS; the control must survive;
-every file is restored in `finally` and verified by text; every row carries its
-own `-k`, so `-x` cannot stop the run on a neighbour cell.
+every file is restored in `finally`, verified by text AND the guard set is
+re-run GREEN after every restore (a red restore run fails the rig, never
+«killed by a broken build»); every row carries its own `-k`, so `-x` cannot stop
+the run on a neighbour cell. Each red row prints its file, replacement, pytest
+nodeid, exit code and the assertion fragment that went red.
 
 Run: `.venv/bin/python -m kicadstamp.diagnostics.run_tree_instance_nested_sheet_mutations_2026_11_27`
 """
@@ -230,6 +233,19 @@ def _run(guards: str = GUARDS) -> tuple[int, str]:
     return proc.returncode, proc.stdout + proc.stderr
 
 
+def _fragment(out: str) -> str:
+    """The first line that shows WHY the run went red — the assertion/refusal a
+    reviewer can compare with the row, never just «failed»."""
+    for line in out.splitlines():
+        stripped = line.strip()
+        if stripped.startswith(("E   ", "E   assert", "ValidationError")):
+            return stripped[:160]
+    for line in out.splitlines():
+        if line.startswith("FAILED ") or "AssertionError" in line:
+            return line.strip()[:160]
+    return "(no assertion line found)"
+
+
 def main() -> int:
     red = 0
     misses = []
@@ -253,6 +269,12 @@ def main() -> int:
         if not restored:
             print(f"[FAIL] {name}: the file was NOT restored")
             return 2
+        # The plan's rule: after EVERY restore the guard set must be green again.
+        green_code, _green_out = _run(guards)
+        if green_code != 0:
+            print(f"[FAIL] {name}: the guard set is NOT green after restore "
+                  f"(exit {green_code})")
+            return 2
         if expected:
             failed = [cell for cell in expected if f"FAILED {cell}" not in out
                       and f"::{cell}" not in out]
@@ -260,12 +282,17 @@ def main() -> int:
                 print(f"[MISS] {name}: nothing went red "
                       f"({failed or 'whole run green'})")
                 misses.append(name)
-            else:
-                red += 1
-                print(f"[red] {name}")
+                continue
+            red += 1
+            print(f"[red] {name}")
+            print(f"      file: {rel}")
+            print(f"      replacement: {new.strip()[:110]}")
+            print(f"      nodes: {', '.join(expected)}")
+            print(f"      exit: {code}")
+            print(f"      fragment: {_fragment(out)}")
         else:
             if code == 0:
-                print(f"[control survives] {name}")
+                print(f"[control survives] {name}  (exit 0, restore green)")
             else:
                 print(f"[MISS] {name}: the cosmetic control reddened the run")
                 misses.append(name)

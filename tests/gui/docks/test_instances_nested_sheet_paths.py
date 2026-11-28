@@ -128,10 +128,11 @@ def test_instances_dialog_creates_and_reopens_nested_channel(main_window, tmp_pa
 # ── Т10: the TEMPLATE's edit refreshes the copy, nested addresses intact ──
 
 def test_template_edit_refreshes_nested_instance_without_restart(hub, tmp_path):
-    """The dock's own staging (`_mark_dirty`) plus the refresh timer's own tail
-    (`flush`): the copy gets the template's NEW geometry, its several sheets stay
-    `ChannelR`, `ChannelR/ArmP` and `ChannelR/ArmN`, and no generated object is
-    written back to the file."""
+    """The TEMPLATE is edited through the REAL Edit-node form of the Trees tab
+    (`NodeFormWidget`, its own `build_node` reading the typed fields), its own
+    Apply stages the change, and the refresh timer's own tail (`flush`) rebuilds
+    the copy: new geometry, the several sheets still `ChannelR`, `ChannelR/ArmP`
+    and `ChannelR/ArmN`, and no generated object written back to the file."""
     root = _write_nested(tmp_path, [declare()])
     dock = hub.trees_dock
     dock.set_root_file(root)
@@ -141,16 +142,26 @@ def test_template_edit_refreshes_nested_instance_without_restart(hub, tmp_path):
 
     set_active_graph_root(root)
     template = next(t for t in dock._trees if t.name == "Ch_L")
+    node = next(n for n in template.nodes[0].children
+                if n.ref == "gain_bridge_channell")
     clone = next(t for t in dock._trees if t.name == "Ch_R")
-    assert clone.nodes[0].xy == template.nodes[0].xy
+    copied = next(n for n in clone.nodes[0].children
+                  if n.ref == "gain_bridge_channell__Ch_R")
+    assert copied.xy == node.xy
 
-    template.nodes[0].xy = (5.0, 6.0)
-    dock._mark_dirty()
+    form = dock._build_node_form(template, node)     # the real EDIT-node form
+    form.offset_widget.x_edit.setText("5.0")
+    form.offset_widget.y_edit.setText("6.0")
+    assert form.apply() is True, "the real form refused a plain offset edit"
+    assert node.xy == (5.0, 6.0), "the form's own build_node result landed"
+
     written = _on_disk(root)
     assert dock._instances_refresh.flush() is True
 
     clone = next(t for t in dock._trees if t.name == "Ch_R")
-    assert clone.nodes[0].xy == (5.0, 6.0), "the copy must follow the template"
+    copied = next(n for n in clone.nodes[0].children
+                  if n.ref == "gain_bridge_channell__Ch_R")
+    assert copied.xy == (5.0, 6.0), "the copy must follow the template"
     sheets = {e.name: e.sheet for e in dock._cfg.entities
               if e.name.endswith("__Ch_R")}
     assert sheets["arm_in_channell_armp__Ch_R"] == "ChannelR/ArmP"
@@ -169,6 +180,9 @@ def test_instances_ui_paths_do_not_read_board_on_ui_thread(real_main_window,
     """With the door ARMED to raise, opening the dialog on the nested profile and
     accepting a correct row raises no UiThreadBoardReadRefused — possible only
     because the source-sheet derivation and the expansion are config-only."""
+    from types import SimpleNamespace
+
+    from gui.connection import BoardConnection
     from tests.gui.test_board_door_offenders import _arm_the_door
 
     root = _write_nested(tmp_path)
@@ -176,6 +190,11 @@ def test_instances_ui_paths_do_not_read_board_on_ui_thread(real_main_window,
     from kicadstamp.config_working_set import set_active_graph_root
 
     set_active_graph_root(root)
+    # a REAL BoardConnection whose `board` getter is the armed one: a UI-thread
+    # read then raises UiThreadBoardReadRefused, not an AttributeError.
+    conn = BoardConnection()
+    conn.board = SimpleNamespace(adapter=object())
+    real_main_window.connection = conn
     _arm_the_door(monkeypatch)
 
     dlg = TreeInstancesDialog(real_main_window, root, cfg)
@@ -220,3 +239,45 @@ def test_generated_arm_component_selection_uses_its_own_address(
     assert captured["cluster"] == expected_cluster
     assert captured["sheet"] == expected_sheet
     assert captured["name"] == arm.cell
+
+
+@pytest.mark.parametrize("entity_name,expected_ref,expected_sheet", [
+    ("arm_in_channell_armp__Ch_R", "R201", "ChannelR/ArmP"),
+    ("arm_in_channell_armn__Ch_R", "R202", "ChannelR/ArmN"),
+])
+def test_the_door_address_then_selects_only_that_part(
+        real_main_window, tmp_path, monkeypatch,
+        entity_name, expected_ref, expected_sheet):
+    """The OTHER half of Т15: the address the door handed over is fed to the REAL
+    components-selection core (`resolve_context_footprints`), which must select
+    the arm's OWN part — never the left arm's, never the sibling's."""
+    from kicadstamp.cell_instance import resolve_context_footprints
+    from tests.net.test_internode_capture_modules import _Board, _fp, _pad
+
+    root = _write_nested(tmp_path, [declare()])
+    cfg, _ctx = load_config(str(root))
+    arm = next(e for e in cfg.entities if e.name == entity_name)
+    hub = real_main_window._dock_hub
+    captured = {}
+
+    def _capture(name, file_path, cluster=None, sheet=None, **kwargs):
+        captured.update(cluster=cluster, sheet=sheet, **kwargs)
+
+    monkeypatch.setattr(hub.cells_dock, "select_cell_components_requested",
+                        _capture)
+    hub._select_cell_components_from_tree(arm.cell, root, arm.cluster,
+                                          arm.sheet, arm.name)
+
+    names = {"chL": "ChannelL", "chR": "ChannelR",
+             "armP": "ArmP", "armN": "ArmN"}
+    fps = [_fp("R101", "R_LOAD_1", "ARM_IN", 0.0, 0.0, ("chL", "armP")),
+           _fp("R102", "R_LOAD_1", "ARM_IN", 0.0, 1.0, ("chL", "armN")),
+           _fp("R201", "R_LOAD_1", "ARM_IN", 0.0, 2.0, ("chR", "armP")),
+           _fp("R202", "R_LOAD_1", "ARM_IN", 0.0, 3.0, ("chR", "armN"))]
+    board = _Board(fps, {fp.ref: [_pad("1", f"N_{fp.ref}", 0.0, 0.0)]
+                         for fp in fps})
+    selected = resolve_context_footprints(
+        board, board.get_footprints(), captured["cluster"], captured["sheet"],
+        names)
+    assert [fp.ref for fp in selected] == [expected_ref]
+    assert captured["sheet"] == expected_sheet

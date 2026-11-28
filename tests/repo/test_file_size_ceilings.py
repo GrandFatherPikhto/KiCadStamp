@@ -86,7 +86,7 @@ CEILINGS = {
     "kicadstamp/config/entries.py": 1573,
     "kicadstamp/config/models.py": 1149,
     "kicadstamp/config/sexp_format.py": 1363,
-    "kicadstamp/config/tree_instances.py": 954,
+    "kicadstamp/config/tree_instances.py": 952,
     # 842 → 864 (§1 of plan_2026_11_14_mount_and_record_may_share_a_name): the
     # "add a node under a parent" writer now collects EVERY node of that name and
     # refuses an ambiguous parent instead of picking one by file order.

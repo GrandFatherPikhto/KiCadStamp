@@ -212,7 +212,8 @@ from ..exceptions import ValidationError, format_fatal_error
 from ..i18n import _
 from .format_version import current_format
 from .sheet_instance_policy import entity_sheet, role_address, trace_anchor_sheet
-from .tree_instance_checks import derive_old_sheet, template_needs_old_sheet
+from .tree_instance_checks import (derive_old_sheet, source_candidates,
+                                   template_needs_old_sheet)
 from .tree_instance_expand import expand_one_declaration
 from .tree_instance_refs import (rewrite_pivot_ref as _rewrite_pivot_ref,
                                  rewrite_self_ref as _rewrite_self_ref)
@@ -527,17 +528,14 @@ def _expand_node(node: dict, instance_name: str, sheet: str,
 
         gen = copy.deepcopy(node)
         gen_nt = copy.deepcopy(record)
-        # A NAME is the record's identity under the format-3 gate (В36 mints one
-        # for a historically nameless record at the 2->3 lift) and a named
-        # record's copper is (role, pad)-based: NOTHING is rewritten by sheet,
-        # the nets come live from the instance's own components (see the module
-        # docstring). The copy is renamed exactly like a placement node, `name`
-        # included, so the node ref and the record's effective identity stay
-        # equal.
-        #
-        # The LEGACY literal-net branch is GONE (plan_2026_10_05_uuid_tails
-        # Д1/4): no post-lift graph carries a nameless record, and a format-2
-        # file of that shape is refused by the format-3 reference check.
+        # A NAME is the record's identity under the format-3 gate, and a named
+        # record's copper is (role, pad)-based: NOTHING is rewritten by sheet, the
+        # nets come live from the instance's own components (see the module
+        # docstring). The copy is renamed like a placement node, `name` included,
+        # so the node ref and the record's effective identity stay equal. The
+        # LEGACY literal-net branch is GONE (plan_2026_10_05_uuid_tails Д1/4):
+        # no post-lift graph carries a nameless record, and a format-2 file of
+        # that shape is refused by the format-3 reference check.
         new_ref = f"{_record_identity(record)}__{instance_name}"
         gen['ref'] = new_ref
         ref_map[orig_ref] = new_ref
@@ -727,9 +725,8 @@ def _expand_template(template: dict, template_name: str, instance_name: str,
     if decl_root is not None:
         # §7.3: a `root` names the node the copy starts from, so ITS record's
         # sheet is the template's own — ahead of the role anchor, the single-root
-        # rule and Н3's derivation (a root standing on another sheet than its
-        # siblings would otherwise be "ambiguous", and a role anchor without a
-        # sheet would leave the mounts unable to decide inside/outside).
+        # rule and Н3 (a root on another sheet than its siblings would otherwise
+        # look "ambiguous").
         root_entity = entities_by_name.get(decl_root["ref"])
         old_sheet = (root_entity.get('sheet')
                      if isinstance(root_entity, dict) else None)
@@ -773,7 +770,8 @@ def _expand_template(template: dict, template_name: str, instance_name: str,
                "on a (role ...) anchor of the template; an explicit sheet on the "
                "root Entity; gather the mount nodes under ONE root node; or name "
                "a `root` node for this instance (the sheet of that node's record "
-               "is then the template's own)")]))
+               "is then the template's own)"),
+             source_candidates(template.get('nodes') or [], entities_by_name)]))
     nodes = template.get('nodes') or []
     if decl_root is not None:
         found = find_subtree(nodes, decl_root["ref"])
